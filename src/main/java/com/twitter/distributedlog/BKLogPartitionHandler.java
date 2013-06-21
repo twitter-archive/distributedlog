@@ -1,0 +1,336 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.twitter.distributedlog;
+
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.LedgerEntry;
+
+import org.apache.zookeeper.KeeperException;
+
+import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Comparator;
+import java.util.concurrent.CountDownLatch;
+import java.io.IOException;
+
+import java.net.URI;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * BookKeeper Distributed Log Manager
+ *
+ * The URI format for bookkeeper is bookkeeper://[zkEnsemble]/[rootZnode]
+ * [zookkeeper ensemble] is a list of semi-colon separated, zookeeper host:port
+ * pairs. In the example above there are 3 servers, in the ensemble,
+ * zk1, zk2 &amp; zk3, each one listening on port 2181.
+ *
+ * [root znode] is the path of the zookeeper znode, under which the editlog
+ * information will be stored.
+ *
+ * Other configuration options are:
+ * <ul>
+ *   <li><b>output-buffer-size</b>
+ *       Number of bytes a bookkeeper journal stream will buffer before
+ *       forcing a flush. Default is 1024.</li>
+ *   <li><b>ensemble-size</b>
+ *       Number of bookkeeper servers in edit log ledger ensembles. This
+ *       is the number of bookkeeper servers which need to be available
+ *       for the ledger to be writable. Default is 3.</li>
+ *   <li><b>quorum-size</b>
+ *       Number of bookkeeper servers in the write quorum. This is the
+ *       number of bookkeeper servers which must have acknowledged the
+ *       write of an entry before it is considered written.
+ *       Default is 2.</li>
+ *   <li><b>digestPw</b>
+ *       Password to use when creating ledgers. </li>
+ * </ul>
+ */
+public class BKLogPartitionHandler {
+    static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
+
+    private static final int LAYOUT_VERSION = -1;
+
+    protected final String name;
+    protected final PartitionId partition;
+    protected final ZooKeeperClient zkc;
+    protected final boolean separateZKClient;
+    protected final DistributedLogConfiguration conf;
+    protected final BookKeeper bkc;
+    protected final boolean separateBKClient;
+    protected final String partitionRootPath;
+    protected final String ledgerPath;
+    protected final String digestpw;
+    protected long lastLedgerRollingTimeMillis = -1;
+
+    /**
+     * Construct a Bookkeeper journal manager.
+     */
+    public BKLogPartitionHandler(String name,
+                                 PartitionId partition,
+                                 DistributedLogConfiguration conf,
+                                 URI uri,
+                                 ZooKeeperClient zkcShared,
+                                 BookKeeper bkcShared) throws IOException {
+        this.name = name;
+        this.partition = partition;
+        this.conf = conf;
+        String zkConnect = uri.getAuthority().replace(";", ",");
+        partitionRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s/%d", name, partition.getValue());
+
+        ledgerPath = partitionRootPath + "/ledgers";
+        digestpw = conf.getBKDigestPW();
+
+        try {
+            if (null != zkcShared) {
+                this.zkc = zkcShared;
+                separateZKClient = false;
+            } else {
+                int zkSessionTimeout = 30000;
+                CountDownLatch zkConnectLatch = new CountDownLatch(1);
+                LOG.debug("Connecting to ZK {}", zkConnect);
+                this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, zkConnect);
+                separateZKClient = true;
+            }
+
+            LOG.debug("Using ZK Path {}", partitionRootPath);
+
+            if (null == bkcShared) {
+                ClientConfiguration bkConfig = new ClientConfiguration();
+                bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
+                bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
+                bkConfig.setZkLedgersRootPath(conf.getBKLedgersPath());
+                this.bkc = new BookKeeper(bkConfig, zkc.get());
+                separateBKClient = true;
+            } else {
+                this.bkc = bkcShared;
+                separateBKClient = false;
+            }
+        } catch (Exception e) {
+            throw new IOException("Error initializing zk", e);
+        }
+    }
+
+    public long getTxIdNotLaterThan(long thresholdTxId)
+        throws IOException {
+        try {
+            if (null == zkc.get().exists(ledgerPath, false)) {
+                throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            }
+        } catch (InterruptedException ie) {
+            LOG.error("Interrupted while deleting " + ledgerPath, ie);
+            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+        } catch (KeeperException ke) {
+            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
+            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+        }
+        LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
+        LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
+        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+        for (LogSegmentLedgerMetadata l : ledgerListDesc) {
+            LOG.debug("Inspecting Ledger: {}", l);
+            if (thresholdTxId < l.getFirstTxId()) {
+                continue;
+            }
+
+            if (l.isInProgress()) {
+                try {
+                    long lastTxId = recoverLastTxId(l, false);
+                    if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
+                        (lastTxId != DistributedLogConstants.INVALID_TXID) &&
+                        (lastTxId < thresholdTxId)) {
+                        return lastTxId;
+                    }
+                } catch (Exception exc) {
+                    LOG.info("Optimistic Transaction Id recovery failed.", exc);
+                }
+            }
+
+            try {
+                LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), !l.isInProgress());
+                BKPerStreamLogReader s
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
+
+                LogRecord prevRecord = null;
+                LogRecord currRecord = s.readOp();
+                while ((null != currRecord) && (currRecord.getTransactionId() <= thresholdTxId)) {
+                    prevRecord = currRecord;
+                    currRecord = s.readOp();
+                }
+
+                if (null != prevRecord) {
+                    if (prevRecord.getTransactionId() < 0) {
+                        LOG.info("getTxIdNotLaterThan returned negative value {} for input {}", prevRecord.getTransactionId(), thresholdTxId);
+                    }
+                    return prevRecord.getTransactionId();
+                }
+
+            } catch (Exception e) {
+                throw new IOException("Could not open ledger for " + thresholdTxId, e);
+            }
+
+        }
+
+        if (ledgerListDesc.size() == 0) {
+            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+        }
+
+        throw new AlreadyTruncatedTransactionException("Records prior to" + thresholdTxId +
+            " have already been deleted for log" + name + ":" + partition);
+    }
+
+    protected void checkLogExists() throws IOException {
+        /*
+            try {
+                if (null == zkc.exists(ledgerPath, false)) {
+                    throw new IOException("Log does not exist or has been deleted");
+                }
+            } catch (InterruptedException ie) {
+                LOG.error("Interrupted while deleting " + ledgerPath, ie);
+                throw new IOException("Log does not exist or has been deleted");
+            } catch (KeeperException ke) {
+                LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
+                throw new IOException("Log does not exist or has been deleted");
+            }
+        */
+    }
+
+    public void close() throws IOException {
+        try {
+            if (separateBKClient) {
+                bkc.close();
+            }
+            if (separateZKClient) {
+                zkc.close();
+            }
+        } catch (Exception e) {
+            throw new IOException("Couldn't close zookeeper client", e);
+        }
+    }
+
+    /**
+     * Find the id of the last edit log transaction writen to a edit log
+     * ledger.
+     */
+    protected long recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
+        throws IOException {
+        try {
+            LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
+            LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
+            boolean trySmallLedger = true;
+            long scanStartPoint = 0;
+            LedgerDescriptor ledgerDescriptor = null;
+            ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+            scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
+
+            if (scanStartPoint < 0) {
+                // Ledger is empty
+                return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+            }
+
+            if (fence) {
+                LOG.debug("Open With Recovery Last Add Confirmed {}", scanStartPoint);
+            } else {
+                LOG.debug("Open No Recovery Last Add Confirmed {}", scanStartPoint);
+                if (scanStartPoint > DistributedLogConstants.SMALL_LEDGER_THRESHOLD) {
+                    scanStartPoint -= DistributedLogConstants.SMALL_LEDGER_THRESHOLD;
+                    trySmallLedger = false;
+                }
+            }
+
+            long endTxId;
+            while (true) {
+                BKPerStreamLogReader in
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, fence);
+
+                endTxId = DistributedLogConstants.INVALID_TXID;
+                try {
+                    LogRecord record = in.readOp();
+                    while (record != null) {
+                        if (endTxId == DistributedLogConstants.INVALID_TXID
+                            || record.getTransactionId() > endTxId) {
+                            endTxId = record.getTransactionId();
+                        }
+                        record = in.readOp();
+                    }
+                } catch (Exception exc) {
+                    LOG.info("Reading beyond flush point", exc);
+                } finally {
+                    in.close();
+                }
+
+                if (0 == scanStartPoint) {
+                    break;
+                } else if (endTxId != DistributedLogConstants.INVALID_TXID) {
+                    break;
+                } else {
+                    if (trySmallLedger && (scanStartPoint > DistributedLogConstants.SMALL_LEDGER_THRESHOLD)) {
+                        LOG.info("Retrying recovery from an earlier point in the ledger");
+                        scanStartPoint -= DistributedLogConstants.SMALL_LEDGER_THRESHOLD;
+                        trySmallLedger = false;
+                    } else {
+                        LOG.info("Retrying recovery from the beginning of the ledger");
+                        scanStartPoint = 0;
+                    }
+                }
+            }
+
+            return endTxId;
+        } catch (Exception e) {
+            throw new IOException("Exception retreiving last tx id for ledger " + l,
+                e);
+        }
+    }
+
+    public List<LogSegmentLedgerMetadata> getLedgerList() throws IOException {
+        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+    }
+
+    protected List<LogSegmentLedgerMetadata> getLedgerListDesc() throws IOException {
+        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR);
+    }
+
+    /**
+     * Get a list of all segments in the journal.
+     */
+    protected List<LogSegmentLedgerMetadata> getLedgerList(Comparator comparator) throws IOException {
+        List<LogSegmentLedgerMetadata> ledgers
+            = new ArrayList<LogSegmentLedgerMetadata>();
+        try {
+            List<String> ledgerNames = zkc.get().getChildren(ledgerPath, false);
+            for (String n : ledgerNames) {
+                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + n);
+                ledgers.add(l);
+                if (!l.isInProgress() && (lastLedgerRollingTimeMillis < l.getCompletionTime())) {
+                    lastLedgerRollingTimeMillis = l.getCompletionTime();
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("Exception reading ledger list from zk", e);
+        }
+
+        Collections.sort(ledgers, comparator);
+        return ledgers;
+    }
+}
