@@ -17,33 +17,28 @@
  */
 package com.twitter.distributedlog;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.Watcher.Event.KeeperState;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.Stat;
-
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.Collections;
-import java.util.Comparator;
-
-import java.net.InetAddress;
-import java.io.IOException;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Distributed lock, using ZooKeeper.
- *
+ * <p/>
  * The lock is vulnerable to timing issues. For example, the process could
  * encounter a really long GC cycle between acquiring the lock, and writing to
  * a ledger. This could have timed out the lock, and another process could have
@@ -96,7 +91,7 @@ class DistributedReentrantLock {
         LOG.debug("Lock Acquire {}, {}", lockpath, reason);
         while (true) {
             if (lockCount.get() == 0) {
-                synchronized(this) {
+                synchronized (this) {
                     if (lockCount.get() > 0) {
                         lockCount.incrementAndGet();
                         return;
@@ -128,7 +123,7 @@ class DistributedReentrantLock {
                     LOG.warn("Unbalanced lock handling somewhere, lockCount down to "
                         + lockCount.get());
                 }
-                synchronized(this) {
+                synchronized (this) {
                     if (lockCount.get() <= 0) {
                         if (internalLock.isLockHeld()) {
                             LOG.info("Lock Release {}, {}", lockpath, reason);
@@ -167,7 +162,7 @@ class DistributedReentrantLock {
 
     /**
      * Twitter commons version with some modifications.
-     *
+     * <p/>
      * TODO: Cannot use the same version to avoid a transitive dependence on two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
@@ -199,7 +194,7 @@ class DistributedReentrantLock {
         private synchronized void prepare()
             throws LockingException, InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
-            LOG.debug("Working with locking path:" + lockPath);
+            LOG.debug("Working with locking path: {}", lockPath);
 
             // Create an EPHEMERAL_SEQUENTIAL node.
             currentNode =
@@ -209,7 +204,7 @@ class DistributedReentrantLock {
             if (currentNode.contains("/")) {
                 currentId = currentNode.substring(currentNode.lastIndexOf("/") + 1);
             }
-            LOG.debug("Received ID from zk:" + currentId);
+            LOG.debug("Received ID from zk: {}", currentId);
             this.watcher = new LockWatcher();
         }
 
@@ -227,12 +222,9 @@ class DistributedReentrantLock {
             } catch (InterruptedException e) {
                 cancelAttempt();
                 throw new LockingException("InterruptedException while trying to acquire lock!", e);
-            } catch (KeeperException e) {
-                // No need to clean up since the node wasn't created yet.
-                throw new LockingException("KeeperException while trying to acquire lock!", e);
             } catch (Exception e) {
                 // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeperConnectionException while trying to acquire lock", e);
+                throw new LockingException("ZooKeeper Exception while trying to acquire lock", e);
             }
         }
 
@@ -253,12 +245,9 @@ class DistributedReentrantLock {
             } catch (InterruptedException e) {
                 cancelAttempt();
                 return false;
-            } catch (KeeperException e) {
-                // No need to clean up since the node wasn't created yet.
-                throw new LockingException("KeeperException while trying to acquire lock!", e);
             } catch (Exception e) {
                 // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeperConnectionException while trying to acquire lock", e);
+                throw new LockingException("ZooKeeper Exception while trying to acquire lock", e);
             }
             return true;
         }
@@ -350,12 +339,8 @@ class DistributedReentrantLock {
                     LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
                         "got interrupted. Trying to cancel lock acquisition.", currentId), e);
                     cancelAttempt();
-                } catch (KeeperException e) {
-                    LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
-                        "got a KeeperException. Trying to cancel lock acquisition.", currentId), e);
-                    cancelAttempt();
                 } catch (Exception e) {
-                    LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " + "got a ConnectionException. Trying to cancel lock acquisition.", currentId), e);
+                    LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " + "got a exception while accessing ZK. Trying to cancel lock acquisition.", currentId), e);
                     cancelAttempt();
                 }
             }

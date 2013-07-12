@@ -3,7 +3,6 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 
 /**
- *
  * This exception occurs in the case of a gap in the transactions, or a
  * corrupt log file.
  */

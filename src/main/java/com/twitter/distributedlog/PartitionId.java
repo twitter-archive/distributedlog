@@ -3,7 +3,7 @@ package com.twitter.distributedlog;
 public class PartitionId {
     private final int partition;
 
-    public PartitionId (int partition) {
+    public PartitionId(int partition) {
         this.partition = partition;
     }
 
@@ -16,17 +16,17 @@ public class PartitionId {
         if (!(other instanceof PartitionId)) {
             return false;
         }
-        PartitionId that = (PartitionId)other;
+        PartitionId that = (PartitionId) other;
         return (this.partition == that.partition);
     }
 
     @Override
     public int hashCode() {
-        return (int)(partition * 13 ^ partition * 17);
+        return (int) (partition * 13 ^ partition * 17);
     }
 
     @Override
     public String toString() {
-        return Integer.toString(partition);
+        return String.format("%d", partition);
     }
 }

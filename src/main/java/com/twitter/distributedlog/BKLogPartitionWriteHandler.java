@@ -1,21 +1,17 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.conf.ClientConfiguration;
+import java.io.IOException;
+import java.net.URI;
+
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZKUtil;
-
-import java.io.IOException;
-
-import java.net.URI;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,29 +32,29 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     private boolean recovered = false;
 
-    private int bytesToInt(byte[] b) {
+    private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
         return b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3];
     }
 
-    private byte[] intToBytes(int i) {
-        return new byte[] {
-            (byte)(i >> 24),
-            (byte)(i >> 16),
-            (byte)(i >> 8),
-            (byte)(i) };
+    private static byte[] intToBytes(int i) {
+        return new byte[]{
+            (byte) (i >> 24),
+            (byte) (i >> 16),
+            (byte) (i >> 8),
+            (byte) (i)};
     }
 
     /**
      * Construct a Bookkeeper journal manager.
      */
     public BKLogPartitionWriteHandler(String name,
-                                 PartitionId partition,
-                                 DistributedLogConfiguration conf,
-                                 URI uri,
-                                 ZooKeeperClient zkcShared,
-                                 BookKeeperClient bkcShared) throws IOException {
-        super(name, partition, conf, uri, zkcShared, bkcShared);
+                                      String streamIdentifier,
+                                      DistributedLogConfiguration conf,
+                                      URI uri,
+                                      ZooKeeperClient zkcShared,
+                                      BookKeeperClient bkcShared) throws IOException {
+        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
 
@@ -69,7 +65,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         try {
             while (zkc.get().exists(partitionRootPath, false) == null) {
                 try {
-                    Utils.zkCreateFullPathOptimistic(zkc, partitionRootPath, new byte[] {'0'},
+                    Utils.zkCreateFullPathOptimistic(zkc, partitionRootPath, new byte[]{'0'},
                         ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
                     // HACK: Temporary for the test configuration used by test
@@ -94,7 +90,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
 
             if (zkc.get().exists(ledgerPath, false) == null) {
-                zkc.get().create(ledgerPath, new byte[] {'0'},
+                zkc.get().create(ledgerPath, new byte[]{'0'},
                     ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
         } catch (Exception e) {
@@ -114,6 +110,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * The ledger id is written to the inprogress znode, so that in the
      * case of a crash, a recovery process can find the ledger we were writing
      * to when we crashed.
+     *
      * @param txId First transaction id to be written to the stream
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
@@ -141,7 +138,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 digestpw.getBytes());
             String znodePath = inprogressZNode(txId);
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                DistributedLogConstants.LAYOUT_VERSION,  currentLedger.getId(), txId);
+                DistributedLogConstants.LAYOUT_VERSION, currentLedger.getId(), txId);
 
             /*
              * Write the ledger metadata out to the inprogress ledger znode
@@ -152,7 +149,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * as this would lead to a split brain situation.
              */
             l.write(zkc, znodePath);
-            LOG.debug("Storing MaxTxId in startLogSegment " + znodePath + " " + txId);
+            LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
             return new BKPerStreamLogWriter(conf, currentLedger, lock, txId);
@@ -185,7 +182,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * Finalize a log segment. If the journal manager is currently
      * writing to a ledger, ensure that this is the ledger of the log segment
      * being finalized.
-     *
+     * <p/>
      * Otherwise this is the recovery case. In the recovery case, ensure that
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
@@ -199,7 +196,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * Finalize a log segment. If the journal manager is currently
      * writing to a ledger, ensure that this is the ledger of the log segment
      * being finalized.
-     *
+     * <p/>
      * Otherwise this is the recovery case. In the recovery case, ensure that
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
@@ -207,7 +204,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     public void completeAndCloseLogSegment(long firstTxId, long lastTxId)
         throws IOException {
         checkLogExists();
-        LOG.debug("Completing and Closing Log Segment" + firstTxId + " " + lastTxId);
+        LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(firstTxId);
         try {
             Stat inprogressStat = zkc.get().exists(inprogressPath, false);
@@ -218,7 +215,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             lock.checkWriteLock();
             LogSegmentLedgerMetadata l
-                =  LogSegmentLedgerMetadata.read(zkc, inprogressPath);
+                = LogSegmentLedgerMetadata.read(zkc, inprogressPath);
 
             if (currentLedger != null) { // normal, non-recovery case
                 if (l.getLedgerId() == currentLedger.getId()) {
@@ -256,10 +253,8 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
             zkc.get().delete(inprogressPath, inprogressStat.getVersion());
-        } catch (KeeperException e) {
+        } catch (Exception e) {
             throw new IOException("Error finalising ledger", e);
-        } catch (InterruptedException ie) {
-            throw new IOException("Error finalising ledger", ie);
         } finally {
             lock.release("CompleteAndClose");
         }
@@ -297,7 +292,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();
                 }
                 recovered = true;
-            }  catch (IOException io) {
+            } catch (IOException io) {
                 throw new IOException("Couldn't get list of inprogress segments", io);
             } finally {
                 if (lock.haveLock()) {
@@ -356,33 +351,21 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     public void purgeLogsOlderThanTimestamp(long minTimestampToKeep, long sanityCheckThreshold)
         throws IOException {
-        assert(minTimestampToKeep < Utils.nowInMillis());
+        assert (minTimestampToKeep < Utils.nowInMillis());
         boolean logTimestamp = true;
         for (LogSegmentLedgerMetadata l : getLedgerList()) {
             if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
-                try {
-                    if (logTimestamp) {
-                        LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
-                        logTimestamp = false;
-                    }
+                if (logTimestamp) {
+                    LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
+                    logTimestamp = false;
+                }
 
-                    // Something went wrong - leave the ledger around for debugging
-                    //
-                    if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                        LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
-                    }
-                    else {
-                        LOG.info("Deleting ledger for {}", l);
-                        Stat stat = zkc.get().exists(l.getZkPath(), false);
-                        bkc.get().deleteLedger(l.getLedgerId());
-                        zkc.get().delete(l.getZkPath(), stat.getVersion());
-                    }
-                } catch (InterruptedException ie) {
-                    LOG.error("Interrupted while purging " + l, ie);
-                } catch (BKException bke) {
-                    LOG.error("Couldn't delete ledger from bookkeeper", bke);
-                } catch (KeeperException ke) {
-                    LOG.error("Error deleting ledger entry in zookeeper", ke);
+                // Something went wrong - leave the ledger around for debugging
+                //
+                if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
+                    LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
+                } else {
+                    deleteLedgerAndMetadata(l);
                 }
             }
         }
@@ -393,22 +376,26 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         for (LogSegmentLedgerMetadata l : getLedgerList()) {
             if ((minTxIdToKeep < 0) ||
                 (!l.isInProgress() && l.getLastTxId() < minTxIdToKeep)) {
-                try {
-                    LOG.info("Deleting ledger for {}", l);
-                    Stat stat = zkc.get().exists(l.getZkPath(), false);
-                    bkc.get().deleteLedger(l.getLedgerId());
-                    zkc.get().delete(l.getZkPath(), stat.getVersion());
-                } catch (InterruptedException ie) {
-                    LOG.error("Interrupted while purging " + l, ie);
-                } catch (BKException bke) {
-                    LOG.error("Couldn't delete ledger from bookkeeper", bke);
-                } catch (KeeperException ke) {
-                    LOG.error("Error deleting ledger entry in zookeeper", ke);
-                }
+                deleteLedgerAndMetadata(l);
             }
         }
     }
 
+    private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
+        try {
+            LOG.info("Deleting ledger for {}", ledgerMetadata);
+            Stat stat = zkc.get().exists(ledgerMetadata.getZkPath(), false);
+            bkc.get().deleteLedger(ledgerMetadata.getLedgerId());
+            zkc.get().delete(ledgerMetadata.getZkPath(), stat.getVersion());
+        } catch (InterruptedException ie) {
+            LOG.error("Interrupted while purging {}", ledgerMetadata, ie);
+        } catch (BKException bke) {
+            LOG.error("Couldn't delete ledger from bookkeeper", bke);
+        } catch (KeeperException ke) {
+            LOG.error("Error deleting ledger entry in zookeeper", ke);
+        }
+
+    }
 
     public void close() throws IOException {
         try {

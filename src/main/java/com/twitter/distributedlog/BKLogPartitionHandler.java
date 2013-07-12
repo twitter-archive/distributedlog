@@ -17,63 +17,55 @@
  */
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-
-import org.apache.zookeeper.KeeperException;
-
-import java.util.Collections;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Comparator;
-import java.util.concurrent.CountDownLatch;
 import java.io.IOException;
-
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * BookKeeper Distributed Log Manager
- *
+ * <p/>
  * The URI format for bookkeeper is bookkeeper://[zkEnsemble]/[rootZnode]
  * [zookkeeper ensemble] is a list of semi-colon separated, zookeeper host:port
  * pairs. In the example above there are 3 servers, in the ensemble,
  * zk1, zk2 &amp; zk3, each one listening on port 2181.
- *
+ * <p/>
  * [root znode] is the path of the zookeeper znode, under which the editlog
  * information will be stored.
- *
+ * <p/>
  * Other configuration options are:
  * <ul>
- *   <li><b>output-buffer-size</b>
- *       Number of bytes a bookkeeper journal stream will buffer before
- *       forcing a flush. Default is 1024.</li>
- *   <li><b>ensemble-size</b>
- *       Number of bookkeeper servers in edit log ledger ensembles. This
- *       is the number of bookkeeper servers which need to be available
- *       for the ledger to be writable. Default is 3.</li>
- *   <li><b>quorum-size</b>
- *       Number of bookkeeper servers in the write quorum. This is the
- *       number of bookkeeper servers which must have acknowledged the
- *       write of an entry before it is considered written.
- *       Default is 2.</li>
- *   <li><b>digestPw</b>
- *       Password to use when creating ledgers. </li>
+ * <li><b>output-buffer-size</b>
+ * Number of bytes a bookkeeper journal stream will buffer before
+ * forcing a flush. Default is 1024.</li>
+ * <li><b>ensemble-size</b>
+ * Number of bookkeeper servers in edit log ledger ensembles. This
+ * is the number of bookkeeper servers which need to be available
+ * for the ledger to be writable. Default is 3.</li>
+ * <li><b>quorum-size</b>
+ * Number of bookkeeper servers in the write quorum. This is the
+ * number of bookkeeper servers which must have acknowledged the
+ * write of an entry before it is considered written.
+ * Default is 2.</li>
+ * <li><b>digestPw</b>
+ * Password to use when creating ledgers. </li>
  * </ul>
  */
-public class BKLogPartitionHandler {
+public abstract class BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
 
     protected final String name;
-    protected final PartitionId partition;
+    protected final String streamIdentifier;
     protected final ZooKeeperClient zkc;
     protected final boolean separateZKClient;
     protected final DistributedLogConfiguration conf;
@@ -87,16 +79,15 @@ public class BKLogPartitionHandler {
      * Construct a Bookkeeper journal manager.
      */
     public BKLogPartitionHandler(String name,
-                                 PartitionId partition,
+                                 String streamIdentifier,
                                  DistributedLogConfiguration conf,
                                  URI uri,
                                  ZooKeeperClient zkcShared,
                                  BookKeeperClient bkcShared) throws IOException {
         this.name = name;
-        this.partition = partition;
+        this.streamIdentifier = streamIdentifier;
         this.conf = conf;
-        String zkConnect = uri.getAuthority().replace(";", ",");
-        partitionRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s/%d", name, partition.getValue());
+        partitionRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s/%s", name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
@@ -106,10 +97,7 @@ public class BKLogPartitionHandler {
                 this.zkc = zkcShared;
                 separateZKClient = false;
             } else {
-                int zkSessionTimeout = 30000;
-                CountDownLatch zkConnectLatch = new CountDownLatch(1);
-                LOG.debug("Connecting to ZK {}", zkConnect);
-                this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, zkConnect);
+                this.zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
                 separateZKClient = true;
             }
 
@@ -119,7 +107,7 @@ public class BKLogPartitionHandler {
                 if (conf.getShareZKClientWithBKC()) {
                     this.bkc = new BookKeeperClient(conf, zkc, getFullyQualifiedName());
                 } else {
-                    this.bkc = new BookKeeperClient(conf, zkConnect, getFullyQualifiedName());
+                    this.bkc = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), getFullyQualifiedName());
                 }
             } else {
                 this.bkc = bkcShared;
@@ -130,19 +118,48 @@ public class BKLogPartitionHandler {
         }
     }
 
-    public long getTxIdNotLaterThan(long thresholdTxId)
-        throws IOException {
+    public long getLastTxId() throws IOException {
+        checkLogStreamExists();
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true);
+
+        // The ledger list should at least have one element
+        // The last TxId is valid if the ledger is already completed else we must recover
+        // the last TxId
+        if (ledgerList.get(0).isInProgress()) {
+            return recoverLastTxId(ledgerList.get(0), false);
+        }
+
+        return ledgerList.get(0).getLastTxId();
+    }
+
+    public long getFirstTxId() throws IOException {
+        checkLogStreamExists();
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);
+
+        // The ledger list should at least have one element
+        // First TxId is populated even for in progress ledgers
+        return ledgerList.get(0).getFirstTxId();
+    }
+
+
+    private void checkLogStreamExists() throws IOException {
         try {
             if (null == zkc.get().exists(ledgerPath, false)) {
-                throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+                throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
             }
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Interrupted while reading {}", ledgerPath, ie);
+            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
         } catch (KeeperException ke) {
-            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
+            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
         }
+    }
+
+
+    public long getTxIdNotLaterThan(long thresholdTxId)
+        throws IOException {
+        checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
         List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
@@ -195,7 +212,7 @@ public class BKLogPartitionHandler {
         }
 
         throw new AlreadyTruncatedTransactionException("Records prior to" + thresholdTxId +
-            " have already been deleted for log" + getFullyQualifiedName());
+            " have already been deleted for log " + getFullyQualifiedName());
     }
 
     protected void checkLogExists() throws IOException {
@@ -300,18 +317,26 @@ public class BKLogPartitionHandler {
         }
     }
 
+    public List<LogSegmentLedgerMetadata> getLedgerList(boolean throwOnEmpty) throws IOException {
+        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
+    }
+
+    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean throwOnEmpty) throws IOException {
+        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
+    }
+
     public List<LogSegmentLedgerMetadata> getLedgerList() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, false);
     }
 
     protected List<LogSegmentLedgerMetadata> getLedgerListDesc() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR);
+        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
     }
 
     /**
      * Get a list of all segments in the journal.
      */
-    protected List<LogSegmentLedgerMetadata> getLedgerList(Comparator comparator) throws IOException {
+    protected List<LogSegmentLedgerMetadata> getLedgerList(Comparator comparator, boolean throwOnEmpty) throws IOException {
         List<LogSegmentLedgerMetadata> ledgers
             = new ArrayList<LogSegmentLedgerMetadata>();
         try {
@@ -327,11 +352,15 @@ public class BKLogPartitionHandler {
             throw new IOException("Exception reading ledger list from zk", e);
         }
 
+        if (throwOnEmpty && ledgers.isEmpty()) {
+            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
+        }
+
         Collections.sort(ledgers, comparator);
         return ledgers;
     }
 
     public String getFullyQualifiedName() {
-        return String.format("%s:%s", name, partition.toString());
+        return String.format("%s:%s", name, streamIdentifier);
     }
 }

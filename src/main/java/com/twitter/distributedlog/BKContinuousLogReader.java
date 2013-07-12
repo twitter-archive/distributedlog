@@ -4,9 +4,6 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +12,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
 
     private final BKDistributedLogManager bkDistributedLogManager;
-    private final PartitionId partition;
     private final long startTxId;
     private long lastTxId;
     private final BKLogPartitionReadHandler bkLedgerManager;
@@ -26,12 +22,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private boolean zkSessionExpired = false;
 
 
-    public BKContinuousLogReader (BKDistributedLogManager bkdlm, PartitionId partition, long startTxId, boolean readAheadEnabled, int readAheadWaitTime) throws IOException {
+    public BKContinuousLogReader (BKDistributedLogManager bkdlm, String streamIdentifier, long startTxId, boolean readAheadEnabled, int readAheadWaitTime) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(partition);
-        this.partition = partition;
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.startTxId = startTxId;
-        lastTxId = startTxId -1;
+        lastTxId = startTxId - 1;
         this.readAheadEnabled = readAheadEnabled;
         this.readAheadWaitTime = readAheadWaitTime;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
@@ -39,6 +34,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
     /**
      * Close the stream.
+     *
      * @throws IOException if an error occurred while closing
      */
     @Override
@@ -55,6 +51,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
     /**
      * Read the next log record from the stream
+     *
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
@@ -79,12 +76,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
                     if (handleEndOfCurrentStream()) {
                         break;
                     }
-                }
-                else {
+                } else {
                     break;
                 }
             } else {
-                LOG.debug("No reader starting at TxId: {}", (lastTxId+1));
+                LOG.debug("No reader starting at TxId: {}", (lastTxId + 1));
             }
 
         }
@@ -98,13 +94,13 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
     private boolean createOrPositionReader(boolean advancedOnce) throws IOException {
         if (null == currentReader) {
-            LOG.debug("Opening reader on partition {} starting at TxId: {}", partition, (lastTxId+1));
+            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false);
             if (null != currentReader) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
                 }
-                LOG.debug("Opened reader on partition {} starting at TxId: {}", partition, (lastTxId+1));
+                LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             }
             advancedOnce = true;
         } else {
@@ -128,6 +124,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
     /**
      * Read the next numLogRec log records from the stream
+     *
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */

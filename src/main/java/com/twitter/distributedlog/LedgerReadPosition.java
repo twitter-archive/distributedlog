@@ -50,14 +50,14 @@ public class LedgerReadPosition {
         if (!(other instanceof LedgerReadPosition)) {
             return false;
         }
-        LedgerReadPosition key = (LedgerReadPosition)other;
+        LedgerReadPosition key = (LedgerReadPosition) other;
         return ledgerId == key.ledgerId &&
             entryId == key.entryId;
     }
 
     @Override
     public int hashCode() {
-        return (int)(ledgerId * 13 ^ entryId * 17);
+        return (int) (ledgerId * 13 ^ entryId * 17);
     }
 
     /**
@@ -73,7 +73,7 @@ public class LedgerReadPosition {
             if (ret == 0) {
                 ret = left.entryId - right.entryId;
             }
-            return (ret < 0)? -1 : ((ret > 0)? 1 : 0);
+            return (ret < 0) ? -1 : ((ret > 0) ? 1 : 0);
         }
     }
 

@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.util.LocalBookKeeper;
-
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -145,7 +144,7 @@ public class LocalDLMEmulator {
 
         bookieConf.setZkServers(zkEnsemble);
         bookieConf.setJournalDirName(tmpdir.getPath());
-        bookieConf.setLedgerDirNames(new String[] { tmpdir.getPath() });
+        bookieConf.setLedgerDirNames(new String[]{tmpdir.getPath()});
 
         BookieServer b = new BookieServer(bookieConf);
         b.start();
@@ -160,6 +159,7 @@ public class LocalDLMEmulator {
 
     /**
      * Check that a number of bookies are available
+     *
      * @param count number of bookies required
      * @param timeout number of seconds to wait for bookies to start
      * @throws java.io.IOException if bookies are not started by the time the timeout hits

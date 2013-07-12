@@ -1,8 +1,8 @@
 package com.twitter.distributedlog;
 
 public class LedgerDescriptor {
-    long ledgerId;
-    boolean fenced;
+    private final long ledgerId;
+    private final boolean fenced;
 
     public LedgerDescriptor(LedgerDescriptor that) {
         this.ledgerId = that.ledgerId;
@@ -28,13 +28,13 @@ public class LedgerDescriptor {
         if (!(other instanceof LedgerDescriptor)) {
             return false;
         }
-        LedgerDescriptor key = (LedgerDescriptor)other;
+        LedgerDescriptor key = (LedgerDescriptor) other;
         return ledgerId == key.ledgerId &&
             fenced == key.fenced;
     }
 
     @Override
     public int hashCode() {
-        return (int)(ledgerId * 13 ^ (fenced ? 0xFFFF : 0xF0F0) * 17);
+        return (int) (ledgerId * 13 ^ (fenced ? 0xFFFF : 0xF0F0) * 17);
     }
 }

@@ -1,23 +1,16 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.KeeperException;
-
+import java.io.IOException;
+import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
-import java.io.IOException;
 
-import java.net.URI;
-
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,12 +29,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      * Construct a Bookkeeper journal manager.
      */
     public BKLogPartitionReadHandler(String name,
-                                 PartitionId partition,
-                                 DistributedLogConfiguration conf,
-                                 URI uri,
-                                 ZooKeeperClient zkcShared,
-                                 BookKeeperClient bkcShared) throws IOException {
-        super(name, partition, conf, uri, zkcShared, bkcShared);
+                                     String streamIdentifier,
+                                     DistributedLogConfiguration conf,
+                                     URI uri,
+                                     ZooKeeperClient zkcShared,
+                                     BookKeeperClient bkcShared) throws IOException {
+        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
 
         handleCache = new LedgerHandleCache(this.bkc, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);
@@ -100,7 +93,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return null;
                         }
                     } catch (Exception e) {
-                        LOG.error("Could not open ledger for partition " + getFullyQualifiedName() + " for startTxId " + fromTxId, e);
+                        LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startTxId " + fromTxId, e);
                         throw new IOException("Could not open ledger for " + fromTxId, e);
                     }
                 } else {
@@ -110,8 +103,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
         if (fException) {
             throw new IOException("No ledger for fromTxnId " + fromTxId + " found.");
-        }
-        else {
+        } else {
             return null;
         }
     }
@@ -134,13 +126,13 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    private void setWatcherOnLedgerRoot(Watcher watcher) throws IOException,KeeperException,InterruptedException {
+    private void setWatcherOnLedgerRoot(Watcher watcher) throws IOException, KeeperException, InterruptedException {
         zkc.get().getChildren(ledgerPath, watcher);
     }
 
     public boolean startReadAhead(LedgerReadPosition startPosition) {
         if (null == readAheadThread) {
-            readAheadThread = new ReadAheadThread(partition,
+            readAheadThread = new ReadAheadThread(getFullyQualifiedName(),
                 this,
                 startPosition,
                 ledgerDataAccessor,
@@ -175,7 +167,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private class ReadAheadThread extends Thread implements Watcher {
         volatile boolean running = true;
 
-        private final PartitionId partition;
+        private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
         private boolean reInitializeMetadata = true;
         private LedgerReadPosition nextReadPosition;
@@ -187,10 +179,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final long readAheadBatchSize;
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
-        private Long notificationObject = new Long(0);
+        private Object notificationObject = new Object();
         private final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
 
-        public ReadAheadThread(PartitionId partition,
+        public ReadAheadThread(String fullyQualifiedName,
                                BKLogPartitionReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
@@ -199,7 +191,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                int readAheadWaitTime) {
             super("ReadAheadThread");
             this.bkLedgerManager = ledgerManager;
-            this.partition = partition;
+            this.fullyQualifiedName = fullyQualifiedName;
             this.nextReadPosition = startPosition;
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.readAheadBatchSize = readAheadBatchSize;
@@ -210,7 +202,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         @Override
         public void run() {
-            LOG.info("ReadAheadThread Thread started for partition {}", partition);
+            LOG.info("ReadAheadThread Thread started for {}", fullyQualifiedName);
             boolean encounteredException = false;
 
             // Set when we encounter bookkeeper exceptions
@@ -218,7 +210,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             // bookkeeper
             int bkcZkExceptions = 0;
 
-            while(running) {
+            while (running) {
                 try {
                     if (encounteredException) {
                         // If we have been hitting exceptions continuously for
@@ -279,7 +271,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 bkLedgerManager.getHandleCache().closeLedger(currentLH);
                                 currentLH = null;
                                 currentMetadata = null;
-                                if (currentMetadataIndex+1 < ledgerList.size()) {
+                                if (currentMetadataIndex + 1 < ledgerList.size()) {
                                     currentMetadata = ledgerList.get(++currentMetadataIndex);
                                     nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId());
                                 }
@@ -312,13 +304,13 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }
 
                     if (cacheFull || ((null != currentMetadata) && currentMetadata.isInProgress())) {
-                        synchronized(notificationObject) {
+                        synchronized (notificationObject) {
                             notificationObject.wait(readAheadWaitTime);
                         }
                     }
                 } catch (InterruptedException exc) {
                     running = false;
-                  // exit silently
+                    // exit silently
                 } catch (IOException ioExc) {
                     LOG.debug("ReadAhead Thread Encountered an exception ", ioExc);
                     encounteredException = true;
@@ -331,7 +323,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     encounteredException = true;
                 }
             }
-            LOG.info("ReadAheadThread Thread stopped for {}", getFullyQualifiedName());
+            LOG.info("ReadAheadThread Thread stopped for {}", fullyQualifiedName);
         }
 
         // shutdown sync thread
@@ -347,12 +339,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 LOG.debug("Reconnected ...");
             } else {
                 reInitializeMetadata = true;
-                synchronized(notificationObject) {
+                synchronized (notificationObject) {
                     notificationObject.notifyAll();
                 }
                 LOG.debug("Read ahead node changed");
             }
         }
-
     }
 }

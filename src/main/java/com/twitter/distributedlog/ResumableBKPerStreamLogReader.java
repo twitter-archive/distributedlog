@@ -3,13 +3,8 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +52,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             for (LogSegmentLedgerMetadata l : ledgerManager.getLedgerList()) {
                 if (l.getLedgerId() == ledgerId) {
                     if (!l.isInProgress()) {
-                       inProgress = false;
+                        inProgress = false;
                         try {
                             zkc.get().exists(zkPath, false);
                         } catch (Exception exc) {

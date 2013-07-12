@@ -3,34 +3,33 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BKException;
-
+import org.apache.bookkeeper.client.LedgerEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
 
+    //
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
     private final LedgerHandleCache ledgerHandleCache;
-    private Long notificationObject = null;
-    private AtomicLong readAheadMisses = new AtomicLong(0);
-    ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
-    HashSet<Long> cachedLedgerIds = new HashSet<Long>();
+    private Object notificationObject = null;
+    private final AtomicLong readAheadMisses = new AtomicLong(0);
+    private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
+    private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
         this.ledgerHandleCache = ledgerHandleCache;
     }
 
-    public void setNotificationObject(Long notificationObject) {
+    public void setNotificationObject(Object notificationObject) {
         this.notificationObject = notificationObject;
     }
 
@@ -80,7 +79,7 @@ public class LedgerDataAccessor {
         }
 
         Enumeration<LedgerEntry> entries
-                = ledgerHandleCache.readEntries(ledgerDesc, key.getEntryId(), key.getEntryId());
+            = ledgerHandleCache.readEntries(ledgerDesc, key.getEntryId(), key.getEntryId());
         assert (entries.hasMoreElements());
         LedgerEntry e = entries.nextElement();
         assert !entries.hasMoreElements();
@@ -96,19 +95,16 @@ public class LedgerDataAccessor {
         if (null == value) {
             value = newValue;
         }
-        synchronized(value) {
+        synchronized (value) {
             value.setLedgerEntry(entry);
             value.notifyAll();
         }
     }
 
     public void remove(LedgerReadPosition key) {
-        if (null != cache.get(key)) {
-            cache.remove(key);
-            if (null!= notificationObject) {
-                synchronized(notificationObject) {
-                    notificationObject.notifyAll();
-                }
+        if ((null != cache.remove(key)) && (null != notificationObject)) {
+            synchronized (notificationObject) {
+                notificationObject.notifyAll();
             }
         }
     }
@@ -127,9 +123,9 @@ public class LedgerDataAccessor {
         cachedLedgerIds = new HashSet<Long>();
 
         Iterator<Map.Entry<LedgerReadPosition, ReadAheadCacheValue>> it = cache.entrySet().iterator();
-        while(it.hasNext()) {
+        while (it.hasNext()) {
             Map.Entry<LedgerReadPosition, ReadAheadCacheValue> entry = it.next();
-            if(entry.getKey().getLedgerId() == ledgerId) {
+            if (entry.getKey().getLedgerId() == ledgerId) {
                 it.remove();
             } else {
                 if (!cachedLedgerIds.contains(entry.getKey().getLedgerId())) {
@@ -138,8 +134,8 @@ public class LedgerDataAccessor {
             }
         }
 
-        if (null!= notificationObject) {
-            synchronized(notificationObject) {
+        if (null != notificationObject) {
+            synchronized (notificationObject) {
                 notificationObject.notifyAll();
             }
         }

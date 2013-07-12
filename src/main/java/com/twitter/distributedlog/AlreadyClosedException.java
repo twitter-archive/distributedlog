@@ -3,8 +3,8 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 
 /**
- * Thrown when the transaction Id specified in the API is in the range that has already been
- * truncated
+ * Thrown when the distributed log manager has already been closed
+ * (connections have been torn down)
  */
 public class AlreadyClosedException extends IOException {
 

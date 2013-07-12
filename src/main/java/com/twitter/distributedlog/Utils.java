@@ -7,7 +7,6 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.ACL;
 
 public class Utils {
@@ -28,6 +27,7 @@ public class Utils {
     /**
      * Current time from some fixed base time - so useful for cross machine
      * comparison
+     *
      * @return current time in milliseconds.
      */
     public static long nowInMillis() {
@@ -41,16 +41,16 @@ public class Utils {
      * @param startNanoTime the start of the interval that we are measuring
      * @return elapsed time in milliseconds.
      */
-    public static long elapsedMSec (long startMsecTime) {
+    public static long elapsedMSec(long startMsecTime) {
         return (System.currentTimeMillis() - startMsecTime);
     }
 
     public static void zkCreateFullPathOptimistic(
-            ZooKeeperClient zkc,
-            String path,
-            byte[] data,
-            final List<ACL> acl,
-            final CreateMode createMode)
+        ZooKeeperClient zkc,
+        String path,
+        byte[] data,
+        final List<ACL> acl,
+        final CreateMode createMode)
         throws ZooKeeperClient.ZooKeeperConnectionException, KeeperException, InterruptedException {
         try {
             zkc.get().create(path, data, acl, createMode);

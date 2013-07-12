@@ -8,6 +8,7 @@ public interface PartitionAwareLogWriter {
 
     /**
      * Close the journal.
+     *
      * @throws IOException if the log stream can't be closed,
      */
     public void close() throws IOException;
@@ -17,7 +18,6 @@ public interface PartitionAwareLogWriter {
      *
      * @param record - the log record to be generated
      * @param partition – the partition to which this log record should be written
-     * @throws IOException
      */
     public void write(LogRecord record, PartitionId partition)
         throws IOException;
@@ -26,7 +26,6 @@ public interface PartitionAwareLogWriter {
      * Write log records to the stream.
      *
      * @param records – a map with a list of log records for one or more partitions
-     * @throws IOException
      */
     public int writeBulk(Map<PartitionId, List<LogRecord>> records)
         throws IOException;
@@ -40,12 +39,10 @@ public interface PartitionAwareLogWriter {
     /**
      * Flush and sync all data that is ready to be flush
      * {@link #setReadyToFlush()} into underlying persistent store.
-     *
+     * <p/>
      * This API is optional as the writer implements a policy for automatically syncing
      * the log records in the buffer. The buffered edits can be flushed when the buffer
      * becomes full or a certain period of time is elapsed.
-     *
-     * @throws IOException
      */
     public long flushAndSync() throws IOException;
 

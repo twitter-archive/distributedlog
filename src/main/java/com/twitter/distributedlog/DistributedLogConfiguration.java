@@ -2,8 +2,6 @@ package com.twitter.distributedlog;
 
 import java.net.URL;
 
-import org.apache.bookkeeper.meta.LedgerManagerFactory;
-import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -16,6 +14,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
 
     private static ClassLoader defaultLoader;
+
     static {
         defaultLoader = Thread.currentThread().getContextClassLoader();
         if (null == defaultLoader) {
@@ -23,33 +22,42 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         }
     }
 
-    public static final String BKDL_OUTPUT_BUFFER_SIZE= "output-buffer-size";
+    // Controls when log records accumulated in the writer will be
+    // transmitted to bookkeeper
+    public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
     public static final int BKDL_OUTPUT_BUFFER_SIZE_DEFAULT = 1024;
 
-    public static final String BKDL_RETENTION_PERIOD_IN_HOURS= "retention-size";
+    // Controls the retention period after which old ledgers are deleted
+    public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
     public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
 
-    public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES= "rolling-interval";
+    // The time after which the a given log stream switches to a new ledger
+    public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES = "rolling-interval";
     public static final int BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT = 120;
 
+    // Bookkeeper ensemble size
     public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
     public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
 
+    // Bookkeeper quorum size
     public static final String BKDL_BOOKKEEPER_QUORUM_SIZE = "quorum-size";
     public static final int BKDL_BOOKKEEPER_QUORUM_SIZE_DEFAULT = 2;
 
+    // Bookkeeper digest
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
 
+    // should each partition use a separate bookkeeper client
     public static final String BKDL_SEPARATE_BK_CLIENT = "separateBKClients";
     public static final boolean BKDL_SEPARATE_BK_CLIENT_DEFAULT = false;
+
+    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH = "bkLedgersPath";
+    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT = "/ledgers";
 
     public static final String BKDL_SHARE_ZK_CLIENT_WITH_BKC = "shareZKClientWithBKC";
     public static final boolean BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT = false;
 
-    public static final String BKDL_SEPARATE_ZK_CLIENT = "separateZKClients";
-    public static final boolean BKDL_SEPARATE_ZK_CLIENT_DEFAULT = false;
-
+    // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
 
@@ -62,14 +70,22 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_WAITTIME = "ReadAheadWaitTime";
     public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
 
-    public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS= "zkSessionTimeoutSeconds";
-    public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
+    // should each partition use a separate zookeeper client
+    public static final String BKDL_SEPARATE_ZK_CLIENT = "separateZKClients";
+    public static final boolean BKDL_SEPARATE_ZK_CLIENT_DEFAULT = false;
 
-    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH = "bkLedgersPath";
-    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT = "/ledgers";
+    public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
+    public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
 
     public static final String BKDL_ZK_PREFIX = "dlZKPrefix";
     public static final String BKDL_ZK_PREFIX_DEFAULT = "/messaging/distributedlog";
+
+    public static final String BKDL_SANITYCHECK_BEFORE_DELETE = "sanityCheckDelete";
+    public static final boolean BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT = true;
+
+    // Various timeouts - names are self explanatory
+    public static final String BKDL_LOG_FLUSH_TIMEOUT = "logFlushTimeoutSeconds";
+    public static final int BKDL_LOG_FLUSH_TIMEOUT_DEFAULT = 30;
 
     public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
     public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
@@ -79,13 +95,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_BKCLIENT_WRITE_TIMEOUT = "bkcWriteTimeoutSeconds";
     public static final int BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT = 10;
-
-    public static final String BKDL_SANITYCHECK_BEFORE_DELETE = "sanityCheckDelete";
-    public static final boolean BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT = true;
-
-    public static final String BKDL_LOG_FLUSH_TIMEOUT= "logFlushTimeoutSeconds";
-    public static final int BKDL_LOG_FLUSH_TIMEOUT_DEFAULT = 30;
-
 
     public DistributedLogConfiguration() {
         super();
@@ -97,8 +106,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * You can load configurations in precedence order. The first one takes
      * precedence over any loaded later.
      *
-     * @param confURL
-     *          Configuration URL
+     * @param confURL Configuration URL
      */
     public void loadConf(URL confURL) throws ConfigurationException {
         Configuration loadedConf = new PropertiesConfiguration(confURL);
@@ -108,8 +116,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * You can load configuration from other configuration
      *
-     * @param baseConf
-     *          Other Configuration
+     * @param baseConf Other Configuration
      */
     public void loadConf(DistributedLogConfiguration baseConf) {
         addConfiguration(baseConf);
@@ -118,8 +125,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Load configuration from other configuration object
      *
-     * @param otherConf
-     *          Other configuration object
+     * @param otherConf Other configuration object
      */
     public void loadConf(Configuration otherConf) {
         addConfiguration(otherConf);
@@ -137,8 +143,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set retention period in hours
      *
-     * @param retentionHours
-     *          retention period in hours.
+     * @param retentionHours retention period in hours.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setRetentionPeriodHours(int retentionHours) {
@@ -158,8 +163,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set rolling interval in minutes.
      *
-     * @param rollingMinutes
-     *          rolling interval in minutes.
+     * @param rollingMinutes rolling interval in minutes.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setLogSegmentRollingIntervalMinutes(int rollingMinutes) {
@@ -179,8 +183,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set output buffer size.
      *
-     * @param opBufferSize
-     *          output buffer size.
+     * @param opBufferSize output buffer size.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setOutputBufferSize(int opBufferSize) {
@@ -200,8 +203,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set ensemble size.
      *
-     * @param ensembleSize
-     *          ensemble size.
+     * @param ensembleSize ensemble size.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setEnsembleSize(int ensembleSize) {
@@ -221,8 +223,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set quorum size.
      *
-     * @param quorumSize
-     *          quorum size.
+     * @param quorumSize quorum size.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setQuorumSize(int quorumSize) {
@@ -337,8 +338,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set ZK Session Timeout.
      *
-     * @param zkSessionTimeoutSeconds
-     *          session timeout.
+     * @param zkSessionTimeoutSeconds session timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setZKSessionTimeoutSeconds(int zkSessionTimeoutSeconds) {
@@ -358,8 +358,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set Log Flush Timeout.
      *
-     * @param logFlushTimeoutSeconds
-     *          log flush timeout.
+     * @param logFlushTimeoutSeconds log flush timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setLogFlushTimeoutSeconds(int logFlushTimeoutSeconds) {
@@ -379,8 +378,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set ZK Session Timeout.
      *
-     * @param zkSessionTimeoutSeconds
-     *          session timeout.
+     * @param zkSessionTimeoutSeconds session timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setReadAheadBatchSize(int readAheadBatchSize) {
@@ -400,8 +398,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the wait time between successive attempts to check for new log records
      *
-     * @param readAheadWaitTime
-     *         read ahead wait time
+     * @param readAheadWaitTime read ahead wait time
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setReadAheadWaitTime(int readAheadWaitTime) {
@@ -421,8 +418,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the maximum outstanding read ahead entries
      *
-     * @param readAheadMaxEntries
-     *          session timeout.
+     * @param readAheadMaxEntries session timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setReadAheadMaxEntries(int readAheadMaxEntries) {
@@ -481,8 +477,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set lock timeout
      *
-     * @param lockTimeout
-     *          lock timeout.
+     * @param lockTimeout lock timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setLockTimeout(long lockTimeout) {
@@ -502,8 +497,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set BK client read timeout
      *
-     * @param readTimeout
-     *          read timeout.
+     * @param readTimeout read timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setBKClientReadTimeout(int readTimeout) {
@@ -523,8 +517,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set BK client read timeout
      *
-     * @param writeTimeout
-     *          write timeout.
+     * @param writeTimeout write timeout.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setBKClientWriteTimeout(int writeTimeout) {
@@ -535,10 +528,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set if we should sanity check before deleting
      *
-     * @param esanityCheckDeletes check before deleting
+     * @param sanityCheckDeletes check before deleting
+     * @return distributed log configuration
      */
-    public DistributedLogConfiguration setSanityCheckDeletes(boolean esanityCheckDeletes) {
-        setProperty(BKDL_SANITYCHECK_BEFORE_DELETE, esanityCheckDeletes);
+    public DistributedLogConfiguration setSanityCheckDeletes(boolean sanityCheckDeletes) {
+        setProperty(BKDL_SANITYCHECK_BEFORE_DELETE, sanityCheckDeletes);
         return this;
     }
 

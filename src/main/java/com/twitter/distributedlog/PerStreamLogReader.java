@@ -21,45 +21,41 @@ import java.io.Closeable;
 import java.io.IOException;
 
 /**
- * A generic abstract class to support reading edits log data from 
+ * A generic abstract class to support reading edits log data from
  * persistent storage.
- * 
+ * <p/>
  * It should stream bytes from the storage exactly as they were written
  * into the #{@link PerStreamLogWriter}.
  */
 public interface PerStreamLogReader extends Closeable {
-  /** 
-   * @return the first transaction which will be found in this stream
-   */
-  public long getFirstTxId() throws IOException;
-  
-  /**
-   * Close the stream.
-   * @throws IOException if an error occurred while closing
-   */
-  public void close() throws IOException;
+    /**
+     * @return the first transaction which will be found in this stream
+     */
+    public long getFirstTxId() throws IOException;
 
-  /** 
-   * Read an operation from the stream
-   * @return an operation from the stream or null if at end of stream
-   * @throws IOException if there is an error reading from the stream
-   */
-  public LogRecord readOp() throws IOException;
+    /**
+     * Read an operation from the stream
+     *
+     * @return an operation from the stream or null if at end of stream
+     * @throws IOException if there is an error reading from the stream
+     */
+    public LogRecord readOp() throws IOException;
 
-  /**
-   * Get the layout version of the data in the stream.
-   * @return the layout version of the ops in the stream.
-   * @throws IOException if there is an error reading the version
-   */
-  public int getVersion() throws IOException;
+    /**
+     * Get the layout version of the data in the stream.
+     *
+     * @return the layout version of the ops in the stream.
+     * @throws IOException if there is an error reading the version
+     */
+    public int getVersion() throws IOException;
 
-  /**
-   * Return the size of the current edits log.
-   */
-  public long length() throws IOException;
-  
-  /**
-   * Return true if this stream is in progress, false if it is finalized.
-   */
-  public boolean isInProgress();
+    /**
+     * Return the size of the current edits log.
+     */
+    public long length() throws IOException;
+
+    /**
+     * Return true if this stream is in progress, false if it is finalized.
+     */
+    public boolean isInProgress();
 }

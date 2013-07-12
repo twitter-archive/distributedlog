@@ -19,7 +19,6 @@ package com.twitter.distributedlog;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.net.URI;
 
 
 /**
@@ -31,23 +30,38 @@ import java.net.URI;
  */
 public interface DistributedLogManager extends Closeable {
     /**
-     * Begin writing to the log stream identified by the name
+     * Begin writing to multiple partitions of the log stream identified by the name
      *
-     * @param name  - the name of the log stream to write to
      * @return the writer interface to generate log records
      */
     public PartitionAwareLogWriter startLogSegment() throws IOException;
 
     /**
+     * Begin writing to the log stream identified by the name
+     *
+     * @return the writer interface to generate log records
+     */
+    public LogWriter startLogSegmentNonPartitioned() throws IOException;
+
+    /**
      * Get the input stream starting with fromTxnId for the specified log
      *
-     * @param name  - the name of the log stream to read from
      * @param partition – the partition within the log stream to read from
      * @param fromTxnId - the first transaction id we want to read
      * @return the stream starting with transaction fromTxnId
      * @throws IOException if a stream cannot be found.
      */
     public LogReader getInputStream(PartitionId partition, long fromTxnId)
+        throws IOException;
+
+    /**
+     * Get the input stream starting with fromTxnId for the specified log
+     *
+     * @param fromTxnId - the first transaction id we want to read
+     * @return the stream starting with transaction fromTxnId
+     * @throws IOException if a stream cannot be found.
+     */
+    public LogReader getInputStream(long fromTxnId)
         throws IOException;
 
     /**
@@ -61,6 +75,17 @@ public interface DistributedLogManager extends Closeable {
     public long getTxIdNotLaterThan(PartitionId partition, long fromTxnId)
         throws IOException;
 
+    public long getTxIdNotLaterThan(long fromTxnId)
+        throws IOException;
+
+
+    public long getFirstTxId(PartitionId partition) throws IOException;
+
+    public long getFirstTxId() throws IOException;
+
+    public long getLastTxId(PartitionId partition) throws IOException;
+
+    public long getLastTxId() throws IOException;
 
     /**
      * Delete all the partitions of the specified log

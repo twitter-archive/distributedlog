@@ -5,13 +5,10 @@ import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerEntry;
-
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +48,7 @@ public class LedgerHandleCache {
             LOG.error("Ledger Handle Cache open ledger hit ZK exception for ledger " + ledgerDesc.getLedgerId(), bkzkException);
             throw bkzkException;
         } catch (Exception e) {
-            LOG.error("Ledger Handle Cache open ledger failed for partition " + ledgerDesc.getLedgerId(), e);
+            LOG.error("Ledger Handle Cache open ledger failed for partition {}", ledgerDesc.getLedgerId(), e);
             throw new IOException("Could not open ledger for " + ledgerDesc.getLedgerId(), e);
         }
         refhandle.addRef();
