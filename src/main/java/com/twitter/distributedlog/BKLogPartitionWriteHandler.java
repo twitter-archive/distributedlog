@@ -57,7 +57,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                  DistributedLogConfiguration conf,
                                  URI uri,
                                  ZooKeeperClient zkcShared,
-                                 BookKeeper bkcShared) throws IOException {
+                                 BookKeeperClient bkcShared) throws IOException {
         super(name, partition, conf, uri, zkcShared, bkcShared);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
@@ -136,7 +136,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     LOG.debug("Ledger already closed {}", lce);
                 }
             }
-            currentLedger = bkc.createLedger(ensembleSize, quorumSize,
+            currentLedger = bkc.get().createLedger(ensembleSize, quorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes());
             String znodePath = inprogressZNode(txId);
@@ -161,7 +161,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     long id = currentLedger.getId();
                     currentLedger.close();
-                    bkc.deleteLedger(id);
+                    bkc.get().deleteLedger(id);
                 } catch (Exception e2) {
                     //log & ignore, an IOException will be thrown soon
                     LOG.error("Error closing ledger", e2);
@@ -269,7 +269,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         if (recovered) {
             return;
         }
-        LOG.info("Initiating Recovery For {}:{}", name, partition);
+        LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
         lock.acquire("RecoverIncompleteSegments");
         synchronized (this) {
             try {
@@ -290,7 +290,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     }
 
                     completeAndCloseLogSegment(l.getFirstTxId(), endTxId);
-                    LOG.info("Recovered {} LastTxId:{}", partition, endTxId);
+                    LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
 
                 }
                 if (lastLedgerRollingTimeMillis < 0) {
@@ -317,7 +317,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         try {
             deleteLock.acquire("DeleteLog");
         } catch (DistributedReentrantLock.LockingException lockExc) {
-            throw new IOException("deleteLog could not acquire exclusive lock on the partition" + name + ":" + partition);
+            throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
         }
 
         try {
@@ -374,7 +374,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     else {
                         LOG.info("Deleting ledger for {}", l);
                         Stat stat = zkc.get().exists(l.getZkPath(), false);
-                        bkc.deleteLedger(l.getLedgerId());
+                        bkc.get().deleteLedger(l.getLedgerId());
                         zkc.get().delete(l.getZkPath(), stat.getVersion());
                     }
                 } catch (InterruptedException ie) {
@@ -396,7 +396,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     LOG.info("Deleting ledger for {}", l);
                     Stat stat = zkc.get().exists(l.getZkPath(), false);
-                    bkc.deleteLedger(l.getLedgerId());
+                    bkc.get().deleteLedger(l.getLedgerId());
                     zkc.get().delete(l.getZkPath(), stat.getVersion());
                 } catch (InterruptedException ie) {
                     LOG.error("Interrupted while purging " + l, ie);

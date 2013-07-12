@@ -33,12 +33,6 @@ public interface PerStreamLogReader extends Closeable {
    */
   public long getFirstTxId() throws IOException;
   
-  /** 
-   * @return the last transaction which will be found in this stream
-   */
-  public long getLastTxId() throws IOException;
-
-
   /**
    * Close the stream.
    * @throws IOException if an error occurred while closing
@@ -52,24 +46,12 @@ public interface PerStreamLogReader extends Closeable {
    */
   public LogRecord readOp() throws IOException;
 
-  /** 
+  /**
    * Get the layout version of the data in the stream.
    * @return the layout version of the ops in the stream.
    * @throws IOException if there is an error reading the version
    */
   public int getVersion() throws IOException;
-
-  /**
-   * Get the "position" of in the stream. This is useful for 
-   * debugging and operational purposes.
-   *
-   * Different stream types can have a different meaning for 
-   * what the position is. For file streams it means the byte offset
-   * from the start of the file.
-   *
-   * @return the position in the stream
-   */
-  public long getPosition();
 
   /**
    * Return the size of the current edits log.

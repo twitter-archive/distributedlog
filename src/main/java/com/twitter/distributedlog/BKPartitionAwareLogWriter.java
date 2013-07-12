@@ -71,11 +71,13 @@ class BKPartitionAwareLogWriter implements PartitionAwareLogWriter, ZooKeeperCli
 
     synchronized private BKPerStreamLogWriter getLedgerWriter (PartitionId partition, long startTxId) throws IOException {
         BKPerStreamLogWriter ledgerWriter = partitionToWriter.get(partition);
+        long numFlushes = 0;
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
         if ((null != ledgerWriter) && (ledgerWriter.isStreamInError() || forceRecovery)) {
             // Close the ledger writer so that we will recover and start a new log segment
+            numFlushes = ledgerWriter.getNumFlushes();
             ledgerWriter.close();
             ledgerWriter = null;
             partitionToWriter.remove(partition);
@@ -90,14 +92,17 @@ class BKPartitionAwareLogWriter implements PartitionAwareLogWriter, ZooKeeperCli
 
         if (null == ledgerWriter) {
             ledgerWriter = getWriteLedgerHandler(partition, true).startLogSegment(startTxId);
+            ledgerWriter.setNumFlushes(numFlushes);
             partitionToWriter.put(partition, ledgerWriter);
         }
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(partition, false);
         if (ledgerManager.shouldStartNewSegment() || forceRolling) {
             long lastTxId = ledgerWriter.closeToFinalize();
+            numFlushes = ledgerWriter.getNumFlushes();
             ledgerManager.completeAndCloseLogSegment(lastTxId);
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
+            ledgerWriter.setNumFlushes(numFlushes);
             partitionToWriter.put(partition, ledgerWriter);
 
             long minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
@@ -160,6 +165,12 @@ class BKPartitionAwareLogWriter implements PartitionAwareLogWriter, ZooKeeperCli
         return highestTransactionId;
     }
 
+    @Override
+    public long flushAndSync() throws IOException {
+        return flushAndSync(true, true);
+    }
+
+
     /**
      * Flush and sync all data that is ready to be flush
      * {@link #setReadyToFlush()} into underlying persistent store.
@@ -171,15 +182,44 @@ class BKPartitionAwareLogWriter implements PartitionAwareLogWriter, ZooKeeperCli
      * @throws IOException
      */
     @Override
-    public long flushAndSync() throws IOException {
+    public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
         checkClosedOrInError("flushAndSync");
+
+        LOG.info("FlushAndSync Started");
+
         long highestTransactionId = 0;
+        long totalFlushes = 0;
+        long minTransmitSize = Long.MAX_VALUE;
+        long maxTransmitSize = Long.MIN_VALUE;
+        long totalAddConfirmed = 0;
+
         Collection<Map.Entry<PartitionId, BKPerStreamLogWriter>> entrySet = partitionToWriter.entrySet();
-        for(Map.Entry<PartitionId, BKPerStreamLogWriter> entry : entrySet) {
-            entry.getValue().flushAndSyncPhaseOne();
+
+        if (parallel || !waitForVisibility) {
+            for(Map.Entry<PartitionId, BKPerStreamLogWriter> entry : entrySet) {
+                highestTransactionId = Math.max(highestTransactionId, entry.getValue().flushAndSyncPhaseOne());
+            }
         }
+
         for(Map.Entry<PartitionId, BKPerStreamLogWriter> entry : entrySet) {
-            highestTransactionId = Math.max(highestTransactionId, entry.getValue().flushAndSyncPhaseTwo());
+            if (waitForVisibility) {
+                if (parallel) {
+                    highestTransactionId = Math.max(highestTransactionId, entry.getValue().flushAndSyncPhaseTwo());
+                } else {
+                    highestTransactionId = Math.max(highestTransactionId, entry.getValue().flushAndSync());
+                }
+            }
+            totalFlushes += entry.getValue().getNumFlushes();
+            minTransmitSize = Math.min(minTransmitSize, entry.getValue().getAverageTransmitSize());
+            maxTransmitSize = Math.max(maxTransmitSize, entry.getValue().getAverageTransmitSize());
+            totalAddConfirmed += entry.getValue().getLastAddConfirmed();
+        }
+
+        if (entrySet.size() > 0) {
+            LOG.info("FlushAndSync Completed with {} flushes and add Confirmed {}", totalFlushes, totalAddConfirmed);
+            LOG.info("Transmission Size Min {} Max {}", minTransmitSize, maxTransmitSize);
+        } else {
+            LOG.info("FlushAndSync Completed - Nothing to Flush");
         }
         return highestTransactionId;
     }

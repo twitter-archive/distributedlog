@@ -27,7 +27,7 @@ public class LogReadException extends IOException {
 
   private static final long serialVersionUID = 1L;
 
-  public LogReadException(String message, Throwable cause) {
-    super(message, cause);
+  public LogReadException(String message) {
+    super(message);
   }
 }

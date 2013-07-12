@@ -19,7 +19,6 @@ package com.twitter.distributedlog;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Enumeration;
@@ -37,23 +36,21 @@ class BKPerStreamLogReader implements PerStreamLogReader {
   static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
   private final long firstTxId;
-  protected long lastTxId;
   private final int logVersion;
   protected boolean inProgress;
+  protected boolean isExhausted;
   protected LedgerDescriptor ledgerDescriptor;
   protected LedgerDataAccessor ledgerDataAccessor;
-  private LogRecord currLogRec;
   private final boolean dontSkipControl;
 
   protected LedgerInputStream lin;
   protected LogRecord.Reader reader;
-  protected PositionTrackingInputStream tracker;
 
   protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata) {
       this.firstTxId = metadata.getFirstTxId();
-      this.lastTxId = metadata.getLastTxId();
       this.logVersion = metadata.getVersion();
       this.inProgress = metadata.isInProgress();
+      this.isExhausted = false;
       this.dontSkipControl = false;
   }
 
@@ -67,28 +64,18 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                        long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor,boolean dontSkipControl)
       throws IOException {
       this.firstTxId = metadata.getFirstTxId();
-      this.lastTxId = metadata.getLastTxId();
       this.logVersion = metadata.getVersion();
       this.inProgress = metadata.isInProgress();
       this.dontSkipControl = dontSkipControl;
       positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
 
   }
-  protected void positionInputStream(LedgerDescriptor desc, long firstBookKeeperEntry)
-      throws IOException {
-      positionInputStream(desc, null, firstBookKeeperEntry);
-  }
 
   protected void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
       throws IOException {
     this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
-    this.tracker = new PositionTrackingInputStream(new BufferedInputStream(lin));
-    this.reader = new LogRecord.Reader(new DataInputStream(tracker), logVersion);
-
-    do {
-      currLogRec = reader.readOp();
-    } while ((currLogRec != null) && !this.dontSkipControl && currLogRec.isControl());
-
+    this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
+    this.isExhausted = false;
     this.ledgerDescriptor = desc;
     this.ledgerDataAccessor = ledgerDataAccessor;
   }
@@ -100,25 +87,22 @@ class BKPerStreamLogReader implements PerStreamLogReader {
   }
 
   @Override
-  public long getLastTxId() throws IOException {
-    return lastTxId;
-  }
-  
-  @Override
   public int getVersion() throws IOException {
     return logVersion;
   }
 
   @Override
   public LogRecord readOp() throws IOException {
-    LogRecord toRet = currLogRec;
-    if (null != currLogRec) {
+    LogRecord toRet = null;
+    if (!isExhausted) {
       do {
-        currLogRec = reader.readOp();
-      } while ((currLogRec != null) && !dontSkipControl && currLogRec.isControl());
+          toRet = reader.readOp();
+          isExhausted = (toRet == null);
+      } while ((toRet != null) && !dontSkipControl && toRet.isControl());
     }
     return toRet;
   }
+
 
   @Override
   public void close() throws IOException {
@@ -127,11 +111,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     } catch (Exception e) {
       throw new IOException("Exception closing ledger", e);
     }
-  }
-
-  @Override
-  public long getPosition() {
-    return tracker.getPos();
   }
 
   @Override
@@ -151,11 +130,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
    * with a binary search over bk entries
    */
   public boolean skipTo(long txId) throws IOException {
-    while ((null!= currLogRec) && (currLogRec.getTransactionId() < txId)) {
-        currLogRec = reader.readOp();
-    }
-
-    return (null != currLogRec);
+      isExhausted = !reader.skipTo(txId);
+      return !isExhausted;
   }
 
   /**
@@ -254,53 +230,4 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.ledgerDataAccessor = ledgerDataAccessor;
     }
   }
-
-    /**
-     * Stream wrapper that keeps track of the current stream position.
-     */
-    protected static class PositionTrackingInputStream extends FilterInputStream {
-        private long curPos = 0;
-        private long markPos = -1;
-
-        public PositionTrackingInputStream(InputStream is) {
-            super(is);
-        }
-
-        public int read() throws IOException {
-            int ret = super.read();
-            if (ret != -1) curPos++;
-            return ret;
-        }
-
-        public int read(byte[] data) throws IOException {
-            int ret = super.read(data);
-            if (ret > 0) curPos += ret;
-            return ret;
-        }
-
-        public int read(byte[] data, int offset, int length) throws IOException {
-            int ret = super.read(data, offset, length);
-            if (ret > 0) curPos += ret;
-            return ret;
-        }
-
-        public void mark(int limit) {
-            super.mark(limit);
-            markPos = curPos;
-        }
-
-        public void reset() throws IOException {
-            if (markPos == -1) {
-                throw new IOException("Not marked!");
-            }
-            super.reset();
-            curPos = markPos;
-            markPos = -1;
-        }
-
-        public long getPos() {
-            return curPos;
-        }
-    }
-
 }

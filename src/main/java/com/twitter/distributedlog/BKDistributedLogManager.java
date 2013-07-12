@@ -3,17 +3,14 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
-import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -28,7 +25,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final URI uri;
     private boolean closed = true;
     private ExecutorService cbThreadPool = null;
-    private BookKeeper bkcShared = null;
+    private BookKeeperClient bkcShared = null;
     private ZooKeeperClient zkcShared = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
@@ -42,11 +39,11 @@ class BKDistributedLogManager implements DistributedLogManager {
             zkcShared = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, zkConnect);
 
             if (!conf.getSeparateBKClients()) {
-                ClientConfiguration bkConfig = new ClientConfiguration();
-                bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
-                bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
-                bkConfig.setZkLedgersRootPath(conf.getBKLedgersPath());
-                this.bkcShared = new BookKeeper(bkConfig, zkcShared.get());
+                if (conf.getShareZKClientWithBKC()) {
+                    this.bkcShared = new BookKeeperClient(conf, zkcShared, String.format("%s:shared", name));
+                } else {
+                    this.bkcShared = new BookKeeperClient(conf, zkConnect, String.format("%s:shared", name));
+                }
             }
             closed = false;
         } catch (InterruptedException ie) {
@@ -58,9 +55,13 @@ class BKDistributedLogManager implements DistributedLogManager {
         }
     }
 
-    public void checkClosed (String operation) throws AlreadyClosedException {
+    public void checkClosedOrInError(String operation) throws AlreadyClosedException {
         if (closed) {
             throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
+        }
+
+        if (null != bkcShared) {
+            bkcShared.checkClosedOrInError();
         }
     }
 
@@ -81,7 +82,7 @@ class BKDistributedLogManager implements DistributedLogManager {
      */
     @Override
     public PartitionAwareLogWriter startLogSegment() throws IOException {
-        checkClosed("startLogSegment");
+        checkClosedOrInError("startLogSegment");
         if (null == cbThreadPool) {
             cbThreadPool = Executors.newFixedThreadPool(1, new DaemonThreadFactory());
         }
@@ -99,8 +100,8 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public LogReader getInputStream(PartitionId partition, long fromTxnId)
         throws IOException {
-        checkClosed("getInputStream");
-        return new BKContinuousLogReader(this, partition, fromTxnId, conf.getEnableReadAhead());
+        checkClosedOrInError("getInputStream");
+        return new BKContinuousLogReader(this, partition, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime());
     }
 
     /**
@@ -114,7 +115,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public long getTxIdNotLaterThan(PartitionId partition, long thresholdTxId)
         throws IOException {
-        checkClosed("getTxIdNotLaterThan");
+        checkClosedOrInError("getTxIdNotLaterThan");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(partition);
         long returnValue = ledgerHandler.getTxIdNotLaterThan(thresholdTxId);
         ledgerHandler.close();
@@ -221,7 +222,7 @@ class BKDistributedLogManager implements DistributedLogManager {
      * @throws IOException if purging fails
      */
     public void purgeLogsForPartitionOlderThan(PartitionId partition, long minTxIdToKeep) throws IOException {
-        checkClosed("purgeLogsOlderThan");
+        checkClosedOrInError("purgeLogsOlderThan");
         BKLogPartitionWriteHandler ledgerHandler = createWriteLedgerHandler(partition);
         ledgerHandler.purgeLogsOlderThan(minTxIdToKeep);
         ledgerHandler.close();
@@ -234,7 +235,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     public void close() throws IOException {
         try {
             if (null != bkcShared) {
-                bkcShared.close();
+                bkcShared.release();
             }
             if (null != zkcShared) {
                 zkcShared.close();

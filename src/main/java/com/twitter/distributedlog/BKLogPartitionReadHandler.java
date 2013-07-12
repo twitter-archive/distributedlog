@@ -30,6 +30,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final LedgerHandleCache handleCache;
 
     private ReadAheadThread readAheadThread = null;
+    private boolean readAheadError = false;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -39,8 +40,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                  DistributedLogConfiguration conf,
                                  URI uri,
                                  ZooKeeperClient zkcShared,
-                                 BookKeeper bkcShared) throws IOException {
+                                 BookKeeperClient bkcShared) throws IOException {
         super(name, partition, conf, uri, zkcShared, bkcShared);
+
         handleCache = new LedgerHandleCache(this.bkc, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);
     }
@@ -60,10 +62,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         } catch (KeeperException ke) {
             LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
 
         if (logExists) {
@@ -94,10 +96,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (s.skipTo(fromTxId)) {
                             return s;
                         } else {
+                            s.close();
                             return null;
                         }
                     } catch (Exception e) {
-                        LOG.error("Could not open ledger for partition " + partition + " for startTxId " + fromTxId, e);
+                        LOG.error("Could not open ledger for partition " + getFullyQualifiedName() + " for startTxId " + fromTxId, e);
                         throw new IOException("Could not open ledger for " + fromTxId, e);
                     }
                 } else {
@@ -159,6 +162,16 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return handleCache;
     }
 
+    public void setReadAheadError() {
+        readAheadError = true;
+    }
+
+    public void checkClosedOrInError() throws LogReadException {
+        if (readAheadError) {
+            throw new LogReadException("ReadAhead Thread encountered exceptions");
+        }
+    }
+
     private class ReadAheadThread extends Thread implements Watcher {
         volatile boolean running = true;
 
@@ -175,6 +188,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
         private Long notificationObject = new Long(0);
+        private final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
 
         public ReadAheadThread(PartitionId partition,
                                BKLogPartitionReadHandler ledgerManager,
@@ -197,9 +211,30 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         @Override
         public void run() {
             LOG.info("ReadAheadThread Thread started for partition {}", partition);
+            boolean encounteredException = false;
+
+            // Set when we encounter bookkeeper exceptions
+            // and reset when we do any successful operation that requires network access by
+            // bookkeeper
+            int bkcZkExceptions = 0;
 
             while(running) {
                 try {
+                    if (encounteredException) {
+                        // If we have been hitting exceptions continuously for
+                        // BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS, notify
+                        if (bkcZkExceptions > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 /readAheadWaitTime)) {
+                            bkLedgerManager.setReadAheadError();
+                        }
+
+                        // Backoff before resuming
+                        synchronized(notificationObject) {
+                            notificationObject.wait(readAheadWaitTime/4);
+                        }
+                        // We must always reinitialize metadata if the last attempt to read failed.
+                        reInitializeMetadata = true;
+                        encounteredException = false;
+                    }
                     boolean inProgressChanged = false;
                     if (reInitializeMetadata || (null == currentMetadata)) {
                         reInitializeMetadata = false;
@@ -226,11 +261,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
                         if (null == currentLH) {
                             currentLH = bkLedgerManager.getHandleCache().openLedger(currentMetadata.getLedgerId(), false);
-
+                            bkcZkExceptions = 0;
                         } else {
                             long lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
                             if (lastAddConfirmed < nextReadPosition.getEntryId()) {
                                 bkLedgerManager.getHandleCache().readLastConfirmed(currentLH);
+                                bkcZkExceptions = 0;
                                 LOG.debug("Advancing Last Add Confirmed {}", bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH));
                             }
                         }
@@ -250,6 +286,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             }
                         } else {
                             currentLH = bkLedgerManager.getHandleCache().openLedger(currentMetadata.getLedgerId(), true);
+                            bkcZkExceptions = 0;
                         }
                     }
 
@@ -262,6 +299,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 = bkLedgerManager.getHandleCache().readEntries(currentLH, nextReadPosition.getEntryId(),
                                 Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + readAheadBatchSize - 1)));
                             if (entries.hasMoreElements()) {
+                                bkcZkExceptions = 0;
                                 nextReadPosition.advance();
                                 LedgerEntry e = entries.nextElement();
                                 ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
@@ -283,13 +321,17 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                   // exit silently
                 } catch (IOException ioExc) {
                     LOG.debug("ReadAhead Thread Encountered an exception ", ioExc);
-                    reInitializeMetadata = true;
+                    encounteredException = true;
+                } catch (BKException.ZKException bkzke) {
+                    LOG.info("ReadAhead Thread {} Encountered a bookkeeper exception ", getFullyQualifiedName(), bkzke);
+                    encounteredException = true;
+                    bkcZkExceptions++;
                 } catch (Exception e) {
-                    LOG.error("ReadAhead Thread Encountered an unexpected exception ", e);
-                    reInitializeMetadata = true;
+                    LOG.info("ReadAhead Thread {} Encountered an unexpected exception ", getFullyQualifiedName(), e);
+                    encounteredException = true;
                 }
             }
-            LOG.info("ReadAheadThread Thread stopped for partition {}", partition);
+            LOG.info("ReadAheadThread Thread stopped for {}", getFullyQualifiedName());
         }
 
         // shutdown sync thread

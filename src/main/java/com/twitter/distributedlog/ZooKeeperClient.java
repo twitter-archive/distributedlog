@@ -70,8 +70,8 @@ public class ZooKeeperClient {
   private final String zooKeeperServers;
   // GuardedBy "this", but still volatile for tests, where we want to be able to see writes
   // made from within long synchronized blocks.
-  private volatile ZooKeeper zooKeeper;
-  private SessionState sessionState;
+  private volatile ZooKeeper zooKeeper = null;
+  private SessionState sessionState = null;
 
   private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
 

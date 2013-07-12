@@ -63,9 +63,11 @@ class BKPerStreamLogWriter
   private AtomicInteger shouldFlushControl = new AtomicInteger(0);
   private final int flushTimeoutSeconds;
   private int preFlushCounter;
+  private long numFlushes = 0;
+  private long numFlushesSinceRestart = 0;
+  private long numBytes = 0;
 
-
-    private final Queue<DataOutputBuffer> bufferQueue
+  private final Queue<DataOutputBuffer> bufferQueue
     = new ConcurrentLinkedQueue<DataOutputBuffer>();
 
   /**
@@ -196,7 +198,7 @@ class BKPerStreamLogWriter
   synchronized public long setReadyToFlush() throws IOException {
     lock.checkWriteLock();
 
-    if(transmit()) {
+    if(transmit(false)) {
       shouldFlushControl.incrementAndGet();
     }
 
@@ -209,7 +211,7 @@ class BKPerStreamLogWriter
       return flushAndSyncPhaseTwo();
   }
 
-  public void flushAndSyncPhaseOne () throws IOException {
+  public long flushAndSyncPhaseOne () throws IOException {
       lock.checkWriteLock();
       flushAndSyncInternal();
 
@@ -221,13 +223,14 @@ class BKPerStreamLogWriter
       if (preFlushCounter > 0) {
           try {
               writeControlLogRecord();
-              transmit();
+              transmit(true);
           } catch (Exception exc) {
               shouldFlushControl.addAndGet(preFlushCounter);
               preFlushCounter = 0;
               throw new IOException("Flush error", exc);
           }
       }
+      return lastTxIdAcknowledged;
   }
 
   public long flushAndSyncPhaseTwo () throws IOException {
@@ -240,6 +243,7 @@ class BKPerStreamLogWriter
           } finally {
               preFlushCounter = 0;
           }
+          numFlushes++;
       }
       return lastTxIdAcknowledged;
   }
@@ -287,7 +291,7 @@ class BKPerStreamLogWriter
    * Synchronised at the FSEditLog level. #write() and #setReadyToFlush()
    * are never called at the same time.
    */
-  synchronized private boolean transmit() throws IOException {
+  synchronized private boolean transmit(boolean isControl) throws IOException {
     lock.checkWriteLock();
 
     if (!transmitResult.compareAndSet(BKException.Code.OK,
@@ -297,12 +301,19 @@ class BKPerStreamLogWriter
           + " Error code : (" + transmitResult.get()
           + ") " + BKException.getMessage(transmitResult.get()));
     }
+
     if (bufCurrent.getLength() > 0) {
       DataOutputBuffer buf = bufCurrent;
       outstandingBytes = 0;
       bufCurrent = getBuffer();
       writer = new LogRecord.Writer(bufCurrent);
       lastTxIdFlushed = lastTxId;
+      numFlushes++;
+
+      if (!isControl) {
+        numBytes += buf.getLength();
+        numFlushesSinceRestart++;
+      }
 
       lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
                        this, buf);
@@ -332,4 +343,24 @@ class BKPerStreamLogWriter
       }
     }
   }
+
+    public long getNumFlushes() {
+        return numFlushes;
+    }
+
+    public void setNumFlushes(long numFlushes) {
+        this.numFlushes = numFlushes;
+    }
+
+    public long getAverageTransmitSize() {
+        if (numFlushesSinceRestart > 0) {
+            return numBytes/numFlushesSinceRestart;
+        }
+
+        return 0;
+    }
+
+    public long getLastAddConfirmed() {
+        return lh.getLastAddConfirmed();
+    }
 }

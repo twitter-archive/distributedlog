@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import static org.junit.Assert.*;
 import static org.junit.Assert.assertEquals;
 
+import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.junit.Test;
 import org.junit.Before;
 import org.junit.After;
@@ -45,11 +46,13 @@ public class TestBookKeeperDistributedLogManager {
     protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
+    private static LocalBookKeeper.ConnectedZKServer zks;
     static int numBookies = 3;
 
     @BeforeClass
     public static void setupBookkeeper() throws Exception {
-        bkutil = new LocalDLMEmulator(numBookies);
+        zks = LocalBookKeeper.runZookeeper(1000, 7000);
+        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
         bkutil.start();
     }
 
@@ -60,7 +63,7 @@ public class TestBookKeeperDistributedLogManager {
 
     @Before
     public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper();
+        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", 7000);
     }
 
     @After
@@ -85,6 +88,7 @@ public class TestBookKeeperDistributedLogManager {
 
         assertNotNull(zkc.exists(zkpath, false));
         assertNull(zkc.exists(bkdlm.inprogressZNode(1), false));
+        bkdlm.close();
     }
 
     @Test
@@ -102,6 +106,7 @@ public class TestBookKeeperDistributedLogManager {
 
         long numTrans = DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(conf, name), new PartitionId(0), 1);
         assertEquals(100, numTrans);
+        bkdlm.close();
     }
 
     @Test
@@ -145,6 +150,8 @@ public class TestBookKeeperDistributedLogManager {
         }
         assertEquals((txid-1), numTrans);
         reader.close();
+        bkdlm.close();
+        dlm.close();
     }
 
     /**
@@ -200,6 +207,7 @@ public class TestBookKeeperDistributedLogManager {
         txid = DEFAULT_SEGMENT_SIZE * 4;
         out = bkdlm.startLogSegment(txid);
         assertNotNull(out);
+        bkdlm.close();
     }
 
     @Test
@@ -232,6 +240,7 @@ public class TestBookKeeperDistributedLogManager {
         bkdlm.completeAndCloseLogSegment(1, numTransactions);
 
         assertEquals(numTransactions, DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(conf, name), new PartitionId(0), 1));
+        bkdlm.close();
     }
 
     /**
@@ -559,6 +568,7 @@ public class TestBookKeeperDistributedLogManager {
         }
         reader.close();
         assertEquals((txid - 1), numTrans);
+        dlm.close();
     }
 
     @Test
@@ -619,6 +629,7 @@ public class TestBookKeeperDistributedLogManager {
             record = reader.readNext(false);
 
         }
+        reader.close();
         reader = dlm.getInputStream(new PartitionId(1), 1);
         record = reader.readNext(false);
         lastTxId = -1;
@@ -630,7 +641,9 @@ public class TestBookKeeperDistributedLogManager {
             numTrans++;
             record = reader.readNext(false);
         }
+        reader.close();
         assertEquals((txid-1), numTrans);
+        dlm.close();
     }
 
     @Test
@@ -762,7 +775,6 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-interleaved";
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
         DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -1056,6 +1068,7 @@ public class TestBookKeeperDistributedLogManager {
         }
         assertEquals((txid - 1), numTrans);
         reader.close();
+        dlm.close();
     }
 
     @Test
@@ -1191,6 +1204,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1251,6 +1265,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1387,6 +1402,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1396,7 +1412,7 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
-        confLocal.setRetentionPeriodHours(24*7);
+        confLocal.setRetentionPeriodHours(24 * 7);
 
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);
         DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(confLocal, name);
@@ -1453,6 +1469,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1501,6 +1518,10 @@ public class TestBookKeeperDistributedLogManager {
             record = reader1.readNext(false);
         }
         assertEquals(32, numTrans);
+        reader0.close();
+        reader1.close();
+        dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1560,6 +1581,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1619,6 +1641,7 @@ public class TestBookKeeperDistributedLogManager {
         reader0.close();
         reader1.close();
         dlmreader.close();
+        dlmwrite.close();
     }
 
     @Test
@@ -1664,8 +1687,7 @@ public class TestBookKeeperDistributedLogManager {
             writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
         }
         writer.setReadyToFlush();
-        writer.flushAndSync();
-        writer.close();
+        writer.flushAndSync(false, true);
 
         LogReader reader = dlm.getInputStream(new PartitionId(0), 2);
         long numTrans = 0;
@@ -1692,7 +1714,50 @@ public class TestBookKeeperDistributedLogManager {
             numTrans++;
             record = reader.readNext(false);
         }
+        writer.close();
         reader.close();
+        dlm.close();
         assertEquals((txid - 1), numTrans);
+    }
+
+    @Test
+    public void positionReader() throws Exception {
+        String name = "distrlog-position-reader";
+        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        long numTrans = txid - 1;
+        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        for (long j = 1 ; j <= 4; j++) {
+            for (int k = 1; k <= 6; k++ ) {
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++), new PartitionId(1));
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++), new PartitionId(0));
+            }
+            writer.setReadyToFlush();
+            writer.flushAndSync();
+        }
+        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 9);
+        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 9);
+
+        LogRecord record = reader0.readNext(false);
+        while (null != record) {
+            assert((record.getTransactionId() % 2 == 0));
+            DLMTestUtil.verifyLargeLogRecord(record);
+            numTrans++;
+            record = reader0.readNext(false);
+        }
+        record = reader1.readNext(false);
+        while (null != record) {
+            assert((record.getTransactionId() % 2 == 1));
+            DLMTestUtil.verifyLargeLogRecord(record);
+            numTrans++;
+            record = reader1.readNext(false);
+        }
+        assertEquals((txid - 9), numTrans);
+        reader0.close();
+        reader1.close();
+        dlmreader.close();
+        dlmwrite.close();
     }
 }

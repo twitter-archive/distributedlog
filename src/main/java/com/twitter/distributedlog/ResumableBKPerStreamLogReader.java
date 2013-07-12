@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -22,7 +23,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private final ZooKeeperClient zkc;
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
-    private boolean reInitializeMetadata = true;
+    private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
 
     /**
      * Construct BookKeeper log record input stream.
@@ -46,11 +47,11 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return;
         }
 
-        if (isInProgress() && reInitializeMetadata) {
-            reInitializeMetadata = false;
+        if (isInProgress() && reInitializeMetadata.compareAndSet(true, false)) {
             try {
                 zkc.get().exists(zkPath, this);
             } catch (Exception exc) {
+                reInitializeMetadata.set(true);
                 LOG.debug("Unable to setup latch", exc);
             }
             for (LogSegmentLedgerMetadata l : ledgerManager.getLedgerList()) {
@@ -62,7 +63,6 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                         } catch (Exception exc) {
                             LOG.debug("Unable to remove latch", exc);
                         }
-                        lastTxId = l.getLastTxId();
                     }
                     break;
                 }
@@ -104,12 +104,12 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         shouldResume = true;
     }
 
-    synchronized public void process(WatchedEvent event) {
+    public void process(WatchedEvent event) {
         if ((event.getType() == Watcher.Event.EventType.None)
             && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
             LOG.debug("Reconnected ...");
         } else {
-            reInitializeMetadata = true;
+            reInitializeMetadata.set(true);
             LOG.debug("Node Changed");
         }
     }

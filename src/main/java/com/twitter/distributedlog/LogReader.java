@@ -24,4 +24,10 @@ public interface LogReader extends Closeable {
      * @throws IOException if there is an error reading from the stream
      */
     public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException;
+
+    /**
+     * Read the last transaction id
+     * @return the last transaction Id that was successfully returned or consumed by the reader
+     */
+    public long getLastTxId();
 }

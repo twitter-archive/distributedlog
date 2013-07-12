@@ -21,15 +21,15 @@ public class LedgerHandleCache {
     ConcurrentHashMap<LedgerDescriptor, RefCountedLedgerHandle> handlesMap =
         new ConcurrentHashMap<LedgerDescriptor, RefCountedLedgerHandle>();
 
-    private final BookKeeper bkc;
+    private final BookKeeperClient bkc;
     private final String digestpw;
 
-    LedgerHandleCache(BookKeeper bkc, String digestpw) {
+    LedgerHandleCache(BookKeeperClient bkc, String digestpw) {
         this.bkc = bkc;
         this.digestpw = digestpw;
     }
 
-    public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException {
+    public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException, BKException {
         LedgerDescriptor ledgerDesc = new LedgerDescriptor(ledgerId, fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
 
@@ -37,16 +37,19 @@ public class LedgerHandleCache {
             if (null == refhandle) {
                 refhandle = new RefCountedLedgerHandle();
                 if (!ledgerDesc.getFenced()) {
-                    refhandle.handle = bkc.openLedgerNoRecovery(ledgerDesc.getLedgerId(),
+                    refhandle.handle = bkc.get().openLedgerNoRecovery(ledgerDesc.getLedgerId(),
                         BookKeeper.DigestType.CRC32,
                         digestpw.getBytes());
                 } else {
-                    refhandle.handle = bkc.openLedger(ledgerDesc.getLedgerId(),
+                    refhandle.handle = bkc.get().openLedger(ledgerDesc.getLedgerId(),
                         BookKeeper.DigestType.CRC32,
                         digestpw.getBytes());
                 }
                 handlesMap.put(ledgerDesc, refhandle);
             }
+        } catch (BKException.ZKException bkzkException) {
+            LOG.error("Ledger Handle Cache open ledger hit ZK exception for ledger " + ledgerDesc.getLedgerId(), bkzkException);
+            throw bkzkException;
         } catch (Exception e) {
             LOG.error("Ledger Handle Cache open ledger failed for partition " + ledgerDesc.getLedgerId(), e);
             throw new IOException("Could not open ledger for " + ledgerDesc.getLedgerId(), e);

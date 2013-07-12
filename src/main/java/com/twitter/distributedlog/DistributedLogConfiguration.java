@@ -44,6 +44,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SEPARATE_BK_CLIENT = "separateBKClients";
     public static final boolean BKDL_SEPARATE_BK_CLIENT_DEFAULT = false;
 
+    public static final String BKDL_SHARE_ZK_CLIENT_WITH_BKC = "shareZKClientWithBKC";
+    public static final boolean BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT = false;
+
     public static final String BKDL_SEPARATE_ZK_CLIENT = "separateZKClients";
     public static final boolean BKDL_SEPARATE_ZK_CLIENT_DEFAULT = false;
 
@@ -263,6 +266,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public boolean getSeparateBKClients() {
         return getBoolean(BKDL_SEPARATE_BK_CLIENT, BKDL_SEPARATE_BK_CLIENT_DEFAULT);
     }
+
+    /**
+     * Set if we should share ZK client between DL and BKC
+     *
+     * @param separateBKClients should use separate BK clients
+     */
+    public DistributedLogConfiguration setShareZKClientWithBKC(boolean shareZKClientWithBKC) {
+        setProperty(BKDL_SHARE_ZK_CLIENT_WITH_BKC, shareZKClientWithBKC);
+        return this;
+    }
+
+    /**
+     * Get if we should use separate BK Clients
+     *
+     * @return should use separate BK clients
+     */
+    public boolean getShareZKClientWithBKC() {
+        return getBoolean(BKDL_SHARE_ZK_CLIENT_WITH_BKC, BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT);
+    }
+
 
     /**
      * Set if we should use separate ZK clients

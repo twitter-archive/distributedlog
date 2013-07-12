@@ -63,6 +63,10 @@ public class LogRecord {
     return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
   }
 
+  public static boolean isControl(long flags) {
+    return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
+  }
+
   public byte[] getPayload() {
     return payload;
   }
@@ -118,8 +122,10 @@ public class LogRecord {
   public static class Reader {
     private final DataInputStream in;
     private final int logVersion;
+    private static final int SKIP_BUFFER_SIZE = 512;
 
-    /**
+
+      /**
      * Construct the reader
      * @param in The stream to read from.
      */
@@ -150,6 +156,38 @@ public class LogRecord {
 
       }
       return null;
+    }
+
+    public boolean skipTo(long txId) throws IOException {
+        byte[] skipBuffer = null;
+        boolean found = false;
+        while (true) {
+            in.mark(24);
+            try {
+                in.readLong();
+                if (in.readLong() >= txId) {
+                    in.reset();
+                    found = true;
+                    break;
+                }
+                int length = in.readInt();
+                if (length < 0) {
+                    break;
+                }
+                if (null == skipBuffer) {
+                    skipBuffer = new byte[SKIP_BUFFER_SIZE];
+                }
+                int read = 0;
+                while (read < length) {
+                    int bytesToRead = Math.min(length - read, SKIP_BUFFER_SIZE);
+                    in.readFully(skipBuffer, 0 , bytesToRead);
+                    read += bytesToRead;
+                }
+            } catch (EOFException eof) {
+                break;
+            }
+        }
+        return found;
     }
   }
 }

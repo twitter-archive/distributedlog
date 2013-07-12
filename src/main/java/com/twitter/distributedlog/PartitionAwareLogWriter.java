@@ -48,4 +48,16 @@ public interface PartitionAwareLogWriter {
      * @throws IOException
      */
     public long flushAndSync() throws IOException;
+
+    /**
+     * Flush and sync all data that is ready to be flush
+     * {@link #setReadyToFlush()} into underlying persistent store.
+     *
+     * This API is optional as the writer implements a policy for automatically syncing
+     * the log records in the buffer. The buffered edits can be flushed when the buffer
+     * becomes full or a certain period of time is elapsed.
+     *
+     * @throws IOException
+     */
+    public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException;
 }

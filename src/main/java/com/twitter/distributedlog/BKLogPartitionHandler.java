@@ -77,8 +77,7 @@ public class BKLogPartitionHandler {
     protected final ZooKeeperClient zkc;
     protected final boolean separateZKClient;
     protected final DistributedLogConfiguration conf;
-    protected final BookKeeper bkc;
-    protected final boolean separateBKClient;
+    protected final BookKeeperClient bkc;
     protected final String partitionRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
@@ -92,7 +91,7 @@ public class BKLogPartitionHandler {
                                  DistributedLogConfiguration conf,
                                  URI uri,
                                  ZooKeeperClient zkcShared,
-                                 BookKeeper bkcShared) throws IOException {
+                                 BookKeeperClient bkcShared) throws IOException {
         this.name = name;
         this.partition = partition;
         this.conf = conf;
@@ -117,15 +116,14 @@ public class BKLogPartitionHandler {
             LOG.debug("Using ZK Path {}", partitionRootPath);
 
             if (null == bkcShared) {
-                ClientConfiguration bkConfig = new ClientConfiguration();
-                bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
-                bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
-                bkConfig.setZkLedgersRootPath(conf.getBKLedgersPath());
-                this.bkc = new BookKeeper(bkConfig, zkc.get());
-                separateBKClient = true;
+                if (conf.getShareZKClientWithBKC()) {
+                    this.bkc = new BookKeeperClient(conf, zkc, getFullyQualifiedName());
+                } else {
+                    this.bkc = new BookKeeperClient(conf, zkConnect, getFullyQualifiedName());
+                }
             } else {
                 this.bkc = bkcShared;
-                separateBKClient = false;
+                bkcShared.addRef();
             }
         } catch (Exception e) {
             throw new IOException("Error initializing zk", e);
@@ -136,14 +134,14 @@ public class BKLogPartitionHandler {
         throws IOException {
         try {
             if (null == zkc.get().exists(ledgerPath, false)) {
-                throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+                throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         } catch (KeeperException ke) {
             LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
@@ -193,11 +191,11 @@ public class BKLogPartitionHandler {
         }
 
         if (ledgerListDesc.size() == 0) {
-            throw new LogEmptyException("Log " + name + ":" + partition + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
 
         throw new AlreadyTruncatedTransactionException("Records prior to" + thresholdTxId +
-            " have already been deleted for log" + name + ":" + partition);
+            " have already been deleted for log" + getFullyQualifiedName());
     }
 
     protected void checkLogExists() throws IOException {
@@ -218,9 +216,8 @@ public class BKLogPartitionHandler {
 
     public void close() throws IOException {
         try {
-            if (separateBKClient) {
-                bkc.close();
-            }
+            bkc.release();
+
             if (separateZKClient) {
                 zkc.close();
             }
@@ -332,5 +329,9 @@ public class BKLogPartitionHandler {
 
         Collections.sort(ledgers, comparator);
         return ledgers;
+    }
+
+    public String getFullyQualifiedName() {
+        return String.format("%s:%s", name, partition.toString());
     }
 }

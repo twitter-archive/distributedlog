@@ -131,6 +131,7 @@ class DistributedReentrantLock {
                 synchronized(this) {
                     if (lockCount.get() <= 0) {
                         if (internalLock.isLockHeld()) {
+                            LOG.info("Lock Release {}, {}", lockpath, reason);
                             internalLock.unlock();
                         }
                     }

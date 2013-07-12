@@ -32,10 +32,18 @@ import org.apache.commons.logging.LogFactory;
  */
 class DLMTestUtil {
     protected static final Log LOG = LogFactory.getLog(DLMTestUtil.class);
-    private final static String zkEnsemble = "127.0.0.1:2181";
+    private final static byte[] payloadStatic = repeatString("abc", 512).getBytes();
+
+    static String repeatString(String s, int n) {
+        String ret = s;
+        for(int i = 1; i < n; i++) {
+            ret += s;
+        }
+        return ret;
+    }
 
     static URI createDLMURI(String path) throws Exception {
-        return URI.create("distributedlog://" + zkEnsemble + path);
+        return LocalDLMEmulator.createDLMURI("127.0.0.1:7000", path);
     }
 
     static BKLogPartitionWriteHandler createNewBKDLM(DistributedLogConfiguration conf,
@@ -63,17 +71,39 @@ class DLMTestUtil {
             verifyLogRecord(record);
             record = reader.readNext(false);
         }
-
+        reader.close();
         return numLogRecs;
     }
 
-
     static LogRecord getLogRecordInstance(long txId) {
-        return new LogRecord(txId, (new Long(txId)).toString().getBytes());
+        return new LogRecord(txId, generatePayload(txId));
     }
 
     static void verifyLogRecord(LogRecord record) {
-        assertEquals((new Long(record.getTransactionId())).toString().getBytes().length, record.getPayload().length);
-        assertArrayEquals((new Long(record.getTransactionId())).toString().getBytes(), record.getPayload());
+        assertEquals(generatePayload(record.getTransactionId()).length, record.getPayload().length);
+        assertArrayEquals(generatePayload(record.getTransactionId()), record.getPayload());
+        verifyPayload(record.txid, record.getPayload());
     }
+
+    static byte[] generatePayload(long txId) {
+        return String.format("%d;%d", txId, txId).getBytes();
+    }
+
+    static void verifyPayload(long txId, byte[] payload) {
+        String[] txIds = new String(payload).split(";");
+        assertEquals(Long.valueOf(txIds[0]), Long.valueOf(txIds[0]));
+    }
+
+    static LogRecord getLargeLogRecordInstance(long txId) {
+        return new LogRecord(txId, payloadStatic);
+    }
+
+    static void verifyLargeLogRecord(LogRecord record) {
+        verifyLargeLogRecord(record.getPayload());
+    }
+
+    static void verifyLargeLogRecord(byte[] payload) {
+        assertArrayEquals(payloadStatic, payload);
+    }
+
 }

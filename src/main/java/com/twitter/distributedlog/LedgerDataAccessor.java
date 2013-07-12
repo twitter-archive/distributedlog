@@ -19,6 +19,7 @@ public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
 
     private boolean readAheadEnabled = false;
+    private int readAheadWaitTime = 100;
     private final LedgerHandleCache ledgerHandleCache;
     private Long notificationObject = null;
     private AtomicLong readAheadMisses = new AtomicLong(0);
@@ -33,8 +34,9 @@ public class LedgerDataAccessor {
         this.notificationObject = notificationObject;
     }
 
-    public void setReadAheadEnabled(boolean enabled) {
+    public void setReadAheadEnabled(boolean enabled, int waitTime) {
         readAheadEnabled = enabled;
+        readAheadWaitTime = waitTime;
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
@@ -65,7 +67,7 @@ public class LedgerDataAccessor {
             }
             synchronized (value) {
                 if (null == value.getLedgerEntry()) {
-                    value.wait(100);
+                    value.wait(readAheadWaitTime);
                 }
             }
             if (null != value.getLedgerEntry()) {

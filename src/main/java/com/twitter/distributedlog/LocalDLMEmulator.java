@@ -41,22 +41,39 @@ import org.slf4j.LoggerFactory;
  */
 public class LocalDLMEmulator {
     protected static final Logger LOG = LoggerFactory.getLogger(LocalDLMEmulator.class);
+    protected static final int DEFAULT_BOOKIE_INITIAL_PORT = 0; // Use ephemeral ports
 
     int nextPort = 6000; // next port for additionally created bookies
     private Thread bkthread = null;
-    private final static String zkEnsemble = "127.0.0.1:2181";
+    private final String zkEnsemble;
     int numBookies;
+    private int initialBookiePort;
 
     public LocalDLMEmulator(final int numBookies) throws Exception {
+        this(numBookies, true, "127.0.0.1", 2181, DEFAULT_BOOKIE_INITIAL_PORT);
+    }
+
+    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort) throws Exception {
+        this(numBookies, false, zkHost, zkPort, DEFAULT_BOOKIE_INITIAL_PORT);
+    }
+
+    public LocalDLMEmulator(final int numBookies, final int initialBookiePort) throws Exception {
+        this(numBookies, true, "127.0.0.1", 2181, initialBookiePort);
+    }
+
+    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
+        this(numBookies, false, zkHost, zkPort, initialBookiePort);
+    }
+
+    private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
+        this.initialBookiePort = initialBookiePort;
         this.numBookies = numBookies;
+        this.zkEnsemble = zkHost + ":" + zkPort;
 
         bkthread = new Thread() {
             public void run() {
                 try {
-                    String[] args = new String[1];
-                    args[0] = String.valueOf(numBookies);
-                    LOG.info("Starting bk");
-                    LocalBookKeeper.main(args);
+                    LocalBookKeeper.startLocalBookie(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort);
                 } catch (InterruptedException e) {
                     // go away quietly
                 } catch (Exception e) {
@@ -82,10 +99,20 @@ public class LocalDLMEmulator {
     }
 
     public static ZooKeeper connectZooKeeper()
+        throws IOException, KeeperException, InterruptedException{
+        return connectZooKeeper("127.0.0.1", 2181);
+    }
+
+    public static ZooKeeper connectZooKeeper(String zkHost, int zkPort)
+        throws IOException, KeeperException, InterruptedException {
+            return connectZooKeeper(String.format("%s:%d", zkHost, zkPort));
+    }
+
+    public static ZooKeeper connectZooKeeper(String zkHostPort)
         throws IOException, KeeperException, InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
 
-        ZooKeeper zkc = new ZooKeeper(zkEnsemble, 3600, new Watcher() {
+        ZooKeeper zkc = new ZooKeeper(zkHostPort, 3600, new Watcher() {
             public void process(WatchedEvent event) {
                 if (event.getState() == Event.KeeperState.SyncConnected) {
                     latch.countDown();
@@ -99,8 +126,13 @@ public class LocalDLMEmulator {
     }
 
     public static URI createDLMURI(String path) throws Exception {
-        return URI.create("bookkeeper://" + zkEnsemble + path);
+        return createDLMURI("127.0.0.1:2181", path);
     }
+
+    public static URI createDLMURI(String zkServers, String path) throws Exception {
+        return URI.create("distributedlog://" + zkServers + path);
+    }
+
 
     public BookieServer newBookie() throws Exception {
         int port = nextPort++;
@@ -133,7 +165,7 @@ public class LocalDLMEmulator {
      * @throws java.io.IOException if bookies are not started by the time the timeout hits
      */
     public int checkBookiesUp(int count, int timeout) throws Exception {
-        ZooKeeper zkc = connectZooKeeper();
+        ZooKeeper zkc = connectZooKeeper(zkEnsemble);
         try {
             boolean up = false;
             int mostRecentSize = 0;
