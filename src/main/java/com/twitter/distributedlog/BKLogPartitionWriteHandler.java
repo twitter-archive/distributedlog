@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.net.URI;
 
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.zookeeper.CreateMode;
@@ -63,9 +62,9 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         String versionPath = partitionRootPath + "/version";
 
         try {
-            while (zkc.get().exists(partitionRootPath, false) == null) {
+            while (zooKeeperClient.get().exists(partitionRootPath, false) == null) {
                 try {
-                    Utils.zkCreateFullPathOptimistic(zkc, partitionRootPath, new byte[]{'0'},
+                    Utils.zkCreateFullPathOptimistic(zooKeeperClient, partitionRootPath, new byte[]{'0'},
                         ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
                     // HACK: Temporary for the test configuration used by test
@@ -79,27 +78,27 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 }
             }
 
-            Stat versionStat = zkc.get().exists(versionPath, false);
+            Stat versionStat = zooKeeperClient.get().exists(versionPath, false);
             if (versionStat != null) {
-                byte[] d = zkc.get().getData(versionPath, false, versionStat);
+                byte[] d = zooKeeperClient.get().getData(versionPath, false, versionStat);
                 // There's only one version at the moment
                 assert bytesToInt(d) == LAYOUT_VERSION;
             } else {
-                zkc.get().create(versionPath, intToBytes(LAYOUT_VERSION),
+                zooKeeperClient.get().create(versionPath, intToBytes(LAYOUT_VERSION),
                     ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
 
-            if (zkc.get().exists(ledgerPath, false) == null) {
-                zkc.get().create(ledgerPath, new byte[]{'0'},
+            if (zooKeeperClient.get().exists(ledgerPath, false) == null) {
+                zooKeeperClient.get().create(ledgerPath, new byte[]{'0'},
                     ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
         } catch (Exception e) {
             throw new IOException("Error initializing zk", e);
         }
 
-        lock = new DistributedReentrantLock(zkc, lockPath, conf.getLockTimeout() * 1000);
-        deleteLock = new DistributedReentrantLock(zkc, lockPath, conf.getLockTimeout() * 1000);
-        maxTxId = new MaxTxId(zkc, maxTxIdPath);
+        lock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000);
+        deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000);
+        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
     }
 
@@ -133,7 +132,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     LOG.debug("Ledger already closed {}", lce);
                 }
             }
-            currentLedger = bkc.get().createLedger(ensembleSize, quorumSize,
+            currentLedger = bookKeeperClient.get().createLedger(ensembleSize, quorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes());
             String znodePath = inprogressZNode(txId);
@@ -148,7 +147,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * In this case, throw an exception. We don't want to continue
              * as this would lead to a split brain situation.
              */
-            l.write(zkc, znodePath);
+            l.write(zooKeeperClient, znodePath);
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
@@ -158,7 +157,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     long id = currentLedger.getId();
                     currentLedger.close();
-                    bkc.get().deleteLedger(id);
+                    bookKeeperClient.get().deleteLedger(id);
                 } catch (Exception e2) {
                     //log & ignore, an IOException will be thrown soon
                     LOG.error("Error closing ledger", e2);
@@ -207,7 +206,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(firstTxId);
         try {
-            Stat inprogressStat = zkc.get().exists(inprogressPath, false);
+            Stat inprogressStat = zooKeeperClient.get().exists(inprogressPath, false);
             if (inprogressStat == null) {
                 throw new IOException("Inprogress znode " + inprogressPath
                     + " doesn't exist");
@@ -215,7 +214,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             lock.checkWriteLock();
             LogSegmentLedgerMetadata l
-                = LogSegmentLedgerMetadata.read(zkc, inprogressPath);
+                = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
             if (currentLedger != null) { // normal, non-recovery case
                 if (l.getLedgerId() == currentLedger.getId()) {
@@ -243,16 +242,16 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
             try {
-                l.write(zkc, pathForCompletedLedger);
+                l.write(zooKeeperClient, pathForCompletedLedger);
             } catch (KeeperException.NodeExistsException nee) {
-                if (!l.verify(zkc, pathForCompletedLedger)) {
+                if (!l.verify(zooKeeperClient, pathForCompletedLedger)) {
                     throw new IOException("Node " + pathForCompletedLedger + " already exists"
                         + " but data doesn't match");
                 }
             }
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
-            zkc.get().delete(inprogressPath, inprogressStat.getVersion());
+            zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
         } catch (Exception e) {
             throw new IOException("Error finalising ledger", e);
         } finally {
@@ -324,10 +323,10 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         try {
             lock.close();
             deleteLock.close();
-            zkc.get().exists(ledgerPath, false);
-            zkc.get().exists(maxTxIdPath, false);
+            zooKeeperClient.get().exists(ledgerPath, false);
+            zooKeeperClient.get().exists(maxTxIdPath, false);
             if (partitionRootPath.toLowerCase().contains("distributedlog")) {
-                ZKUtil.deleteRecursive(zkc.get(), partitionRootPath);
+                ZKUtil.deleteRecursive(zooKeeperClient.get(), partitionRootPath);
             } else {
                 LOG.warn("Skip deletion of unrecognized ZK Path {}", partitionRootPath);
             }
@@ -384,9 +383,9 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
         try {
             LOG.info("Deleting ledger for {}", ledgerMetadata);
-            Stat stat = zkc.get().exists(ledgerMetadata.getZkPath(), false);
-            bkc.get().deleteLedger(ledgerMetadata.getLedgerId());
-            zkc.get().delete(ledgerMetadata.getZkPath(), stat.getVersion());
+            Stat stat = zooKeeperClient.get().exists(ledgerMetadata.getZkPath(), false);
+            bookKeeperClient.get().deleteLedger(ledgerMetadata.getLedgerId());
+            zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), stat.getVersion());
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while purging {}", ledgerMetadata, ie);
         } catch (BKException bke) {

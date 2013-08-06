@@ -5,7 +5,6 @@ import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 
-import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.zookeeper.KeeperException;
@@ -36,7 +35,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      BookKeeperClient bkcShared) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
 
-        handleCache = new LedgerHandleCache(this.bkc, this.digestpw);
+        handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);
     }
 
@@ -50,7 +49,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         throws IOException {
         boolean logExists = false;
         try {
-            if (null != zkc.get().exists(ledgerPath, false)) {
+            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
                 logExists = true;
             }
         } catch (InterruptedException ie) {
@@ -85,7 +84,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (fromTxId <= lastTxId) {
                     try {
                         ResumableBKPerStreamLogReader s
-                            = new ResumableBKPerStreamLogReader(this, zkc, ledgerDataAccessor, l);
+                            = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l);
                         if (s.skipTo(fromTxId)) {
                             return s;
                         } else {
@@ -127,7 +126,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     private void setWatcherOnLedgerRoot(Watcher watcher) throws IOException, KeeperException, InterruptedException {
-        zkc.get().getChildren(ledgerPath, watcher);
+        zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
     public boolean startReadAhead(LedgerReadPosition startPosition) {

@@ -24,8 +24,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,10 +64,10 @@ public abstract class BKLogPartitionHandler {
 
     protected final String name;
     protected final String streamIdentifier;
-    protected final ZooKeeperClient zkc;
+    protected final ZooKeeperClient zooKeeperClient;
     protected final boolean separateZKClient;
     protected final DistributedLogConfiguration conf;
-    protected final BookKeeperClient bkc;
+    protected final BookKeeperClient bookKeeperClient;
     protected final String partitionRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
@@ -93,26 +91,27 @@ public abstract class BKLogPartitionHandler {
         digestpw = conf.getBKDigestPW();
 
         try {
-            if (null != zkcShared) {
-                this.zkc = zkcShared;
-                separateZKClient = false;
-            } else {
-                this.zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+            if (null == zkcShared) {
+                this.zooKeeperClient = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
                 separateZKClient = true;
+            } else {
+                this.zooKeeperClient = zkcShared;
+                separateZKClient = false;
             }
 
             LOG.debug("Using ZK Path {}", partitionRootPath);
 
             if (null == bkcShared) {
                 if (conf.getShareZKClientWithBKC()) {
-                    this.bkc = new BookKeeperClient(conf, zkc, getFullyQualifiedName());
+                    this.bookKeeperClient = new BookKeeperClient(conf, this.zooKeeperClient, String.format("%s:shared", name));
                 } else {
-                    this.bkc = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), getFullyQualifiedName());
+                    this.bookKeeperClient = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name));
                 }
             } else {
-                this.bkc = bkcShared;
-                bkcShared.addRef();
+                bookKeeperClient = bkcShared;
+                bookKeeperClient.addRef();
             }
+
         } catch (Exception e) {
             throw new IOException("Error initializing zk", e);
         }
@@ -144,7 +143,7 @@ public abstract class BKLogPartitionHandler {
 
     private void checkLogStreamExists() throws IOException {
         try {
-            if (null == zkc.get().exists(ledgerPath, false)) {
+            if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
                 throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
             }
         } catch (InterruptedException ie) {
@@ -160,7 +159,7 @@ public abstract class BKLogPartitionHandler {
     public long getTxIdNotLaterThan(long thresholdTxId)
         throws IOException {
         checkLogStreamExists();
-        LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
+        LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
         List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
@@ -218,7 +217,7 @@ public abstract class BKLogPartitionHandler {
     protected void checkLogExists() throws IOException {
         /*
             try {
-                if (null == zkc.exists(ledgerPath, false)) {
+                if (null == zooKeeperClient.exists(ledgerPath, false)) {
                     throw new IOException("Log does not exist or has been deleted");
                 }
             } catch (InterruptedException ie) {
@@ -233,10 +232,10 @@ public abstract class BKLogPartitionHandler {
 
     public void close() throws IOException {
         try {
-            bkc.release();
+            bookKeeperClient.release();
 
             if (separateZKClient) {
-                zkc.close();
+                zooKeeperClient.close();
             }
         } catch (Exception e) {
             throw new IOException("Couldn't close zookeeper client", e);
@@ -250,7 +249,7 @@ public abstract class BKLogPartitionHandler {
     protected long recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
         throws IOException {
         try {
-            LedgerHandleCache handleCachePriv = new LedgerHandleCache(bkc, digestpw);
+            LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
             LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv);
             boolean trySmallLedger = true;
             long scanStartPoint = 0;
@@ -340,9 +339,9 @@ public abstract class BKLogPartitionHandler {
         List<LogSegmentLedgerMetadata> ledgers
             = new ArrayList<LogSegmentLedgerMetadata>();
         try {
-            List<String> ledgerNames = zkc.get().getChildren(ledgerPath, false);
+            List<String> ledgerNames = zooKeeperClient.get().getChildren(ledgerPath, false);
             for (String n : ledgerNames) {
-                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + n);
+                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n);
                 ledgers.add(l);
                 if (!l.isInProgress() && (lastLedgerRollingTimeMillis < l.getCompletionTime())) {
                     lastLedgerRollingTimeMillis = l.getCompletionTime();

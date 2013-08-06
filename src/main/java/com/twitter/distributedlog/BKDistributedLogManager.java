@@ -8,8 +8,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
@@ -25,10 +23,15 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final URI uri;
     private boolean closed = true;
     private ExecutorService cbThreadPool = null;
-    private BookKeeperClient bkcShared = null;
-    private ZooKeeperClient zkcShared = null;
+    private BookKeeperClient bookKeeperClient = null;
+    private ZooKeeperClient zooKeeperClient = null;
+    private boolean separateZKClient = false;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
+        this(name, conf, uri, null, null);
+    }
+
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, ZooKeeperClient zkc, BookKeeperClient bkc) throws IOException {
         this.name = name;
         this.conf = conf;
         this.uri = uri;
@@ -38,15 +41,24 @@ class BKDistributedLogManager implements DistributedLogManager {
             // handle session expiration
             // Bookkeeper client is only created if separate BK clients option is
             // not specified
-            zkcShared = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
-
-            if (!conf.getSeparateBKClients()) {
-                if (conf.getShareZKClientWithBKC()) {
-                    this.bkcShared = new BookKeeperClient(conf, zkcShared, String.format("%s:shared", name));
-                } else {
-                    this.bkcShared = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name));
-                }
+            if (null == zkc) {
+                zooKeeperClient = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+                separateZKClient = true;
+            } else {
+                zooKeeperClient = zkc;
             }
+
+            if (null == bkc) {
+                if (conf.getShareZKClientWithBKC()) {
+                    this.bookKeeperClient = new BookKeeperClient(conf, zooKeeperClient, String.format("%s:shared", name));
+                } else {
+                    this.bookKeeperClient = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name));
+                }
+            } else {
+                bookKeeperClient = bkc;
+                bookKeeperClient.addRef();
+            }
+
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
@@ -62,8 +74,8 @@ class BKDistributedLogManager implements DistributedLogManager {
             throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
         }
 
-        if (null != bkcShared) {
-            bkcShared.checkClosedOrInError();
+        if (null != bookKeeperClient) {
+            bookKeeperClient.checkClosedOrInError();
         }
     }
 
@@ -76,12 +88,12 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri, conf.getSeparateZKClients() ? null : zkcShared, bkcShared);
+        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient);
 
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, conf.getSeparateZKClients() ? null : zkcShared, bkcShared);
+        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient);
     }
 
     /**
@@ -92,9 +104,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public PartitionAwareLogWriter startLogSegment() throws IOException {
         checkClosedOrInError("startLogSegment");
-        if (null == cbThreadPool) {
-            cbThreadPool = Executors.newFixedThreadPool(1, new DaemonThreadFactory());
-        }
         return new BKPartitionAwareLogWriter(conf, this);
     }
 
@@ -106,9 +115,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public synchronized LogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        if (null == cbThreadPool) {
-            cbThreadPool = Executors.newFixedThreadPool(1, new DaemonThreadFactory());
-        }
         return new BKUnPartitionedLogWriter(conf, this);
     }
 
@@ -327,11 +333,11 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public void close() throws IOException {
         try {
-            if (null != bkcShared) {
-                bkcShared.release();
+            if (null != bookKeeperClient) {
+                bookKeeperClient.release();
             }
-            if (null != zkcShared) {
-                zkcShared.close();
+            if (separateZKClient && (null != zooKeeperClient)) {
+                zooKeeperClient.close();
             }
             if (null != cbThreadPool) {
                 cbThreadPool.shutdown();
@@ -345,14 +351,17 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     public Future<?> enqueueBackgroundTask(Runnable task) {
+        if (null == cbThreadPool) {
+            cbThreadPool = Executors.newFixedThreadPool(1, new DaemonThreadFactory());
+        }
         return cbThreadPool.submit(task);
     }
 
     public Watcher registerExpirationHandler(final ZooKeeperClient.ZooKeeperSessionExpireNotifier onExpired) {
-        return zkcShared.registerExpirationHandler(onExpired);
+        return zooKeeperClient.registerExpirationHandler(onExpired);
     }
 
     public boolean unregister(Watcher watcher) {
-        return zkcShared.unregister(watcher);
+        return zooKeeperClient.unregister(watcher);
     }
 }
