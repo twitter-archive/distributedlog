@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.commons.logging.Log;
@@ -1832,6 +1833,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-check-log-exists";
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
 
+        dlm.createOrUpdateMetadata(name.getBytes());
         long txid = 1;
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
@@ -1840,6 +1842,7 @@ public class TestBookKeeperDistributedLogManager {
         writer.setReadyToFlush();
         writer.flushAndSync();
         writer.close();
+        assertEquals(name, new String(dlm.getMetadata()));
 
         assert (DistributedLogManagerFactory.checkIfLogExists(conf, DLMTestUtil.createDLMURI("/" + name), name));
         assert (!DistributedLogManagerFactory.checkIfLogExists(conf, DLMTestUtil.createDLMURI("/" + name), "non-existent-log"));
@@ -1851,6 +1854,11 @@ public class TestBookKeeperDistributedLogManager {
             assertEquals(name, log);
         }
         assertEquals(1, logCount);
+
+        for(Map.Entry<String, byte[]> logEntry: DistributedLogManagerFactory.enumerateLogsWithMetadataInNamespace(conf, DLMTestUtil.createDLMURI("/" + name)).entrySet()) {
+            assertEquals(name, new String(logEntry.getValue()));
+        }
+
     }
 
     @Test
@@ -1858,7 +1866,6 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-interleaved-rolling-edge-unpartitioned";
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
         DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);

@@ -114,6 +114,12 @@ public interface DistributedLogManager extends Closeable {
      */
     public void purgeLogsOlderThan(long minTxIdToKeep) throws IOException;
 
+    public void createOrUpdateMetadata(byte[] metadata) throws IOException;
+
+    public void deleteMetadata() throws IOException;
+
+    public byte[] getMetadata() throws IOException;
+
     /**
      * Close the distributed log manager, freeing any resources it may hold.
      */

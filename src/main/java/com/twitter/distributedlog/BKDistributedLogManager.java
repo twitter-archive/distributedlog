@@ -8,11 +8,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
+import org.apache.zookeeper.ZooDefs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.zookeeper.data.Stat;
 
 
 class BKDistributedLogManager implements DistributedLogManager {
@@ -250,7 +253,7 @@ class BKDistributedLogManager implements DistributedLogManager {
         }
 
         // Delete the ZK path associated with the log stream
-        String zkPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s", name);
+        String zkPath = getZKPath();
         LOG.info("Delete the path associated with the log:" + zkPath);
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
@@ -290,7 +293,7 @@ class BKDistributedLogManager implements DistributedLogManager {
 
     private List<String> getStreamsWithinALog() throws IOException {
         List<String> partitions;
-        String zkPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s", name);
+        String zkPath = getZKPath();
         try {
             ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
 
@@ -364,4 +367,49 @@ class BKDistributedLogManager implements DistributedLogManager {
     public boolean unregister(Watcher watcher) {
         return zooKeeperClient.unregister(watcher);
     }
+
+    public void createOrUpdateMetadata(byte[] metadata) throws IOException {
+        String zkPath = getZKPath();
+        LOG.debug("Setting application specific metadata on {}", zkPath);
+        try {
+            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
+            if (currentStat == null) {
+                if (metadata.length > 0) {
+                    Utils.zkCreateFullPathOptimistic(zooKeeperClient,
+                        zkPath,
+                        metadata,
+                        ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                        CreateMode.PERSISTENT);
+                }
+            } else {
+                zooKeeperClient.get().setData(zkPath, metadata, currentStat.getVersion());
+            }
+        } catch (Exception exc) {
+            throw new IOException("Exception creating or updating container metadata", exc);
+        }
+    }
+
+    public void deleteMetadata() throws IOException {
+        createOrUpdateMetadata(new byte[0]);
+    }
+
+    public byte[] getMetadata() throws IOException {
+        String zkPath = getZKPath();
+        LOG.debug("Getting application specific metadata from {}", zkPath);
+        try {
+            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
+            if (currentStat == null) {
+                return null;
+            } else {
+                return zooKeeperClient.get().getData(zkPath, false, currentStat);
+            }
+        } catch (Exception e) {
+            throw new IOException("Error reading the max tx id from zk", e);
+        }
+    }
+
+    private String getZKPath() {
+        return String.format("%s%s/%s", conf.getDLZKPathPrefix(), uri.getPath(), name);
+    }
+
 }
