@@ -86,6 +86,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
         long numFlushes = 0;
+        boolean shouldCheckForTruncation = false;
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
@@ -108,6 +109,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
+            shouldCheckForTruncation = true;
         }
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
@@ -118,23 +120,36 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
+            shouldCheckForTruncation = true;
+        }
 
-            long minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
-            long sanityCheckThreshold = Utils.nowInMillis() - 2 * retentionPeriodInMillis;
+        if (shouldCheckForTruncation) {
+            boolean truncationEnabled = false;
+
+            long minTimestampToKeep = 0;
+            long sanityCheckThreshold = 0;
+
+            if (retentionPeriodInMillis > 0) {
+                minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
+                sanityCheckThreshold = Utils.nowInMillis() - 2 * retentionPeriodInMillis;
+                truncationEnabled = true;
+            }
 
             if (null != minTimestampToKeepOverride) {
                 minTimestampToKeep = minTimestampToKeepOverride;
+                truncationEnabled = true;
             }
 
             // skip scheduling if there is task that's already running
             //
-            if ((lastTruncationAttempt == null) || lastTruncationAttempt.isDone()) {
+            if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDone())) {
                 lastTruncationAttempt = bkDistributedLogManager.enqueueBackgroundTask(
                     new LogTruncationTask(ledgerManager,
                         minTimestampToKeep,
                         sanityCheckThreshold));
             }
         }
+
         return ledgerWriter;
     }
 

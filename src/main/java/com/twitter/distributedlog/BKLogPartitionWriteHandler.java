@@ -168,8 +168,13 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public boolean shouldStartNewSegment() {
-        boolean shouldSwitch = (Utils.elapsedMSec(lastLedgerRollingTimeMillis) >
-            (conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000));
+
+        boolean shouldSwitch = false;
+
+        if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
+            shouldSwitch = (Utils.elapsedMSec(lastLedgerRollingTimeMillis) >
+                ((long)conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000));
+        }
 
         if (shouldSwitch) {
             LOG.debug("Last Finalize Time: {} elapsed time (MSec): {}", lastLedgerRollingTimeMillis, Utils.elapsedMSec(lastLedgerRollingTimeMillis));
