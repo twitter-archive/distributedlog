@@ -39,7 +39,9 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
     @Override
     protected Collection<BKLogPartitionWriteHandler> getCachedPartitionHandlers() {
         LinkedList<BKLogPartitionWriteHandler> list = new LinkedList<BKLogPartitionWriteHandler>();
-        list.add(partitionHander);
+        if (null != partitionHander) {
+            list.add(partitionHander);
+        }
         return list;
     }
 
