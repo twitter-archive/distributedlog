@@ -87,6 +87,10 @@ public interface DistributedLogManager extends Closeable {
 
     public long getLastTxId() throws IOException;
 
+    public void recover(PartitionId partition) throws IOException;
+
+    public void recover() throws IOException;
+
     /**
      * Delete all the partitions of the specified log
      *

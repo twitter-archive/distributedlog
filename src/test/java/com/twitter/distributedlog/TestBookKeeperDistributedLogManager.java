@@ -1920,6 +1920,38 @@ public class TestBookKeeperDistributedLogManager {
         dlmreader.close();
     }
 
+    @Test
+    public void testRecoveryAPI() throws Exception {
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, "distrlog-recovery-api");
+        LogWriter out = dlm.startLogSegmentNonPartitioned();
+        long txid = 1;
+        for (long i = 1; i <= 100; i++) {
+            LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+            out.write(op);
+            if ((i % 10) == 0) {
+                out.setReadyToFlush();
+                out.flushAndSync();
+            }
+
+        }
+        out.setReadyToFlush();
+        out.flushAndSync();
+
+        out.close();
+
+        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+
+        assertNull(zkc.exists(blplm1.completedLedgerZNode(1, 100), false));
+        assertNotNull(zkc.exists(blplm1.inprogressZNode(1), false));
+
+        dlm.recover();
+
+        assertNotNull(zkc.exists(blplm1.completedLedgerZNode(1, 100), false));
+        assertNull(zkc.exists(blplm1.inprogressZNode(1), false));
+        blplm1.close();
+        dlm.close();
+    }
+
     public void positionReader() throws Exception {
         String name = "distrlog-position-reader";
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);

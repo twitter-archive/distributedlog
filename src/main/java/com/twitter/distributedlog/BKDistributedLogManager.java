@@ -219,6 +219,46 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     /**
+     * Recover a specified partition within the log container
+     *
+     * @param partition – the partition within the log stream to delete
+     * @throws IOException if the recovery fails
+     */
+    @Override
+    public void recover(PartitionId partition) throws IOException {
+        recoverInternal(partition.toString());
+    }
+
+    /**
+     * Recover the default stream within the log container (for
+     * un partitioned log containers)
+     *
+     * @param partition – the partition within the log stream to delete
+     * @throws IOException if the recovery fails
+     */
+    @Override
+    public void recover() throws IOException {
+        recoverInternal(DistributedLogConstants.DEFAULT_STREAM);
+    }
+
+    /**
+     * Recover a specified stream within the log container
+     * The writer implicitly recovers a topic when it resumes writing.
+     * This allows applications to recover a container explicitly so
+     * that application may read a fully recovered partition before resuming
+     * the writes
+     *
+     * @param partition – the partition within the log stream to delete
+     * @throws IOException if the recovery fails
+     */
+    private void recoverInternal(String streamIdentifier) throws IOException {
+        checkClosedOrInError("recoverInternal");
+        BKLogPartitionWriteHandler ledgerHandler = createWriteLedgerHandler(streamIdentifier);
+        ledgerHandler.recoverIncompleteLogSegments();
+        ledgerHandler.close();
+    }
+
+    /**
      * Delete the specified partition
      *
      * @param partition – the partition within the log stream to delete
