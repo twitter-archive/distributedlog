@@ -125,10 +125,16 @@ public abstract class BKLogPartitionHandler {
         // The last TxId is valid if the ledger is already completed else we must recover
         // the last TxId
         if (ledgerList.get(0).isInProgress()) {
-            return recoverLastTxId(ledgerList.get(0), false);
+            long lastTxId = recoverLastTxId(ledgerList.get(0), false);
+            if (((DistributedLogConstants.INVALID_TXID == lastTxId) ||
+                (DistributedLogConstants.EMPTY_LEDGER_TX_ID == lastTxId)) &&
+                (ledgerList.size() > 1)) {
+                lastTxId = ledgerList.get(1).getLastTxId();
+            }
+            return lastTxId;
+        } else {
+            return ledgerList.get(0).getLastTxId();
         }
-
-        return ledgerList.get(0).getLastTxId();
     }
 
     public long getFirstTxId() throws IOException {
