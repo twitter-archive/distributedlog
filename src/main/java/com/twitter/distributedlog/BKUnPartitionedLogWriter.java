@@ -94,4 +94,16 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
     public int writeBulk(List<LogRecord> records) throws IOException {
         return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
     }
+
+    public void closeAndComplete() throws IOException {
+        if (null != perStreamWriter && null != partitionHander) {
+            waitForTruncation();
+            long lastTxId = perStreamWriter.closeToFinalize();
+            partitionHander.completeAndCloseLogSegment(lastTxId);
+            partitionHander.close();
+            perStreamWriter = null;
+            partitionHander = null;
+        }
+        close();
+    }
 }

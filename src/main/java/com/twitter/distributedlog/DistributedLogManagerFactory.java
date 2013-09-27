@@ -106,6 +106,8 @@ public class DistributedLogManagerFactory {
             LOG.error("Interrupted checkIfLogExists  " + logRootPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error reading" + logRootPath + "entry in zookeeper", ke);
+        } finally {
+            zkc.close();
         }
 
         return false;
@@ -136,6 +138,10 @@ public class DistributedLogManagerFactory {
         } catch (KeeperException ke) {
             LOG.error("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
             throw new IOException("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
+        } finally {
+            if (null == zkcShared) {
+                zkc.close();
+            }
         }
     }
 
@@ -176,6 +182,10 @@ public class DistributedLogManagerFactory {
         } catch (KeeperException ke) {
             LOG.error("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
             throw new IOException("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
+        } finally {
+            if (null == zkcShared) {
+                zkc.close();
+            }
         }
         return result;
     }

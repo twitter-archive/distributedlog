@@ -44,6 +44,20 @@ public interface DistributedLogManager extends Closeable {
     public LogWriter startLogSegmentNonPartitioned() throws IOException;
 
     /**
+     * Begin appending to the end of the log stream which is being treated as a sequence of bytes
+     *
+     * @return the writer interface to generate log records
+     */
+    public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException;
+
+    /**
+     * Get a reader to read a log stream as a sequence of bytes
+     *
+     * @return the writer interface to generate log records
+     */
+    public AppendOnlyStreamReader getAppendOnlyStreamReader() throws IOException;
+
+    /**
      * Get the input stream starting with fromTxnId for the specified log
      *
      * @param partition – the partition within the log stream to read from

@@ -100,6 +100,36 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     /**
+     * Begin appending to the end of the log stream which is being treated as a sequence of bytes
+     *
+     * @return the writer interface to generate log records
+     */
+    public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
+        long position = 0;
+        try {
+            position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true);
+            if (DistributedLogConstants.INVALID_TXID == position ||
+                DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
+                position = 0;
+            }
+        } catch (LogEmptyException lee) {
+            // Start with position zero
+            //
+            position = 0;
+        }
+        return new AppendOnlyStreamWriter(startLogSegmentNonPartitioned(), position);
+    }
+
+    /**
+     * Get a reader to read a log stream as a sequence of bytes
+     *
+     * @return the writer interface to generate log records
+     */
+    public AppendOnlyStreamReader getAppendOnlyStreamReader() throws IOException {
+        return new AppendOnlyStreamReader(this);
+    }
+
+    /**
      * Begin writing to the log stream identified by the name
      *
      * @return the writer interface to generate log records
@@ -116,7 +146,7 @@ class BKDistributedLogManager implements DistributedLogManager {
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized LogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized BKUnPartitionedLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         return new BKUnPartitionedLogWriter(conf, this);
     }
@@ -202,18 +232,18 @@ class BKDistributedLogManager implements DistributedLogManager {
 
     @Override
     public long getLastTxId(PartitionId partition) throws IOException {
-        return getLastTxIdInternal(partition.toString());
+        return getLastTxIdInternal(partition.toString(), false);
     }
 
     @Override
     public long getLastTxId() throws IOException {
-        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false);
     }
 
-    private long getLastTxIdInternal(String streamIdentifier) throws IOException {
+    private long getLastTxIdInternal(String streamIdentifier, boolean recover) throws IOException {
         checkClosedOrInError("getLastTxIdInternal");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        long returnValue = ledgerHandler.getLastTxId();
+        long returnValue = ledgerHandler.getLastTxId(recover);
         ledgerHandler.close();
         return returnValue;
     }
@@ -294,11 +324,11 @@ class BKDistributedLogManager implements DistributedLogManager {
 
         // Delete the ZK path associated with the log stream
         String zkPath = getZKPath();
-        LOG.info("Delete the path associated with the log:" + zkPath);
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
+            ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
             try {
-                ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+                LOG.info("Delete the path associated with the log {}, ZK Path", name, zkPath);
                 ZKUtil.deleteRecursive(zkc.get(), zkPath);
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted while accessing ZK", ie);
@@ -306,6 +336,8 @@ class BKDistributedLogManager implements DistributedLogManager {
             } catch (KeeperException ke) {
                 LOG.error("Error accessing entry in zookeeper", ke);
                 throw new IOException("Error initializing zk", ke);
+            } finally {
+                zkc.close();
             }
 
         } else {
@@ -334,10 +366,10 @@ class BKDistributedLogManager implements DistributedLogManager {
     private List<String> getStreamsWithinALog() throws IOException {
         List<String> partitions;
         String zkPath = getZKPath();
+        ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
         try {
-            ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
-
             if (zkc.get().exists(zkPath, false) == null) {
+                LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
                 throw new LogNotFoundException("Log" + name + "was not found");
             }
             partitions = zkc.get().getChildren(zkPath, false);
@@ -347,6 +379,8 @@ class BKDistributedLogManager implements DistributedLogManager {
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
+        } finally {
+            zkc.close();
         }
         return partitions;
     }
@@ -378,9 +412,11 @@ class BKDistributedLogManager implements DistributedLogManager {
         try {
             if (null != bookKeeperClient) {
                 bookKeeperClient.release();
+                bookKeeperClient = null;
             }
             if (separateZKClient && (null != zooKeeperClient)) {
                 zooKeeperClient.close();
+                zooKeeperClient = null;
             }
             if (null != cbThreadPool) {
                 cbThreadPool.shutdown();

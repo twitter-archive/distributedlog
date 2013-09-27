@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
 /**
  * BookKeeper Distributed Log Manager
  * <p/>
- * The URI format for bookkeeper is bookkeeper://[zkEnsemble]/[rootZnode]
+ * The URI format for bookkeeper is distributed://[zkEnsemble]/[rootZnode]
  * [zookkeeper ensemble] is a list of semi-colon separated, zookeeper host:port
  * pairs. In the example above there are 3 servers, in the ensemble,
  * zk1, zk2 &amp; zk3, each one listening on port 2181.
@@ -117,7 +117,7 @@ public abstract class BKLogPartitionHandler {
         }
     }
 
-    public long getLastTxId() throws IOException {
+    public long getLastTxId(boolean recover) throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true);
 
@@ -125,7 +125,7 @@ public abstract class BKLogPartitionHandler {
         // The last TxId is valid if the ledger is already completed else we must recover
         // the last TxId
         if (ledgerList.get(0).isInProgress()) {
-            long lastTxId = recoverLastTxId(ledgerList.get(0), false);
+            long lastTxId = recoverLastTxId(ledgerList.get(0), recover);
             if (((DistributedLogConstants.INVALID_TXID == lastTxId) ||
                 (DistributedLogConstants.EMPTY_LEDGER_TX_ID == lastTxId)) &&
                 (ledgerList.size() > 1)) {

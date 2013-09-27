@@ -27,7 +27,9 @@ import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.AfterClass;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -1952,6 +1954,7 @@ public class TestBookKeeperDistributedLogManager {
         dlm.close();
     }
 
+    @Test
     public void positionReader() throws Exception {
         String name = "distrlog-position-reader";
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
@@ -1991,4 +1994,37 @@ public class TestBookKeeperDistributedLogManager {
         dlmreader.close();
         dlmwrite.close();
     }
+
+    @Test
+    public void appendOnlyStreams() throws Exception {
+        String name = "distrlog-append-only-streams";
+        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
+
+        long txid = 1;
+        long numTrans = txid - 1;
+        AppendOnlyStreamWriter writer = dlmwrite.getAppendOnlyStreamWriter();
+        writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
+        writer.write(DLMTestUtil.repeatString("abc", 40).getBytes());
+        writer.force(false);
+        writer.close();
+        AppendOnlyStreamReader reader = dlmreader.getAppendOnlyStreamReader();
+
+        byte[] bytesIn = new byte[byteStream.length];
+        int read = reader.read(bytesIn, 0, 23);
+        assertEquals(23, read);
+        read = reader.read(bytesIn, 23, 31);
+        assertEquals(read, 31);
+        byte[] bytesInTemp = new byte[byteStream.length];
+        read = reader.read(bytesInTemp, 0, byteStream.length);
+        assertEquals(read, byteStream.length - 23 - 31);
+        read = new ByteArrayInputStream(bytesInTemp).read(bytesIn, 23 + 31, byteStream.length - 23 - 31);
+        assertEquals(read, byteStream.length - 23 - 31);
+        assertArrayEquals(bytesIn, byteStream);
+        reader.close();
+        dlmreader.close();
+        dlmwrite.close();
+    }
+
 }

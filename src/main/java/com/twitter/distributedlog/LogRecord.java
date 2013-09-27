@@ -17,10 +17,12 @@
  */
 package com.twitter.distributedlog;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Helper classes for reading the ops from an InputStream.
@@ -66,6 +68,10 @@ public class LogRecord {
 
     public byte[] getPayload() {
         return payload;
+    }
+
+    public InputStream getPayLoadInputStream() {
+        return new ByteArrayInputStream(payload);
     }
 
     private void readPayload(DataInputStream in, int logVersion) throws IOException {
