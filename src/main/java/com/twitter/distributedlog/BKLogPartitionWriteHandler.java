@@ -100,6 +100,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000);
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
+        lockAcquired = false;
     }
 
     /**
@@ -193,7 +194,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      */
     public void completeAndCloseLogSegment(long lastTxId)
         throws IOException {
-        completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId);
+        completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, true);
     }
 
     /**
@@ -207,9 +208,24 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      */
     public void completeAndCloseLogSegment(long firstTxId, long lastTxId)
         throws IOException {
+        completeAndCloseLogSegment(firstTxId, lastTxId, true);
+    }
+
+    /**
+     * Finalize a log segment. If the journal manager is currently
+     * writing to a ledger, ensure that this is the ledger of the log segment
+     * being finalized.
+     * <p/>
+     * Otherwise this is the recovery case. In the recovery case, ensure that
+     * the firstTxId of the ledger matches firstTxId for the segment we are
+     * trying to finalize.
+     */
+    public void completeAndCloseLogSegment(long firstTxId, long lastTxId, boolean shouldReleaseLock)
+        throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(firstTxId);
+        boolean acquiredLocally = false;
         try {
             Stat inprogressStat = zooKeeperClient.get().exists(inprogressPath, false);
             if (inprogressStat == null) {
@@ -217,7 +233,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            lock.checkWriteLock();
+            acquiredLocally = lock.checkWriteLock();
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
@@ -260,7 +276,10 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         } catch (Exception e) {
             throw new IOException("Error finalising ledger", e);
         } finally {
-            lock.release("CompleteAndClose");
+            if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
+                lock.release("CompleteAndClose");
+                lockAcquired = false;
+            }
         }
     }
 
@@ -288,7 +307,10 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         endTxId = l.getFirstTxId();
                     }
 
-                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId);
+                    // Make the lock release symmetric by having this function acquire and
+                    // release the lock and have complete and close only release the lock
+                    // that's acquired in start log segment
+                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, false);
                     LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
 
                 }
@@ -299,9 +321,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             } catch (IOException io) {
                 throw new IOException("Couldn't get list of inprogress segments", io);
             } finally {
-                if (lock.haveLock()) {
-                    lock.release("RecoverIncompleteSegments");
-                }
+                lock.release("RecoverIncompleteSegments");
             }
         }
     }

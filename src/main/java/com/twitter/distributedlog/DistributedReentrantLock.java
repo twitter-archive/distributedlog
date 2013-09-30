@@ -120,8 +120,8 @@ class DistributedReentrantLock {
         try {
             if (lockCount.decrementAndGet() <= 0) {
                 if (lockCount.get() < 0) {
-                    LOG.warn("Unbalanced lock handling somewhere, lockCount down to "
-                        + lockCount.get());
+                    LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
+                        reason, lockCount.get());
                 }
                 synchronized (this) {
                     if (lockCount.get() <= 0) {
@@ -137,14 +137,17 @@ class DistributedReentrantLock {
         }
     }
 
-    public void checkWriteLock() throws IOException {
+    public boolean checkWriteLock() throws IOException {
         if (!haveLock()) {
             LOG.info("Lost writer lock");
             // We may have just lost the lock because of a ZK session timeout
             // not necessarily because someone else acquired the lock.
             // In such cases just try to reacquire. If that fails, it will throw
             acquire("checkWriteLock");
+            return true;
         }
+
+        return false;
     }
 
     boolean haveLock() throws IOException {
