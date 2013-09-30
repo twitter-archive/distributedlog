@@ -17,13 +17,6 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.URI;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -33,6 +26,13 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Utility class for setting up bookkeeper ensembles
@@ -197,5 +197,28 @@ public class LocalDLMEmulator {
         } finally {
             zkc.close();
         }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 1) {
+            System.out.println("Usage: LocalDLEmulator <zk_port>");
+            System.exit(-1);
+        }
+        int zkPort = Integer.parseInt(args[0]);
+        LocalBookKeeper.runZookeeper(1000, zkPort);
+        final LocalDLMEmulator dl = new LocalDLMEmulator(3, "127.0.0.1", zkPort);
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                try {
+                    dl.teardown();
+                    System.out.println("ByeBye!");
+                } catch (Exception e) {
+                    // do nothing
+                }
+            }
+        });
+        dl.start();
+        System.out.println("DistributedLog Sandbox is running now. You could access distributedlog://127.0.0.1:" + zkPort);
     }
 }
