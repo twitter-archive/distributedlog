@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -191,9 +190,6 @@ class BKPerStreamLogWriter
 
     @Override
     synchronized public long setReadyToFlush() throws IOException {
-        lock.checkWriteLock();
-
-
         if (transmit(false)) {
             shouldFlushControl.incrementAndGet();
         }
@@ -207,8 +203,8 @@ class BKPerStreamLogWriter
         return flushAndSyncPhaseTwo();
     }
 
-    public long flushAndSyncPhaseOne() throws IOException {
-        lock.checkWriteLock();
+    public long flushAndSyncPhaseOne() throws
+        LockingException, BKTransmitException, FlushException {
         flushAndSyncInternal();
 
         synchronized (this) {
@@ -223,20 +219,20 @@ class BKPerStreamLogWriter
             } catch (Exception exc) {
                 shouldFlushControl.addAndGet(preFlushCounter);
                 preFlushCounter = 0;
-                throw new IOException("Flush error", exc);
+                throw new FlushException("Flush error", exc);
             }
         }
 
         return lastTxIdAcknowledged;
     }
 
-    public long flushAndSyncPhaseTwo() throws IOException {
+    public long flushAndSyncPhaseTwo() throws FlushException {
         if (preFlushCounter > 0) {
             try {
                 flushAndSyncInternal();
             } catch (Exception exc) {
                 shouldFlushControl.addAndGet(preFlushCounter);
-                throw new IOException("Flush error", exc);
+                throw new FlushException("Flush error", exc);
             } finally {
                 preFlushCounter = 0;
             }
@@ -244,7 +240,8 @@ class BKPerStreamLogWriter
         return lastTxIdAcknowledged;
     }
 
-    public void flushAndSyncInternal() throws IOException {
+    private void flushAndSyncInternal()
+        throws LockingException, BKTransmitException, FlushException {
         lock.checkWriteLock();
 
         long txIdToBePersisted;
@@ -258,11 +255,11 @@ class BKPerStreamLogWriter
         try {
             waitSuccessful = syncLatch.await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
-            throw new IOException("Interrupted waiting on latch", ie);
+            throw new FlushException("Wait for Flush Interrupted", ie);
         }
 
         if (!waitSuccessful) {
-            throw new IOException("Flush Timeout");
+            throw new FlushException("Flush Timeout");
         }
 
         synchronized (this) {
@@ -270,7 +267,8 @@ class BKPerStreamLogWriter
         }
 
         if (transmitResult.get() != BKException.Code.OK) {
-            LOG.error("Failed to write to bookkeeper; Error is ({}) {}", transmitResult.get(), BKException.getMessage(transmitResult.get()));
+            LOG.error("Failed to write to bookkeeper; Error is ({}) {}",
+                transmitResult.get(), BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Failed to write to bookkeeper; Error is ("
                 + transmitResult.get() + ") "
                 + BKException.getMessage(transmitResult.get()));
@@ -286,12 +284,15 @@ class BKPerStreamLogWriter
      * Synchronised at the FSEditLog level. #write() and #setReadyToFlush()
      * are never called at the same time.
      */
-    synchronized private boolean transmit(boolean isControl) throws IOException {
+    synchronized private boolean transmit(boolean isControl)
+        throws BKTransmitException, LockingException {
         lock.checkWriteLock();
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
             BKException.Code.OK)) {
-            LOG.error("Trying to write to an errored stream; Error is ({}) {}", transmitResult.get(), BKException.getMessage(transmitResult.get()));
+            LOG.error("Trying to write to an errored stream; Error is ({}) {}",
+                transmitResult.get(),
+                BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Trying to write to an errored stream;"
                 + " Error code : (" + transmitResult.get()
                 + ") " + BKException.getMessage(transmitResult.get()));

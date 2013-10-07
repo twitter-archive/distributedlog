@@ -48,19 +48,6 @@ import org.slf4j.LoggerFactory;
 //
 class DistributedReentrantLock {
 
-    public class LockingException extends IOException {
-
-        private static final long serialVersionUID = 1L;
-
-        public LockingException(String message) {
-            super(message);
-        }
-
-        public LockingException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
     private final ZooKeeperClient zkc;
@@ -87,7 +74,7 @@ class DistributedReentrantLock {
         }
     }
 
-    void acquire(String reason) throws IOException {
+    void acquire(String reason) throws LockingException {
         LOG.debug("Lock Acquire {}, {}", lockpath, reason);
         while (true) {
             if (lockCount.get() == 0) {
@@ -137,7 +124,7 @@ class DistributedReentrantLock {
         }
     }
 
-    public boolean checkWriteLock() throws IOException {
+    public boolean checkWriteLock() throws LockingException {
         if (!haveLock()) {
             LOG.info("Lost writer lock");
             // We may have just lost the lock because of a ZK session timeout
@@ -150,7 +137,7 @@ class DistributedReentrantLock {
         return false;
     }
 
-    boolean haveLock() throws IOException {
+    boolean haveLock() {
         return lockCount.get() > 0;
     }
 

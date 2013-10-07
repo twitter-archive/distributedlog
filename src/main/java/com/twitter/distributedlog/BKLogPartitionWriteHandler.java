@@ -335,7 +335,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         try {
             deleteLock.acquire("DeleteLog");
-        } catch (DistributedReentrantLock.LockingException lockExc) {
+        } catch (LockingException lockExc) {
             throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
         }
 

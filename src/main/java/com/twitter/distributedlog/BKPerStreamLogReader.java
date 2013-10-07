@@ -70,11 +70,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
     }
 
-    protected void positionInputStream(LedgerDescriptor desc, long firstBookKeeperEntry)
-        throws IOException {
-        positionInputStream(desc, null, firstBookKeeperEntry);
-    }
-
     protected void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
@@ -86,13 +81,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
 
     @Override
-    public long getFirstTxId() throws IOException {
+    public long getFirstTxId() {
         return firstTxId;
-    }
-
-    @Override
-    public int getVersion() throws IOException {
-        return logVersion;
     }
 
     @Override

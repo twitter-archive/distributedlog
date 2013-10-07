@@ -31,7 +31,7 @@ public interface PerStreamLogReader extends Closeable {
     /**
      * @return the first transaction which will be found in this stream
      */
-    public long getFirstTxId() throws IOException;
+    public long getFirstTxId();
 
     /**
      * Read an operation from the stream
@@ -40,14 +40,6 @@ public interface PerStreamLogReader extends Closeable {
      * @throws IOException if there is an error reading from the stream
      */
     public LogRecord readOp() throws IOException;
-
-    /**
-     * Get the layout version of the data in the stream.
-     *
-     * @return the layout version of the ops in the stream.
-     * @throws IOException if there is an error reading the version
-     */
-    public int getVersion() throws IOException;
 
     /**
      * Return the size of the current edits log.
