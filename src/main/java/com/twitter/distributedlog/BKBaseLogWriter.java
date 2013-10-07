@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.Future;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
@@ -266,10 +268,12 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         return highestTransactionId;
     }
 
+    @VisibleForTesting
     public void setForceRolling(boolean forceRolling) {
         this.forceRolling = forceRolling;
     }
 
+    @VisibleForTesting
     public void overRideMinTimeStampToKeep(Long minTimestampToKeepOverride) {
         this.minTimestampToKeepOverride = minTimestampToKeepOverride;
     }
@@ -284,6 +288,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
     }
 
+    @VisibleForTesting
     public void setForceRecovery(boolean forceRecovery) {
         this.forceRecovery = forceRecovery;
     }
