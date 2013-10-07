@@ -27,6 +27,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
     public static final int BKDL_OUTPUT_BUFFER_SIZE_DEFAULT = 1024;
 
+    public static final String BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS = "periodicFlushFrequencyMilliSeconds";
+    public static final int BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT = 0;
+
     // Controls the retention period after which old ledgers are deleted
     public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
     public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
@@ -363,6 +366,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setLogFlushTimeoutSeconds(int logFlushTimeoutSeconds) {
         setProperty(BKDL_LOG_FLUSH_TIMEOUT, logFlushTimeoutSeconds);
+        return this;
+    }
+
+    /**
+     * Get Periodic Log Flush Frequency in seconds
+     *
+     * @return ensemble size
+     */
+    public int getPeriodicFlushFrequencyMilliSeconds() {
+        return this.getInt(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT);
+    }
+
+    /**
+     * Set Periodic Log Flush Frequency in seconds.
+     *
+     * @param flushFrequencySeconds periodic flush frequency.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
+        setProperty(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, flushFrequencyMs);
         return this;
     }
 

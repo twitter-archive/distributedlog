@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.Timer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -29,6 +30,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     private BookKeeperClient bookKeeperClient = null;
     private ZooKeeperClient zooKeeperClient = null;
     private boolean separateZKClient = false;
+    private Timer periodicTimer = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
         this(name, conf, uri, null, null);
@@ -60,6 +62,10 @@ class BKDistributedLogManager implements DistributedLogManager {
             } else {
                 bookKeeperClient = bkc;
                 bookKeeperClient.addRef();
+            }
+
+            if (conf.getPeriodicFlushFrequencyMilliSeconds() > 0) {
+                periodicTimer = new Timer();
             }
 
             closed = false;
@@ -96,7 +102,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient);
+        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, periodicTimer);
     }
 
     /**

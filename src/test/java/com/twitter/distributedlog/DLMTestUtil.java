@@ -60,7 +60,7 @@ class DLMTestUtil {
 
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
-        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null);
+        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null);
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {

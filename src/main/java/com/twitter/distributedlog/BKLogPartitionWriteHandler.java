@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Timer;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -30,6 +31,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     private boolean recovered = false;
+    private Timer periodicTimer = null;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -52,7 +54,8 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                       DistributedLogConfiguration conf,
                                       URI uri,
                                       ZooKeeperClient zkcShared,
-                                      BookKeeperClient bkcShared) throws IOException {
+                                      BookKeeperClient bkcShared,
+                                      Timer periodicTimer) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
@@ -152,7 +155,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId);
+            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, periodicTimer);
         } catch (Exception e) {
             if (currentLedger != null) {
                 try {

@@ -20,6 +20,8 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.List;
 import java.util.Queue;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +41,7 @@ import org.slf4j.LoggerFactory;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter
+class BKPerStreamLogWriter extends TimerTask
     implements PerStreamLogWriter, AddCallback {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
@@ -62,6 +64,7 @@ class BKPerStreamLogWriter
     private long numFlushes = 0;
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
+    private boolean periodicFlushNeeded = false;
 
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
@@ -71,7 +74,7 @@ class BKPerStreamLogWriter
      */
     protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId)
+                                   long startTxId, Timer periodicTimer)
         throws IOException {
         super();
 
@@ -89,6 +92,10 @@ class BKPerStreamLogWriter
         this.lastTxIdFlushed = startTxId;
         this.lastTxIdAcknowledged = startTxId;
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
+        int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
+        if (periodicFlushFrequency > 0) {
+            periodicTimer.scheduleAtFixedRate(this, periodicFlushFrequency/2, periodicFlushFrequency/2);
+        }
     }
 
     public DataOutputBuffer getBuffer() {
@@ -281,7 +288,7 @@ class BKPerStreamLogWriter
 
     /**
      * Transmit the current buffer to bookkeeper.
-     * Synchronised at the FSEditLog level. #write() and #setReadyToFlush()
+     * Synchronised at the class. #write() and #setReadyToFlush()
      * are never called at the same time.
      */
     synchronized private boolean transmit(boolean isControl)
@@ -316,6 +323,21 @@ class BKPerStreamLogWriter
             return true;
         }
         return false;
+    }
+
+    /**
+     *  Checks if there is any data to transmit so that the periodic flush
+     *  task can determine if there is anything it needs to do
+     */
+    synchronized private boolean haveDataToTransmit() throws IOException {
+        assert(!lock.checkWriteLock());
+
+        if (!transmitResult.compareAndSet(BKException.Code.OK, BKException.Code.OK)) {
+            // Even if there is data it cannot be transmitted, so effectively nothing to send
+            return false;
+        }
+
+        return (bufCurrent.getLength() > 0);
     }
 
     @Override
@@ -357,5 +379,30 @@ class BKPerStreamLogWriter
 
     public long getLastAddConfirmed() {
         return lh.getLastAddConfirmed();
+    }
+
+    @Override
+    synchronized public void run()  {
+        try {
+            boolean newData = haveDataToTransmit();
+
+            if (periodicFlushNeeded || newData) {
+                // If we need this periodic transmit to persist previously written data but
+                // there is no new data (which would cause the transmit to be skipped) generate
+                // a control record
+                if (!newData) {
+                    writeControlLogRecord();
+                }
+
+                transmit(!newData);
+            }
+
+            // If we had data in this pass then we need it to flush in the next pass
+            // to make the previous writes visible by advancing the lastAck
+            periodicFlushNeeded = newData;
+
+        } catch (IOException exc) {
+            LOG.error("Error encountered by the periodic flush", exc);
+        }
     }
 }
