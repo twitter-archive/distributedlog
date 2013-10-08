@@ -1,15 +1,16 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 
 public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
@@ -22,34 +23,36 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
     private Watcher sessionExpireWatcher = null;
     private AtomicBoolean zkSessionExpired = new AtomicBoolean(false);
 
-    private void commonInitialization(DistributedLogConfiguration conf)
+    private void commonInitialization(DistributedLogConfiguration conf, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         ClientConfiguration bkConfig = new ClientConfiguration();
         bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
         bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
         bkConfig.setZkLedgersRootPath(conf.getBKLedgersPath());
         bkConfig.setZkTimeout(conf.getZKSessionTimeoutSeconds() * 1000);
-        this.bkc = new BookKeeper(bkConfig, zkc.get());
+        this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
         refCount = 1;
         sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
     }
 
-    public BookKeeperClient(DistributedLogConfiguration conf, String zkConnect, String name)
+    public BookKeeperClient(DistributedLogConfiguration conf, String zkConnect, String name,
+                            StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         int zkSessionTimeout = conf.getZKSessionTimeoutSeconds() * 1000;
         this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, zkConnect);
         this.ownZK = true;
         this.name = name;
-        commonInitialization(conf);
+        commonInitialization(conf, statsLogger);
         LOG.info("BookKeeper Client created {} with its own ZK Client", name);
     }
 
-    public BookKeeperClient(DistributedLogConfiguration conf, ZooKeeperClient zkc, String name)
+    public BookKeeperClient(DistributedLogConfiguration conf, ZooKeeperClient zkc, String name,
+                            StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         this.zkc = zkc;
         this.ownZK = false;
         this.name = name;
-        commonInitialization(conf);
+        commonInitialization(conf, statsLogger);
         LOG.info("BookKeeper Client created {} with shared zookeeper client", name);
     }
 

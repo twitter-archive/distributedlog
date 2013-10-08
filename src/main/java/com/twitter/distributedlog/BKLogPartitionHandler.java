@@ -17,16 +17,17 @@
  */
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.zookeeper.KeeperException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-
-import org.apache.zookeeper.KeeperException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -72,6 +73,7 @@ public abstract class BKLogPartitionHandler {
     protected final String ledgerPath;
     protected final String digestpw;
     protected long lastLedgerRollingTimeMillis = -1;
+    protected final StatsLogger statsLogger;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -81,10 +83,12 @@ public abstract class BKLogPartitionHandler {
                                  DistributedLogConfiguration conf,
                                  URI uri,
                                  ZooKeeperClient zkcShared,
-                                 BookKeeperClient bkcShared) throws IOException {
+                                 BookKeeperClient bkcShared,
+                                 StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
+        this.statsLogger = statsLogger;
         partitionRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s/%s", name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
@@ -102,10 +106,13 @@ public abstract class BKLogPartitionHandler {
             LOG.debug("Using ZK Path {}", partitionRootPath);
 
             if (null == bkcShared) {
+                StatsLogger partitionStatsLogger = statsLogger.scope(streamIdentifier);
                 if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClient = new BookKeeperClient(conf, this.zooKeeperClient, String.format("%s:shared", name));
+                    this.bookKeeperClient =
+                        new BookKeeperClient(conf, this.zooKeeperClient, String.format("%s:shared", name), partitionStatsLogger.scope("bk"));
                 } else {
-                    this.bookKeeperClient = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name));
+                    this.bookKeeperClient =
+                        new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name), partitionStatsLogger.scope("bk"));
                 }
             } else {
                 bookKeeperClient = bkcShared;

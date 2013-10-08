@@ -1,17 +1,18 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.Enumeration;
-import java.util.List;
-
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.Enumeration;
+import java.util.List;
 
 
 public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
@@ -32,8 +33,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      DistributedLogConfiguration conf,
                                      URI uri,
                                      ZooKeeperClient zkcShared,
-                                     BookKeeperClient bkcShared) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
+                                     BookKeeperClient bkcShared,
+                                     StatsLogger statsLogger) throws IOException {
+        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared, statsLogger);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);

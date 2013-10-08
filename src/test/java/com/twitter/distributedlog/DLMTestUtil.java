@@ -17,11 +17,12 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.net.URI;
-
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import java.io.IOException;
+import java.net.URI;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -60,7 +61,7 @@ class DLMTestUtil {
 
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
-        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null);
+        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null, NullStatsLogger.INSTANCE);
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {

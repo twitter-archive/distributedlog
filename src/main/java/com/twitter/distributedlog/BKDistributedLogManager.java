@@ -1,5 +1,16 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZKUtil;
+import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -8,15 +19,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZKUtil;
-import org.apache.zookeeper.ZooDefs;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.data.Stat;
 
 
 class BKDistributedLogManager implements DistributedLogManager {
@@ -30,16 +32,27 @@ class BKDistributedLogManager implements DistributedLogManager {
     private BookKeeperClient bookKeeperClient = null;
     private ZooKeeperClient zooKeeperClient = null;
     private boolean separateZKClient = false;
+    private final StatsLogger statsLogger;
     private Timer periodicTimer = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
-        this(name, conf, uri, null, null);
+        this(name, conf, uri, null, null, NullStatsLogger.INSTANCE);
+    }
+
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, StatsLogger statsLogger) throws IOException {
+        this(name, conf, uri, null, null, statsLogger);
     }
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, ZooKeeperClient zkc, BookKeeperClient bkc) throws IOException {
+        this(name, conf, uri, zkc, bkc, NullStatsLogger.INSTANCE);
+    }
+
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, ZooKeeperClient zkc, BookKeeperClient bkc,
+                                   StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.conf = conf;
         this.uri = uri;
+        this.statsLogger = statsLogger;
 
         try {
             // Distributed Log Manager always creates a zookeeper connection to
@@ -54,10 +67,13 @@ class BKDistributedLogManager implements DistributedLogManager {
             }
 
             if (null == bkc) {
+                StatsLogger perDLMStatsLogger = statsLogger.scope(name);
                 if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClient = new BookKeeperClient(conf, zooKeeperClient, String.format("%s:shared", name));
+                    this.bookKeeperClient =
+                        new BookKeeperClient(conf, zooKeeperClient, String.format("%s:shared", name), perDLMStatsLogger.scope("bk"));
                 } else {
-                    this.bookKeeperClient = new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name));
+                    this.bookKeeperClient =
+                        new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name), perDLMStatsLogger.scope("bk"));
                 }
             } else {
                 bookKeeperClient = bkc;
@@ -97,12 +113,12 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient);
+        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, statsLogger);
 
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, periodicTimer);
+        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, periodicTimer, statsLogger);
     }
 
     /**
@@ -174,7 +190,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     /**
      * Get the input stream starting with fromTxnId for the specified log
      *
-     * @param partition – the partition within the log stream to read from
      * @param fromTxnId - the first transaction id we want to read
      * @return the stream starting with transaction fromTxnId
      * @throws IOException if a stream cannot be found.
@@ -216,7 +231,6 @@ class BKDistributedLogManager implements DistributedLogManager {
         ledgerHandler.close();
         return returnValue;
     }
-
 
     @Override
     public long getFirstTxId(PartitionId partition) throws IOException {
@@ -269,7 +283,6 @@ class BKDistributedLogManager implements DistributedLogManager {
      * Recover the default stream within the log container (for
      * un partitioned log containers)
      *
-     * @param partition – the partition within the log stream to delete
      * @throws IOException if the recovery fails
      */
     @Override
@@ -284,7 +297,6 @@ class BKDistributedLogManager implements DistributedLogManager {
      * that application may read a fully recovered partition before resuming
      * the writes
      *
-     * @param partition – the partition within the log stream to delete
      * @throws IOException if the recovery fails
      */
     private void recoverInternal(String streamIdentifier) throws IOException {
@@ -308,7 +320,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     /**
      * Delete the specified partition
      *
-     * @param partition – the partition within the log stream to delete
      * @throws IOException if the deletion fails
      */
     public void deletePartition(String streamIdentifier) throws IOException {

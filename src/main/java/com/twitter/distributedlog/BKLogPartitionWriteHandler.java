@@ -1,20 +1,22 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.Timer;
-
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.Timer;
 
 public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -46,6 +48,12 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             (byte) (i)};
     }
 
+    // Stats
+    private final OpStatsLogger closeOpStats;
+    private final OpStatsLogger openOpStats;
+    private final OpStatsLogger recoverOpStats;
+    private final OpStatsLogger deleteOpStats;
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -55,8 +63,9 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                       URI uri,
                                       ZooKeeperClient zkcShared,
                                       BookKeeperClient bkcShared,
-                                      Timer periodicTimer) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared);
+                                      Timer periodicTimer,
+                                      StatsLogger statsLogger) throws IOException {
+        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared, statsLogger);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
 
@@ -104,6 +113,13 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
         lockAcquired = false;
+
+        // Stats
+        StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
+        openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
+        closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
+        recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
+        deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
     }
 
     /**
@@ -117,6 +133,23 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * @param txId First transaction id to be written to the stream
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
+        long start = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            BKPerStreamLogWriter writer = doStartLogSegment(txId);
+            success = true;
+            return writer;
+        } finally {
+            long elapsed = MathUtils.elapsedMSec(start);
+            if (success) {
+                openOpStats.registerSuccessfulEvent(elapsed);
+            } else {
+                openOpStats.registerFailedEvent(elapsed);
+            }
+        }
+    }
+
+    private BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
         checkLogExists();
 
         lock.acquire("StartLogSegment");
@@ -224,7 +257,24 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * trying to finalize.
      */
     public void completeAndCloseLogSegment(long firstTxId, long lastTxId, boolean shouldReleaseLock)
-        throws IOException {
+            throws IOException {
+        long start = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            doCompleteAndCloseLogSegment(firstTxId, lastTxId, shouldReleaseLock);
+            success = true;
+        } finally {
+            long elapsed = MathUtils.elapsedMSec(start);
+            if (success) {
+                closeOpStats.registerSuccessfulEvent(elapsed);
+            } else {
+                closeOpStats.registerFailedEvent(elapsed);
+            }
+        }
+    }
+
+    private void doCompleteAndCloseLogSegment(long firstTxId, long lastTxId, boolean shouldReleaseLock)
+            throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(firstTxId);
@@ -287,6 +337,22 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public void recoverIncompleteLogSegments() throws IOException {
+        long start = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            doRecoverIncompleteLogSegments();
+            success = true;
+        } finally {
+            long elapsed = MathUtils.elapsedMSec(start);
+            if (success) {
+                recoverOpStats.registerSuccessfulEvent(elapsed);
+            } else {
+                recoverOpStats.registerFailedEvent(elapsed);
+            }
+        }
+    }
+
+    private void doRecoverIncompleteLogSegments() throws IOException {
         if (recovered) {
             return;
         }
@@ -409,6 +475,22 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
+        long start = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            doDeleteLedgerAndMetadata(ledgerMetadata);
+            success = true;
+        } finally {
+            long elapsed = MathUtils.elapsedMSec(start);
+            if (success) {
+                deleteOpStats.registerSuccessfulEvent(elapsed);
+            } else {
+                deleteOpStats.registerFailedEvent(elapsed);
+            }
+        }
+    }
+
+    private void doDeleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
         try {
             LOG.info("Deleting ledger for {}", ledgerMetadata);
             Stat stat = zooKeeperClient.get().exists(ledgerMetadata.getZkPath(), false);
