@@ -67,7 +67,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
-
     }
 
     protected void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
@@ -101,8 +100,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     public void close() throws IOException {
         try {
             ledgerDataAccessor.closeLedger(ledgerDescriptor);
-        } catch (Exception e) {
-            throw new IOException("Exception closing ledger", e);
+        } catch (Throwable t) {
+          // we caught all the potential exceptions when closing
+          // {@link https://jira.twitter.biz/browse/PUBSUB-1146}
+          LOG.error("Exception closing ledger {} : ", ledgerDescriptor, t);
         }
     }
 

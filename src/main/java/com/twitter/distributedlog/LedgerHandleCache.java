@@ -1,16 +1,16 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.util.Enumeration;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.Enumeration;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class LedgerHandleCache {
     static final Logger LOG = LoggerFactory.getLogger(LedgerHandleCache.class);
@@ -28,7 +28,7 @@ public class LedgerHandleCache {
 
     public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException, BKException {
         LedgerDescriptor ledgerDesc = new LedgerDescriptor(ledgerId, fence);
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         try {
             if (null == refhandle) {
@@ -55,9 +55,13 @@ public class LedgerHandleCache {
         return ledgerDesc;
     }
 
+    private RefCountedLedgerHandle getLedgerHandle(LedgerDescriptor ledgerDescriptor) {
+        return null == ledgerDescriptor ? null : handlesMap.get(ledgerDescriptor);
+    }
+
     public synchronized void closeLedger(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException, IOException {
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if ((null != refhandle) && (refhandle.removeRef())) {
             refhandle.handle.close();
@@ -66,7 +70,7 @@ public class LedgerHandleCache {
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {
             throw new IOException("Accessing Ledger without opening");
@@ -77,7 +81,7 @@ public class LedgerHandleCache {
 
     public synchronized void readLastConfirmed(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException, IOException {
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {
             throw new IOException("Accessing Ledger without opening");
@@ -88,7 +92,7 @@ public class LedgerHandleCache {
 
     public synchronized Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
         throws InterruptedException, BKException, IOException {
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {
             throw new IOException("Accessing Ledger without opening");
@@ -98,7 +102,7 @@ public class LedgerHandleCache {
     }
 
     public synchronized long getLength(LedgerDescriptor ledgerDesc) throws IOException {
-        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {
             throw new IOException("Accessing Ledger without opening");
