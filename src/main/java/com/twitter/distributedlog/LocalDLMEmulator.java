@@ -87,7 +87,8 @@ public class LocalDLMEmulator {
         if (!LocalBookKeeper.waitForServerUp(zkEnsemble, 10000)) {
             throw new Exception("Error starting zookeeper/bookkeeper");
         }
-        assert (numBookies == checkBookiesUp(numBookies, 10));
+        int bookiesUp = checkBookiesUp(numBookies, 10);
+        assert (numBookies == bookiesUp);
     }
 
     public void teardown() throws Exception {
