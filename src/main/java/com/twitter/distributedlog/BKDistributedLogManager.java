@@ -245,9 +245,11 @@ class BKDistributedLogManager implements DistributedLogManager {
     private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getFirstTxIdInternal");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        long returnValue = ledgerHandler.getFirstTxId();
-        ledgerHandler.close();
-        return returnValue;
+        try {
+            return ledgerHandler.getFirstTxId();
+        } finally {
+            ledgerHandler.close();
+        }
     }
 
     @Override
@@ -263,9 +265,11 @@ class BKDistributedLogManager implements DistributedLogManager {
     private long getLastTxIdInternal(String streamIdentifier, boolean recover) throws IOException {
         checkClosedOrInError("getLastTxIdInternal");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        long returnValue = ledgerHandler.getLastTxId(recover);
-        ledgerHandler.close();
-        return returnValue;
+        try {
+            return ledgerHandler.getLastTxId(recover);
+        } finally {
+            ledgerHandler.close();
+        }
     }
 
     /**
@@ -302,8 +306,11 @@ class BKDistributedLogManager implements DistributedLogManager {
     private void recoverInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("recoverInternal");
         BKLogPartitionWriteHandler ledgerHandler = createWriteLedgerHandler(streamIdentifier);
-        ledgerHandler.recoverIncompleteLogSegments();
-        ledgerHandler.close();
+        try {
+            ledgerHandler.recoverIncompleteLogSegments();
+        } finally {
+            ledgerHandler.close();
+        }
     }
 
     /**
@@ -324,8 +331,11 @@ class BKDistributedLogManager implements DistributedLogManager {
      */
     public void deletePartition(String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler ledgerHandler = createWriteLedgerHandler(streamIdentifier);
-        ledgerHandler.deleteLog();
-        ledgerHandler.close();
+        try {
+            ledgerHandler.deleteLog();
+        } finally {
+            ledgerHandler.close();
+        }
     }
 
     /**
@@ -416,9 +426,12 @@ class BKDistributedLogManager implements DistributedLogManager {
     public void purgeLogsForPartitionOlderThan(String streamIdentifier, long minTxIdToKeep) throws IOException {
         checkClosedOrInError("purgeLogsOlderThan");
         BKLogPartitionWriteHandler ledgerHandler = createWriteLedgerHandler(streamIdentifier);
-        LOG.info("Purging logs for {} older than {}", ledgerHandler.getFullyQualifiedName(), minTxIdToKeep);
-        ledgerHandler.purgeLogsOlderThan(minTxIdToKeep);
-        ledgerHandler.close();
+        try {
+            LOG.info("Purging logs for {} older than {}", ledgerHandler.getFullyQualifiedName(), minTxIdToKeep);
+            ledgerHandler.purgeLogsOlderThan(minTxIdToKeep);
+        } finally {
+            ledgerHandler.close();
+        }
     }
 
     /**

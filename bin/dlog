@@ -58,6 +58,7 @@ Usage: dlog <command>
 where command is one of:
     local               Run distributedlog sandbox
     example             Run distributedlog example
+    tool                Run distributedlog tool
     help                This help message
 
 or command is the full name of a class with a defined main() method.
@@ -138,6 +139,8 @@ if [ $COMMAND == "local" ]; then
     exec java $OPTS $JMX_ARGS com.twitter.distributedlog.LocalDLMEmulator $@
 elif [ $COMMAND == "example" ]; then
     exec java $OPTS com.twitter.distributedlog.examples.DistributedLogExample $@
+elif [ $COMMAND == "tool" ]; then
+    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.tools.DistributedLogTool $@
 elif [ $COMMAND == "help" ]; then
     dlog_help;
 else
