@@ -3,9 +3,9 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.twitter</groupId>
-    <artifactId>distributedlog</artifactId>
+    <artifactId>distributedlog-zk33</artifactId>
     <packaging>jar</packaging>
-    <version>0.2.5-${zksuffix}</version>
+    <version>0.2.5</version>
     <distributionManagement>
         <repository>
             <id>artifactory-release</id>
@@ -18,73 +18,13 @@
             <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
         </snapshotRepository>
     </distributionManagement>
-    <profiles>
-        <profile>
-            <id>zk3.4</id>
-            <dependencies>
-                <dependency>
-                    <groupId>org.apache.bookkeeper.shims</groupId>
-                    <artifactId>zookeeper-shim-3.4</artifactId>
-                    <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
-                    <scope>compile</scope>
-                </dependency>
-            </dependencies>
-            <activation>
-                <property>
-                    <name>zksuffix</name>
-                    <value>zk34</value>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <artifactId>maven-jar-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>jar</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
-            <id>zk3.3</id>
-            <dependencies>
-                <dependency>
-                    <groupId>org.apache.bookkeeper.shims</groupId>
-                    <artifactId>zookeeper-shim-3.3</artifactId>
-                    <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
-                    <scope>compile</scope>
-                </dependency>
-            </dependencies>
-            <activation>
-                <property>
-                    <name>zksuffix</name>
-                    <value>zk33</value>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <artifactId>maven-jar-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>jar</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
     <dependencies>
+        <dependency>
+            <groupId>org.apache.bookkeeper.shims</groupId>
+            <artifactId>zookeeper-shim-3.3</artifactId>
+            <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
