@@ -17,25 +17,9 @@
  */
 package com.twitter.distributedlog;
 
-import static org.junit.Assert.*;
-import static org.junit.Assert.assertEquals;
-
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.junit.Test;
-import org.junit.Before;
-import org.junit.After;
-import org.junit.BeforeClass;
-import org.junit.AfterClass;
-
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
+import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.ZooKeeper;
@@ -45,7 +29,20 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import static org.junit.Assert.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class TestBookKeeperDistributedLogManager {
     static final Log LOG = LogFactory.getLog(TestBookKeeperDistributedLogManager.class);
@@ -55,7 +52,7 @@ public class TestBookKeeperDistributedLogManager {
     protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
-    private static LocalBookKeeper.ConnectedZKServer zks;
+    private static ZooKeeperServerShim zks;
     static int numBookies = 3;
 
     @BeforeClass
@@ -68,6 +65,7 @@ public class TestBookKeeperDistributedLogManager {
     @AfterClass
     public static void teardownBookkeeper() throws Exception {
         bkutil.teardown();
+        zks.stop();
     }
 
     @Before

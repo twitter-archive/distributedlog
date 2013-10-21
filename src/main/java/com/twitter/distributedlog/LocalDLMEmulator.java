@@ -72,7 +72,7 @@ public class LocalDLMEmulator {
         bkthread = new Thread() {
             public void run() {
                 try {
-                    LocalBookKeeper.startLocalBookie(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort);
+                    LocalBookKeeper.startLocalBookies(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort);
                 } catch (InterruptedException e) {
                     // go away quietly
                 } catch (Exception e) {

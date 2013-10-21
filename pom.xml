@@ -23,60 +23,42 @@
             <id>zk3.4</id>
             <dependencies>
                 <dependency>
-                    <groupId>org.apache.zookeeper</groupId>
-                    <artifactId>zookeeper</artifactId>
-                    <version>3.4.3</version>
+                    <groupId>org.apache.bookkeeper.shims</groupId>
+                    <artifactId>zookeeper-shim-3.4</artifactId>
+                    <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
                     <scope>compile</scope>
-                    <exclusions>
-                        <exclusion>
-                            <groupId>org.jboss.netty</groupId>
-                            <artifactId>netty</artifactId>
-                        </exclusion>
-                    </exclusions>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.bookkeeper</groupId>
-                    <artifactId>bookkeeper-server</artifactId>
-                    <version>4.2.6-TWTTR-SNAPSHOT</version>
-                    <type>jar</type>
-                    <exclusions>
-                        <exclusion>
-                            <groupId>org.jboss.netty</groupId>
-                            <artifactId>netty</artifactId>
-                        </exclusion>
-                    </exclusions>
                 </dependency>
             </dependencies>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classifier>zk34</classifier>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
         <profile>
             <id>zk3.3</id>
             <dependencies>
                 <dependency>
-                    <groupId>org.apache.zookeeper</groupId>
-                    <artifactId>zookeeper</artifactId>
-                    <version>3.3.4</version>
+                    <groupId>org.apache.bookkeeper.shims</groupId>
+                    <artifactId>zookeeper-shim-3.3</artifactId>
+                    <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
                     <scope>compile</scope>
-                    <exclusions>
-                        <exclusion>
-                            <groupId>org.jboss.netty</groupId>
-                            <artifactId>netty</artifactId>
-                        </exclusion>
-                    </exclusions>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.bookkeeper</groupId>
-                    <artifactId>bookkeeper-server</artifactId>
-                    <version>4.2.2-ZK33-SNAPSHOT</version>
-                    <type>jar</type>
-                    <exclusions>
-                        <exclusion>
-                            <groupId>org.jboss.netty</groupId>
-                            <artifactId>netty</artifactId>
-                        </exclusion>
-                    </exclusions>
                 </dependency>
             </dependencies>
             <build>
@@ -148,6 +130,22 @@
             <groupId>jline</groupId>
             <artifactId>jline</artifactId>
             <version>0.9.94</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bookkeeper</groupId>
+            <artifactId>bookkeeper-server</artifactId>
+            <version>4.2.7-TWTTR-NETTY-SNAPSHOT</version>
+            <type>jar</type>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jboss.netty</groupId>
+                    <artifactId>netty</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.bookkeeper.shims</groupId>
+                    <artifactId>zookeeper-shim-3.4</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
     <build>
