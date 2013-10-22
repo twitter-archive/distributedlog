@@ -56,14 +56,14 @@ public class TestBookKeeperDistributedLogManager {
     static int numBookies = 3;
 
     @BeforeClass
-    public static void setupBookkeeper() throws Exception {
+    public static void setupCluster() throws Exception {
         zks = LocalBookKeeper.runZookeeper(1000, 7000);
         bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
         bkutil.start();
     }
 
     @AfterClass
-    public static void teardownBookkeeper() throws Exception {
+    public static void teardownCluster() throws Exception {
         bkutil.teardown();
         zks.stop();
     }

@@ -17,6 +17,8 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -41,6 +43,8 @@ import java.util.concurrent.TimeUnit;
 public class LocalDLMEmulator {
     protected static final Logger LOG = LoggerFactory.getLogger(LocalDLMEmulator.class);
     protected static final int DEFAULT_BOOKIE_INITIAL_PORT = 0; // Use ephemeral ports
+
+    static final String DLOG_NAMESPACE = "/messaging/distributedlog";
 
     int nextPort = 6000; // next port for additionally created bookies
     private Thread bkthread = null;
@@ -89,6 +93,9 @@ public class LocalDLMEmulator {
         }
         int bookiesUp = checkBookiesUp(numBookies, 10);
         assert (numBookies == bookiesUp);
+        // Provision "/messaging/distributedlog" namespace
+        URI uri = URI.create("distributedlog://" + zkEnsemble + DLOG_NAMESPACE);
+        DLMetadata.create(new BKDLConfig(zkEnsemble, "/ledgers")).create(uri);
     }
 
     public void teardown() throws Exception {
@@ -130,7 +137,7 @@ public class LocalDLMEmulator {
     }
 
     public static URI createDLMURI(String zkServers, String path) throws Exception {
-        return URI.create("distributedlog://" + zkServers + path);
+        return URI.create("distributedlog://" + zkServers + DLOG_NAMESPACE + path);
     }
 
 

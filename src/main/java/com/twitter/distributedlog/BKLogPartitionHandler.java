@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -58,7 +59,7 @@ import java.util.List;
  * Password to use when creating ledgers. </li>
  * </ul>
  */
-public abstract class BKLogPartitionHandler {
+abstract class BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -66,7 +67,6 @@ public abstract class BKLogPartitionHandler {
     protected final String name;
     protected final String streamIdentifier;
     protected final ZooKeeperClient zooKeeperClient;
-    protected final boolean separateZKClient;
     protected final DistributedLogConfiguration conf;
     protected final BookKeeperClient bookKeeperClient;
     protected final String partitionRootPath;
@@ -78,47 +78,41 @@ public abstract class BKLogPartitionHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    public BKLogPartitionHandler(String name,
-                                 String streamIdentifier,
-                                 DistributedLogConfiguration conf,
-                                 URI uri,
-                                 ZooKeeperClient zkcShared,
-                                 BookKeeperClient bkcShared,
-                                 StatsLogger statsLogger) throws IOException {
+    BKLogPartitionHandler(String name,
+                          String streamIdentifier,
+                          DistributedLogConfiguration conf,
+                          URI uri,
+                          ZooKeeperClientBuilder zkcBuilder,
+                          BookKeeperClientBuilder bkcBuilder,
+                          StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
         this.statsLogger = statsLogger;
-        partitionRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s/%s", name, streamIdentifier);
+        partitionRootPath = String.format("%s/%s/%s", uri.getPath(), name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
 
         try {
-            if (null == zkcShared) {
-                this.zooKeeperClient = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
-                separateZKClient = true;
-            } else {
-                this.zooKeeperClient = zkcShared;
-                separateZKClient = false;
+            if (null == zkcBuilder) {
+                zkcBuilder = ZooKeeperClientBuilder.newBuilder()
+                        .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                        .uri(uri).buildNew(false);
             }
-
+            this.zooKeeperClient = zkcBuilder.build();
             LOG.debug("Using ZK Path {}", partitionRootPath);
-
-            if (null == bkcShared) {
-                StatsLogger partitionStatsLogger = statsLogger.scope(streamIdentifier);
+            if (null == bkcBuilder) {
+                // resolve uri
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
+                bkcBuilder = BookKeeperClientBuilder.newBuilder()
+                        .dlConfig(conf).bkdlConfig(bkdlConfig)
+                        .name(String.format("%s:shared", name)).buildNew(false);
                 if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, this.zooKeeperClient, String.format("%s:shared", name), partitionStatsLogger.scope("bk"));
-                } else {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name), partitionStatsLogger.scope("bk"));
+                    bkcBuilder.zkc(zooKeeperClient);
                 }
-            } else {
-                bookKeeperClient = bkcShared;
-                bookKeeperClient.addRef();
             }
-
+            this.bookKeeperClient = bkcBuilder.build();
         } catch (Exception e) {
             throw new IOException("Error initializing zk", e);
         }
@@ -246,10 +240,7 @@ public abstract class BKLogPartitionHandler {
     public void close() throws IOException {
         try {
             bookKeeperClient.release();
-
-            if (separateZKClient) {
-                zooKeeperClient.close();
-            }
+            zooKeeperClient.close();
         } catch (Exception e) {
             throw new IOException("Couldn't close zookeeper client", e);
         }

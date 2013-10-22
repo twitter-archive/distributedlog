@@ -1,7 +1,5 @@
 package com.twitter.distributedlog;
 
-import java.net.URL;
-
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -9,6 +7,8 @@ import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.configuration.SystemConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.net.URL;
 
 public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
@@ -274,7 +274,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set if we should share ZK client between DL and BKC
      *
-     * @param separateBKClients should use separate BK clients
+     * @param shareZKClientWithBKC
+     *          should share ZK client between DL and BKC
      */
     public DistributedLogConfiguration setShareZKClientWithBKC(boolean shareZKClientWithBKC) {
         setProperty(BKDL_SHARE_ZK_CLIENT_WITH_BKC, shareZKClientWithBKC);
@@ -294,7 +295,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set if we should use separate ZK clients
      *
-     * @param zkLedgersPath Use separate ZK clients
+     * @param separateZKClients
+     *          Use separate ZK Clients
      */
     public DistributedLogConfiguration setSeparateZKClients(boolean separateZKClients) {
         setProperty(BKDL_SEPARATE_ZK_CLIENT, separateZKClients);
@@ -313,7 +315,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set if we should enable read ahead
      *
-     * @param zkLedgersPath Use separate ZK clients
+     * @param enableReadAhead
+     *          Enable read ahead
      */
     public DistributedLogConfiguration setEnableReadAhead(boolean enableReadAhead) {
         setProperty(BKDL_ENABLE_READAHEAD, enableReadAhead);
@@ -336,6 +339,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public int getZKSessionTimeoutSeconds() {
         return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT);
+    }
+
+    /**
+     * Get ZK Session timeout in milliseconds.
+     *
+     * @return zk session timeout in milliseconds.
+     */
+    public int getZKSessionTimeoutMilliseconds() {
+        return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT) * 1000;
     }
 
     /**
@@ -399,9 +411,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Set ZK Session Timeout.
+     * Set Read Ahead Batch Size.
      *
-     * @param zkSessionTimeoutSeconds session timeout.
+     * @param readAheadBatchSize
+     *          Read ahead batch size.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setReadAheadBatchSize(int readAheadBatchSize) {
@@ -452,8 +465,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set BK Ledgers path
      *
-     * @param bkLedgersPath BK ledgers path
+     * @deprecated BookKeeper configuration is self-managed by DL. You should not rely on this.
+     * @param bkLedgersPath
+     *          BK ledgers path
      */
+    @Deprecated
     public DistributedLogConfiguration setBKLedgersPath(String bkLedgersPath) {
         setProperty(BKDL_BOOKKEEPER_LEDGERS_PATH, bkLedgersPath);
         return this;
@@ -462,8 +478,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Get BK ledgers path.
      *
+     * @deprecated BookKeeper configuration is self-managed by DL. You should not rely on this.
      * @return bk ledgers root path
      */
+    @Deprecated
     public String getBKLedgersPath() {
         return getString(BKDL_BOOKKEEPER_LEDGERS_PATH, BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT);
     }
@@ -471,8 +489,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set path prefix for the distributedlog path in ZK
      *
-     * @param dlZKPath distributedlog ZK path
+     * @deprecated The DL zk prefix is self-explained in the URI. You should not rely on this.
+     * @param dlZKPath
+     *          distributedlog ZK path
      */
+    @Deprecated
     public DistributedLogConfiguration setDLZKPathPrefix(String dlZKPath) {
         setProperty(BKDL_ZK_PREFIX, dlZKPath);
         return this;
@@ -481,8 +502,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Get path prefix for the distributedlog path in ZK
      *
+     * @deprecated The DL zk prefix is self-explained in the URI. You should not rely on this.
      * @return bk ledgers root path
      */
+    @Deprecated
     public String getDLZKPathPrefix() {
         return getString(BKDL_ZK_PREFIX, BKDL_ZK_PREFIX_DEFAULT);
     }

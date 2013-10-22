@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
@@ -20,8 +21,10 @@ public class DistributedLogManagerFactory {
 
     private DistributedLogConfiguration conf;
     private URI namespace;
-    private ZooKeeperClient zooKeeperClient = null;
-    private BookKeeperClient bookKeeperClient = null;
+    private final ZooKeeperClientBuilder zooKeeperClientBuilder;
+    private final ZooKeeperClient zooKeeperClient;
+    private final BookKeeperClientBuilder bookKeeperClientBuilder;
+    private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
@@ -36,19 +39,21 @@ public class DistributedLogManagerFactory {
         this.statsLogger = statsLogger;
 
         try {
-            if (!this.conf.getSeparateZKClients()) {
-                zooKeeperClient = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+            // Build zookeeper client
+            this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri)
+                    .buildNew(conf.getSeparateZKClients());
+            this.zooKeeperClient = this.zooKeeperClientBuilder.build();
+            // Resolve uri to get bk dl config.
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
+            // Build bookkeeper client
+            this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
+                    .buildNew(conf.getSeparateBKClients());
+            if (conf.getShareZKClientWithBKC()) {
+                this.bookKeeperClientBuilder.zkc(zooKeeperClient);
             }
-
-            if (!this.conf.getSeparateBKClients()) {
-                if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, zooKeeperClient, String.format("%s:shared", namespace), statsLogger.scope("bk"));
-                } else {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", namespace), statsLogger.scope("bk"));
-                }
-            }
+            this.bookKeeperClient = this.bookKeeperClientBuilder.build();
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
             throw new IOException("Error initializing zk", ie);
@@ -58,9 +63,18 @@ public class DistributedLogManagerFactory {
         }
     }
 
+    /**
+     * Create a DistributedLogManager as <i>nameOfLogStream</i>.
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        return DistributedLogManagerFactory.createDistributedLogManager(nameOfLogStream, this.conf, namespace,
-                zooKeeperClient, bookKeeperClient, statsLogger);
+        return createDistributedLogManager(nameOfLogStream, conf, namespace, zooKeeperClientBuilder, bookKeeperClientBuilder,
+                                           statsLogger);
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -96,33 +110,37 @@ public class DistributedLogManagerFactory {
 
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri)
         throws IOException, IllegalArgumentException {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri, null, null);
-    }
-
-    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                                                                    StatsLogger statsLogger)
-            throws IOException, IllegalArgumentException {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri, null, null, statsLogger);
+        return createDistributedLogManager(name, conf, uri, (ZooKeeperClientBuilder) null, (BookKeeperClientBuilder) null,
+                NullStatsLogger.INSTANCE);
     }
 
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                                                     ZooKeeperClient zkc, BookKeeperClient bkc)
         throws IOException, IllegalArgumentException {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri, zkc, bkc, NullStatsLogger.INSTANCE);
+        return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
+                BookKeeperClientBuilder.newBuilder().bkc(bkc), NullStatsLogger.INSTANCE);
     }
 
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                                                     ZooKeeperClient zkc, BookKeeperClient bkc, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
+        return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
+                BookKeeperClientBuilder.newBuilder().bkc(bkc), statsLogger);
+    }
+
+    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
+                ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
+        throws IOException, IllegalArgumentException {
         validateInput(conf, uri);
-        return new BKDistributedLogManager(name, conf, uri, zkc, bkc, statsLogger);
+        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
     }
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, InterruptedException, IllegalArgumentException {
         validateInput(conf, uri);
-        String logRootPath = conf.getDLZKPathPrefix() + uri.getPath() + String.format("/%s", name);
-        ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+        String logRootPath = uri.getPath() + String.format("/%s", name);
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri).buildNew();
         try {
             if (null != zkc.get().exists(logRootPath, false)) {
                 return true;
@@ -146,10 +164,11 @@ public class DistributedLogManagerFactory {
     private static Collection<String> enumerateAllLogsInternal(ZooKeeperClient zkcShared, DistributedLogConfiguration conf, URI uri)
         throws IOException, InterruptedException, IllegalArgumentException {
         validateInput(conf, uri);
-        String namespaceRootPath = conf.getDLZKPathPrefix() + uri.getPath();
+        String namespaceRootPath = uri.getPath();
         ZooKeeperClient zkc = zkcShared;
         if (null == zkcShared) {
-            zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+            zkc = ZooKeeperClientBuilder.newBuilder().sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                    .uri(uri).buildNew(false).build();
         }
         try {
             Stat currentStat = zkc.get().exists(namespaceRootPath, false);
@@ -179,10 +198,11 @@ public class DistributedLogManagerFactory {
     private static Map<String, byte[]> enumerateLogsWithMetadataInternal(ZooKeeperClient zkcShared, DistributedLogConfiguration conf, URI uri)
         throws IOException, InterruptedException, IllegalArgumentException {
         validateInput(conf, uri);
-        String namespaceRootPath = conf.getDLZKPathPrefix() + uri.getPath();
+        String namespaceRootPath = uri.getPath();
         ZooKeeperClient zkc = zkcShared;
         if (null == zkcShared) {
-            zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+            zkc = ZooKeeperClientBuilder.newBuilder().sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                    .uri(uri).buildNew(false).build();
         }
         HashMap<String, byte[]> result = new HashMap<String, byte[]>();
 
@@ -220,12 +240,8 @@ public class DistributedLogManagerFactory {
      */
     public void close() throws IOException {
         try {
-            if (null != bookKeeperClient) {
-                bookKeeperClient.release();
-            }
-            if (null != zooKeeperClient) {
-                zooKeeperClient.close();
-            }
+            bookKeeperClient.release();
+            zooKeeperClient.close();
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager factory", e);
         }

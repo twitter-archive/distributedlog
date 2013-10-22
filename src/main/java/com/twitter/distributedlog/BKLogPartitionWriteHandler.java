@@ -18,7 +18,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Timer;
 
-public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
+class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -33,7 +33,7 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     private boolean recovered = false;
-    private Timer periodicTimer = null;
+    private final Timer periodicTimer;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -57,17 +57,18 @@ public class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    public BKLogPartitionWriteHandler(String name,
-                                      String streamIdentifier,
-                                      DistributedLogConfiguration conf,
-                                      URI uri,
-                                      ZooKeeperClient zkcShared,
-                                      BookKeeperClient bkcShared,
-                                      Timer periodicTimer,
-                                      StatsLogger statsLogger) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared, statsLogger);
+    BKLogPartitionWriteHandler(String name,
+                               String streamIdentifier,
+                               DistributedLogConfiguration conf,
+                               URI uri,
+                               ZooKeeperClientBuilder zkcBuilder,
+                               BookKeeperClientBuilder bkcBuilder,
+                               Timer periodicTimer,
+                               StatsLogger statsLogger) throws IOException {
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
+        this.periodicTimer = periodicTimer;
 
         maxTxIdPath = partitionRootPath + "/maxtxid";
         String lockPath = partitionRootPath + "/lock";

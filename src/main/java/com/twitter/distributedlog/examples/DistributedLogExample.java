@@ -19,7 +19,6 @@ public class DistributedLogExample {
         // Create a distributedlog configuration
         DistributedLogConfiguration conf =
             new DistributedLogConfiguration()
-                .setDLZKPathPrefix("/messaging/distributedlog")
                 .setLogSegmentRollingIntervalMinutes(60) // interval to roll log segment
                 .setRetentionPeriodHours(1) // retention period
                 .setQuorumSize(2) // 2 replicas

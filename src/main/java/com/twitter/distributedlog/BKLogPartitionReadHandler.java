@@ -32,10 +32,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      String streamIdentifier,
                                      DistributedLogConfiguration conf,
                                      URI uri,
-                                     ZooKeeperClient zkcShared,
-                                     BookKeeperClient bkcShared,
+                                     ZooKeeperClientBuilder zkcBuilder,
+                                     BookKeeperClientBuilder bkcBuilder,
                                      StatsLogger statsLogger) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcShared, bkcShared, statsLogger);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);

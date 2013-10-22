@@ -1,13 +1,13 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.util.Collection;
-import java.util.concurrent.Future;
-
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.Collection;
+import java.util.concurrent.Future;
 
 
 public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {

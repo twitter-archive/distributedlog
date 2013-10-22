@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.CreateMode;
@@ -29,9 +30,10 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final URI uri;
     private boolean closed = true;
     private ExecutorService cbThreadPool = null;
-    private BookKeeperClient bookKeeperClient = null;
-    private ZooKeeperClient zooKeeperClient = null;
-    private boolean separateZKClient = false;
+    private final ZooKeeperClientBuilder zooKeeperClientBuilder;
+    private final ZooKeeperClient zooKeeperClient;
+    private final BookKeeperClientBuilder bookKeeperClientBuilder;
+    private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
     private Timer periodicTimer = null;
 
@@ -43,11 +45,14 @@ class BKDistributedLogManager implements DistributedLogManager {
         this(name, conf, uri, null, null, statsLogger);
     }
 
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, ZooKeeperClient zkc, BookKeeperClient bkc) throws IOException {
-        this(name, conf, uri, zkc, bkc, NullStatsLogger.INSTANCE);
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
+                                   ZooKeeperClientBuilder zkcBuilder,
+                                   BookKeeperClientBuilder bkcBuilder) throws IOException {
+        this(name, conf, uri, zkcBuilder, bkcBuilder, NullStatsLogger.INSTANCE);
     }
 
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, ZooKeeperClient zkc, BookKeeperClient bkc,
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
+                                   ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.conf = conf;
@@ -59,26 +64,28 @@ class BKDistributedLogManager implements DistributedLogManager {
             // handle session expiration
             // Bookkeeper client is only created if separate BK clients option is
             // not specified
-            if (null == zkc) {
-                zooKeeperClient = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
-                separateZKClient = true;
+            if (null == zkcBuilder) {
+                this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
+                        .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                        .uri(uri).buildNew(false);
             } else {
-                zooKeeperClient = zkc;
+                this.zooKeeperClientBuilder = zkcBuilder;
             }
+            zooKeeperClient = this.zooKeeperClientBuilder.build();
 
-            if (null == bkc) {
-                StatsLogger perDLMStatsLogger = statsLogger.scope(name);
+            if (null == bkcBuilder) {
+                // resolve uri
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
+                this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
+                        .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
+                        .buildNew(false);
                 if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, zooKeeperClient, String.format("%s:shared", name), perDLMStatsLogger.scope("bk"));
-                } else {
-                    this.bookKeeperClient =
-                        new BookKeeperClient(conf, uri.getAuthority().replace(";", ","), String.format("%s:shared", name), perDLMStatsLogger.scope("bk"));
+                    this.bookKeeperClientBuilder.zkc(zooKeeperClient);
                 }
             } else {
-                bookKeeperClient = bkc;
-                bookKeeperClient.addRef();
+                this.bookKeeperClientBuilder = bkcBuilder;
             }
+            bookKeeperClient = this.bookKeeperClientBuilder.build();
 
             if (conf.getPeriodicFlushFrequencyMilliSeconds() > 0) {
                 periodicTimer = new Timer();
@@ -113,12 +120,14 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, statsLogger);
+        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, statsLogger);
 
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zooKeeperClient, bookKeeperClient, periodicTimer, statsLogger);
+        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, periodicTimer, statsLogger);
     }
 
     /**
@@ -353,7 +362,7 @@ class BKDistributedLogManager implements DistributedLogManager {
         String zkPath = getZKPath();
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
-            ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+            ZooKeeperClient zkc = zooKeeperClientBuilder.buildNew();
             try {
                 LOG.info("Delete the path associated with the log {}, ZK Path", name, zkPath);
                 ZKUtil.deleteRecursive(zkc.get(), zkPath);
@@ -393,7 +402,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     private List<String> getStreamsWithinALog() throws IOException {
         List<String> partitions;
         String zkPath = getZKPath();
-        ZooKeeperClient zkc = new ZooKeeperClient(conf.getZKSessionTimeoutSeconds(), uri);
+        ZooKeeperClient zkc = zooKeeperClientBuilder.buildNew();
         try {
             if (zkc.get().exists(zkPath, false) == null) {
                 LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
@@ -440,14 +449,8 @@ class BKDistributedLogManager implements DistributedLogManager {
     @Override
     public void close() throws IOException {
         try {
-            if (null != bookKeeperClient) {
-                bookKeeperClient.release();
-                bookKeeperClient = null;
-            }
-            if (separateZKClient && (null != zooKeeperClient)) {
-                zooKeeperClient.close();
-                zooKeeperClient = null;
-            }
+            bookKeeperClient.release();
+            zooKeeperClient.close();
             if (null != cbThreadPool) {
                 cbThreadPool.shutdown();
                 cbThreadPool.awaitTermination(5000, TimeUnit.MILLISECONDS);
@@ -515,7 +518,7 @@ class BKDistributedLogManager implements DistributedLogManager {
     }
 
     private String getZKPath() {
-        return String.format("%s%s/%s", conf.getDLZKPathPrefix(), uri.getPath(), name);
+        return String.format("%s/%s", uri.getPath(), name);
     }
 
 }

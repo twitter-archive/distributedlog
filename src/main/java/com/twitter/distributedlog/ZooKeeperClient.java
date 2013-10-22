@@ -16,21 +16,21 @@
 
 package com.twitter.distributedlog;
 
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.EventType;
+import org.apache.zookeeper.Watcher.Event.KeeperState;
+import org.apache.zookeeper.ZooKeeper;
+
 import java.io.IOException;
-import java.net.URI;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
-
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.Watcher.Event.EventType;
-import org.apache.zookeeper.Watcher.Event.KeeperState;
-import org.apache.zookeeper.ZooKeeper;
 
 
 /**
@@ -70,35 +70,36 @@ public class ZooKeeperClient {
     // made from within long synchronized blocks.
     private volatile ZooKeeper zooKeeper = null;
     private SessionState sessionState = null;
+    private final AtomicInteger refCount;
 
     private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
-
-    /**
-     * Creates an unconnected client that will lazily attempt to connect on the first call to
-     * {@link #get}.
-     *
-     * @param sessionTimeoutSeconds the ZK session timeout
-     * @param URI containing the connection string
-     */
-    public ZooKeeperClient(int sessionTimeoutSeconds, URI uri) {
-        this.sessionTimeoutMs = sessionTimeoutSeconds * 1000;
-        this.zooKeeperServers = uri.getAuthority().replace(";", ",");
-        this.defaultConnectionTimeoutMs = sessionTimeoutSeconds * 1000 * 2;
-    }
-
 
     /**
      * Creates an unconnected client that will lazily attempt to connect on the first call to
      * {@link #get}.  All successful connections will be authenticated with the given
      * {@code credentials}.
      *
-     * @param sessionTimeout the ZK session timeout
-     * @param zooKeeperServers the set of servers forming the ZK cluster
+     * @param sessionTimeoutMs
+     *          ZK session timeout in milliseconds
+     * @param connectionTimeoutMs
+     *          ZK connection timeout in milliseconds
+     * @param zooKeeperServers
+     *          the set of servers forming the ZK cluster
      */
-    public ZooKeeperClient(int sessionTimeoutMs, int conectionTimeoutMs, String zooKeeperServers) {
+    ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
-        this.defaultConnectionTimeoutMs = conectionTimeoutMs;
+        this.defaultConnectionTimeoutMs = connectionTimeoutMs;
+        this.refCount = new AtomicInteger(1);
+    }
+
+    /**
+     * Increment reference on this client.
+     *
+     * @return reference count.
+     */
+    int addRef() {
+        return refCount.incrementAndGet();
     }
 
     /**
@@ -127,7 +128,7 @@ public class ZooKeeperClient {
      * established or a previous connection was disconnected or had its session time out.  This
      * method will attempt to re-use sessions when possible.
      *
-     * @param connectionTimeout the maximum amount of time to wait for the connection to the ZK
+     * @param connectionTimeoutMs the maximum amount of time to wait for the connection to the ZK
      * cluster to be established; 0 to wait forever
      * @return a connected ZooKeeper client
      * @throws ZooKeeperConnectionException if there was a problem connecting to the ZK cluster
@@ -249,7 +250,8 @@ public class ZooKeeperClient {
      * calls to this method will no-op until the next successful {@link #get}.
      */
     public synchronized void close() {
-        if (zooKeeper != null) {
+        int refs = refCount.decrementAndGet();
+        if (zooKeeper != null && refs == 0) {
             try {
                 zooKeeper.close();
             } catch (InterruptedException e) {
