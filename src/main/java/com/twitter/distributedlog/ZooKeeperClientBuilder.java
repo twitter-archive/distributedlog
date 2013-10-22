@@ -39,7 +39,7 @@ public class ZooKeeperClientBuilder {
      *          session timeout in milliseconds.
      * @return zookeeper client builder.
      */
-    public ZooKeeperClientBuilder sessionTimeoutMs(int sessionTimeoutMs) {
+    public synchronized ZooKeeperClientBuilder sessionTimeoutMs(int sessionTimeoutMs) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         if (this.conectionTimeoutMs <= 0) {
             this.conectionTimeoutMs = 2 * sessionTimeoutMs;
@@ -54,7 +54,7 @@ public class ZooKeeperClientBuilder {
      *          connection timeout ms.
      * @return builder
      */
-    public ZooKeeperClientBuilder connectionTimeoutMs(int connectionTimeoutMs) {
+    public synchronized ZooKeeperClientBuilder connectionTimeoutMs(int connectionTimeoutMs) {
         this.conectionTimeoutMs = connectionTimeoutMs;
         return this;
     }
@@ -66,7 +66,7 @@ public class ZooKeeperClientBuilder {
      *          zookeeper servers to connect.
      * @return builder
      */
-    public ZooKeeperClientBuilder zkServers(String zkServers) {
+    public synchronized ZooKeeperClientBuilder zkServers(String zkServers) {
         this.zkServers = zkServers;
         return this;
     }
@@ -78,7 +78,7 @@ public class ZooKeeperClientBuilder {
      *          distributedlog uri.
      * @return builder.
      */
-    public ZooKeeperClientBuilder uri(URI uri) {
+    public synchronized ZooKeeperClientBuilder uri(URI uri) {
         this.zkServers = uri.getAuthority().replace(";", ",");
         return this;
     }
@@ -90,7 +90,7 @@ public class ZooKeeperClientBuilder {
      *          zookeeper client.
      * @return builder
      */
-    public ZooKeeperClientBuilder zkc(ZooKeeperClient zkc) {
+    public synchronized ZooKeeperClientBuilder zkc(ZooKeeperClient zkc) {
         this.cachedClient = zkc;
         this.buildNew = false;
         return this;
@@ -105,7 +105,7 @@ public class ZooKeeperClientBuilder {
      *          whether to build new client for each {@link #build()}
      * @return builder
      */
-    public ZooKeeperClientBuilder buildNew(boolean buildNew) {
+    public synchronized ZooKeeperClientBuilder buildNew(boolean buildNew) {
         this.buildNew = buildNew;
         return this;
     }
@@ -123,7 +123,7 @@ public class ZooKeeperClientBuilder {
      *
      * @return zookeeper client.
      */
-    public ZooKeeperClient build() {
+    public synchronized ZooKeeperClient build() {
         return build(false);
     }
 

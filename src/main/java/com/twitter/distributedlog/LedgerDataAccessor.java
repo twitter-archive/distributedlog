@@ -1,5 +1,10 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -7,11 +12,6 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -145,7 +145,7 @@ public class LedgerDataAccessor {
         cache.clear();
     }
 
-    private class ReadAheadCacheValue {
+    static private class ReadAheadCacheValue {
         LedgerEntry entry = null;
 
         public ReadAheadCacheValue() {

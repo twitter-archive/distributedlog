@@ -90,7 +90,6 @@ class BKDistributedLogManager implements DistributedLogManager {
             if (conf.getPeriodicFlushFrequencyMilliSeconds() > 0) {
                 periodicTimer = new Timer();
             }
-
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);

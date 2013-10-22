@@ -147,8 +147,12 @@ public class LocalDLMEmulator {
         bookieConf.setBookiePort(port);
         File tmpdir = File.createTempFile("bookie" + Integer.toString(port) + "_",
             "test");
-        tmpdir.delete();
-        tmpdir.mkdir();
+        if (!tmpdir.delete()) {
+            LOG.debug("Fail to delete tmpdir " + tmpdir);
+        }
+        if (!tmpdir.mkdir()) {
+            throw new IOException("Fail to create tmpdir " + tmpdir);
+        }
 
         bookieConf.setZkServers(zkEnsemble);
         bookieConf.setJournalDirName(tmpdir.getPath());

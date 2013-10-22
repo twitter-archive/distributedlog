@@ -12,6 +12,8 @@ import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 public class LedgerHandleCache {
     static final Logger LOG = LoggerFactory.getLogger(LedgerHandleCache.class);
 
@@ -36,11 +38,11 @@ public class LedgerHandleCache {
                 if (!ledgerDesc.getFenced()) {
                     refhandle.handle = bkc.get().openLedgerNoRecovery(ledgerDesc.getLedgerId(),
                         BookKeeper.DigestType.CRC32,
-                        digestpw.getBytes());
+                        digestpw.getBytes(UTF_8));
                 } else {
                     refhandle.handle = bkc.get().openLedger(ledgerDesc.getLedgerId(),
                         BookKeeper.DigestType.CRC32,
-                        digestpw.getBytes());
+                        digestpw.getBytes(UTF_8));
                 }
                 handlesMap.put(ledgerDesc, refhandle);
             }
@@ -111,7 +113,7 @@ public class LedgerHandleCache {
         return refhandle.handle.getLength();
     }
 
-    private class RefCountedLedgerHandle {
+    static private class RefCountedLedgerHandle {
         public LedgerHandle handle;
         AtomicLong refcount = new AtomicLong(0);
 

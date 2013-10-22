@@ -17,15 +17,15 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Input stream which reads from a BookKeeper ledger.
@@ -69,7 +69,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
-    protected void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
+    protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
+                                                    long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
         this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
@@ -78,6 +79,13 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.ledgerDataAccessor = ledgerDataAccessor;
     }
 
+    protected synchronized LedgerDescriptor getLedgerDescriptor() {
+        return this.ledgerDescriptor;
+    }
+
+    protected synchronized LedgerDataAccessor getLedgerDataAccessor() {
+        return this.ledgerDataAccessor;
+    }
 
     @Override
     public long getFirstTxId() {
@@ -99,7 +107,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     @Override
     public void close() throws IOException {
         try {
-            ledgerDataAccessor.closeLedger(ledgerDescriptor);
+            getLedgerDataAccessor().closeLedger(getLedgerDescriptor());
         } catch (Throwable t) {
           // we caught all the potential exceptions when closing
           // {@link https://jira.twitter.biz/browse/PUBSUB-1146}
@@ -110,7 +118,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
     @Override
     public long length() throws IOException {
-        return ledgerDataAccessor.getLength(ledgerDescriptor);
+        return getLedgerDataAccessor().getLength(getLedgerDescriptor());
     }
 
     @Override
@@ -142,7 +150,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         /**
          * Construct ledger input stream
          *
-         * @param lh the ledger handle to read from
+         * @param ledgerDesc ledger descriptor
+         * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
         LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)

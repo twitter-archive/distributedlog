@@ -45,13 +45,13 @@ public class ZooKeeperClient {
     /**
      * Indicates an error connecting to a zookeeper cluster.
      */
-    public class ZooKeeperConnectionException extends IOException {
+    public static class ZooKeeperConnectionException extends IOException {
         public ZooKeeperConnectionException(String message, Throwable cause) {
             super(message, cause);
         }
     }
 
-    private final class SessionState {
+    private final static class SessionState {
         private final long sessionId;
         private final byte[] sessionPasswd;
 
@@ -155,6 +155,8 @@ public class ZooKeeperClient {
                                     break;
                                 case SyncConnected:
                                     connected.countDown();
+                                    break;
+                                default:
                                     break;
                             }
                     }

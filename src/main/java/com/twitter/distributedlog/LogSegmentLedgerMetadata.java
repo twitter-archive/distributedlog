@@ -17,14 +17,16 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-import java.util.Comparator;
-
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.Comparator;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for storing the metadata associated
@@ -132,7 +134,7 @@ public class LogSegmentLedgerMetadata {
         throws IOException, KeeperException.NoNodeException {
         try {
             byte[] data = zkc.get().getData(path, false, null);
-            String[] parts = new String(data).split(";");
+            String[] parts = new String(data, UTF_8).split(";");
             if (parts.length == 3) {
                 int version = Integer.valueOf(parts[0]);
                 long ledgerId = Long.valueOf(parts[1]);
@@ -148,7 +150,7 @@ public class LogSegmentLedgerMetadata {
                     firstTxId, lastTxId, completionTime);
             } else {
                 throw new IOException("Invalid ledger entry, "
-                    + new String(data));
+                    + new String(data, UTF_8));
             }
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
@@ -169,7 +171,7 @@ public class LogSegmentLedgerMetadata {
                 version, ledgerId, firstTxId, lastTxId, completionTime);
         }
         try {
-            zkc.get().create(path, finalisedData.getBytes(),
+            zkc.get().create(path, finalisedData.getBytes(UTF_8),
                 Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
@@ -183,8 +185,7 @@ public class LogSegmentLedgerMetadata {
         try {
             LogSegmentLedgerMetadata other = read(zkc, path);
             if (LOG.isTraceEnabled()) {
-                LOG.trace("Verifying " + this.toString()
-                    + " against " + other);
+                LOG.trace("Verifying " + this + " against " + other);
             }
             return other == this;
         } catch (Exception e) {

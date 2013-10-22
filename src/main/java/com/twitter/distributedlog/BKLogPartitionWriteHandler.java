@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Timer;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
@@ -32,7 +34,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private boolean lockAcquired;
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
-    private boolean recovered = false;
+    private volatile boolean recovered = false;
     private final Timer periodicTimer;
 
     private static int bytesToInt(byte[] b) {
@@ -172,7 +174,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             currentLedger = bookKeeperClient.get().createLedger(ensembleSize, quorumSize,
                 BookKeeper.DigestType.CRC32,
-                digestpw.getBytes());
+                digestpw.getBytes(UTF_8));
             String znodePath = inprogressZNode(txId);
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
                 DistributedLogConstants.LAYOUT_VERSION, currentLedger.getId(), txId);
@@ -327,8 +329,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
             zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
-        } catch (Exception e) {
-            throw new IOException("Error finalising ledger", e);
+        } catch (InterruptedException e) {
+            throw new IOException("Interrupted when finalising stream " + partitionRootPath, e);
+        } catch (KeeperException.NoNodeException e) {
+            throw new IOException("Error when finalising stream " + partitionRootPath, e);
+        } catch (KeeperException e) {
+            throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } finally {
             if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
                 lock.release("CompleteAndClose");
@@ -361,6 +367,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         lock.acquire("RecoverIncompleteSegments");
         synchronized (this) {
             try {
+                if (recovered) {
+                    return;
+                }
                 for (LogSegmentLedgerMetadata l : getLedgerList()) {
                     if (!l.isInProgress()) {
                         continue;

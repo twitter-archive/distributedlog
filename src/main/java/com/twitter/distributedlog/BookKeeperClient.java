@@ -24,7 +24,7 @@ class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier
     private Watcher sessionExpireWatcher = null;
     private AtomicBoolean zkSessionExpired = new AtomicBoolean(false);
 
-    private void commonInitialization(DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
+    private synchronized void commonInitialization(DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
                                       StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         ClientConfiguration bkConfig = new ClientConfiguration();

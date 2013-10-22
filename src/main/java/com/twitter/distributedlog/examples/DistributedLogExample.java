@@ -4,10 +4,12 @@ import com.twitter.distributedlog.*;
 
 import java.net.URI;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 public class DistributedLogExample {
 
     private static byte[] generatePayload(String prefix, long txn) {
-        return String.format("%s-%d", prefix, txn).getBytes();
+        return String.format("%s-%d", prefix, txn).getBytes(UTF_8);
     }
 
     public static void main(String[] args) throws Exception {

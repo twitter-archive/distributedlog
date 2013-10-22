@@ -17,6 +17,15 @@
  */
 package com.twitter.distributedlog;
 
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.Collections;
@@ -27,14 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooDefs.Ids;
-import org.apache.zookeeper.data.Stat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Distributed lock, using ZooKeeper.
@@ -65,7 +67,7 @@ class DistributedReentrantLock {
         try {
             if (zkc.get().exists(lockpath, false) == null) {
                 String localString = InetAddress.getLocalHost().toString();
-                zkc.get().create(lockpath, localString.getBytes(),
+                zkc.get().create(lockpath, localString.getBytes(UTF_8),
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
             internalLock = new DistributedLock(zkc, lockpath);
@@ -156,7 +158,7 @@ class DistributedReentrantLock {
      * TODO: Cannot use the same version to avoid a transitive dependence on two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
-    private class DistributedLock {
+    private static class DistributedLock {
 
         private final ZooKeeperClient zkClient;
         private final String lockPath;
@@ -256,6 +258,10 @@ class DistributedReentrantLock {
             }
         }
 
+        private synchronized String getCurrentId() {
+            return currentId;
+        }
+
         public synchronized boolean isLockHeld() {
             return holdsLock;
         }
@@ -308,16 +314,18 @@ class DistributedReentrantLock {
                         throw new RuntimeException("Error, member list is empty!");
                     }
 
-                    int memberIndex = sortedMembers.indexOf(currentId);
+                    int memberIndex = sortedMembers.indexOf(getCurrentId());
 
                     // If we hold the lock
                     if (memberIndex == 0) {
-                        holdsLock = true;
-                        syncPoint.countDown();
+                        synchronized (DistributedLock.this) {
+                            holdsLock = true;
+                            syncPoint.countDown();
+                        }
                     } else {
                         final String nextLowestNode = sortedMembers.get(memberIndex - 1);
                         LOG.debug(String.format("Current LockWatcher with ephemeral node [%s], is " +
-                            "waiting for [%s] to release lock.", currentId, nextLowestNode));
+                            "waiting for [%s] to release lock.", getCurrentId(), nextLowestNode));
 
                         watchedNode = String.format("%s/%s", lockPath, nextLowestNode);
                         Stat stat = zkClient.get().exists(watchedNode, this);
@@ -327,10 +335,11 @@ class DistributedReentrantLock {
                     }
                 } catch (InterruptedException e) {
                     LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
-                        "got interrupted. Trying to cancel lock acquisition.", currentId), e);
+                        "got interrupted. Trying to cancel lock acquisition.", getCurrentId()), e);
                     cancelAttempt();
                 } catch (Exception e) {
-                    LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " + "got a exception while accessing ZK. Trying to cancel lock acquisition.", currentId), e);
+                    LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
+                            "got a exception while accessing ZK. Trying to cancel lock acquisition.", getCurrentId()), e);
                     cancelAttempt();
                 }
             }
@@ -349,8 +358,10 @@ class DistributedReentrantLock {
                             LOG.info("Reconnected...");
                             break;
                         case Expired:
-                            LOG.warn(String.format("Current ZK session expired![%s]", currentId));
+                            LOG.warn(String.format("Current ZK session expired![%s]", getCurrentId()));
                             cancelAttempt();
+                            break;
+                        default:
                             break;
                     }
                 } else if (event.getType() == Event.EventType.NodeDeleted) {

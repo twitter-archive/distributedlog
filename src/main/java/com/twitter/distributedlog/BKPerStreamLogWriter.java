@@ -33,6 +33,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 /**
  * Output stream for BookKeeper based Distributed Log Manager.
  * Multiple complete log records are packed into a single bookkeeper
@@ -176,7 +178,7 @@ class BKPerStreamLogWriter extends TimerTask
 
     synchronized private void writeControlLogRecord() throws IOException {
         lock.checkWriteLock();
-        LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes());
+        LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes(UTF_8));
         controlRec.setControl();
         writeInternal(controlRec);
     }
@@ -230,7 +232,9 @@ class BKPerStreamLogWriter extends TimerTask
             }
         }
 
-        return lastTxIdAcknowledged;
+        synchronized (this) {
+            return lastTxIdAcknowledged;
+        }
     }
 
     public long flushAndSyncPhaseTwo() throws FlushException {
@@ -244,7 +248,13 @@ class BKPerStreamLogWriter extends TimerTask
                 preFlushCounter = 0;
             }
         }
-        return lastTxIdAcknowledged;
+        synchronized (this) {
+            return lastTxIdAcknowledged;
+        }
+    }
+
+    private synchronized CountDownLatch getSyncLatch() {
+        return syncLatch;
     }
 
     private void flushAndSyncInternal()
@@ -260,7 +270,7 @@ class BKPerStreamLogWriter extends TimerTask
 
         boolean waitSuccessful = false;
         try {
-            waitSuccessful = syncLatch.await(flushTimeoutSeconds, TimeUnit.SECONDS);
+            waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
             throw new FlushException("Wait for Flush Interrupted", ie);
         }
@@ -361,15 +371,15 @@ class BKPerStreamLogWriter extends TimerTask
         }
     }
 
-    public long getNumFlushes() {
+    public synchronized long getNumFlushes() {
         return numFlushes;
     }
 
-    public void setNumFlushes(long numFlushes) {
+    public synchronized void setNumFlushes(long numFlushes) {
         this.numFlushes = numFlushes;
     }
 
-    public long getAverageTransmitSize() {
+    public synchronized long getAverageTransmitSize() {
         if (numFlushesSinceRestart > 0) {
             return numBytes/numFlushesSinceRestart;
         }

@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.Future;
 
-
 public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
@@ -167,7 +166,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
     }
 
-    class LogTruncationTask implements Runnable {
+    static class LogTruncationTask implements Runnable {
         private final BKLogPartitionWriteHandler ledgerManager;
         private final long minTimestampToKeep;
         private final long sanityCheckThreshold;
@@ -269,16 +268,16 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     @VisibleForTesting
-    public void setForceRolling(boolean forceRolling) {
+    public synchronized void setForceRolling(boolean forceRolling) {
         this.forceRolling = forceRolling;
     }
 
     @VisibleForTesting
-    public void overRideMinTimeStampToKeep(Long minTimestampToKeepOverride) {
+    public synchronized void overRideMinTimeStampToKeep(Long minTimestampToKeepOverride) {
         this.minTimestampToKeepOverride = minTimestampToKeepOverride;
     }
 
-    protected void waitForTruncation() {
+    protected synchronized void waitForTruncation() {
         try {
             if (null != lastTruncationAttempt) {
                 assert (null == lastTruncationAttempt.get());
@@ -289,7 +288,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     @VisibleForTesting
-    public void setForceRecovery(boolean forceRecovery) {
+    public synchronized void setForceRecovery(boolean forceRecovery) {
         this.forceRecovery = forceRecovery;
     }
 

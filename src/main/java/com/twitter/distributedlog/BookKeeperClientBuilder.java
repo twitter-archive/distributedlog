@@ -50,7 +50,7 @@ class BookKeeperClientBuilder {
      *          client name.
      * @return builder
      */
-    public BookKeeperClientBuilder name(String name) {
+    public synchronized BookKeeperClientBuilder name(String name) {
         this.name = name;
         return this;
     }
@@ -66,7 +66,7 @@ class BookKeeperClientBuilder {
      *          bkdl config.
      * @return builder
      */
-    public BookKeeperClientBuilder bkdlConfig(BKDLConfig bkdlConfig) {
+    public synchronized BookKeeperClientBuilder bkdlConfig(BKDLConfig bkdlConfig) {
         this.bkdlConfig = bkdlConfig;
         return this;
     }
@@ -80,7 +80,7 @@ class BookKeeperClientBuilder {
      *          whether to build new client for each {@link #build()}
      * @return builder
      */
-    public BookKeeperClientBuilder buildNew(boolean newClient) {
+    public synchronized BookKeeperClientBuilder buildNew(boolean newClient) {
         this.buildNew = newClient;
         return this;
     }
@@ -93,7 +93,7 @@ class BookKeeperClientBuilder {
      *          distributedlog config.
      * @return builder.
      */
-    public BookKeeperClientBuilder dlConfig(DistributedLogConfiguration dlConfig) {
+    public synchronized BookKeeperClientBuilder dlConfig(DistributedLogConfiguration dlConfig) {
         this.dlConfig = dlConfig;
         return this;
     }
@@ -105,7 +105,7 @@ class BookKeeperClientBuilder {
      *          zookeeper client.
      * @return builder
      */
-    public BookKeeperClientBuilder zkc(ZooKeeperClient zkc) {
+    public synchronized BookKeeperClientBuilder zkc(ZooKeeperClient zkc) {
         this.zkc = zkc;
         return this;
     }
@@ -117,7 +117,7 @@ class BookKeeperClientBuilder {
      *          bookkeeper client.
      * @return builder
      */
-    public BookKeeperClientBuilder bkc(BookKeeperClient bkc) {
+    public synchronized BookKeeperClientBuilder bkc(BookKeeperClient bkc) {
         this.cachedClient = bkc;
         this.buildNew = false;
         return this;
@@ -130,7 +130,7 @@ class BookKeeperClientBuilder {
      *          stats logger to report stats
      * @return builder.
      */
-    public BookKeeperClientBuilder statsLogger(StatsLogger statsLogger) {
+    public synchronized BookKeeperClientBuilder statsLogger(StatsLogger statsLogger) {
         this.statsLogger = statsLogger;
         return this;
     }

@@ -181,7 +181,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
         private Object notificationObject = new Object();
-        private final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
+        private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
 
         public ReadAheadThread(String fullyQualifiedName,
                                BKLogPartitionReadHandler ledgerManager,
