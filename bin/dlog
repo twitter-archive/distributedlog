@@ -59,6 +59,7 @@ where command is one of:
     local               Run distributedlog sandbox
     example             Run distributedlog example
     tool                Run distributedlog tool
+    admin               Run distributedlog admin tool
     help                This help message
 
 or command is the full name of a class with a defined main() method.
@@ -141,6 +142,8 @@ elif [ $COMMAND == "example" ]; then
     exec java $OPTS com.twitter.distributedlog.examples.DistributedLogExample $@
 elif [ $COMMAND == "tool" ]; then
     exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.tools.DistributedLogTool $@
+elif [ $COMMAND == "admin" ]; then
+    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.admin.DistributedLogAdmin $@
 elif [ $COMMAND == "help" ]; then
     dlog_help;
 else
