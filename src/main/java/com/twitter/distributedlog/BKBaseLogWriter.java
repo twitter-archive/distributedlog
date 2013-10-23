@@ -1,13 +1,15 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.concurrent.Future;
+import java.util.concurrent.CountDownLatch;
 
 public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
@@ -19,7 +21,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     private boolean closed = false;
     private boolean forceRolling = false;
     private boolean forceRecovery = false;
-    private Future<?> lastTruncationAttempt = null;
+    private LogTruncationTask lastTruncationAttempt = null;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
 
@@ -144,10 +146,12 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             // skip scheduling if there is task that's already running
             //
             if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDone())) {
-                lastTruncationAttempt = bkDistributedLogManager.enqueueBackgroundTask(
-                    new LogTruncationTask(ledgerManager,
+                LogTruncationTask truncationTask = new LogTruncationTask(ledgerManager,
                         minTimestampToKeep,
-                        sanityCheckThreshold));
+                        sanityCheckThreshold);
+                if (bkDistributedLogManager.scheduleTask(truncationTask)) {
+                    lastTruncationAttempt = truncationTask;
+                }
             }
         }
 
@@ -166,10 +170,13 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
     }
 
-    static class LogTruncationTask implements Runnable {
+    static class LogTruncationTask implements Runnable, BookkeeperInternalCallbacks.GenericCallback<Void> {
         private final BKLogPartitionWriteHandler ledgerManager;
         private final long minTimestampToKeep;
         private final long sanityCheckThreshold;
+        private volatile boolean done = false;
+        private volatile boolean running = false;
+        private final CountDownLatch latch = new CountDownLatch(1);
 
         LogTruncationTask(BKLogPartitionWriteHandler ledgerManager, long minTimestampToKeep, long sanityCheckThreshold) {
             this.ledgerManager = ledgerManager;
@@ -177,17 +184,39 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             this.sanityCheckThreshold = sanityCheckThreshold;
         }
 
+        boolean isDone() {
+            return done;
+        }
+
         @Override
         public void run() {
-            try {
-                ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep, sanityCheckThreshold);
-            } catch (IOException ioexc) {
-                // One of the operations in the distributed log failed.
-                LOG.warn("Log Truncation Failed with exception", ioexc);
-            } catch (Exception e) {
-                // Something unexpected happened
-                LOG.error("Log Truncation Failed with exception", e);
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Issue purge request to purge logs older than {} for {}.", minTimestampToKeep, ledgerManager.getFullyQualifiedName());
             }
+            running = true;
+            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep, sanityCheckThreshold, this);
+        }
+
+        public void waitForCompletion() throws InterruptedException {
+            if (running) {
+                latch.await();
+            }
+        }
+
+        @Override
+        public void operationComplete(int rc, Void result) {
+            if (BKException.Code.OK != rc) {
+                LOG.warn("Log Truncation Failed with exception : ", BKException.create(rc));
+            }
+            done = true;
+            running = false;
+            latch.countDown();
+        }
+
+        @Override
+        public String toString() {
+            return String.format("LogTruncationTask (%s : minTimestampToKeep=%d, sanityCheckThreshold=%d, running=%s, done=%s)",
+                    ledgerManager.getFullyQualifiedName(), minTimestampToKeep, sanityCheckThreshold, running, done);
         }
     }
 
@@ -280,7 +309,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     protected synchronized void waitForTruncation() {
         try {
             if (null != lastTruncationAttempt) {
-                assert (null == lastTruncationAttempt.get());
+                lastTruncationAttempt.waitForCompletion();
             }
         } catch (Exception exc) {
             LOG.info("Wait For truncation failed", exc);

@@ -46,6 +46,8 @@ public class LogSegmentLedgerMetadata {
     private long lastTxId;
     private long completionTime;
     private boolean inprogress;
+    // zk version
+    private Integer zkVersion = null;
 
     public static final Comparator COMPARATOR
         = new Comparator<LogSegmentLedgerMetadata>() {
@@ -102,6 +104,10 @@ public class LogSegmentLedgerMetadata {
         return zkPath;
     }
 
+    int getZkVersion() {
+        return null == zkVersion ? -1 : zkVersion;
+    }
+
     long getFirstTxId() {
         return firstTxId;
     }
@@ -137,8 +143,11 @@ public class LogSegmentLedgerMetadata {
     static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NoNodeException {
         try {
-            byte[] data = zkc.get().getData(path, false, null);
-            return parseData(path, data);
+            Stat stat = new Stat();
+            byte[] data = zkc.get().getData(path, false, stat);
+            LogSegmentLedgerMetadata metadata = parseData(path, data);
+            metadata.zkVersion = stat.getVersion();
+            return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
         } catch (Exception e) {
@@ -158,6 +167,7 @@ public class LogSegmentLedgerMetadata {
                     }
                     try {
                         LogSegmentLedgerMetadata metadata = parseData(path, data);
+                        metadata.zkVersion = stat.getVersion();
                         callback.operationComplete(BKException.Code.OK, metadata);
                     } catch (IOException ie) {
                         // as we don't have return code for distributedlog. for now, we leveraged bk
@@ -208,6 +218,7 @@ public class LogSegmentLedgerMetadata {
         try {
             zkc.get().create(path, finalisedData.getBytes(UTF_8),
                 Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            zkVersion = 0;
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
         } catch (Exception e) {

@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Timer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -31,7 +31,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final DistributedLogConfiguration conf;
     private final URI uri;
     private boolean closed = true;
-    private ExecutorService cbThreadPool = null;
     private final ScheduledExecutorService executorService;
     private boolean ownExecutor;
     private final ZooKeeperClientBuilder zooKeeperClientBuilder;
@@ -465,27 +464,31 @@ class BKDistributedLogManager implements DistributedLogManager {
     public void close() throws IOException {
         if (ownExecutor) {
             executorService.shutdown();
+            try {
+                executorService.awaitTermination(5000, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted when shutting down scheduler : ", e);
+            }
+            executorService.shutdownNow();
             LOG.info("Stopped BKDL executor service.");
         }
         try {
             bookKeeperClient.release();
             zooKeeperClient.close();
-            if (null != cbThreadPool) {
-                cbThreadPool.shutdown();
-                cbThreadPool.awaitTermination(5000, TimeUnit.MILLISECONDS);
-                cbThreadPool.shutdownNow();
-            }
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager", e);
         }
         closed = true;
     }
 
-    public Future<?> enqueueBackgroundTask(Runnable task) {
-        if (null == cbThreadPool) {
-            cbThreadPool = Executors.newFixedThreadPool(1, new DaemonThreadFactory());
+    public boolean scheduleTask(Runnable task) {
+        try {
+            executorService.submit(task);
+            return true;
+        } catch (RejectedExecutionException ree) {
+            LOG.error("Task {} is rejected : ", ree);
+            return false;
         }
-        return cbThreadPool.submit(task);
     }
 
     public Watcher registerExpirationHandler(final ZooKeeperClient.ZooKeeperSessionExpireNotifier onExpired) {

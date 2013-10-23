@@ -1,11 +1,13 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
@@ -16,7 +18,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Timer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -452,26 +458,41 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         purgeLogsOlderThanInternal(minTxIdToKeep);
     }
 
-    public void purgeLogsOlderThanTimestamp(long minTimestampToKeep, long sanityCheckThreshold)
-        throws IOException {
+    void purgeLogsOlderThanTimestamp(final long minTimestampToKeep, final long sanityCheckThreshold,
+                                     final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         assert (minTimestampToKeep < Utils.nowInMillis());
-        boolean logTimestamp = true;
-        for (LogSegmentLedgerMetadata l : getLedgerList()) {
-            if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
-                if (logTimestamp) {
-                    LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
-                    logTimestamp = false;
+        getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+            @Override
+            public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
+                if (BKException.Code.OK != rc) {
+                    LOG.error("Failed to get ledger list to purge for {} : ", getFullyQualifiedName(),
+                            BKException.create(rc));
+                    callback.operationComplete(rc, null);
+                    return;
                 }
+                final List<LogSegmentLedgerMetadata> purgeList =
+                        new ArrayList<LogSegmentLedgerMetadata>(result.size());
+                boolean logTimestamp = true;
+                for (LogSegmentLedgerMetadata l : result) {
+                    if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
+                        if (logTimestamp) {
+                            LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
+                            logTimestamp = false;
+                        }
 
-                // Something went wrong - leave the ledger around for debugging
-                //
-                if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                    LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
-                } else {
-                    deleteLedgerAndMetadata(l);
+                        // Something went wrong - leave the ledger around for debugging
+                        //
+                        if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
+                            LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
+                        } else {
+                            purgeList.add(l);
+                        }
+                    }
                 }
+                // purge logs
+                purgeLogs(purgeList, callback);
             }
-        }
+        });
     }
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
@@ -481,6 +502,79 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 (!l.isInProgress() && l.getLastTxId() < minTxIdToKeep)) {
                 deleteLedgerAndMetadata(l);
             }
+        }
+    }
+
+    private void purgeLogs(final List<LogSegmentLedgerMetadata> logs,
+                           final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
+        if (logs.size() == 0) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Nothing to purge.");
+            }
+            callback.operationComplete(BKException.Code.OK, null);
+            return;
+        }
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("Purging logs : {}.", logs);
+        }
+        final AtomicInteger numLogs = new AtomicInteger(logs.size());
+        final BookkeeperInternalCallbacks.GenericCallback<Void> deleteCallback =
+                new BookkeeperInternalCallbacks.GenericCallback<Void>() {
+                    @Override
+                    public void operationComplete(int rc, Void result) {
+                        // we don't really care about the delete result right now
+                        if (numLogs.decrementAndGet() == 0) {
+                            callback.operationComplete(BKException.Code.OK, null);
+                        }
+                    }
+                };
+        for (LogSegmentLedgerMetadata l : logs) {
+            deleteLedgerAndMetadata(l, deleteCallback);
+        }
+    }
+
+    private void deleteLedgerAndMetadata(final LogSegmentLedgerMetadata ledgerMetadata,
+                                         final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
+        LOG.info("Deleting ledger for {}", ledgerMetadata);
+        try {
+            bookKeeperClient.get().asyncDeleteLedger(ledgerMetadata.getLedgerId(), new AsyncCallback.DeleteCallback() {
+                @Override
+                public void deleteComplete(int rc, Object ctx) {
+                    if (BKException.Code.NoSuchLedgerExistsException == rc) {
+                        LOG.warn("No ledger {} found to delete for {}.", ledgerMetadata.getLedgerId(), ledgerMetadata);
+                        callback.operationComplete(rc, null);
+                    } else if (BKException.Code.OK != rc) {
+                        LOG.error("Couldn't delete ledger {} from bookkeeper : ",
+                                ledgerMetadata.getLedgerId(), BKException.create(rc));
+                        callback.operationComplete(rc, null);
+                        return;
+                    }
+                    // after the ledger is deleted, we delete the metadata znode
+                    try {
+                        zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), ledgerMetadata.getZkVersion(),
+                            new org.apache.zookeeper.AsyncCallback.VoidCallback() {
+                                @Override
+                                public void processResult(int rc, String path, Object ctx) {
+                                    if (KeeperException.Code.OK.intValue() != rc) {
+                                        LOG.error("Couldn't purge {} : ", ledgerMetadata,
+                                                KeeperException.create(KeeperException.Code.get(rc)));
+                                        callback.operationComplete(BKException.Code.ZKException, null);
+                                        return;
+                                    }
+                                    callback.operationComplete(BKException.Code.OK, null);
+                                }
+                            }, null);
+                    } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+                        LOG.error("Encountered zookeeper connection issue when purging {} : ", ledgerMetadata, e);
+                        callback.operationComplete(BKException.Code.ZKException, null);
+                    } catch (InterruptedException e) {
+                        LOG.error("Interrupted when purging {}.", ledgerMetadata);
+                        callback.operationComplete(BKException.Code.InterruptedException, null);
+                    }
+                }
+            }, null);
+        } catch (IOException e) {
+            callback.operationComplete(BKException.Code.BookieHandleNotAvailableException, null);
         }
     }
 
@@ -501,19 +595,24 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     private void doDeleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
+        final AtomicInteger rcHolder = new AtomicInteger(0);
+        final CountDownLatch latch = new CountDownLatch(1);
+        deleteLedgerAndMetadata(ledgerMetadata, new BookkeeperInternalCallbacks.GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                rcHolder.set(rc);
+                latch.countDown();
+            }
+        });
         try {
-            LOG.info("Deleting ledger for {}", ledgerMetadata);
-            Stat stat = zooKeeperClient.get().exists(ledgerMetadata.getZkPath(), false);
-            bookKeeperClient.get().deleteLedger(ledgerMetadata.getLedgerId());
-            zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), stat.getVersion());
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while purging {}", ledgerMetadata, ie);
-        } catch (BKException bke) {
-            LOG.error("Couldn't delete ledger from bookkeeper", bke);
-        } catch (KeeperException ke) {
-            LOG.error("Error deleting ledger entry in zookeeper", ke);
+            latch.await();
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted while purging {}", ledgerMetadata);
         }
-
+        if (BKException.Code.OK != rcHolder.get()) {
+            LOG.error("Failed to purge {} : ", ledgerMetadata,
+                    BKException.create(rcHolder.get()));
+        }
     }
 
     public void close() throws IOException {
