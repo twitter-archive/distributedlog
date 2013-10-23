@@ -31,7 +31,6 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
-    private final ScheduledExecutorService executorService;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -44,8 +43,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      BookKeeperClientBuilder bkcBuilder,
                                      ScheduledExecutorService executorService,
                                      StatsLogger statsLogger) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
-        this.executorService = executorService;
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);

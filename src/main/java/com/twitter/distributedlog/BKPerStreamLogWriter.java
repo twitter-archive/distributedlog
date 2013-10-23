@@ -26,10 +26,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.List;
 import java.util.Queue;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -43,8 +42,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter extends TimerTask
-    implements PerStreamLogWriter, AddCallback {
+class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
     private DataOutputBuffer bufCurrent;
@@ -76,7 +74,7 @@ class BKPerStreamLogWriter extends TimerTask
      */
     protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId, Timer periodicTimer)
+                                   long startTxId, ScheduledExecutorService executorService)
         throws IOException {
         super();
 
@@ -95,8 +93,9 @@ class BKPerStreamLogWriter extends TimerTask
         this.lastTxIdAcknowledged = startTxId;
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
-        if (periodicFlushFrequency > 0) {
-            periodicTimer.scheduleAtFixedRate(this, periodicFlushFrequency/2, periodicFlushFrequency/2);
+        if (periodicFlushFrequency > 0 && executorService != null) {
+            executorService.scheduleAtFixedRate(this,
+                    periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
         }
     }
 

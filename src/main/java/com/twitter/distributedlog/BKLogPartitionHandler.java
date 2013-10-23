@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -80,6 +81,7 @@ abstract class BKLogPartitionHandler {
     protected final String ledgerPath;
     protected final String digestpw;
     protected long lastLedgerRollingTimeMillis = -1;
+    protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
 
     /**
@@ -91,10 +93,12 @@ abstract class BKLogPartitionHandler {
                           URI uri,
                           ZooKeeperClientBuilder zkcBuilder,
                           BookKeeperClientBuilder bkcBuilder,
+                          ScheduledExecutorService executorService,
                           StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
+        this.executorService = executorService;
         this.statsLogger = statsLogger;
         partitionRootPath = String.format("%s/%s/%s", uri.getPath(), name, streamIdentifier);
 

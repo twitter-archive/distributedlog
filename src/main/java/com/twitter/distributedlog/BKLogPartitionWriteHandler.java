@@ -4,6 +4,7 @@ import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
@@ -20,8 +21,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Timer;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -41,7 +42,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     private volatile boolean recovered = false;
-    private final Timer periodicTimer;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -71,12 +71,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                URI uri,
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
-                               Timer periodicTimer,
+                               ScheduledExecutorService executorService,
                                StatsLogger statsLogger) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
-        this.periodicTimer = periodicTimer;
 
         maxTxIdPath = partitionRootPath + "/maxtxid";
         String lockPath = partitionRootPath + "/lock";
@@ -197,7 +196,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, periodicTimer);
+            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService);
         } catch (Exception e) {
             if (currentLedger != null) {
                 try {

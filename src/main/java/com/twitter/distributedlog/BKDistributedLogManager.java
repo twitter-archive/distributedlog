@@ -16,8 +16,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.Timer;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,7 +36,6 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
-    private Timer periodicTimer = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
         this(name, conf, uri, null, null, NullStatsLogger.INSTANCE);
@@ -102,10 +99,6 @@ class BKDistributedLogManager implements DistributedLogManager {
                 this.bookKeeperClientBuilder = bkcBuilder;
             }
             bookKeeperClient = this.bookKeeperClientBuilder.build();
-
-            if (conf.getPeriodicFlushFrequencyMilliSeconds() > 0) {
-                periodicTimer = new Timer();
-            }
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
@@ -141,7 +134,7 @@ class BKDistributedLogManager implements DistributedLogManager {
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, periodicTimer, statsLogger);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
     }
 
     /**
