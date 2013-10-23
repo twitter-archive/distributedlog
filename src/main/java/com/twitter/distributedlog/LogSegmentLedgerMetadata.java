@@ -17,9 +17,13 @@
  */
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -134,28 +138,59 @@ public class LogSegmentLedgerMetadata {
         throws IOException, KeeperException.NoNodeException {
         try {
             byte[] data = zkc.get().getData(path, false, null);
-            String[] parts = new String(data, UTF_8).split(";");
-            if (parts.length == 3) {
-                int version = Integer.valueOf(parts[0]);
-                long ledgerId = Long.valueOf(parts[1]);
-                long txId = Long.valueOf(parts[2]);
-                return new LogSegmentLedgerMetadata(path, version, ledgerId, txId);
-            } else if (parts.length == 5) {
-                int version = Integer.valueOf(parts[0]);
-                long ledgerId = Long.valueOf(parts[1]);
-                long firstTxId = Long.valueOf(parts[2]);
-                long lastTxId = Long.valueOf(parts[3]);
-                long completionTime = Long.valueOf(parts[4]);
-                return new LogSegmentLedgerMetadata(path, version, ledgerId,
-                    firstTxId, lastTxId, completionTime);
-            } else {
-                throw new IOException("Invalid ledger entry, "
-                    + new String(data, UTF_8));
-            }
+            return parseData(path, data);
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
         } catch (Exception e) {
             throw new IOException("Error reading from zookeeper", e);
+        }
+    }
+
+    static void read(ZooKeeperClient zkc, String path,
+                     final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
+        try {
+            zkc.get().getData(path, false, new AsyncCallback.DataCallback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                    if (KeeperException.Code.OK.intValue() != rc) {
+                        callback.operationComplete(BKException.Code.ZKException, null);
+                        return;
+                    }
+                    try {
+                        LogSegmentLedgerMetadata metadata = parseData(path, data);
+                        callback.operationComplete(BKException.Code.OK, metadata);
+                    } catch (IOException ie) {
+                        // as we don't have return code for distributedlog. for now, we leveraged bk
+                        // exception code.
+                        callback.operationComplete(BKException.Code.IncorrectParameterException, null);
+                    }
+                }
+            }, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            callback.operationComplete(BKException.Code.ZKException, null);
+        } catch (InterruptedException e) {
+            callback.operationComplete(BKException.Code.InterruptedException, null);
+        }
+    }
+
+    static LogSegmentLedgerMetadata parseData(String path, byte[] data) throws IOException {
+        String[] parts = new String(data, UTF_8).split(";");
+        if (parts.length == 3) {
+            int version = Integer.valueOf(parts[0]);
+            long ledgerId = Long.valueOf(parts[1]);
+            long txId = Long.valueOf(parts[2]);
+            return new LogSegmentLedgerMetadata(path, version, ledgerId, txId);
+        } else if (parts.length == 5) {
+            int version = Integer.valueOf(parts[0]);
+            long ledgerId = Long.valueOf(parts[1]);
+            long firstTxId = Long.valueOf(parts[2]);
+            long lastTxId = Long.valueOf(parts[3]);
+            long completionTime = Long.valueOf(parts[4]);
+            return new LogSegmentLedgerMetadata(path, version, ledgerId,
+                firstTxId, lastTxId, completionTime);
+        } else {
+            throw new IOException("Invalid ledger entry, "
+                + new String(data, UTF_8));
         }
     }
 

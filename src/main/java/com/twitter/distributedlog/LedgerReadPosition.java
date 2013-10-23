@@ -38,6 +38,10 @@ public class LedgerReadPosition {
         this.entryId = 0;
     }
 
+    @Override
+    public String toString() {
+        return String.format("(lid=%d, eid=%d)", ledgerId, entryId);
+    }
 
     /**
      * Comparator for the key portion

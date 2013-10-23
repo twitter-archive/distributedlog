@@ -1,9 +1,11 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,33 +30,80 @@ public class LedgerHandleCache {
         this.digestpw = digestpw;
     }
 
-    public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException, BKException {
-        LedgerDescriptor ledgerDesc = new LedgerDescriptor(ledgerId, fence);
-        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
-
+    /**
+     * Open the given ledger <i>ledgerDesc</i>.
+     *
+     * @param ledgerDesc
+     *          ledger description
+     * @param callback
+     *          open callback.
+     * @param ctx
+     *          callback context
+     */
+    private void asyncOpenLedger(LedgerDescriptor ledgerDesc, AsyncCallback.OpenCallback callback, Object ctx) {
         try {
-            if (null == refhandle) {
-                refhandle = new RefCountedLedgerHandle();
-                if (!ledgerDesc.getFenced()) {
-                    refhandle.handle = bkc.get().openLedgerNoRecovery(ledgerDesc.getLedgerId(),
-                        BookKeeper.DigestType.CRC32,
-                        digestpw.getBytes(UTF_8));
-                } else {
-                    refhandle.handle = bkc.get().openLedger(ledgerDesc.getLedgerId(),
-                        BookKeeper.DigestType.CRC32,
-                        digestpw.getBytes(UTF_8));
-                }
-                handlesMap.put(ledgerDesc, refhandle);
+            if (!ledgerDesc.getFenced()) {
+                bkc.get().asyncOpenLedgerNoRecovery(ledgerDesc.getLedgerId(),
+                        BookKeeper.DigestType.CRC32, digestpw.getBytes(UTF_8), callback, ctx);
+            } else {
+                bkc.get().asyncOpenLedger(ledgerDesc.getLedgerId(),
+                        BookKeeper.DigestType.CRC32, digestpw.getBytes(UTF_8), callback, ctx);
             }
-        } catch (BKException.ZKException bkzkException) {
-            LOG.error("Ledger Handle Cache open ledger hit ZK exception for ledger " + ledgerDesc.getLedgerId(), bkzkException);
-            throw bkzkException;
-        } catch (Exception e) {
-            LOG.error("Ledger Handle Cache open ledger failed for partition {}", ledgerDesc.getLedgerId(), e);
-            throw new IOException("Could not open ledger for " + ledgerDesc.getLedgerId(), e);
+        } catch (IOException ace) {
+            // :) when we can't get bkc, it means bookie handle not available
+            callback.openComplete(BKException.Code.BookieHandleNotAvailableException, null, ctx);
         }
-        refhandle.addRef();
-        return ledgerDesc;
+    }
+
+    public synchronized void asyncOpenLedger(long ledgerId, boolean fence,
+                                             final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
+        final LedgerDescriptor ledgerDesc = new LedgerDescriptor(ledgerId, fence);
+        RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
+        if (null == refhandle) {
+            asyncOpenLedger(ledgerDesc, new AsyncCallback.OpenCallback() {
+                @Override
+                public void openComplete(int rc, LedgerHandle lh, Object ctx) {
+                    if (BKException.Code.OK != rc) {
+                        callback.operationComplete(rc, null);
+                        return;
+                    }
+                    RefCountedLedgerHandle newRefHandle = new RefCountedLedgerHandle(lh);
+                    RefCountedLedgerHandle oldRefHandle = handlesMap.putIfAbsent(ledgerDesc, newRefHandle);
+                    if (null != oldRefHandle) {
+                        oldRefHandle.addRef();
+                    } else {
+                        newRefHandle.addRef();
+                    }
+                    callback.operationComplete(BKException.Code.OK, ledgerDesc);
+                }
+            }, null);
+        } else {
+            refhandle.addRef();
+            callback.operationComplete(BKException.Code.OK, ledgerDesc);
+        }
+    }
+
+    public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException, BKException {
+        final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
+        syncObject.inc();
+        asyncOpenLedger(ledgerId, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+            @Override
+            public void operationComplete(int rc, LedgerDescriptor ledgerDescriptor) {
+                syncObject.setrc(rc);
+                syncObject.setValue(ledgerDescriptor);
+                syncObject.dec();
+            }
+        });
+        try {
+            syncObject.block(0);
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted when opening ledger {} : ", ledgerId, e);
+            throw new IOException("Could not open ledger for " + ledgerId, e);
+        }
+        if (BKException.Code.OK == syncObject.getrc()) {
+            return syncObject.getValue();
+        }
+        throw BKException.create(syncObject.getrc());
     }
 
     private RefCountedLedgerHandle getLedgerHandle(LedgerDescriptor ledgerDescriptor) {
@@ -81,26 +130,63 @@ public class LedgerHandleCache {
         return refhandle.handle.getLastAddConfirmed();
     }
 
+    public synchronized void asyncReadLastConfirmed(LedgerDescriptor ledgerDesc,
+                                                    AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readLastConfirmedComplete(BKException.Code.NoSuchLedgerExistsException, -1, ctx);
+            return;
+        }
+        refHandle.handle.asyncReadLastConfirmed(callback, ctx);
+    }
+
     public synchronized void readLastConfirmed(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException, IOException {
-        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
-
-        if (null == refhandle) {
-            throw new IOException("Accessing Ledger without opening");
+        final SyncObject<Long> syncObject = new SyncObject<Long>();
+        syncObject.inc();
+        asyncReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
+            @Override
+            public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object context) {
+                syncObject.setrc(rc);
+                syncObject.setValue(lastAddConfirmed);
+                syncObject.dec();
+            }
+        }, null);
+        syncObject.block(0);
+        if (BKException.Code.OK == syncObject.getrc()) {
+            return;
         }
+        throw BKException.create(syncObject.getrc());
+    }
 
-        refhandle.handle.readLastConfirmed();
+    public synchronized void asyncReadEntries(LedgerDescriptor ledgerDesc, long first, long last,
+                                              AsyncCallback.ReadCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readComplete(BKException.Code.NoSuchLedgerExistsException, null, null, ctx);
+            return;
+        }
+        refHandle.handle.asyncReadEntries(first, last, callback, ctx);
     }
 
     public synchronized Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
         throws InterruptedException, BKException, IOException {
-        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
-
-        if (null == refhandle) {
-            throw new IOException("Accessing Ledger without opening");
+        final SyncObject<Enumeration<LedgerEntry>> syncObject =
+                new SyncObject<Enumeration<LedgerEntry>>();
+        syncObject.inc();
+        asyncReadEntries(ledgerDesc, first, last, new AsyncCallback.ReadCallback() {
+            @Override
+            public void readComplete(int rc, LedgerHandle ledgerHandle, Enumeration<LedgerEntry> entries, Object ctx) {
+                syncObject.setrc(rc);
+                syncObject.setValue(entries);
+                syncObject.dec();
+            }
+        }, null);
+        syncObject.block(0);
+        if (BKException.Code.OK == syncObject.getrc()) {
+            return syncObject.getValue();
         }
-
-        return refhandle.handle.readEntries(first, last);
+        throw BKException.create(syncObject.getrc());
     }
 
     public synchronized long getLength(LedgerDescriptor ledgerDesc) throws IOException {
@@ -114,8 +200,12 @@ public class LedgerHandleCache {
     }
 
     static private class RefCountedLedgerHandle {
-        public LedgerHandle handle;
-        AtomicLong refcount = new AtomicLong(0);
+        public final LedgerHandle handle;
+        final AtomicLong refcount = new AtomicLong(0);
+
+        RefCountedLedgerHandle(LedgerHandle lh) {
+            this.handle = lh;
+        }
 
         public void addRef() {
             refcount.incrementAndGet();

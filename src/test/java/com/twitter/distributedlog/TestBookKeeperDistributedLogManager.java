@@ -49,7 +49,8 @@ public class TestBookKeeperDistributedLogManager {
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
-    protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
+    protected static DistributedLogConfiguration conf =
+            new DistributedLogConfiguration().setLockTimeout(10);
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;

@@ -18,8 +18,14 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
+
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -361,6 +368,50 @@ abstract class BKLogPartitionHandler {
 
         Collections.sort(ledgers, comparator);
         return ledgers;
+    }
+
+    protected void getLedgerList(final Comparator comparator, Watcher watcher,
+            final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
+        try {
+            zooKeeperClient.get().getChildren(ledgerPath, watcher, new AsyncCallback.Children2Callback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+                    if (KeeperException.Code.OK.intValue() != rc) {
+                        callback.operationComplete(-1, null);
+                        return;
+                    }
+                    final List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(children.size());
+                    final AtomicInteger numChildren = new AtomicInteger(children.size());
+                    final AtomicInteger numFailures = new AtomicInteger(0);
+                    for (String n: children) {
+                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n,
+                        new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
+                            @Override
+                            public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
+                                if (BKException.Code.OK != rc) {
+                                    // fail fast
+                                    if (1 == numFailures.incrementAndGet()) {
+                                        // :( properly we need dlog related response code.
+                                        callback.operationComplete(rc, null);
+                                        return;
+                                    }
+                                } else {
+                                    segments.add(result);
+                                }
+                                if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
+                                    Collections.sort(segments, comparator);
+                                    callback.operationComplete(BKException.Code.OK, segments);
+                                }
+                            }
+                        });
+                    }
+                }
+            }, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            callback.operationComplete(BKException.Code.ZKException, null);
+        } catch (InterruptedException e) {
+            callback.operationComplete(BKException.Code.InterruptedException, null);
+        }
     }
 
     public String getFullyQualifiedName() {

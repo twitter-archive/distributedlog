@@ -60,6 +60,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SHARE_ZK_CLIENT_WITH_BKC = "shareZKClientWithBKC";
     public static final boolean BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT = false;
 
+    // Executor Parameters
+    public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -310,6 +313,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public boolean getSeparateZKClients() {
         return getBoolean(BKDL_SEPARATE_ZK_CLIENT, BKDL_SEPARATE_ZK_CLIENT_DEFAULT);
+    }
+
+    /**
+     * Set the number of worker threads used by distributedlog manager factory.
+     *
+     * @param numWorkerThreads
+     *          number of worker threads used by distributedlog manager factory.
+     * @return configuration
+     */
+    public DistributedLogConfiguration setNumWorkerThreads(int numWorkerThreads) {
+        setProperty(BKDL_NUM_WORKER_THREADS, numWorkerThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of worker threads used by distributedlog manager factory.
+     *
+     * @return number of worker threads used by distributedlog manager factory.
+     */
+    public int getNumWorkerThreads() {
+        return getInt(BKDL_NUM_WORKER_THREADS, Runtime.getRuntime().availableProcessors());
     }
 
     /**

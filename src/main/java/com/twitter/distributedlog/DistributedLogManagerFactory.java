@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -15,6 +16,8 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class DistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
@@ -26,6 +29,7 @@ public class DistributedLogManagerFactory {
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
+    private final ScheduledExecutorService scheduledExecutorService;
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -37,6 +41,10 @@ public class DistributedLogManagerFactory {
         this.conf = conf;
         this.namespace = uri;
         this.statsLogger = statsLogger;
+        this.scheduledExecutorService = Executors.newScheduledThreadPool(
+                conf.getNumWorkerThreads(),
+                new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
+        );
 
         try {
             // Build zookeeper client
@@ -73,8 +81,8 @@ public class DistributedLogManagerFactory {
      * @throws IllegalArgumentException
      */
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(nameOfLogStream, conf, namespace, zooKeeperClientBuilder, bookKeeperClientBuilder,
-                                           statsLogger);
+        return new BKDistributedLogManager(nameOfLogStream, conf, namespace,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, scheduledExecutorService, statsLogger);
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -239,6 +247,8 @@ public class DistributedLogManagerFactory {
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
     public void close() throws IOException {
+        scheduledExecutorService.shutdown();
+        LOG.info("Executor Service Stopped.");
         try {
             bookKeeperClient.release();
             zooKeeperClient.close();

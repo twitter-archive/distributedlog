@@ -1,7 +1,10 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -13,6 +16,10 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
@@ -22,8 +29,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private LedgerDataAccessor ledgerDataAccessor = null;
     private final LedgerHandleCache handleCache;
 
-    private ReadAheadThread readAheadThread = null;
+    private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
+    private final ScheduledExecutorService executorService;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -34,8 +42,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      URI uri,
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
+                                     ScheduledExecutorService executorService,
                                      StatsLogger statsLogger) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
+        this.executorService = executorService;
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache);
@@ -112,8 +122,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     public void close() throws IOException {
         try {
-            if (null != readAheadThread) {
-                readAheadThread.shutdown();
+            if (null != readAheadWorker) {
+                readAheadWorker.stop();
             }
 
             if (null != ledgerDataAccessor) {
@@ -132,15 +142,15 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     public boolean startReadAhead(LedgerReadPosition startPosition) {
-        if (null == readAheadThread) {
-            readAheadThread = new ReadAheadThread(getFullyQualifiedName(),
+        if (null == readAheadWorker) {
+            readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
                 this,
                 startPosition,
                 ledgerDataAccessor,
                 conf.getReadAheadBatchSize(),
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
-            readAheadThread.start();
+            readAheadWorker.start();
             return true;
         } else {
             return false;
@@ -165,12 +175,35 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    private class ReadAheadThread extends Thread implements Watcher {
-        volatile boolean running = true;
+    /**
+     * ReadAhead Worker process readahead in asynchronous way. The whole readahead process are chained into
+     * different phases:
+     *
+     * <p>
+     * ScheduleReadAheadPhase: Schedule the readahead request based on previous state (e.g. whether to backoff).
+     * After the readahead request was scheduled, the worker enters ReadAhead phase.
+     * </p>
+     * <p>
+     * ReadAhead Phase: This phase is divided into several sub-phases. All the sub-phases are chained into the
+     * execution flow. If errors happened during execution, the worker enters Exceptions Handling Phase.
+     * <br>
+     * CheckInProgressChangedPhase: check whether there is in progress ledgers changed and updated the metadata.
+     * <br>
+     * OpenLedgerPhase: open ledgers if necessary for following read requests.
+     * <br>
+     * ReadEntriesPhase: read entries from bookkeeper and fill the readahead cache.
+     * <br>
+     * After that, the worker goes back to Schedule Phase to schedule next readahead request.
+     * </p>
+     * <p>
+     * Exceptions Handling Phase: Handle all the exceptions and properly schedule next readahead request.
+     * </p>
+     */
+    private class ReadAheadWorker implements Runnable, Watcher {
 
         private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
-        private boolean reInitializeMetadata = true;
+        private volatile boolean reInitializeMetadata = true;
         private LedgerReadPosition nextReadPosition;
         private LogSegmentLedgerMetadata currentMetadata = null;
         private int currentMetadataIndex;
@@ -180,17 +213,27 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final long readAheadBatchSize;
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
-        private Object notificationObject = new Object();
         private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
 
-        public ReadAheadThread(String fullyQualifiedName,
+        // Parameters for the state for this readahead worker.
+        volatile boolean running = true;
+        volatile boolean encounteredException = false;
+        private final AtomicInteger bkcZkExceptions = new AtomicInteger(0);
+        volatile boolean inProgressChanged = false;
+
+        // ReadAhead Phases
+        final Phase schedulePhase = new ScheduleReadAheadPhase();
+        final Phase exceptionHandler = new ExceptionHandlePhase(schedulePhase);
+        final Phase readAheadPhase =
+                new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
+
+        public ReadAheadWorker(String fullyQualifiedName,
                                BKLogPartitionReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
                                int readAheadBatchSize,
                                int readAheadMaxEntries,
                                int readAheadWaitTime) {
-            super("ReadAheadThread");
             this.bkLedgerManager = ledgerManager;
             this.fullyQualifiedName = fullyQualifiedName;
             this.nextReadPosition = startPosition;
@@ -198,46 +241,134 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.readAheadBatchSize = readAheadBatchSize;
             this.readAheadMaxEntries = readAheadMaxEntries;
             this.readAheadWaitTime = readAheadWaitTime;
-            ledgerDataAccessor.setNotificationObject(notificationObject);
         }
 
-        @Override
-        public void run() {
-            LOG.info("ReadAheadThread Thread started for {}", fullyQualifiedName);
-            boolean encounteredException = false;
+        public void start() {
+            running = true;
+            schedulePhase.process(BKException.Code.OK);
+        }
 
-            // Set when we encounter bookkeeper exceptions
-            // and reset when we do any successful operation that requires network access by
-            // bookkeeper
-            int bkcZkExceptions = 0;
+        public void stop() {
+            running = false;
 
-            while (running) {
-                try {
-                    if (encounteredException) {
-                        // If we have been hitting exceptions continuously for
-                        // BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS, notify
-                        if (bkcZkExceptions > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 /readAheadWaitTime)) {
-                            bkLedgerManager.setReadAheadError();
-                        }
+        }
 
-                        // Backoff before resuming
-                        synchronized(notificationObject) {
-                            notificationObject.wait(readAheadWaitTime/4);
-                        }
-                        // We must always reinitialize metadata if the last attempt to read failed.
-                        reInitializeMetadata = true;
-                        encounteredException = false;
+        private void submit(Runnable runnable) {
+            try {
+                executorService.submit(runnable);
+            } catch (RejectedExecutionException ree) {
+                bkLedgerManager.setReadAheadError();
+            }
+        }
+
+        private void schedule(Runnable runnable, long timeInMillis) {
+            try {
+                executorService.schedule(runnable, timeInMillis, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException ree) {
+                bkLedgerManager.setReadAheadError();
+            }
+        }
+
+        abstract class Phase {
+
+            final Phase next;
+
+            Phase(Phase next) {
+                this.next = next;
+            }
+
+            abstract void process(int rc);
+        }
+
+        /**
+         * Schedule next readahead request. If we need to backoff, schedule in a backoff delay.
+         */
+        final class ScheduleReadAheadPhase extends Phase {
+
+            ScheduleReadAheadPhase() {
+                super(null);
+            }
+
+            @Override
+            void process(int rc) {
+                if (!running) {
+                    LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
+                    return;
+                }
+                if (encounteredException) {
+                    if (bkcZkExceptions.get() > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / readAheadWaitTime)) {
+                        bkLedgerManager.setReadAheadError();
                     }
-                    boolean inProgressChanged = false;
-                    if (reInitializeMetadata || (null == currentMetadata)) {
-                        reInitializeMetadata = false;
-                        try {
-                            bkLedgerManager.setWatcherOnLedgerRoot(this);
-                        } catch (Exception exc) {
+                    // We must always reinitialize metadata if the last attempt to read failed.
+                    reInitializeMetadata = true;
+                    encounteredException = false;
+                    // Backoff before resuming
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Scheduling read ahead for {} after {} ms.", fullyQualifiedName, readAheadWaitTime/4);
+                    }
+                    schedule(ReadAheadWorker.this, readAheadWaitTime / 4);
+                } else {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Scheduling read ahead for {} now.", fullyQualifiedName);
+                    }
+                    submit(ReadAheadWorker.this);
+                }
+            }
+
+        }
+
+        /**
+         * Phase on handling exceptions.
+         */
+        final class ExceptionHandlePhase extends Phase {
+
+            ExceptionHandlePhase(Phase next) {
+                super(next);
+            }
+
+            @Override
+            void process(int rc) {
+                if (BKException.Code.InterruptedException == rc) {
+                    LOG.trace("ReadAhead Worker for {} is interrupted.", fullyQualifiedName);
+                    running = false;
+                    return;
+                } else if (BKException.Code.ZKException == rc) {
+                    encounteredException = true;
+                    int numExceptions = bkcZkExceptions.incrementAndGet();
+                    LOG.debug("ReadAhead Worker for {} encountered zookeeper exception : total exceptions are {}.",
+                            fullyQualifiedName, numExceptions);
+                } else if (BKException.Code.OK != rc) {
+                    encounteredException = true;
+                    LOG.debug("ReadAhead Worker for {} encountered exception : ",
+                            fullyQualifiedName, BKException.create(rc));
+                }
+                // schedule next read ahead
+                next.process(BKException.Code.OK);
+            }
+        }
+
+        /**
+         * Phase on checking in progress changed.
+         */
+        final class CheckInProgressChangedPhase extends Phase
+            implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> {
+
+            CheckInProgressChangedPhase(Phase next) {
+                super(next);
+            }
+
+            @Override
+            public void operationComplete(final int rc, final List<LogSegmentLedgerMetadata> result) {
+                // submit callback execution to dlg executor to avoid deadlock.
+                submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (BKException.Code.OK != rc) {
                             reInitializeMetadata = true;
-                            LOG.debug("Unable to setup watcher", exc);
+                            exceptionHandler.process(rc);
+                            return;
                         }
-                        ledgerList = bkLedgerManager.getLedgerList();
+                        ledgerList = result;
                         for (int i = 0; i < ledgerList.size(); i++) {
                             LogSegmentLedgerMetadata l = ledgerList.get(i);
                             if (l.getLedgerId() == nextReadPosition.getLedgerId()) {
@@ -249,22 +380,70 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 break;
                             }
                         }
-                    }
-
-                    if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
-                        if (null == currentLH) {
-                            currentLH = bkLedgerManager.getHandleCache().openLedger(currentMetadata.getLedgerId(), false);
-                            bkcZkExceptions = 0;
-                        } else {
-                            long lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
-                            if (lastAddConfirmed < nextReadPosition.getEntryId()) {
-                                bkLedgerManager.getHandleCache().readLastConfirmed(currentLH);
-                                bkcZkExceptions = 0;
-                                LOG.debug("Advancing Last Add Confirmed {}", bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH));
-                            }
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Initialized metadata for {}, starting reading ahead from {} : {}.",
+                                    new Object[] { fullyQualifiedName, currentMetadataIndex, currentMetadata });
                         }
+                        next.process(BKException.Code.OK);
+                    }
+                });
+            }
+
+            @Override
+            void process(int rc) {
+                inProgressChanged = false;
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Checking {} if InProgress changed.", fullyQualifiedName);
+                }
+                if (reInitializeMetadata || null == currentMetadata) {
+                    reInitializeMetadata = false;
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Reinitializing metadata for {}.", fullyQualifiedName);
+                    }
+                    bkLedgerManager.getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
+                } else {
+                    next.process(BKException.Code.OK);
+                }
+            }
+        }
+
+        final class OpenLedgerPhase extends Phase
+                implements BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>,
+                            AsyncCallback.ReadLastConfirmedCallback {
+
+            OpenLedgerPhase(Phase next) {
+                super(next);
+            }
+
+            @Override
+            void process(int rc) {
+                if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
+                    if (null == currentLH) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
+                        }
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), false, this);
                     } else {
-                        if (null != currentLH) {
+                        long lastAddConfirmed;
+                        try {
+                            lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
+                        } catch (IOException ie) {
+                            // Exception is thrown due to no ledger handle
+                            exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                            return;
+                        }
+                        if (lastAddConfirmed < nextReadPosition.getEntryId()) {
+                            if (LOG.isTraceEnabled()) {
+                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
+                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
+                            }
+                        } else {
+                            next.process(BKException.Code.OK);
+                        }
+                    }
+                } else {
+                    if (null != currentLH) {
+                        try {
                             if (inProgressChanged) {
                                 bkLedgerManager.getHandleCache().closeLedger(currentLH);
                                 currentLH = null;
@@ -274,77 +453,180 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 currentMetadata = null;
                                 if (currentMetadataIndex + 1 < ledgerList.size()) {
                                     currentMetadata = ledgerList.get(++currentMetadataIndex);
+                                    if (LOG.isTraceEnabled()) {
+                                        LOG.trace("Moving read position to a new ledger {} for {}.",
+                                                currentMetadata, fullyQualifiedName);
+                                    }
                                     nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId());
                                 }
                             }
-                        } else {
-                            currentLH = bkLedgerManager.getHandleCache().openLedger(currentMetadata.getLedgerId(), true);
-                            bkcZkExceptions = 0;
+                            next.process(BKException.Code.OK);
+                        } catch (InterruptedException ie) {
+                            exceptionHandler.process(BKException.Code.InterruptedException);
+                        } catch (IOException ioe) {
+                            exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                        } catch (BKException bke) {
+                            exceptionHandler.process(bke.getCode());
                         }
-                    }
-
-                    boolean cacheFull = false;
-
-                    if (null != currentLH) {
-                        long lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
-                        while (lastAddConfirmed >= nextReadPosition.getEntryId()) {
-                            Enumeration<LedgerEntry> entries
-                                = bkLedgerManager.getHandleCache().readEntries(currentLH, nextReadPosition.getEntryId(),
-                                Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + readAheadBatchSize - 1)));
-                            if (entries.hasMoreElements()) {
-                                bkcZkExceptions = 0;
-                                nextReadPosition.advance();
-                                LedgerEntry e = entries.nextElement();
-                                ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
-                            }
-                            if (ledgerDataAccessor.getNumCacheEntries() > readAheadMaxEntries) {
-                                cacheFull = true;
-                                break;
-                            }
+                    } else {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         }
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), true, this);
                     }
+                }
 
-                    if (cacheFull || ((null != currentMetadata) && currentMetadata.isInProgress())) {
-                        synchronized (notificationObject) {
-                            notificationObject.wait(readAheadWaitTime);
+            }
+
+            @Override
+            public void operationComplete(final int rc, final LedgerDescriptor result) {
+                // submit callback execution to dlg executor to avoid deadlock.
+                submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (BKException.Code.OK != rc) {
+                            exceptionHandler.process(rc);
+                            return;
                         }
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Opened ledger of {} for {}.", currentMetadata, fullyQualifiedName);
+                        }
+                        currentLH = result;
+                        bkcZkExceptions.set(0);
+                        next.process(rc);
                     }
-                } catch (InterruptedException exc) {
-                    running = false;
-                    // exit silently
-                } catch (IOException ioExc) {
-                    LOG.debug("ReadAhead Thread Encountered an exception ", ioExc);
-                    encounteredException = true;
-                } catch (BKException.ZKException bkzke) {
-                    LOG.info("ReadAhead Thread {} Encountered a bookkeeper exception ", getFullyQualifiedName(), bkzke);
-                    encounteredException = true;
-                    bkcZkExceptions++;
-                } catch (Exception e) {
-                    LOG.info("ReadAhead Thread {} Encountered an unexpected exception ", getFullyQualifiedName(), e);
-                    encounteredException = true;
+                });
+            }
+
+            @Override
+            public void readLastConfirmedComplete(final int rc, final long lastConfirmed, final Object ctx) {
+                // submit callback execution to dlg executor to avoid deadlock.
+                submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (BKException.Code.OK != rc) {
+                            exceptionHandler.process(rc);
+                            return;
+                        }
+                        bkcZkExceptions.set(0);
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Advancing Last Add Confirmed of {} for {} : {}",
+                                    new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed });
+                        }
+                        next.process(rc);
+                    }
+                });
+            }
+
+        }
+
+        final class ReadEntriesPhase extends Phase implements AsyncCallback.ReadCallback, Runnable {
+
+            boolean cacheFull = false;
+            long lastAddConfirmed = -1;
+
+            ReadEntriesPhase(Phase next) {
+                super(next);
+            }
+
+            @Override
+            void process(int rc) {
+                cacheFull = false;
+                lastAddConfirmed = -1;
+                if (null != currentLH) {
+                    try {
+                        lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
+                    } catch (IOException e) {
+                        exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                        return;
+                    }
+                    read();
+                } else {
+                    complete();
                 }
             }
-            LOG.info("ReadAheadThread Thread stopped for {}", fullyQualifiedName);
+
+            private void read() {
+                if (lastAddConfirmed < nextReadPosition.getEntryId()) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Nothing to read for {} of {} : lastAddConfirmed = {}, nextReadPosition = {}",
+                                new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
+                    }
+                    complete();
+                    return;
+                }
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Reading entry {} for {} of {}.",
+                            new Object[] { nextReadPosition, currentMetadata, fullyQualifiedName });
+                }
+                bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, nextReadPosition.getEntryId(),
+                        Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + readAheadBatchSize - 1)), this, null);
+            }
+
+            @Override
+            public void readComplete(final int rc, final LedgerHandle lh,
+                                     final Enumeration<LedgerEntry> seq, final Object ctx) {
+                // submit callback execution to dlg executor to avoid deadlock.
+                submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (BKException.Code.OK != rc || null == lh) {
+                            exceptionHandler.process(rc);
+                            return;
+                        }
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Read entries for {} of {}.", currentMetadata, fullyQualifiedName);
+                        }
+                        while (seq.hasMoreElements()) {
+                            bkcZkExceptions.set(0);
+                            nextReadPosition.advance();
+                            LedgerEntry e = seq.nextElement();
+                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
+                        }
+                        if (ledgerDataAccessor.getNumCacheEntries() > readAheadMaxEntries) {
+                            cacheFull = true;
+                            complete();
+                        } else {
+                            read();
+                        }
+                    }
+                });
+            }
+
+            private void complete() {
+                if (cacheFull || ((null != currentMetadata) && currentMetadata.isInProgress())) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Cache for {} is full. Backoff reading ahead for {} ms.",
+                                fullyQualifiedName, readAheadWaitTime);
+                    }
+                    // Backoff before resuming
+                    schedule(ReadAheadWorker.this, readAheadWaitTime);
+                } else {
+                    run();
+                }
+            }
+
+            @Override
+            public void run() {
+                next.process(BKException.Code.OK);
+            }
         }
 
-        // shutdown sync thread
-        void shutdown() throws InterruptedException {
-            running = false;
-            this.interrupt();
-            this.join();
+        @Override
+        public void run() {
+            readAheadPhase.process(BKException.Code.OK);
         }
 
+        @Override
         synchronized public void process(WatchedEvent event) {
             if ((event.getType() == Watcher.Event.EventType.None)
-                && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
+                    && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
                 LOG.debug("Reconnected ...");
             } else {
                 reInitializeMetadata = true;
-                synchronized (notificationObject) {
-                    notificationObject.notifyAll();
-                }
                 LOG.debug("Read ahead node changed");
             }
         }
     }
+
 }

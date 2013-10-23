@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -19,6 +20,7 @@ import java.util.Timer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 
@@ -30,6 +32,8 @@ class BKDistributedLogManager implements DistributedLogManager {
     private final URI uri;
     private boolean closed = true;
     private ExecutorService cbThreadPool = null;
+    private final ScheduledExecutorService executorService;
+    private boolean ownExecutor;
     private final ZooKeeperClientBuilder zooKeeperClientBuilder;
     private final ZooKeeperClient zooKeeperClient;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
@@ -54,10 +58,23 @@ class BKDistributedLogManager implements DistributedLogManager {
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
+        this(name, conf, uri, zkcBuilder, bkcBuilder,
+            Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+            statsLogger);
+        this.ownExecutor = true;
+    }
+
+    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
+                                   ZooKeeperClientBuilder zkcBuilder,
+                                   BookKeeperClientBuilder bkcBuilder,
+                                   ScheduledExecutorService executorService,
+                                   StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.conf = conf;
         this.uri = uri;
+        this.executorService = executorService;
         this.statsLogger = statsLogger;
+        this.ownExecutor = false;
 
         try {
             // Distributed Log Manager always creates a zookeeper connection to
@@ -120,8 +137,7 @@ class BKDistributedLogManager implements DistributedLogManager {
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, statsLogger);
-
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
@@ -447,6 +463,10 @@ class BKDistributedLogManager implements DistributedLogManager {
      */
     @Override
     public void close() throws IOException {
+        if (ownExecutor) {
+            executorService.shutdown();
+            LOG.info("Stopped BKDL executor service.");
+        }
         try {
             bookKeeperClient.release();
             zooKeeperClient.close();
