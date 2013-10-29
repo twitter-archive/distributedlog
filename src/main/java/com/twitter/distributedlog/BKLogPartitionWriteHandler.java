@@ -8,7 +8,6 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
@@ -168,6 +167,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             throw new IOException("We've already seen " + txId
                 + ". A new stream cannot be created with it");
         }
+        boolean writeInprogressZnode = false;
         try {
             if (currentLedger != null) {
                 try {
@@ -193,6 +193,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * as this would lead to a split brain situation.
              */
             l.write(zooKeeperClient, znodePath);
+            writeInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
@@ -202,7 +203,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     long id = currentLedger.getId();
                     currentLedger.close();
-                    bookKeeperClient.get().deleteLedger(id);
+                    // If we already wrote inprogress znode, we should not delete the ledger.
+                    // We leave this empty ledger there until retention policy removed it.
+                    // Otherwise, it would fail recovering incomplete log segments,
+                    // as no ledger found for this inprogress log segment.
+                    // {@link https://jira.twitter.biz/browse/PUBSUB-1230}
+                    if (!writeInprogressZnode) {
+                        bookKeeperClient.get().deleteLedger(id);
+                    }
                 } catch (Exception e2) {
                     //log & ignore, an IOException will be thrown soon
                     LOG.error("Error closing ledger", e2);
