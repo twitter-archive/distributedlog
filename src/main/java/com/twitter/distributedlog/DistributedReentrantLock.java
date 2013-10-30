@@ -66,8 +66,7 @@ class DistributedReentrantLock {
         this.zkc = zkc;
         try {
             if (zkc.get().exists(lockpath, false) == null) {
-                String localString = InetAddress.getLocalHost().toString();
-                zkc.get().create(lockpath, localString.getBytes(UTF_8),
+                zkc.get().create(lockpath, null,
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
             internalLock = new DistributedLock(zkc, lockpath);
@@ -189,8 +188,15 @@ class DistributedReentrantLock {
             LOG.debug("Working with locking path: {}", lockPath);
 
             // Create an EPHEMERAL_SEQUENTIAL node.
+            String hostName;
+            try {
+                hostName = InetAddress.getLocalHost().toString();
+            } catch (Exception exc) {
+                hostName = "<unresolved>";
+            }
+
             currentNode =
-                zkClient.get().create(lockPath + "/member_", null, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+                zkClient.get().create(lockPath + "/member_", hostName.getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
 
             // We only care about our actual id since we want to compare ourselves to siblings.
             if (currentNode.contains("/")) {
