@@ -42,6 +42,14 @@ class MaxTxId {
         this.path = path;
     }
 
+    /**
+     * Store the highest TxID encountered so far so that we
+     * can enforce the monotonically non-decreasing property
+     * This is best effort as this enforcement is only done
+     *
+     * @param maxTxId
+     * @throws IOException
+     */
     synchronized void store(long maxTxId) throws IOException {
         long currentMax = get();
         if (currentMax < maxTxId) {
@@ -58,7 +66,7 @@ class MaxTxId {
                         Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
                 }
             } catch (Exception e) {
-                throw new IOException("Error writing max tx id", e);
+                LOG.error("Error writing new MaxTxId value {}", maxTxId, e);
             }
         }
     }
@@ -74,7 +82,9 @@ class MaxTxId {
                 return Long.valueOf(txidString);
             }
         } catch (Exception e) {
-            throw new IOException("Error reading the max tx id from zk", e);
+            LOG.error("Error reading the max tx id from zk for path {}", path, e);
         }
+
+        return 0;
     }
 }
