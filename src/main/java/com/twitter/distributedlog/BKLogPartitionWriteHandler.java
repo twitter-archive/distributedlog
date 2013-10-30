@@ -184,6 +184,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
                 DistributedLogConstants.LAYOUT_VERSION, currentLedger.getId(), txId);
 
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
+
             /*
              * Write the ledger metadata out to the inprogress ledger znode
              * This can fail if for some reason our write lock has
@@ -195,6 +197,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             l.write(zooKeeperClient, znodePath);
             writeInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
+
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
+
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
             return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService);
@@ -334,13 +339,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
             } catch (KeeperException.NodeExistsException nee) {
-                if (!l.verify(zooKeeperClient, pathForCompletedLedger)) {
+                if (!l.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
                     throw new IOException("Node " + pathForCompletedLedger + " already exists"
                         + " but data doesn't match");
                 }
             }
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
+
+            if (FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_FinalizeLedgerBeforeDelete)) {
+                return;
+            }
+
             zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
         } catch (InterruptedException e) {
             throw new IOException("Interrupted when finalising stream " + partitionRootPath, e);

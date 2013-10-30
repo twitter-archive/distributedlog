@@ -227,13 +227,27 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    boolean verify(ZooKeeperClient zkc, String path) {
+    boolean checkEquivalence(ZooKeeperClient zkc, String path) {
         try {
             LogSegmentLedgerMetadata other = read(zkc, path);
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Verifying " + this + " against " + other);
             }
-            return other == this;
+
+            // All fields may not be comparable so only compare the ones
+            // that can be compared
+            // completionTime is set when a node is finalized, so that
+            // cannot be compared
+            // if the node is inprogress, don't compare the lastTxId either
+            if (this.ledgerId != other.ledgerId ||
+                this.firstTxId != other.firstTxId ||
+                this.version != other.version) {
+                return false;
+            } else if (this.inprogress) {
+                return other.inprogress;
+            } else {
+                return (!other.inprogress && (this.lastTxId == other.lastTxId));
+            }
         } catch (Exception e) {
             LOG.error("Couldn't verify data in " + path, e);
             return false;
