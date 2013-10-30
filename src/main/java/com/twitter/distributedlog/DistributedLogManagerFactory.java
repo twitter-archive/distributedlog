@@ -165,6 +165,10 @@ public class DistributedLogManagerFactory {
                 zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, statsLogger);
     }
 
+    public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
+        return new ZKMetadataAccessor(nameOfMetadataNode, namespace, conf.getZKSessionTimeoutMilliseconds(), zooKeeperClientBuilder);
+    }
+
     public boolean checkIfLogExists(String nameOfLogStream)
         throws IOException, InterruptedException, IllegalArgumentException {
         return DistributedLogManagerFactory.checkIfLogExists(conf, namespace, nameOfLogStream);
@@ -194,7 +198,8 @@ public class DistributedLogManagerFactory {
         return createDistributedLogManager(name, new DistributedLogConfiguration(), uri);
     }
 
-    private static void validateInput(DistributedLogConfiguration conf, URI uri) throws IllegalArgumentException {
+    private static void validateInput(DistributedLogConfiguration conf, URI uri)
+        throws IllegalArgumentException {
         // input validation
         //
         if (null == conf) {
@@ -206,14 +211,21 @@ public class DistributedLogManagerFactory {
         }
     }
 
-    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri)
+    public static DistributedLogManager createDistributedLogManager(
+            String name,
+            DistributedLogConfiguration conf,
+            URI uri)
         throws IOException, IllegalArgumentException {
         return createDistributedLogManager(name, conf, uri, (ZooKeeperClientBuilder) null, (BookKeeperClientBuilder) null,
                 NullStatsLogger.INSTANCE);
     }
 
-    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                                                                    ZooKeeperClient zkc, BookKeeperClient bkc)
+    public static DistributedLogManager createDistributedLogManager(
+            String name,
+            DistributedLogConfiguration conf,
+            URI uri,
+            ZooKeeperClient zkc,
+            BookKeeperClient bkc)
         throws IOException, IllegalArgumentException {
         return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
                 BookKeeperClientBuilder.newBuilder().bkc(bkc), NullStatsLogger.INSTANCE);
@@ -232,6 +244,34 @@ public class DistributedLogManagerFactory {
         validateInput(conf, uri);
         return new BKDistributedLogManager(name, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
     }
+
+    public static MetadataAccessor createMetadataAccessor(
+            String name,
+            URI uri,
+            DistributedLogConfiguration conf)
+        throws IOException, IllegalArgumentException {
+        return createMetadataAccessor(name, uri, conf, (ZooKeeperClientBuilder) null);
+    }
+
+    public static MetadataAccessor createMetadataAccessor(
+            String name,
+            URI uri,
+            DistributedLogConfiguration conf,
+            ZooKeeperClient zkc)
+        throws IOException, IllegalArgumentException {
+        return createMetadataAccessor(name, uri, conf, ZooKeeperClientBuilder.newBuilder().zkc(zkc));
+    }
+
+    public static MetadataAccessor createMetadataAccessor(
+            String name,
+            URI uri,
+            DistributedLogConfiguration conf,
+            ZooKeeperClientBuilder zkcBuilder)
+        throws IOException, IllegalArgumentException {
+        validateInput(conf, uri);
+        return new ZKMetadataAccessor(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
+    }
+
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {

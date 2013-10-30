@@ -22,7 +22,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private boolean zkSessionExpired = false;
 
 
-    public BKContinuousLogReader (BKDistributedLogManager bkdlm, String streamIdentifier, long startTxId, boolean readAheadEnabled, int readAheadWaitTime) throws IOException {
+    public BKContinuousLogReader (BKDistributedLogManager bkdlm,
+                                  String streamIdentifier,
+                                  long startTxId,
+                                  boolean readAheadEnabled,
+                                  int readAheadWaitTime) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.startTxId = startTxId;

@@ -58,6 +58,10 @@ class DLMTestUtil {
         return DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
     }
 
+    static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,
+                                              String name) throws Exception {
+        return DistributedLogManagerFactory.createMetadataAccessor(name, createDLMURI("/" + name), conf);
+    }
 
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {

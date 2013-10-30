@@ -22,17 +22,13 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 
-class BKDistributedLogManager implements DistributedLogManager {
+class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
-    private final String name;
     private final DistributedLogConfiguration conf;
-    private final URI uri;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
     private boolean ownExecutor;
-    private final ZooKeeperClientBuilder zooKeeperClientBuilder;
-    private final ZooKeeperClient zooKeeperClient;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
@@ -65,9 +61,8 @@ class BKDistributedLogManager implements DistributedLogManager {
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
                                    StatsLogger statsLogger) throws IOException {
-        this.name = name;
+        super(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
         this.conf = conf;
-        this.uri = uri;
         this.executorService = executorService;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
@@ -77,15 +72,7 @@ class BKDistributedLogManager implements DistributedLogManager {
             // handle session expiration
             // Bookkeeper client is only created if separate BK clients option is
             // not specified
-            if (null == zkcBuilder) {
-                this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
-                        .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                        .uri(uri).buildNew(false);
-            } else {
-                this.zooKeeperClientBuilder = zkcBuilder;
-            }
-            zooKeeperClient = this.zooKeeperClientBuilder.build();
-
+            // ZK client should be initialized in the super class
             if (null == bkcBuilder) {
                 // resolve uri
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
@@ -99,6 +86,7 @@ class BKDistributedLogManager implements DistributedLogManager {
                 this.bookKeeperClientBuilder = bkcBuilder;
             }
             bookKeeperClient = this.bookKeeperClientBuilder.build();
+
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
@@ -467,7 +455,7 @@ class BKDistributedLogManager implements DistributedLogManager {
         }
         try {
             bookKeeperClient.release();
-            zooKeeperClient.close();
+            super.close();
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager", e);
         }
@@ -490,50 +478,6 @@ class BKDistributedLogManager implements DistributedLogManager {
 
     public boolean unregister(Watcher watcher) {
         return zooKeeperClient.unregister(watcher);
-    }
-
-    public void createOrUpdateMetadata(byte[] metadata) throws IOException {
-        String zkPath = getZKPath();
-        LOG.debug("Setting application specific metadata on {}", zkPath);
-        try {
-            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
-            if (currentStat == null) {
-                if (metadata.length > 0) {
-                    Utils.zkCreateFullPathOptimistic(zooKeeperClient,
-                        zkPath,
-                        metadata,
-                        ZooDefs.Ids.OPEN_ACL_UNSAFE,
-                        CreateMode.PERSISTENT);
-                }
-            } else {
-                zooKeeperClient.get().setData(zkPath, metadata, currentStat.getVersion());
-            }
-        } catch (Exception exc) {
-            throw new IOException("Exception creating or updating container metadata", exc);
-        }
-    }
-
-    public void deleteMetadata() throws IOException {
-        createOrUpdateMetadata(new byte[0]);
-    }
-
-    public byte[] getMetadata() throws IOException {
-        String zkPath = getZKPath();
-        LOG.debug("Getting application specific metadata from {}", zkPath);
-        try {
-            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
-            if (currentStat == null) {
-                return null;
-            } else {
-                return zooKeeperClient.get().getData(zkPath, false, currentStat);
-            }
-        } catch (Exception e) {
-            throw new IOException("Error reading the max tx id from zk", e);
-        }
-    }
-
-    private String getZKPath() {
-        return String.format("%s/%s", uri.getPath(), name);
     }
 
 }

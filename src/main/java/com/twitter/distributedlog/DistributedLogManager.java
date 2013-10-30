@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.Closeable;
 import java.io.IOException;
 
 
@@ -28,7 +27,7 @@ import java.io.IOException;
  * each conceptual place of storage corresponds to exactly one instance of
  * this class, which is created when the EditLog is first opened.
  */
-public interface DistributedLogManager extends Closeable {
+public interface DistributedLogManager extends MetadataAccessor {
     /**
      * Begin writing to multiple partitions of the log stream identified by the name
      *
@@ -131,15 +130,4 @@ public interface DistributedLogManager extends Closeable {
      * @throws IOException if purging fails
      */
     public void purgeLogsOlderThan(long minTxIdToKeep) throws IOException;
-
-    public void createOrUpdateMetadata(byte[] metadata) throws IOException;
-
-    public void deleteMetadata() throws IOException;
-
-    public byte[] getMetadata() throws IOException;
-
-    /**
-     * Close the distributed log manager, freeing any resources it may hold.
-     */
-    public void close() throws IOException;
 }
