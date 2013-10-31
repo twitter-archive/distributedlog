@@ -51,7 +51,7 @@ public class TestLogSegmentLedgerMetadata {
 
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1", 1, 1, 1000);
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1", 1, 1000, 1);
         metadata1.write(zkc, "/metadata1");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata1");

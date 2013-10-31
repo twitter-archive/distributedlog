@@ -181,8 +181,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
             String znodePath = inprogressZNode(txId);
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                DistributedLogConstants.LAYOUT_VERSION, currentLedger.getId(), txId);
+
+            // For any active stream we will always make sure that there is at least one
+            // active ledger (except when the stream first starts out). Therefore when we
+            // see no ledger metadata for a stream, we assume that this is the first ledger
+            // in the stream
+            List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+            long ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
+            if (!ledgerListDesc.isEmpty()) {
+                ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber();
+            }
+
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, currentLedger.getId(), txId, ledgerSeqNo);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 
@@ -487,10 +497,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     callback.operationComplete(rc, null);
                     return;
                 }
+
                 final List<LogSegmentLedgerMetadata> purgeList =
-                        new ArrayList<LogSegmentLedgerMetadata>(result.size());
+                        new ArrayList<LogSegmentLedgerMetadata>(result.size() - 1);
                 boolean logTimestamp = true;
-                for (LogSegmentLedgerMetadata l : result) {
+                for (int iterator = 0; iterator < (result.size() - 1); iterator++) {
+                    LogSegmentLedgerMetadata l = result.get(iterator);
                     if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
                         if (logTimestamp) {
                             LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
@@ -514,7 +526,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
         throws IOException {
-        for (LogSegmentLedgerMetadata l : getLedgerList()) {
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList();
+
+        // If we are deleting the log we can remove the last entry else we must retain
+        // at least one ledger for the stream
+        int numEntriesToProcess = ledgerList.size() - 1;
+
+        if (minTxIdToKeep < 0) {
+            numEntriesToProcess++;
+        }
+
+        for (int iterator = 0; iterator < numEntriesToProcess; iterator++) {
+            LogSegmentLedgerMetadata l = ledgerList.get(iterator);
             if ((minTxIdToKeep < 0) ||
                 (!l.isInProgress() && l.getLastTxId() < minTxIdToKeep)) {
                 deleteLedgerAndMetadata(l);
