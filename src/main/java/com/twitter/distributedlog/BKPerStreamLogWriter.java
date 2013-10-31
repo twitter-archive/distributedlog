@@ -20,6 +20,9 @@ package com.twitter.distributedlog;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,14 +75,46 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
 
+    // stats
+    private final StatsLogger statsLogger;
+    private final Counter transmitSuccesses;
+    private final Counter transmitMisses;
+    private final Counter pFlushSuccesses;
+    private final Counter pFlushMisses;
+
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
     protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId, ScheduledExecutorService executorService)
+                                   long startTxId, ScheduledExecutorService executorService,
+                                   StatsLogger statsLogger)
         throws IOException {
         super();
+
+        // stats
+        this.statsLogger = statsLogger;
+        StatsLogger flushStatsLogger = statsLogger.scope("flush");
+        StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
+        pFlushSuccesses = pFlushStatsLogger.getCounter("success");
+        pFlushMisses = pFlushStatsLogger.getCounter("miss");
+        // transmit
+        StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
+        transmitSuccesses = transmitStatsLogger.getCounter("success");
+        transmitMisses = transmitStatsLogger.getCounter("miss");
+        StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
+        // outstanding requests
+        transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return outstandingRequests.get();
+            }
+        });
 
         outstandingRequests = new AtomicInteger(0);
         syncLatch = null;
@@ -382,8 +417,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
             lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
                 this, buf);
+            transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
             return true;
+        } else {
+            transmitMisses.inc();
         }
         return false;
     }
@@ -458,6 +496,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 }
 
                 transmit(!newData);
+                pFlushSuccesses.inc();
+            } else {
+                pFlushMisses.inc();
             }
 
             // If we had data in this pass then we need it to flush in the next pass

@@ -2,6 +2,9 @@ package com.twitter.distributedlog;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +14,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -21,12 +23,22 @@ public class LedgerDataAccessor {
     private int readAheadWaitTime = 100;
     private final LedgerHandleCache ledgerHandleCache;
     private Object notificationObject = null;
-    private final AtomicLong readAheadMisses = new AtomicLong(0);
+    private final Counter readAheadHits;
+    private final Counter readAheadWaits;
+    private final Counter readAheadMisses;
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
+        this(ledgerHandleCache, NullStatsLogger.INSTANCE);
+    }
+
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger) {
         this.ledgerHandleCache = ledgerHandleCache;
+        StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
+        this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
+        this.readAheadHits = readAheadStatsLogger.getCounter("hit");
+        this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
     }
 
     public void setNotificationObject(Object notificationObject) {
@@ -67,14 +79,17 @@ public class LedgerDataAccessor {
             synchronized (value) {
                 if (null == value.getLedgerEntry()) {
                     value.wait(readAheadWaitTime);
+                    readAheadWaits.inc();
                 }
             }
             if (null != value.getLedgerEntry()) {
+                readAheadHits.inc();
                 return value.getLedgerEntry();
             }
 
-            if ((readAheadMisses.incrementAndGet() % 1000) == 0) {
-                LOG.info("Read ahead cache miss {}", readAheadMisses.get());
+            readAheadMisses.inc();
+            if ((readAheadMisses.get() % 1000) == 0) {
+                LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
             }
         }
 

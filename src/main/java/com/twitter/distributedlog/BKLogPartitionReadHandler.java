@@ -5,6 +5,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -32,6 +33,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
 
+    // stats
+    private final Counter readAheadWorkerWaits;
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -46,7 +50,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
-        ledgerDataAccessor = new LedgerDataAccessor(handleCache);
+        ledgerDataAccessor = new LedgerDataAccessor(handleCache, statsLogger);
+
+        // Stats
+        StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
+        readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
     }
 
     public ResumableBKPerStreamLogReader getInputStream(long fromTxId, boolean inProgressOk)
@@ -261,6 +269,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         private void schedule(Runnable runnable, long timeInMillis) {
             try {
+                readAheadWorkerWaits.inc();
                 executorService.schedule(runnable, timeInMillis, TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();

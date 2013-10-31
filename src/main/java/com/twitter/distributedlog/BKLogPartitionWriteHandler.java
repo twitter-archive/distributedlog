@@ -202,7 +202,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService);
+            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService, statsLogger);
         } catch (Exception e) {
             if (currentLedger != null) {
                 try {
