@@ -22,6 +22,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         }
     }
 
+    public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
+    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
+
     // Controls when log records accumulated in the writer will be
     // transmitted to bookkeeper
     public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
@@ -613,6 +616,31 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public boolean getSanityCheckDeletes() {
         return getBoolean(BKDL_SANITYCHECK_BEFORE_DELETE, BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT);
+    }
+
+    /**
+     * Get DL ledger metadata output layout version
+     *
+     * @return layout version
+     */
+    public int getDLLedgerMetadataLayoutVersion() {
+        return this.getInt(BKDL_LEDGER_METADATA_LAYOUT_VERSION, BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT);
+    }
+
+    /**
+     * Set DL ledger metadata output layout version
+     *
+     * @param layoutVersion layout version
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setDLLedgerMetadataLayoutVersion(int layoutVersion) throws IllegalArgumentException {
+        if ((layoutVersion <= 0) ||
+            (layoutVersion > DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
+            // Incorrect version specified
+            throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
+        }
+        setProperty(BKDL_LEDGER_METADATA_LAYOUT_VERSION, layoutVersion);
+        return this;
     }
 
 }

@@ -186,13 +186,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             // active ledger (except when the stream first starts out). Therefore when we
             // see no ledger metadata for a stream, we assume that this is the first ledger
             // in the stream
-            List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
-            long ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
-            if (!ledgerListDesc.isEmpty()) {
-                ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber();
+            long ledgerSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+
+            if (conf.getDLLedgerMetadataLayoutVersion() >=
+                DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
+                List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+                ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
+                if (!ledgerListDesc.isEmpty()) {
+                    ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber();
+                }
             }
 
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, currentLedger.getId(), txId, ledgerSeqNo);
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, conf.getDLLedgerMetadataLayoutVersion(), currentLedger.getId(), txId, ledgerSeqNo);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 
@@ -319,7 +324,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             acquiredLocally = lock.checkWriteLock();
             LogSegmentLedgerMetadata l
-                = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
+                = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
+                    conf.getDLLedgerMetadataLayoutVersion());
 
             if (currentLedger != null) { // normal, non-recovery case
                 if (l.getLedgerId() == currentLedger.getId()) {

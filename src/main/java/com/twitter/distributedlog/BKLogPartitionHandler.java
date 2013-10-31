@@ -356,7 +356,8 @@ abstract class BKLogPartitionHandler {
         try {
             List<String> ledgerNames = zooKeeperClient.get().getChildren(ledgerPath, false);
             for (String n : ledgerNames) {
-                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n);
+                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient,
+                    ledgerPath + "/" + n, conf.getDLLedgerMetadataLayoutVersion());
                 ledgers.add(l);
                 if (!l.isInProgress() && (lastLedgerRollingTimeMillis < l.getCompletionTime())) {
                     lastLedgerRollingTimeMillis = l.getCompletionTime();
@@ -388,7 +389,7 @@ abstract class BKLogPartitionHandler {
                     final AtomicInteger numChildren = new AtomicInteger(children.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (String n: children) {
-                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n,
+                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n, conf.getDLLedgerMetadataLayoutVersion(),
                         new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
                             @Override
                             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {

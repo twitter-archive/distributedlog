@@ -51,16 +51,22 @@ public class TestLogSegmentLedgerMetadata {
 
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1", 1, 1000, 1);
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1",
+            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1);
         metadata1.write(zkc, "/metadata1");
         // synchronous read
-        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata1");
+        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
+            "/metadata1",
+            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         assertEquals(metadata1, read1);
         final AtomicReference<LogSegmentLedgerMetadata> resultHolder =
                 new AtomicReference<LogSegmentLedgerMetadata>(null);
         final CountDownLatch latch = new CountDownLatch(1);
         // asynchronous read
-        LogSegmentLedgerMetadata.read(zkc, "/metadata1", new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
+        LogSegmentLedgerMetadata.read(zkc,
+            "/metadata1",
+            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+            new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
             @Override
             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
                 if (BKException.Code.OK != rc) {
@@ -75,9 +81,24 @@ public class TestLogSegmentLedgerMetadata {
     }
 
     @Test(timeout = 60000)
+    public void testReadMetadataCrossVersion() throws Exception {
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata2",
+            1, 1000, 1);
+        metadata1.write(zkc, "/metadata2");
+        // synchronous read
+        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
+            "/metadata2",
+            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+        assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
+        assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
+        assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
+        assertEquals(read1.getLedgerSequenceNumber(), metadata1.getLedgerSequenceNumber());
+    }
+
+    @Test(timeout = 60000)
     public void testParseInvalidMetadata() throws Exception {
         try {
-            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0]);
+            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0], DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
             fail("Should fail to parse invalid metadata");
         } catch (IOException ioe) {
             // expected
