@@ -20,6 +20,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
+    private boolean endOfStreamEncountered = false;
 
 
     public BKContinuousLogReader (BKDistributedLogManager bkdlm,
@@ -90,6 +91,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         }
 
         if (null != record) {
+            if (record.isEndOfStream()) {
+                endOfStreamEncountered = true;
+                throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
+            }
+
             lastTxId = record.getTransactionId();
         }
 
@@ -160,7 +166,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         return lastTxId;
     }
 
-    private void checkClosedOrInError(String operation) throws AlreadyClosedException, LogReadException {
+    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {
+        if (endOfStreamEncountered) {
+            throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
+        }
+
         if (zkSessionExpired) {
             LOG.error("Executing " + operation + " after losing connection to zookeeper");
             throw new AlreadyClosedException("Executing " + operation + " after losing connection to zookeeper");
