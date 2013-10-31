@@ -65,6 +65,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
     private boolean periodicFlushNeeded = false;
+    private boolean streamEnded = false;
 
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
@@ -153,6 +154,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     synchronized public void write(LogRecord record) throws IOException {
+        if (streamEnded) {
+            throw new IOException("Writing to a stream after it has been marked as completed");
+        }
+
         lock.checkWriteLock();
         writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
@@ -182,9 +187,44 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         writeInternal(controlRec);
     }
 
+    /**
+     * We write a special log record that marks the end of the stream. Since this is the last
+     * log record in the stream, it is marked with MAX_TXID. MAX_TXID also has the useful
+     * side-effect of disallowing future startLogSegment calls through the MaxTxID check
+     *
+     * @throws IOException
+     */
+    synchronized private void writeEndOfStreamMarker() throws IOException {
+        lock.checkWriteLock();
+        LogRecord endOfStreamRec = new LogRecord(DistributedLogConstants.MAX_TXID, "endOfStream".getBytes(UTF_8));
+        endOfStreamRec.setEndOfStream();
+        writeInternal(endOfStreamRec);
+    }
+
+    /**
+     * Flushes all the data up to this point,
+     * adds the end of stream marker and marks the stream
+     * as read-only in the metadata. No appends to the
+     * stream will be allowed after this point
+     */
+    @Override
+    public void markEndOfStream() throws IOException {
+        synchronized (this) {
+            writeEndOfStreamMarker();
+            streamEnded = true;
+            setReadyToFlush();
+        }
+        flushAndSync();
+    }
+
     @Override
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
+        if (streamEnded) {
+            throw new IOException("Writing to a stream after it has been marked as completed");
+        }
+
         lock.checkWriteLock();
+
         int numRecords = 0;
         for (LogRecord r : records) {
             writeInternal(r);

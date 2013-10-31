@@ -39,4 +39,14 @@ public interface LogWriter extends Closeable {
      * @throws IOException
      */
     public long flushAndSync() throws IOException;
+
+    /**
+     * Flushes all the data up to this point,
+     * adds the end of stream marker and marks the stream
+     * as read-only in the metadata. No appends to the
+     * stream will be allowed after this point
+     *
+     * @throws IOException
+     */
+    public void markEndOfStream() throws IOException;
 }

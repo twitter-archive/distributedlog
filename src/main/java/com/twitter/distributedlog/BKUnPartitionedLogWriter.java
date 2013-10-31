@@ -95,6 +95,19 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
         return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
     }
 
+    /**
+     * Flushes all the data up to this point,
+     * adds the end of stream marker and marks the stream
+     * as read-only in the metadata. No appends to the
+     * stream will be allowed after this point
+     */
+    @Override
+    public void markEndOfStream() throws IOException {
+        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
+            DistributedLogConstants.MAX_TXID).markEndOfStream();
+        closeAndComplete();
+    }
+
     public void closeAndComplete() throws IOException {
         if (null != perStreamWriter && null != partitionHander) {
             waitForTruncation();

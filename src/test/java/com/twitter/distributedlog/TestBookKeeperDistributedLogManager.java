@@ -1459,4 +1459,99 @@ public class TestBookKeeperDistributedLogManager {
         metadata.deleteMetadata();
         assertEquals(null, metadata.getMetadata());
     }
+
+    @Test
+    public void testMarkEndOfStream() throws Exception {
+        String name = "distrlog-mark-end-of-stream";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+
+            if (i < 2) {
+                writer.close();
+                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+                blplm.completeAndCloseLogSegment(start, txid - 1);
+                assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+                blplm.close();
+            } else {
+                writer.markEndOfStream();
+                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+                assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, DistributedLogConstants.MAX_TXID), false));
+                blplm.close();
+            }
+        }
+
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 0;
+        boolean exceptionEncountered = false;
+        try {
+            LogRecord record = reader.readNext(false);
+            long lastTxId = -1;
+            while (null != record) {
+                DLMTestUtil.verifyLogRecord(record);
+                assert (lastTxId < record.getTransactionId());
+                lastTxId = record.getTransactionId();
+                numTrans++;
+                record = reader.readNext(false);
+            }
+        } catch (EndOfStreamException exc) {
+            exceptionEncountered = true;
+        }
+        assertEquals((txid - 1), numTrans);
+        assert(exceptionEncountered);
+        exceptionEncountered = false;
+        try {
+            reader.readNext(false);
+        } catch (EndOfStreamException exc) {
+            exceptionEncountered = true;
+        }
+        assert(exceptionEncountered);
+        reader.close();
+    }
+
+    @Test
+    public void testWriteFailsAfterMarkEndOfStream() throws Exception {
+        String name = "distrlog-mark-end-failure";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+            if (i < 2) {
+                writer.close();
+                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+                blplm.completeAndCloseLogSegment(start, txid - 1);
+                assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+                blplm.close();
+            } else {
+                writer.markEndOfStream();
+                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+                assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, DistributedLogConstants.MAX_TXID), false));
+            }
+        }
+
+        long start = txid;
+        LogWriter writer = null;
+        boolean exceptionEncountered = false;
+        try {
+            writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+        } catch (IOException exc) {
+            exceptionEncountered = true;
+        }
+        writer.close();
+        assert(exceptionEncountered);
+    }
 }

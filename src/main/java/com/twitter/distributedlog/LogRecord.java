@@ -36,6 +36,7 @@ public class LogRecord {
 
     // TODO: Replace with EnumSet
     public static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
+    public static final long LOGRECORD_FLAGS_END_OF_STREAM = 0x2;
     /**
      * This empty constructor can only be called from Reader#readOp.
      */
@@ -65,6 +66,19 @@ public class LogRecord {
     public static boolean isControl(long flags) {
         return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
+
+    public void setEndOfStream() {
+        flags = flags | LOGRECORD_FLAGS_END_OF_STREAM;
+    }
+
+    public boolean isEndOfStream() {
+        return ((flags & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
+    }
+
+    public static boolean isEndOfStream(long flags) {
+        return ((flags & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
+    }
+
 
     public byte[] getPayload() {
         return payload;
