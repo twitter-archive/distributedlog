@@ -29,6 +29,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -66,6 +67,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private long numBytes = 0;
     private boolean periodicFlushNeeded = false;
     private boolean streamEnded = false;
+    private ScheduledFuture<?> periodicFlushSchedule = null;
 
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
@@ -95,7 +97,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
         if (periodicFlushFrequency > 0 && executorService != null) {
-            executorService.scheduleAtFixedRate(this,
+            periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
                     periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
         }
     }
@@ -121,6 +123,14 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void close() throws IOException {
+        // Cancel the periodic flush schedule first
+        // The task is allowed to exit gracefully
+        // The attempt to flush will synchronize with the
+        // last execution of the task
+        if (null != periodicFlushSchedule) {
+            periodicFlushSchedule.cancel(false);
+        }
+
         if (!isStreamInError()) {
             setReadyToFlush();
             flushAndSync();
@@ -140,6 +150,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void abort() throws IOException {
+        if (null != periodicFlushSchedule) {
+            periodicFlushSchedule.cancel(false);
+        }
+
         try {
             lh.close();
         } catch (InterruptedException ie) {
