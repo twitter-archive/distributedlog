@@ -217,7 +217,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService, statsLogger);
+            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, ledgerSeqNo, executorService, statsLogger);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
             if (currentLedger != null) {

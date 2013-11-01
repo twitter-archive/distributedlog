@@ -17,6 +17,7 @@ public interface LogWriter extends Closeable {
      */
     public void write(LogRecord record) throws IOException;
 
+
     /**
      * Write a list of log records to the stream.
      *

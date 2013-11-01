@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -52,7 +53,56 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
-    private DataOutputBuffer bufCurrent;
+    private class BKTransmitPacket {
+        public BKTransmitPacket(long ledgerSequenceNo, int transmissionThreshold) {
+            this.ledgerSequenceNo = ledgerSequenceNo;
+            this.promiseList = new LinkedList<Promise<DLSN>>();
+            this.buffer = new DataOutputBuffer(transmissionThreshold * 6 / 5);
+        }
+
+        public void reset() {
+            // Likely will have to move promise fulfillment to a separate thread
+            // so safest to just create a new list so the old list can move with
+            // with the thread, hence avoiding using clear to measure accurate GC
+            // behavior
+            promiseList = new LinkedList<Promise<DLSN>>();
+            buffer.reset();
+        }
+
+        public long getLedgerSequenceNo() {
+            return ledgerSequenceNo;
+        }
+
+        public void addToPromiseList(Promise<DLSN> nextPromise) {
+            promiseList.add(nextPromise);
+        }
+
+        public DataOutputBuffer getBuffer() {
+            return buffer;
+        }
+
+        public void satisfyPromises(long entryId) {
+            long nextSlotId = 0;
+            for(Promise<DLSN> promise : promiseList) {
+                promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
+                nextSlotId++;
+            }
+        }
+
+        public void cancelPromises(int transmitResult) {
+            for(Promise<DLSN> promise : promiseList) {
+                promise.setException(new BKTransmitException("Failed to write to bookkeeper; Error is ("
+                    + transmitResult + ") "
+                    + BKException.getMessage(transmitResult)));
+            }
+        }
+
+        private long ledgerSequenceNo;
+        private List<Promise<DLSN>> promiseList;
+        DataOutputBuffer buffer;
+    }
+
+    private BKTransmitPacket packetCurrent;
     private final AtomicInteger outstandingRequests;
     private final int transmissionThreshold;
     private final LedgerHandle lh;
@@ -74,14 +124,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private boolean periodicFlushNeeded = false;
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
+    private final long ledgerSequenceNumber;
 
-    private class BKTransmitPacket {
-        private long ledgerSequenceNo;
-        private List<Promise<>>
-    }
-
-    private final Queue<DataOutputBuffer> bufferQueue
-        = new ConcurrentLinkedQueue<DataOutputBuffer>();
+    private final Queue<BKTransmitPacket> transmitPacketQueue
+        = new ConcurrentLinkedQueue<BKTransmitPacket>();
 
     // stats
     private final StatsLogger statsLogger;
@@ -95,7 +141,8 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      */
     protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId, ScheduledExecutorService executorService,
+                                   long startTxId, long ledgerSequenceNumber,
+                                   ScheduledExecutorService executorService,
                                    StatsLogger statsLogger)
         throws IOException {
         super();
@@ -132,8 +179,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.transmissionThreshold
             = conf.getOutputBufferSize();
 
-        this.bufCurrent = new DataOutputBuffer();
-        this.writer = new LogRecord.Writer(bufCurrent);
+        this.ledgerSequenceNumber = ledgerSequenceNumber;
+        this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, transmissionThreshold);
+        this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
         this.lastTxIdAcknowledged = startTxId;
@@ -145,18 +193,18 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
     }
 
-    public DataOutputBuffer getBuffer() {
-        DataOutputBuffer b = bufferQueue.poll();
-        if (b == null) {
-            return new DataOutputBuffer(transmissionThreshold * 6 / 5);
+    private BKTransmitPacket getTransmitPacket() {
+        BKTransmitPacket packet = transmitPacketQueue.poll();
+        if (packet == null) {
+            return new BKTransmitPacket(ledgerSequenceNumber, transmissionThreshold);
         } else {
-            return b;
+            return packet;
         }
     }
 
-    public void freeBuffer(DataOutputBuffer b) {
-        b.reset();
-        bufferQueue.add(b);
+    private void releasePacket(BKTransmitPacket packet) {
+        packet.reset();
+        transmitPacketQueue.add(packet);
     }
 
     public long closeToFinalize() throws IOException {
@@ -210,24 +258,28 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     @Override
-    synchronized public void write(LogRecord record) throws IOException {
+    synchronized public Future<DLSN> write(LogRecord record) throws IOException {
         if (streamEnded) {
             throw new IOException("Writing to a stream after it has been marked as completed");
         }
 
         lock.checkWriteLock();
-        writeInternal(record);
+        Future<DLSN> future = writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
         }
+        return future;
     }
 
     public boolean isStreamInError() {
         return (transmitResult.get() != BKException.Code.OK);
     }
 
-    synchronized public void writeInternal(LogRecord record) throws IOException {
+    synchronized public Future<DLSN> writeInternal(LogRecord record) throws IOException {
+        Promise<DLSN> dlsn = new Promise<DLSN>();
         writer.writeOp(record);
+        packetCurrent.addToPromiseList(dlsn);
+
         if (record.getTransactionId() < lastTxId) {
             LOG.info("TxId decreased Last: {} Record: {}", lastTxId, record.getTransactionId());
         }
@@ -235,6 +287,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         if (!record.isControl()) {
             outstandingBytes += (20 + record.getPayload().length);
         }
+        return dlsn;
     }
 
     synchronized private void writeControlLogRecord() throws IOException {
@@ -410,21 +463,21 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 + " Error code : (" + transmitResult.get()
                 + ") " + BKException.getMessage(transmitResult.get()));
         }
-        if (bufCurrent.getLength() > 0) {
-            DataOutputBuffer buf = bufCurrent;
+        if (packetCurrent.getBuffer().getLength() > 0) {
+            BKTransmitPacket packet = packetCurrent;
             outstandingBytes = 0;
-            bufCurrent = getBuffer();
-            writer = new LogRecord.Writer(bufCurrent);
+            packetCurrent = getTransmitPacket();
+            writer = new LogRecord.Writer(packetCurrent.getBuffer());
             lastTxIdFlushed = lastTxId;
             numFlushes++;
 
             if (!isControl) {
-                numBytes += buf.getLength();
+                numBytes += packet.getBuffer().getLength();
                 numFlushesSinceRestart++;
             }
 
-            lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
-                this, buf);
+            lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().getLength(),
+                this, packet);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
             return true;
@@ -446,7 +499,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             return false;
         }
 
-        return (bufCurrent.getLength() > 0);
+        return (packetCurrent.getBuffer().getLength() > 0);
     }
 
     @Override
@@ -454,15 +507,18 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                             long entryId, Object ctx) {
         synchronized (this) {
             outstandingRequests.decrementAndGet();
+            assert (ctx instanceof BKTransmitPacket);
+            BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 LOG.warn("Tried to set transmit result to (" + rc + ") \""
                     + BKException.getMessage(rc) + "\""
                     + " but is already (" + transmitResult.get() + ") \""
                     + BKException.getMessage(transmitResult.get()) + "\"");
+                transmitPacket.cancelPromises(rc);
             }
-            if (ctx instanceof DataOutputBuffer) {
-                freeBuffer((DataOutputBuffer) ctx);
-            }
+            transmitPacket.satisfyPromises(entryId);
+            releasePacket(transmitPacket);
+
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
