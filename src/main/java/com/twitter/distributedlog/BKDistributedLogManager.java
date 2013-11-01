@@ -4,12 +4,9 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
-import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,7 +75,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
-                        .buildNew(false);
+                        .buildNew(false).statsLogger(statsLogger);
                 if (conf.getShareZKClientWithBKC()) {
                     this.bookKeeperClientBuilder.zkc(zooKeeperClient);
                 }

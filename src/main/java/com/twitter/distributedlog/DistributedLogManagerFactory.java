@@ -82,7 +82,7 @@ public class DistributedLogManagerFactory {
         // Build bookkeeper client
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
-                .buildNew(conf.getSeparateBKClients());
+                .buildNew(conf.getSeparateBKClients()).statsLogger(statsLogger);
         if (conf.getShareZKClientWithBKC()) {
             this.bookKeeperClientBuilder.zkc(zooKeeperClient);
         }
@@ -235,7 +235,7 @@ public class DistributedLogManagerFactory {
                                                                     ZooKeeperClient zkc, BookKeeperClient bkc, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
         return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
-                BookKeeperClientBuilder.newBuilder().bkc(bkc), statsLogger);
+                BookKeeperClientBuilder.newBuilder().bkc(bkc).statsLogger(statsLogger), statsLogger);
     }
 
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
