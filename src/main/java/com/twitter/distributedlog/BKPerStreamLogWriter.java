@@ -17,6 +17,9 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
+
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -67,8 +70,16 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private boolean periodicFlushNeeded = false;
     private boolean streamEnded = false;
 
+    private class BKTransmitPacket {
+        private long ledgerSequenceNo;
+        private List<Promise<>>
+    }
+
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
+
+
+
 
     /**
      * Construct an edit log output stream which writes to a ledger.
