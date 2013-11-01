@@ -217,19 +217,23 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService);
+            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, executorService, statsLogger);
         } catch (Exception e) {
+            LOG.error("Exception during StartLogSegment", e);
             if (currentLedger != null) {
                 try {
                     long id = currentLedger.getId();
                     currentLedger.close();
                     // If we already wrote inprogress znode, we should not delete the ledger.
-                    // We leave this empty ledger there until retention policy removed it.
-                    // Otherwise, it would fail recovering incomplete log segments,
-                    // as no ledger found for this inprogress log segment.
+                    // There are cases where if the thread was interrupted on the client
+                    // while the ZNode was being written, it still may have been written while we
+                    // hit an exception. For now we will leak the ledger and leave a warning
+                    // With ledger pre-allocation we would have a separate node to track allocation
+                    // and would be doing a ZK transaction to move the ledger to the stream , this
+                    // leak will automatically be addressed in that change
                     // {@link https://jira.twitter.biz/browse/PUBSUB-1230}
                     if (!writeInprogressZnode) {
-                        bookKeeperClient.get().deleteLedger(id);
+                        LOG.warn("Potentially leaking Ledger with Id {}", id);
                     }
                 } catch (Exception e2) {
                     //log & ignore, an IOException will be thrown soon

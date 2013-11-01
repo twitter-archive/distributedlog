@@ -23,6 +23,9 @@ import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +35,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -69,6 +73,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private long numBytes = 0;
     private boolean periodicFlushNeeded = false;
     private boolean streamEnded = false;
+    private ScheduledFuture<?> periodicFlushSchedule = null;
 
     private class BKTransmitPacket {
         private long ledgerSequenceNo;
@@ -78,17 +83,46 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private final Queue<DataOutputBuffer> bufferQueue
         = new ConcurrentLinkedQueue<DataOutputBuffer>();
 
-
-
+    // stats
+    private final StatsLogger statsLogger;
+    private final Counter transmitSuccesses;
+    private final Counter transmitMisses;
+    private final Counter pFlushSuccesses;
+    private final Counter pFlushMisses;
 
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
     protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId, ScheduledExecutorService executorService)
+                                   long startTxId, ScheduledExecutorService executorService,
+                                   StatsLogger statsLogger)
         throws IOException {
         super();
+
+        // stats
+        this.statsLogger = statsLogger;
+        StatsLogger flushStatsLogger = statsLogger.scope("flush");
+        StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
+        pFlushSuccesses = pFlushStatsLogger.getCounter("success");
+        pFlushMisses = pFlushStatsLogger.getCounter("miss");
+        // transmit
+        StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
+        transmitSuccesses = transmitStatsLogger.getCounter("success");
+        transmitMisses = transmitStatsLogger.getCounter("miss");
+        StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
+        // outstanding requests
+        transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return outstandingRequests.get();
+            }
+        });
 
         outstandingRequests = new AtomicInteger(0);
         syncLatch = null;
@@ -106,7 +140,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
         if (periodicFlushFrequency > 0 && executorService != null) {
-            executorService.scheduleAtFixedRate(this,
+            periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
                     periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
         }
     }
@@ -132,6 +166,14 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void close() throws IOException {
+        // Cancel the periodic flush schedule first
+        // The task is allowed to exit gracefully
+        // The attempt to flush will synchronize with the
+        // last execution of the task
+        if (null != periodicFlushSchedule) {
+            periodicFlushSchedule.cancel(false);
+        }
+
         if (!isStreamInError()) {
             setReadyToFlush();
             flushAndSync();
@@ -151,6 +193,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void abort() throws IOException {
+        if (null != periodicFlushSchedule) {
+            periodicFlushSchedule.cancel(false);
+        }
+
         try {
             lh.close();
         } catch (InterruptedException ie) {
@@ -379,8 +425,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
             lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
                 this, buf);
+            transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
             return true;
+        } else {
+            transmitMisses.inc();
         }
         return false;
     }
@@ -455,6 +504,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 }
 
                 transmit(!newData);
+                pFlushSuccesses.inc();
+            } else {
+                pFlushMisses.inc();
             }
 
             // If we had data in this pass then we need it to flush in the next pass
