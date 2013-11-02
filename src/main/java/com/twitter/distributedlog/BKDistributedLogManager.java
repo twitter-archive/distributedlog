@@ -169,9 +169,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized BKUnPartitionedLogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedLogWriter(conf, this);
+        return new BKUnPartitionedSyncLogWriter(conf, this);
     }
 
     /**
@@ -201,6 +201,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromTxnId);
     }
 
+    /**
+     * Get the input stream starting with fromTxnId for the specified log
+     *
+     * @param streamIdentifier
+     * @param fromTxnId
+     * @return
+     * @throws IOException
+     */
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");

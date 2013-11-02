@@ -2,13 +2,12 @@ package com.twitter.distributedlog;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 public class AppendOnlyStreamWriter implements Closeable {
-    private BKUnPartitionedLogWriter logwriter;
+    private BKUnPartitionedSyncLogWriter logwriter;
     private long currentPos;
 
-    public AppendOnlyStreamWriter(BKUnPartitionedLogWriter logWriter, long position) {
+    public AppendOnlyStreamWriter(BKUnPartitionedSyncLogWriter logWriter, long position) {
         this.logwriter = logWriter;
         this.currentPos = position;
     }

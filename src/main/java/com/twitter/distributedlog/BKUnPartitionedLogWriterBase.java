@@ -3,15 +3,13 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedList;
-import java.util.List;
 
-
-public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWriter {
+public class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKPerStreamLogWriter perStreamWriter = null;
     private BKLogPartitionWriteHandler partitionHander = null;
 
 
-    public BKUnPartitionedLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
+    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
         super(conf, bkdlm);
     }
 
@@ -74,40 +72,6 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
         return list;
     }
 
-
-    /**
-     * Write log records to the stream.
-     *
-     * @param record operation
-     */
-    @Override
-    public void write(LogRecord record) throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId()).write(record);
-    }
-
-    /**
-     * Write edits logs operation to the stream.
-     *
-     * @param record list of records
-     */
-    @Override
-    public int writeBulk(List<LogRecord> records) throws IOException {
-        return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
-    }
-
-    /**
-     * Flushes all the data up to this point,
-     * adds the end of stream marker and marks the stream
-     * as read-only in the metadata. No appends to the
-     * stream will be allowed after this point
-     */
-    @Override
-    public void markEndOfStream() throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
-            DistributedLogConstants.MAX_TXID).markEndOfStream();
-        closeAndComplete();
-    }
-
     public void closeAndComplete() throws IOException {
         if (null != perStreamWriter && null != partitionHander) {
             waitForTruncation();
@@ -119,4 +83,5 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
         }
         close();
     }
+
 }
