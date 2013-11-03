@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
@@ -168,6 +170,7 @@ class DistributedReentrantLock {
         private String currentId;
         private String currentNode;
         private String watchedNode;
+        private String currentOwner = "unknown";
         private LockWatcher watcher;
 
         /**
@@ -233,12 +236,14 @@ class DistributedReentrantLock {
             try {
                 prepare();
                 watcher.checkForLock();
-                boolean success = syncPoint.await(timeout, unit);
-                if (!success) {
-                    return false;
+                if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
+                    boolean success = syncPoint.await(timeout, unit);
+                    if (!success) {
+                        return false;
+                    }
                 }
                 if (!holdsLock) {
-                    throw new LockingException("Error, couldn't acquire the lock!");
+                    throw new OwnershipAcquireFailedException("Error, couldn't acquire the lock!", currentOwner);
                 }
             } catch (InterruptedException e) {
                 cancelAttempt();
@@ -329,6 +334,15 @@ class DistributedReentrantLock {
                             syncPoint.countDown();
                         }
                     } else {
+                        String currentOwnerTemp = new String(
+                            zkClient.get().getData(lockPath + "/" + sortedMembers.get(0), false, null), "UTF-8");
+
+                        // Accessed concurrently in the thread that acquires the lock
+                        // checkForLock can be called by background threads as well
+                        synchronized(DistributedLock.this) {
+                            currentOwner = currentOwnerTemp;
+                        }
+
                         final String nextLowestNode = sortedMembers.get(memberIndex - 1);
                         LOG.debug(String.format("Current LockWatcher with ephemeral node [%s], is " +
                             "waiting for [%s] to release lock.", getCurrentId(), nextLowestNode));
