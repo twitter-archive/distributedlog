@@ -238,9 +238,8 @@ class DistributedReentrantLock {
                 watcher.checkForLock();
                 if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
                     boolean success = syncPoint.await(timeout, unit);
-                    if (!success) {
-                        return false;
-                    }
+                    // assert success => holdsLock
+                    assert(!success || holdsLock);
                 }
                 if (!holdsLock) {
                     throw new OwnershipAcquireFailedException("Error, couldn't acquire the lock!", currentOwner);
