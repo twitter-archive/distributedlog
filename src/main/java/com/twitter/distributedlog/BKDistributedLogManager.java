@@ -181,6 +181,17 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
+     * Begin writing to the log stream identified by the name
+     *
+     * @return the writer interface to generate log records
+     */
+    @Override
+    public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+        checkClosedOrInError("startLogSegmentNonPartitioned");
+        return new BKUnPartitionedAsyncLogWriter(conf, this);
+    }
+
+    /**
      * Get the input stream starting with fromTxnId for the specified log
      *
      * @param partition – the partition (stream) within the log to read from

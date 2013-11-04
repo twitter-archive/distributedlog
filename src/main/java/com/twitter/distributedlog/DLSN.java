@@ -1,8 +1,8 @@
 package com.twitter.distributedlog;
 
-import org.apache.commons.codec.binary.Base64;
-
 import java.nio.ByteBuffer;
+
+import org.apache.commons.codec.binary.Base64;
 
 public class DLSN {
     static final byte VERSION = (byte) 0;

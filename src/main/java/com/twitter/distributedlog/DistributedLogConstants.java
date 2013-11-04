@@ -10,4 +10,5 @@ public class DistributedLogConstants {
     public static final int FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO = 2;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
+    public static final long LOCK_IMMEDIATE = 0;
 }
