@@ -43,6 +43,13 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogWriter startLogSegmentNonPartitioned() throws IOException;
 
     /**
+     * Begin writing to the log stream identified by the name
+     *
+     * @return the writer interface to generate log records
+     */
+    public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException;
+
+    /**
      * Begin appending to the end of the log stream which is being treated as a sequence of bytes
      *
      * @return the writer interface to generate log records
