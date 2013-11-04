@@ -28,12 +28,21 @@ import java.io.IOException;
  * this class, which is created when the EditLog is first opened.
  */
 public interface DistributedLogManager extends MetadataAccessor {
+
     /**
      * Begin writing to multiple partitions of the log stream identified by the name
      *
      * @return the writer interface to generate log records
      */
     public PartitionAwareLogWriter startLogSegment() throws IOException;
+
+    /**
+     * Begin writing to the log stream with an async writer
+     *
+     * @return async writer to write log records.
+     * @throws IOException
+     */
+    public AsyncLogWriter asyncStartLogSegmentNonPartitioned() throws IOException;
 
     /**
      * Begin writing to the log stream identified by the name
