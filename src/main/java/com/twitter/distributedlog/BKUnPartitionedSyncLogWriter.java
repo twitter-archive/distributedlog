@@ -18,6 +18,11 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public void write(LogRecord record) throws IOException {
+        if ((record.getTransactionId() < 0) ||
+            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId()).write(record);
     }
 
@@ -28,6 +33,11 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public int writeBulk(List<LogRecord> records) throws IOException {
+        if ((records.get(0).getTransactionId() < 0) ||
+            (records.get(0).getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
     }
 

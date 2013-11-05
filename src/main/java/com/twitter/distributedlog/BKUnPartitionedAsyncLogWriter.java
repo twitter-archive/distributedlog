@@ -17,6 +17,11 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public Future<DLSN> write(LogRecord record) throws IOException {
+        if ((record.getTransactionId() < 0) ||
+            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId()).write(record);
     }
 }

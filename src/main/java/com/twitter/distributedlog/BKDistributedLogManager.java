@@ -1,6 +1,8 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
+import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
+    private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
@@ -119,7 +122,37 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, clientId);
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    /**
+     * Check if an end of stream marker was added to the stream for the partition
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     */
+    @Override
+    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException {
+        throw new NotYetImplementedException("isEndOfStreamMarked for partitioned streams");
+    }
+
+    /**
+     * Check if an end of stream marker was added to the stream
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     */
+    @Override
+    public boolean isEndOfStreamMarked() throws IOException {
+        return (getLastTxId() == DistributedLogConstants.MAX_TXID);
     }
 
     /**
@@ -216,6 +249,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStream(long fromTxnId)
         throws IOException {
         return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromTxnId);
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
+        throw new NotYetImplementedException("getAsyncLogReader");
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        throw new NotYetImplementedException("getAsyncLogReader");
     }
 
     /**

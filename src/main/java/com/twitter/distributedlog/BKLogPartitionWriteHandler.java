@@ -17,12 +17,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -71,7 +74,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
                                ScheduledExecutorService executorService,
-                               StatsLogger statsLogger) throws IOException {
+                               StatsLogger statsLogger,
+                               String clientId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
         ensembleSize = conf.getEnsembleSize();
         quorumSize = conf.getQuorumSize();
@@ -115,8 +119,17 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             throw new IOException("Error initializing zk", e);
         }
 
-        lock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000);
-        deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000);
+        if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
+            try {
+                clientId = InetAddress.getLocalHost().toString();
+            } catch(Exception exc) {
+                // Best effort
+                clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
+            }
+        }
+
+        lock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
+        deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
         lockAcquired = false;
@@ -161,11 +174,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         lock.acquire("StartLogSegment");
         lockAcquired = true;
-        if (txId < maxTxId.get()) {
-            LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
-            LOG.error("Last Committed Ledger {}", getLedgerListDesc());
-            throw new IOException("We've already seen " + txId
-                + ". A new stream cannot be created with it");
+        long highestTxIdWritten = maxTxId.get();
+        if (txId < highestTxIdWritten) {
+            if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
+                LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
+                throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
+            }
+            else {
+                LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
+                LOG.error("Last Committed Ledger {}", getLedgerListDesc());
+                throw new IOException("We've already seen " + txId
+                    + ". A new stream cannot be created with it");
+            }
         }
         boolean writeInprogressZnode = false;
         try {

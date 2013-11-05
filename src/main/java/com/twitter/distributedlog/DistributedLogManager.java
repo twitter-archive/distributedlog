@@ -93,6 +93,10 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogReader getInputStream(long fromTxnId)
         throws IOException;
 
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException;
+
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;
+
     /**
      * Get the last log record before the specified transactionId
      *
@@ -119,6 +123,25 @@ public interface DistributedLogManager extends MetadataAccessor {
     public void recover(PartitionId partition) throws IOException;
 
     public void recover() throws IOException;
+
+    /**
+     * Check if an end of stream marker was added to the stream for the partition
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @param partition
+     * @return
+     * @throws IOException
+     */
+    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException;
+
+    /**
+     * Check if an end of stream marker was added to the stream
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     * @throws IOException
+     */
+    public boolean isEndOfStreamMarked() throws IOException;
 
     /**
      * Delete all the partitions of the specified log

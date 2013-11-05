@@ -65,7 +65,7 @@ class DLMTestUtil {
 
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
-        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null, NullStatsLogger.INSTANCE);
+        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null, NullStatsLogger.INSTANCE, "localhost");
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {
@@ -88,7 +88,7 @@ class DLMTestUtil {
     static void verifyLogRecord(LogRecord record) {
         assertEquals(generatePayload(record.getTransactionId()).length, record.getPayload().length);
         assertArrayEquals(generatePayload(record.getTransactionId()), record.getPayload());
-        verifyPayload(record.txid, record.getPayload());
+        verifyPayload(record.getTransactionId(), record.getPayload());
     }
 
     static byte[] generatePayload(long txId) {
