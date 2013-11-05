@@ -8,6 +8,9 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.NotYetImplementedException;
+
 public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
 
@@ -63,7 +66,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     @Override
     public LogRecord readNext(boolean shouldBlock) throws IOException {
         if (shouldBlock) {
-            throw new IOException("Not Yet Implemented");
+            throw new NotYetImplementedException("readNext with shouldBlock=true");
         }
 
         checkClosedOrInError("LogReader#readNext");

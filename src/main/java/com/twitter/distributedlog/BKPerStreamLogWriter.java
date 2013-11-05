@@ -36,6 +36,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
@@ -122,7 +125,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.lock = lock;
         this.lock.acquire("PerStreamLogWriter");
         this.transmissionThreshold
-            = conf.getOutputBufferSize();
+            = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
 
         this.bufCurrent = new DataOutputBuffer();
         this.writer = new LogRecord.Writer(bufCurrent);
@@ -204,7 +207,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public void write(LogRecord record) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
         lock.checkWriteLock();
@@ -219,6 +222,21 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     synchronized public void writeInternal(LogRecord record) throws IOException {
+        int logRecordSize = record.getPersistentSize();
+
+        if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {
+            throw new LogRecordTooLongException(String.format(
+                    "Log Record of size %d written when only %d is allowed",
+                    logRecordSize, DistributedLogConstants.MAX_LOGRECORD_SIZE));
+        }
+
+        // If we will exceed the max number of bytes allowed per entry
+        // initiate a transmit before accepting the new log record
+        if ((writer.getPendingBytes() + logRecordSize) >
+            DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+            setReadyToFlush();
+        }
+
         writer.writeOp(record);
         if (record.getTransactionId() < lastTxId) {
             LOG.info("TxId decreased Last: {} Record: {}", lastTxId, record.getTransactionId());
@@ -269,7 +287,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
         lock.checkWriteLock();
