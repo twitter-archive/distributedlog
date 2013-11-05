@@ -88,7 +88,7 @@ class DLMTestUtil {
     static void verifyLogRecord(LogRecord record) {
         assertEquals(generatePayload(record.getTransactionId()).length, record.getPayload().length);
         assertArrayEquals(generatePayload(record.getTransactionId()), record.getPayload());
-        verifyPayload(record.txid, record.getPayload());
+        verifyPayload(record.getTransactionId(), record.getPayload());
     }
 
     static byte[] generatePayload(long txId) {

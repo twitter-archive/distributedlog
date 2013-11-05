@@ -17,7 +17,8 @@
  */
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.proto.BookieServer;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -1553,5 +1554,49 @@ public class TestBookKeeperDistributedLogManager {
         }
         writer.close();
         assert(exceptionEncountered);
+    }
+
+    @Test
+    public void testMaxLogRecSize() throws Exception {
+        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
+        long txid = 1;
+        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        boolean exceptionEncountered = false;
+        try {
+            LogRecord op = new LogRecord(txid, DLMTestUtil.repeatString(
+                                DLMTestUtil.repeatString("abcdefgh", 256), 512).getBytes());
+            out.write(op);
+        } catch (LogRecordTooLongException exc) {
+            exceptionEncountered = true;
+        } finally {
+            out.close();
+        }
+        bkdlm.close();
+        assert(exceptionEncountered);
+    }
+
+    @Test
+    public void testMaxTransmissionSize() throws Exception {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024 * 1024);
+        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
+        long txid = 1;
+        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        boolean exceptionEncountered = false;
+        byte[] largePayload = DLMTestUtil.repeatString(DLMTestUtil.repeatString("abcdefgh", 256), 256).getBytes();
+        try {
+            while (txid < 3) {
+                LogRecord op = new LogRecord(txid, largePayload);
+                out.write(op);
+                txid++;
+            }
+        } catch (LogRecordTooLongException exc) {
+            exceptionEncountered = true;
+        } finally {
+            out.close();
+        }
+        bkdlm.close();
+        assert(!exceptionEncountered);
     }
 }

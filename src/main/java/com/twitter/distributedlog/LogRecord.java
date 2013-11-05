@@ -30,13 +30,13 @@ import java.io.InputStream;
  * instantiated from Reader#readOp()
  */
 public class LogRecord {
-    long flags;
-    long txid;
-    byte[] payload;
+    private long flags;
+    private long txid;
+    private byte[] payload;
 
     // TODO: Replace with EnumSet
-    public static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
-    public static final long LOGRECORD_FLAGS_END_OF_STREAM = 0x2;
+    static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
+    static final long LOGRECORD_FLAGS_END_OF_STREAM = 0x2;
     /**
      * This empty constructor can only be called from Reader#readOp.
      */
@@ -55,11 +55,11 @@ public class LogRecord {
         return txid;
     }
 
-    public void setControl() {
+    void setControl() {
         flags = flags | LOGRECORD_FLAGS_CONTROL_MESSAGE;
     }
 
-    public boolean isControl() {
+    boolean isControl() {
         return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 
@@ -67,11 +67,11 @@ public class LogRecord {
         return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 
-    public void setEndOfStream() {
+    void setEndOfStream() {
         flags = flags | LOGRECORD_FLAGS_END_OF_STREAM;
     }
 
-    public boolean isEndOfStream() {
+    boolean isEndOfStream() {
         return ((flags & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
     }
 
@@ -110,13 +110,30 @@ public class LogRecord {
         this.flags = flags;
     }
 
+    private void writeToStream(DataOutputStream out) throws IOException {
+        out.writeLong(flags);
+        out.writeLong(txid);
+        writePayload(out);
+    }
+
+    /**
+     * The size of the serialized log record, this is used to estimate how much will
+     * be be appended to the in-memory buffer
+     *
+     * @return serialized size
+     */
+    int getPersistentSize() {
+        // Flags + TxId + Payload-length + payload
+        return 2 * (Long.SIZE) + Integer.SIZE + payload.length;
+    }
+
     /**
      * Class for writing log records
      */
-    public static class Writer {
+    static class Writer {
         private final DataOutputBuffer buf;
 
-        public Writer(DataOutputBuffer out) {
+        Writer(DataOutputBuffer out) {
             this.buf = out;
         }
 
@@ -126,17 +143,20 @@ public class LogRecord {
          * @param record The operation to write
          * @throws IOException if an error occurs during writing.
          */
-        public void writeOp(LogRecord record) throws IOException {
-            buf.writeLong(record.flags);
-            buf.writeLong(record.txid);
-            record.writePayload(buf);
+        void writeOp(LogRecord record) throws IOException {
+            record.writeToStream(buf);
+        }
+
+        int getPendingBytes() {
+            return buf.getLength();
         }
     }
 
     /**
-     * Class for reading editlog ops from a stream
-     */
-    public static class Reader {
+     * This class is a package private class for reading log records
+     * from the persistent
+      */
+    static class Reader {
         private final DataInputStream in;
         private final int logVersion;
         private static final int SKIP_BUFFER_SIZE = 512;
