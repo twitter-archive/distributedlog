@@ -26,6 +26,7 @@ import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,8 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -140,6 +143,16 @@ public class DistributedLogClientBuilder {
         private final Counter ownershipRemoves;
         private final Counter ownershipRedirects;
         private final Counter ownershipAdds;
+
+        private static class HostComparator implements Comparator<SocketAddress> {
+
+            static final HostComparator instance = new HostComparator();
+
+            @Override
+            public int compare(SocketAddress o1, SocketAddress o2) {
+                return o1.toString().compareTo(o2.toString());
+            }
+        }
 
         private DistributedLogClientImpl(String name,
                                          ClientId clientId,
@@ -265,6 +278,7 @@ public class DistributedLogClientBuilder {
 
             synchronized (hostSet) {
                 hostList = new ArrayList<SocketAddress>(hostSet);
+                Collections.sort(hostList, HostComparator.instance);
                 logger.info("Host list becomes : {}.", hostList);
             }
 
@@ -311,7 +325,7 @@ public class DistributedLogClientBuilder {
                 // pickup host by hashing
                 synchronized (hostSet) {
                     if (0 != hostList.size()) {
-                        int hostId = hasher.hashString(stream).asInt() % hostList.size();
+                        int hostId = MathUtils.signSafeMod(hasher.hashString(stream).asInt(), hostList.size());
                         address = hostList.get(hostId);
                         if (null != previousAddr) {
                             int i = hostId;
@@ -362,6 +376,9 @@ public class DistributedLogClientBuilder {
                     } else if (cause instanceof RequestTimeoutException) {
                         result.setException(cause);
                     } else {
+                        if (cause.getMessage().contains("Ownership")) {
+                            logger.error("Failed on executing write : ", cause);
+                        }
                         // TODO: add a redirect logic here.
                         result.setException(cause);
                     }
