@@ -339,10 +339,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger)
             throws IOException {
-        this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger);
-        StatsLogger requestsStatsLogger = statsLogger.scope("write");
-        this.requestStat = requestsStatsLogger.getOpStatsLogger("request");
+        // Configuration.
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.MEM.toString()));
+        int serverPort = dlConf.getInt("server_port", 0);
+        String clientId = DLSocketAddress.toString(DLSocketAddress.getSocketAddress(serverPort));
+        this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
+
+        // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(
                 Runtime.getRuntime().availableProcessors(),
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
@@ -351,7 +354,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         } else {
             this.delayMs = 0;
         }
-        logger.info("Running distributedlog server in {} mode, delay ms {}.", serverMode, delayMs);
+
+        // Stats
+        StatsLogger requestsStatsLogger = statsLogger.scope("write");
+        this.requestStat = requestsStatsLogger.getOpStatsLogger("request");
+
+        logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}.",
+                new Object[] { serverMode, delayMs, clientId });
     }
 
     Stream getLogWriter(String stream) {

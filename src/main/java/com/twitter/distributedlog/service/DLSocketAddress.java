@@ -19,7 +19,14 @@ public class DLSocketAddress {
         return new InetSocketAddress(hostname, port);
     }
 
-    public static SocketAddress getSocketAddress(int port) throws UnknownHostException {
+    public static InetSocketAddress getSocketAddress(int port) throws UnknownHostException {
         return new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), port);
     }
+
+    public static String toString(InetSocketAddress address) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(address.getHostName()).append(COLON).append(address.getPort());
+        return sb.toString();
+    }
+
 }
