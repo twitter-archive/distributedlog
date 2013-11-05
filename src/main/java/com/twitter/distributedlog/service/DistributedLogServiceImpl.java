@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.base.Stopwatch;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
@@ -20,6 +21,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -65,6 +69,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final OpStatsLogger requestStat;
 
     private final ServerMode serverMode;
+    private final ScheduledExecutorService executorService;
+    private final long delayMs;
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger)
             throws IOException {
@@ -72,7 +78,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         StatsLogger requestsStatsLogger = statsLogger.scope("write");
         this.requestStat = requestsStatsLogger.getOpStatsLogger("request");
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.MEM.toString()));
-        logger.info("Running distributedlog server in {} mode.", serverMode);
+        if (ServerMode.MEM.equals(serverMode)) {
+            this.executorService = Executors.newScheduledThreadPool(
+                    Runtime.getRuntime().availableProcessors(),
+                    new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
+            this.delayMs = dlConf.getLong("latency_delay", 0);
+        } else {
+            this.executorService = null;
+            this.delayMs = 0;
+        }
+        logger.info("Running distributedlog server in {} mode, delay ms {}.", serverMode, delayMs);
     }
 
     ManagerWithLogWriter getLogWriter(String stream) throws IOException {
@@ -155,8 +170,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                 });
             } else {
-                requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
-                result.setValue(Long.toString(txnId));
+                if (null != executorService && delayMs > 0) {
+                    final long txnIdToReturn = txnId;
+                    executorService.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                            result.setValue(Long.toString(txnIdToReturn));
+                        }
+                    }, delayMs, TimeUnit.MILLISECONDS);
+                } else {
+                    requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                    result.setValue(Long.toString(txnId));
+                }
             }
         } catch (IOException e) {
             logger.error("Failed to write data into stream {} : ", stream, e);
