@@ -40,7 +40,7 @@ public class LogRecord {
     /**
      * This empty constructor can only be called from Reader#readOp.
      */
-    private LogRecord() {
+    protected LogRecord() {
         this.txid = 0;
         this.flags = 0;
     }

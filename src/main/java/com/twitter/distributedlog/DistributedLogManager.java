@@ -84,6 +84,10 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogReader getInputStream(long fromTxnId)
         throws IOException;
 
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException;
+
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;
+
     /**
      * Get the last log record before the specified transactionId
      *

@@ -212,6 +212,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromTxnId);
     }
 
+    @Override
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
+
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        return null;  //To change body of implemented methods use File | Settings | File Templates.
+    }
+
     /**
      * Get the input stream starting with fromTxnId for the specified log
      *
