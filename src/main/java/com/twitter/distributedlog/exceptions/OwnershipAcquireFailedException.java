@@ -1,13 +1,13 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class OwnershipAcquireFailedException extends IOException {
+public class OwnershipAcquireFailedException extends DLException {
     private static final long serialVersionUID = 1L;
     private final String currentOwner;
 
     public OwnershipAcquireFailedException(String message, String currentOwner) {
-        super(message);
+        super(StatusCode.FOUND, message);
         this.currentOwner = currentOwner;
     }
 

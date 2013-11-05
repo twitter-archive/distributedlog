@@ -7,12 +7,13 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.common.net.pool.DynamicHostSet;
 import com.twitter.common.zookeeper.ServerSet;
+import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
-import com.twitter.finagle.ChannelClosedException;
+import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
-import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -300,8 +301,8 @@ public class DistributedLogClientBuilder {
         }
 
         @Override
-        public Future<String> write(String stream, ByteBuffer data) {
-            final Promise<String> result = new Promise<String>();
+        public Future<DLSN> write(String stream, ByteBuffer data) {
+            final Promise<DLSN> result = new Promise<DLSN>();
             closeLock.readLock().lock();
             try {
                 if (closed) {
@@ -317,7 +318,7 @@ public class DistributedLogClientBuilder {
         }
 
         private void doWrite(final String stream, final ByteBuffer data,
-                             final Promise<String> result, SocketAddress previousAddr) {
+                             final Promise<DLSN> result, SocketAddress previousAddr) {
             // Get host first
             SocketAddress address = stream2Addresses.get(stream);
             if (null == address) {
@@ -347,40 +348,57 @@ public class DistributedLogClientBuilder {
                 result.setException(new NoBrokersAvailableException("No hosts found"));
                 return;
             }
+            sendWriteRequest(address, stream, data, result);
+        }
+
+        private void sendWriteRequest(final SocketAddress addr,
+                                      final String stream, final ByteBuffer data, final Promise<DLSN> result) {
             // Get corresponding finagle client
-            ServiceWithClient sc = buildClient(address);
+            final ServiceWithClient sc = buildClient(addr);
             // write the request to that host.
-            final SocketAddress addr = address;
-            final ServiceWithClient serviceWithClient = sc;
-            serviceWithClient.service.write(stream, data).addEventListener(new FutureEventListener<String>() {
+            sc.service.write(stream, data).addEventListener(new FutureEventListener<WriteResponse>() {
                 @Override
-                public void onSuccess(String dlsn) {
-                    // update ownership
-                    if (null == stream2Addresses.putIfAbsent(stream, addr)) {
-                        ownershipAdds.incr();
+                public void onSuccess(WriteResponse response) {
+                    switch (response.getHeader().getCode()) {
+                    case SUCCESS:
+                        // update ownership
+                        if (null == stream2Addresses.putIfAbsent(stream, addr)) {
+                            ownershipAdds.incr();
+                        }
+                        result.setValue(DLSN.deserialize(response.getDlsn()));
+                    case FOUND:
+                        String owner = response.getHeader().getLocation();
+                        SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
+                        // redirect the request.
+                        if (null == stream2Addresses.putIfAbsent(stream, ownerAddr)) {
+                            ownershipAdds.incr();
+                        }
+                        sendWriteRequest(ownerAddr, stream, data, result);
+                    default:
+                        // server side exceptions, throw to the client.
+                        removeClient(addr, sc);
+                        // remove ownership to that host
+                        if (stream2Addresses.remove(stream, addr)) {
+                            ownershipRemoves.incr();
+                        }
+                        // throw the exception to the client
+                        result.setException(DLException.of(response.getHeader()));
                     }
-                    result.setValue(dlsn);
                 }
 
                 @Override
                 public void onFailure(Throwable cause) {
-                    if (cause instanceof ChannelClosedException || cause instanceof WriteException) {
-                        // remove this client later
-                        removeClient(addr, serviceWithClient);
+                    if (cause instanceof RequestTimeoutException) {
+                        result.setException(cause);
+                    } else {
+                        // remove this client
+                        removeClient(addr, sc);
                         // remove ownership to that host
                         if (stream2Addresses.remove(stream, addr)) {
                             ownershipRemoves.incr();
                         }
                         // do a retry
                         doWrite(stream, data, result, addr);
-                    } else if (cause instanceof RequestTimeoutException) {
-                        result.setException(cause);
-                    } else {
-                        if (cause.getMessage().contains("Ownership")) {
-                            logger.error("Failed on executing write : ", cause);
-                        }
-                        // TODO: add a redirect logic here.
-                        result.setException(cause);
                     }
                 }
             });

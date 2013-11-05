@@ -8,8 +8,13 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.thrift.service.ResponseHeader;
+import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -47,10 +52,38 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         MEM
     }
 
+    static ResponseHeader ownerToResponseHeader(String owner) {
+        return new ResponseHeader(StatusCode.FOUND).setLocation(owner);
+    }
+
+    static ResponseHeader successResponseHeader() {
+        return new ResponseHeader(StatusCode.SUCCESS);
+    }
+
+    static ResponseHeader exceptionToResponseHeader(Throwable t) {
+        ResponseHeader response = new ResponseHeader();
+        if (t instanceof DLException) {
+            DLException dle = (DLException) t;
+            if (dle instanceof OwnershipAcquireFailedException) {
+                response.setLocation(((OwnershipAcquireFailedException) dle).getCurrentOwner());
+            }
+            response.setCode(dle.getCode());
+        } else if (t instanceof IOException) {
+            response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
+        } else {
+            response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
+        }
+        return response;
+    }
+
+    static WriteResponse writeResponse(ResponseHeader responseHeader) {
+        return new WriteResponse(responseHeader);
+    }
+
     class WriteOp {
         final String stream;
         final byte[] payload;
-        final Promise<String> result = new Promise<String>();
+        final Promise<WriteResponse> result = new Promise<WriteResponse>();
         final AtomicInteger retries = new AtomicInteger(0);
         final Stopwatch stopwatch = new Stopwatch();
 
@@ -73,13 +106,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     @Override
                     public void onSuccess(DLSN value) {
                         requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
-                        result.setValue(value.serialize());
+                        result.setValue(writeResponse(successResponseHeader()).setDlsn(value.serialize()));
                     }
                     @Override
                     public void onFailure(Throwable cause) {
                         requestStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
                         logger.error("Failed to write data into stream {} : ", stream, cause);
-                        result.setException(cause);
+                        result.setValue(writeResponse(exceptionToResponseHeader(cause)));
                     }
                 });
             } else {
@@ -89,25 +122,24 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         @Override
                         public void run() {
                             requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
-                            result.setValue(Long.toString(txnIdToReturn));
+                            result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                         }
                     }, delayMs, TimeUnit.MILLISECONDS);
                 } else {
                     requestStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
-                    result.setValue(Long.toString(txnId));
+                    result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnId)));
                 }
             }
         }
 
         void fail(String owner, Throwable t) {
-            logger.error("Failed op : owner {}, exception {}.", owner, t);
             requestStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
             if (null != owner) {
-                result.setException(new OwnershipAcquireFailedException("Stream " + stream + " is acquired by " + owner, owner));
-            } else if (null == t) {
-                result.setException(new IOException("Unknown exception found in stream " + stream));
+                logger.info("Redirect write to stream {} to {}.", stream, owner);
+                result.setValue(writeResponse(ownerToResponseHeader(owner)));
             } else {
-                result.setException(t);
+                logger.error("Fail to write stream {} : ", stream, t);
+                result.setValue(writeResponse(exceptionToResponseHeader(t)));
             }
         }
 
@@ -338,12 +370,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     }
 
     @Override
-    public Future<String> write(final String stream, ByteBuffer data) {
+    public Future<WriteResponse> write(final String stream, ByteBuffer data) {
         closeLock.readLock().lock();
         try {
             if (closed) {
-                // TODO: better exception
-                return Future.exception(new IOException("Server is closing."));
+                return Future.exception(new ServiceUnavailableException("Server is closing."));
             } else {
                 return doWrite(stream, data);
             }
@@ -352,7 +383,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    private Future<String> doWrite(final String stream, ByteBuffer data) {
+    private Future<WriteResponse> doWrite(final String stream, ByteBuffer data) {
         WriteOp op = new WriteOp(stream, data);
         getLogWriter(stream).waitIfNeededAndWrite(op);
         return op.result;
