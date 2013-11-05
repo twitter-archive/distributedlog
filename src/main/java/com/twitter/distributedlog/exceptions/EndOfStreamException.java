@@ -1,4 +1,4 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.exceptions;
 
 import java.io.IOException;
 

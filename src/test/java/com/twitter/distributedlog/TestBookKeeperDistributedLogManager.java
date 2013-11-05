@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -1541,6 +1542,8 @@ public class TestBookKeeperDistributedLogManager {
             }
         }
 
+        assert(dlm.isEndOfStreamMarked());
+
         long start = txid;
         LogWriter writer = null;
         boolean exceptionEncountered = false;
@@ -1549,7 +1552,7 @@ public class TestBookKeeperDistributedLogManager {
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }
-        } catch (IOException exc) {
+        } catch (EndOfStreamException exc) {
             exceptionEncountered = true;
         }
         writer.close();

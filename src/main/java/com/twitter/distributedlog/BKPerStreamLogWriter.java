@@ -36,6 +36,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -206,7 +207,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public void write(LogRecord record) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
         lock.checkWriteLock();
@@ -286,7 +287,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
         lock.checkWriteLock();

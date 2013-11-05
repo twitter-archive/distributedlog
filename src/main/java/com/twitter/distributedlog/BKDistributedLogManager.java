@@ -1,6 +1,8 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
+import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -120,6 +122,28 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
+    }
+
+    /**
+     * Check if an end of stream marker was added to the stream for the partition
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     */
+    @Override
+    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException {
+        throw new NotYetImplementedException("isEndOfStreamMarked for partitioned streams");
+    }
+
+    /**
+     * Check if an end of stream marker was added to the stream
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     */
+    @Override
+    public boolean isEndOfStreamMarked() throws IOException {
+        return (getLastTxId() == DistributedLogConstants.MAX_TXID);
     }
 
     /**
