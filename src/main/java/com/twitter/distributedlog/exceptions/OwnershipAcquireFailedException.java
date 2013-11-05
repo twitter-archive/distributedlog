@@ -10,4 +10,8 @@ public class OwnershipAcquireFailedException extends IOException {
         super(message);
         this.currentOwner = currentOwner;
     }
+
+    public String getCurrentOwner() {
+        return currentOwner;
+    }
 }
