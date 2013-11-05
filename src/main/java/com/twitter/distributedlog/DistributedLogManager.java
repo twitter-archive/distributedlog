@@ -116,6 +116,25 @@ public interface DistributedLogManager extends MetadataAccessor {
     public void recover() throws IOException;
 
     /**
+     * Check if an end of stream marker was added to the stream for the partition
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @param partition
+     * @return
+     * @throws IOException
+     */
+    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException;
+
+    /**
+     * Check if an end of stream marker was added to the stream
+     * A stream with an end of stream marker cannot be appended to
+     *
+     * @return true if the marker was added to the stream, false otherwise
+     * @throws IOException
+     */
+    public boolean isEndOfStreamMarked() throws IOException;
+
+    /**
      * Delete all the partitions of the specified log
      *
      * @throws IOException if the deletion fails

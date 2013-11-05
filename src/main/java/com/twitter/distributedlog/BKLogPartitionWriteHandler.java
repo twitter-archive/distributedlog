@@ -24,6 +24,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
@@ -161,11 +163,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         lock.acquire("StartLogSegment");
         lockAcquired = true;
-        if (txId < maxTxId.get()) {
-            LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
-            LOG.error("Last Committed Ledger {}", getLedgerListDesc());
-            throw new IOException("We've already seen " + txId
-                + ". A new stream cannot be created with it");
+        long highestTxIdWritten = maxTxId.get();
+        if (txId < highestTxIdWritten) {
+            if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
+                LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
+                throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
+            }
+            else {
+                LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
+                LOG.error("Last Committed Ledger {}", getLedgerListDesc());
+                throw new IOException("We've already seen " + txId
+                    + ". A new stream cannot be created with it");
+            }
         }
         boolean writeInprogressZnode = false;
         try {
