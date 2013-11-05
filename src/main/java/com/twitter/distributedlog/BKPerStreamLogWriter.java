@@ -81,7 +81,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             return buffer;
         }
 
-        public void satisfyPromises(long entryId) {
+        private void satisfyPromises(long entryId) {
             long nextSlotId = 0;
             for(Promise<DLSN> promise : promiseList) {
                 promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
@@ -89,11 +89,19 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             }
         }
 
-        public void cancelPromises(int transmitResult) {
+        private void cancelPromises(int transmitResult) {
             for(Promise<DLSN> promise : promiseList) {
                 promise.setException(new BKTransmitException("Failed to write to bookkeeper; Error is ("
                     + transmitResult + ") "
                     + BKException.getMessage(transmitResult)));
+            }
+        }
+
+        public void processTransmitComplete(long entryId, int transmitResult) {
+            if (transmitResult != BKException.Code.OK) {
+                cancelPromises(transmitResult);
+            } else {
+                satisfyPromises(entryId);
             }
         }
 
@@ -505,20 +513,22 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     public void addComplete(int rc, LedgerHandle handle,
                             long entryId, Object ctx) {
+        BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
         synchronized (this) {
             outstandingRequests.decrementAndGet();
             assert (ctx instanceof BKTransmitPacket);
-            BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 LOG.warn("Tried to set transmit result to (" + rc + ") \""
                     + BKException.getMessage(rc) + "\""
                     + " but is already (" + transmitResult.get() + ") \""
                     + BKException.getMessage(transmitResult.get()) + "\"");
-                transmitPacket.cancelPromises(rc);
             }
-            transmitPacket.satisfyPromises(entryId);
-            releasePacket(transmitPacket);
+        }
 
+        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
+        releasePacket(transmitPacket);
+
+        synchronized (this) {
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
