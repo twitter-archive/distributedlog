@@ -387,7 +387,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     public long flushAndSyncPhaseOne() throws
-        LockingException, BKTransmitException, FlushException, OwnershipAcquireFailedException {
+        LockingException, OwnershipAcquireFailedException, BKTransmitException, FlushException {
         flushAndSyncInternal();
 
         synchronized (this) {
@@ -432,7 +432,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     private void flushAndSyncInternal()
-        throws LockingException, BKTransmitException, FlushException, OwnershipAcquireFailedException {
+        throws LockingException, OwnershipAcquireFailedException, BKTransmitException, FlushException {
         lock.checkWriteLock();
 
         long txIdToBePersisted;

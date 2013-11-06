@@ -15,5 +15,6 @@ public class DistributedLogConstants {
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final long LOCK_IMMEDIATE = 0;
+    public static final long LOCK_TIMEOUT_INFINITE = -1;
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";
 }

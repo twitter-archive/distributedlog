@@ -1602,4 +1602,50 @@ public class TestBookKeeperDistributedLogManager {
         bkdlm.close();
         assert(!exceptionEncountered);
     }
+
+    @Test
+    public void deleteDuringRead() throws Exception {
+        String name = "distrlog-delete-with-reader";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+
+            writer.close();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            blplm.completeAndCloseLogSegment(start, txid - 1);
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            blplm.close();
+        }
+
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 1;
+        LogRecord record = reader.readNext(false);
+        assert (null != record);
+        DLMTestUtil.verifyLogRecord(record);
+        long lastTxId = record.getTransactionId();
+
+        dlm.delete();
+
+        boolean exceptionEncountered = false;
+        try {
+            record = reader.readNext(false);
+            while (null != record) {
+                DLMTestUtil.verifyLogRecord(record);
+                assert (lastTxId < record.getTransactionId());
+                lastTxId = record.getTransactionId();
+                numTrans++;
+                record = reader.readNext(false);
+            }
+        } catch (LogNotFoundException exc) {
+            exceptionEncountered = true;
+        }
+        assert(exceptionEncountered);
+        reader.close();
+    }
 }

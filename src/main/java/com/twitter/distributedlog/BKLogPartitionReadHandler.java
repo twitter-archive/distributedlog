@@ -57,13 +57,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
     }
 
-    public ResumableBKPerStreamLogReader getInputStream(long fromTxId, boolean inProgressOk)
-        throws IOException {
-        checkLogExists();
-        return getInputStream(fromTxId, inProgressOk, true);
-    }
-
-    public ResumableBKPerStreamLogReader getInputStream(long fromTxId, boolean inProgressOk, boolean fException)
+    public ResumableBKPerStreamLogReader getInputStream(long fromTxId,
+                                                        boolean inProgressOk,
+                                                        boolean fException,
+                                                        boolean fThrowOnEmpty)
         throws IOException {
         boolean logExists = false;
         try {
@@ -117,7 +114,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     ledgerDataAccessor.removeLedger(l.getLedgerId());
                 }
             }
+        } else {
+            if (fThrowOnEmpty) {
+                throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
+            }
         }
+
         if (fException) {
             throw new IOException("No ledger for fromTxnId " + fromTxId + " found.");
         } else {

@@ -202,30 +202,6 @@ class DistributedReentrantLock {
             this.watcher = new LockWatcher();
         }
 
-        public synchronized void lock() throws LockingException, OwnershipAcquireFailedException {
-            if (holdsLock) {
-                throw new LockingException("Error, already holding a lock. Call unlock first!");
-            }
-            try {
-                prepare();
-                watcher.checkForLock();
-                syncPoint.await();
-                if (!holdsLock) {
-                    throw new OwnershipAcquireFailedException(
-                            "Couldn't acquire lock " + lockPath + ", as it is already acquired by " + currentOwner,
-                            currentOwner);
-                }
-            } catch (InterruptedException e) {
-                cancelAttempt();
-                throw new LockingException("InterruptedException while trying to acquire lock!", e);
-            } catch (KeeperException ke) {
-                throw new LockingException("ZooKeeper Exception while trying to acquire lock " + lockPath + " : ", ke);
-            } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
-                // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeper Connection Exception while trying to acquire lock " + lockPath + " : ", zce);
-            }
-        }
-
         public synchronized boolean tryLock(long timeout, TimeUnit unit) throws LockingException, OwnershipAcquireFailedException {
             if (holdsLock) {
                 throw new LockingException("Error, already holding a lock. Call unlock first!");
@@ -234,23 +210,28 @@ class DistributedReentrantLock {
                 prepare();
                 watcher.checkForLock();
                 if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
-                    boolean success = syncPoint.await(timeout, unit);
+                    boolean success = true;
+                    if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
+                        syncPoint.await();
+                    }
+                    else {
+                        success = syncPoint.await(timeout, unit);
+                    }
                     // assert success => holdsLock
                     assert(!success || holdsLock);
                 }
                 if (!holdsLock) {
-                    throw new OwnershipAcquireFailedException(
-                            "Couldn't acquire lock " + lockPath + ", as it is already acquired by " + currentOwner,
-                            currentOwner);
+                    throw new OwnershipAcquireFailedException(lockPath, currentOwner);
                 }
             } catch (InterruptedException e) {
                 cancelAttempt();
                 return false;
-            } catch (KeeperException ke) {
-                throw new LockingException("ZooKeeper Exception while trying to acquire lock " + lockPath + " : ", ke);
-            } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            } catch (KeeperException e) {
                 // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeper Connection Exception while trying to acquire lock " + lockPath + " : ", zce);
+                throw new LockingException("ZooKeeper Exception while trying to acquire lock", e);
+            } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+                // No need to clean up since the node wasn't created yet.
+                throw new LockingException("ZooKeeper Connection Exception while trying to acquire lock " + lockPath + " : ", e);
             }
             return true;
         }

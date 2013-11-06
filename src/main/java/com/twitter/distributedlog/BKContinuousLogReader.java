@@ -108,7 +108,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private boolean createOrPositionReader(boolean advancedOnce) throws IOException {
         if (null == currentReader) {
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false);
+            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId));
             if (null != currentReader) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
