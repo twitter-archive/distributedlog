@@ -366,14 +366,25 @@ public class DistributedLogClientBuilder {
                             ownershipAdds.incr();
                         }
                         result.setValue(DLSN.deserialize(response.getDlsn()));
+                        break;
                     case FOUND:
                         String owner = response.getHeader().getLocation();
                         SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
+                        ownershipRedirects.incr();
                         // redirect the request.
-                        if (null == stream2Addresses.putIfAbsent(stream, ownerAddr)) {
-                            ownershipAdds.incr();
+                        if (!stream2Addresses.replace(stream, addr, ownerAddr)) {
+                            // ownership already changed
+                            SocketAddress newOwner = stream2Addresses.get(stream);
+                            if (null == newOwner) {
+                                SocketAddress newOwner2 = stream2Addresses.putIfAbsent(stream, ownerAddr);
+                                if (null != newOwner2) {
+                                    ownerAddr = newOwner2;
+                                }
+                            }
                         }
+                        logger.info("Redirect the request to new owner {}.", ownerAddr);
                         sendWriteRequest(ownerAddr, stream, data, result);
+                        break;
                     default:
                         // server side exceptions, throw to the client.
                         removeClient(addr, sc);
@@ -383,6 +394,7 @@ public class DistributedLogClientBuilder {
                         }
                         // throw the exception to the client
                         result.setException(DLException.of(response.getHeader()));
+                        break;
                     }
                 }
 

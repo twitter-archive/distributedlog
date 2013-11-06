@@ -196,27 +196,30 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 if (null != w && success) {
                     op.execute(w);
                 } else {
-                    logger.error("Failed op : writer {}, success {}.", w, success);
                     op.fail(owner, lastException);
                 }
             } catch (final OwnershipAcquireFailedException oafe) {
                 logger.error("Failed to write data into stream {} : ", name, oafe);
                 DistributedLogManager managerToClose = null;
+                boolean removeCache = false;
                 synchronized (this) {
                     if (StreamStatus.INITIALIZED == status) {
                         managerToClose =
                                 setStreamStatus(StreamStatus.FAILED, null, null, oafe.getCurrentOwner(), oafe);
+                        removeCache = true;
                     }
                 }
                 op.fail(owner, lastException);
                 close(managerToClose);
                 // cache the ownership for a while
-                executorService.schedule(new Runnable() {
-                    @Override
-                    public void run() {
-                        removeMySelf(oafe);
-                    }
-                }, 60, TimeUnit.SECONDS);
+                if (removeCache) {
+                    executorService.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            removeMySelf(oafe);
+                        }
+                    }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
+                }
             } catch (IOException e) {
                 logger.error("Failed to write data into stream {} : ", name, e);
                 DistributedLogManager managerToClose = null;
@@ -268,7 +271,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     public void run() {
                         removeMySelf(oafe);
                     }
-                }, 60, TimeUnit.SECONDS);
+                }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
             } catch (IOException ioe) {
                 logger.error("Failed to initialize stream {} : ", name, ioe);
                 synchronized (this) {
@@ -321,6 +324,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
+    private final DistributedLogConfiguration dlConfig;
     private final DistributedLogManagerFactory dlFactory;
     private final ConcurrentHashMap<String, Stream> streams =
             new ConcurrentHashMap<String, Stream>();
@@ -333,6 +337,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     // Stats
     private final OpStatsLogger requestStat;
 
+    private final String clientId;
     private final ServerMode serverMode;
     private final ScheduledExecutorService executorService;
     private final long delayMs;
@@ -340,9 +345,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger)
             throws IOException {
         // Configuration.
+        this.dlConfig = dlConf;
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.MEM.toString()));
         int serverPort = dlConf.getInt("server_port", 0);
-        String clientId = DLSocketAddress.toString(DLSocketAddress.getSocketAddress(serverPort));
+        this.clientId = DLSocketAddress.toString(DLSocketAddress.getSocketAddress(serverPort));
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
 
         // Executor Service.

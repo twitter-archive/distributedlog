@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -27,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -35,8 +35,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -237,7 +235,9 @@ class DistributedReentrantLock {
                     assert(!success || holdsLock);
                 }
                 if (!holdsLock) {
-                    throw new OwnershipAcquireFailedException("Error, couldn't acquire the lock!", currentOwner);
+                    throw new OwnershipAcquireFailedException(
+                            "Couldn't acquire lock " + lockPath + ", as it is already acquired by " + currentOwner,
+                            currentOwner);
                 }
             } catch (InterruptedException e) {
                 cancelAttempt();
