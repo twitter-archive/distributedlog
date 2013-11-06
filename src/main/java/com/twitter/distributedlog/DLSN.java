@@ -1,8 +1,8 @@
 package com.twitter.distributedlog;
 
-import java.nio.ByteBuffer;
-
 import org.apache.commons.codec.binary.Base64;
+
+import java.nio.ByteBuffer;
 
 public class DLSN {
     static final DLSN InvalidDLSN = new DLSN(0,0,0);
@@ -41,6 +41,15 @@ public class DLSN {
         return Base64.encodeBase64String(data);
     }
 
+    @Override
+    public String toString() {
+        return "DLSN{" +
+            "ledgerSequenceNo=" + ledgerSequenceNo +
+            ", entryId=" + entryId +
+            ", slotId=" + slotId +
+            '}';
+    }
+
     public static DLSN deserialize(String dlsn) {
         byte[] data = Base64.decodeBase64(dlsn);
         ByteBuffer bb = ByteBuffer.wrap(data);
@@ -49,15 +58,6 @@ public class DLSN {
             throw new IllegalArgumentException("Invalid DLSN " + dlsn);
         }
         return new DLSN(bb.getLong(), bb.getLong(), bb.getLong());
-    }
-
-    @Override
-    public String toString() {
-        return "DLSN{" +
-            "ledgerSequenceNo=" + ledgerSequenceNo +
-            ", entryId=" + entryId +
-            ", slotId=" + slotId +
-            '}';
     }
 
     @Override

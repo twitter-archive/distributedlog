@@ -28,7 +28,6 @@ import java.io.IOException;
  * this class, which is created when the EditLog is first opened.
  */
 public interface DistributedLogManager extends MetadataAccessor {
-
     /**
      * Begin writing to multiple partitions of the log stream identified by the name
      *
