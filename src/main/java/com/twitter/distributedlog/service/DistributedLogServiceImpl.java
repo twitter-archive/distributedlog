@@ -7,6 +7,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
@@ -18,6 +19,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -35,6 +37,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+// TODO: need to handle locking exception & zookeeper session expired in a better way.
+// For testing purpse, reduce the locking timeout from 30 seconds to 5 seconds now.
 class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
@@ -135,10 +139,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         void fail(String owner, Throwable t) {
             requestStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
             if (null != owner) {
-                logger.info("Redirect write to stream {} to {}.", stream, owner);
+                redirects.inc();
                 result.setValue(writeResponse(ownerToResponseHeader(owner)));
             } else {
-                logger.error("Fail to write stream {} : ", stream, t);
+                countException(t);
                 result.setValue(writeResponse(exceptionToResponseHeader(t)));
             }
         }
@@ -162,8 +166,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             lastException = new IOException("Fail to write record to stream " + name);
         }
 
-        void initialize() {
-            executorService.submit(this);
+        void initialize(long delayInMillis) {
+            if (delayInMillis > 0) {
+                executorService.schedule(this, delayInMillis, TimeUnit.MILLISECONDS);
+            } else {
+                executorService.submit(this);
+            }
         }
 
         void waitIfNeededAndWrite(WriteOp op) {
@@ -181,7 +189,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         completeOpNow = true;
                         success = false;
                     } else {
-                        pendingOps.add(op);
+                        // if last exception is due to locking exception,
+                        // we might wait a zookeeper session expire to happen.
+                        // as usually we use a large zookeeper session expire timeout,
+                        // we don't want to accumulate those request during this timeout,
+                        // so fail fast.
+                        if (lastException instanceof LockingException) {
+                            completeOpNow = true;
+                            success = false;
+                        } else {
+                            pendingOps.add(op);
+                        }
                     }
                 }
             }
@@ -220,20 +238,27 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         }
                     }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
                 }
-            } catch (IOException e) {
-                logger.error("Failed to write data into stream {} : ", name, e);
+            } catch (final IOException ioe) {
+                logger.error("Failed to write data into stream {} : ", name, ioe);
                 DistributedLogManager managerToClose = null;
                 boolean reinitialized = false;
                 synchronized (this) {
                     if (StreamStatus.INITIALIZED == status) {
                         managerToClose =
-                                setStreamStatus(StreamStatus.INITIALIZING, null, null, null, e);
+                                setStreamStatus(StreamStatus.INITIALIZING, null, null, null, ioe);
                         reinitialized = true;
                     }
                 }
                 close(managerToClose);
                 if (reinitialized) {
-                    initialize();
+                    // if we encountered a locking exception, kick reinitialize only after a zookeeper
+                    // session expired, otherwise we end up locking myself.
+                    if (ioe instanceof LockingException) {
+                        initialize(dlConfig.getZKSessionTimeoutMilliseconds());
+                    } else {
+                        // other issue, kick it immediately.
+                        initialize(0);
+                    }
                 }
                 if (op.retries.incrementAndGet() >= MAX_RETRIES) {
                     op.fail(owner, lastException);
@@ -250,7 +275,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             try {
                 DistributedLogManager dlManager = dlFactory.createDistributedLogManagerWithSharedClients(name);
                 dlManager.recover();
-                AsyncLogWriter w = dlManager.asyncStartLogSegmentNonPartitioned();
+                AsyncLogWriter w = dlManager.startAsyncLogSegmentNonPartitioned();
                 synchronized (this) {
                     setStreamStatus(StreamStatus.INITIALIZED, dlManager, w, null, null);
                     oldPendingOps = pendingOps;
@@ -272,7 +297,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         removeMySelf(oafe);
                     }
                 }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
-            } catch (IOException ioe) {
+            } catch (final IOException ioe) {
                 logger.error("Failed to initialize stream {} : ", name, ioe);
                 synchronized (this) {
                     setStreamStatus(StreamStatus.FAILED, null, null, null, ioe);
@@ -280,7 +305,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     pendingOps = new ArrayDeque<WriteOp>();
                     success = false;
                 }
-                removeMySelf(ioe);
+                if (ioe instanceof LockingException) {
+                    // don't remove myself until a zookeeper session expired,
+                    // so it would fail the request during this period immediately
+                    // and it would avoid ending up locking a lot of time.
+                    executorService.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            removeMySelf(ioe);
+                        }
+                    }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
+                } else {
+                    // other exceptions: fail immediately.
+                    removeMySelf(ioe);
+                }
             }
             for (WriteOp op : oldPendingOps) {
                 executeOp(op, success);
@@ -303,7 +341,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             DistributedLogManager oldManager = this.manager;
             this.manager = manager;
             this.writer = writer;
-            this.owner = owner;
+            if (null != owner && owner.equals(clientId)) {
+                // I lost the ownership but left a lock over zookeeper
+                // I should not ask client to redirect to myself again as I can't handle it :(
+                this.owner = null;
+            } else {
+                this.owner = owner;
+            }
             this.lastException = t;
             this.status = status;
             return oldManager;
@@ -336,6 +380,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     // Stats
     private final OpStatsLogger requestStat;
+    private final Counter redirects;
+    private final StatsLogger exceptionStatLogger;
+    // exception stats
+    private final ConcurrentHashMap<String, Counter> exceptionCounters =
+            new ConcurrentHashMap<String, Counter>();
 
     private final String clientId;
     private final ServerMode serverMode;
@@ -364,9 +413,24 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // Stats
         StatsLogger requestsStatsLogger = statsLogger.scope("write");
         this.requestStat = requestsStatsLogger.getOpStatsLogger("request");
+        this.redirects = requestsStatsLogger.getCounter("redirect");
+        this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
 
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}.",
                 new Object[] { serverMode, delayMs, clientId });
+    }
+
+    void countException(Throwable t) {
+        String exceptionName = null == t ? "null" : t.getClass().getName();
+        Counter counter = exceptionCounters.get(exceptionName);
+        if (null == counter) {
+            counter = exceptionStatLogger.getCounter(exceptionName);
+            Counter oldCounter = exceptionCounters.putIfAbsent(exceptionName, counter);
+            if (null != oldCounter) {
+                counter = oldCounter;
+            }
+        }
+        counter.inc();
     }
 
     Stream getLogWriter(String stream) {
@@ -378,7 +442,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 writer.close();
                 writer = oldWriter;
             } else {
-                writer.initialize();
+                writer.initialize(0);
             }
         }
         return writer;

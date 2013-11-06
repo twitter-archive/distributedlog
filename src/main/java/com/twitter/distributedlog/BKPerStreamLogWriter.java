@@ -17,9 +17,11 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
-
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -39,9 +41,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -388,7 +387,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     public long flushAndSyncPhaseOne() throws
-        LockingException, BKTransmitException, FlushException {
+        LockingException, BKTransmitException, FlushException, OwnershipAcquireFailedException {
         flushAndSyncInternal();
 
         synchronized (this) {
@@ -433,7 +432,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     private void flushAndSyncInternal()
-        throws LockingException, BKTransmitException, FlushException {
+        throws LockingException, BKTransmitException, FlushException, OwnershipAcquireFailedException {
         lock.checkWriteLock();
 
         long txIdToBePersisted;
@@ -477,7 +476,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      * are never called at the same time.
      */
     synchronized private boolean transmit(boolean isControl)
-        throws BKTransmitException, LockingException {
+        throws BKTransmitException, LockingException, OwnershipAcquireFailedException {
         lock.checkWriteLock();
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,

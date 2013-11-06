@@ -37,14 +37,6 @@ public interface DistributedLogManager extends MetadataAccessor {
     public PartitionAwareLogWriter startLogSegment() throws IOException;
 
     /**
-     * Begin writing to the log stream with an async writer
-     *
-     * @return async writer to write log records.
-     * @throws IOException
-     */
-    public AsyncLogWriter asyncStartLogSegmentNonPartitioned() throws IOException;
-
-    /**
      * Begin writing to the log stream identified by the name
      *
      * @return the writer interface to generate log records
