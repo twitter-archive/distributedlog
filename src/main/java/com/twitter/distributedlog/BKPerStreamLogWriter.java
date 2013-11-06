@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 
@@ -388,7 +389,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     public long flushAndSyncPhaseOne() throws
-        LockingException, BKTransmitException, FlushException {
+        LockingException, OwnershipAcquireFailedException, BKTransmitException, FlushException {
         flushAndSyncInternal();
 
         synchronized (this) {
@@ -433,7 +434,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     private void flushAndSyncInternal()
-        throws LockingException, BKTransmitException, FlushException {
+        throws LockingException, OwnershipAcquireFailedException, BKTransmitException, FlushException {
         lock.checkWriteLock();
 
         long txIdToBePersisted;
@@ -477,7 +478,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      * are never called at the same time.
      */
     synchronized private boolean transmit(boolean isControl)
-        throws BKTransmitException, LockingException {
+        throws BKTransmitException, LockingException, OwnershipAcquireFailedException {
         lock.checkWriteLock();
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
