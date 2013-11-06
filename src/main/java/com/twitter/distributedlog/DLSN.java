@@ -41,15 +41,6 @@ public class DLSN {
         return Base64.encodeBase64String(data);
     }
 
-    @Override
-    public String toString() {
-        return "DLSN{" +
-            "ledgerSequenceNo=" + ledgerSequenceNo +
-            ", entryId=" + entryId +
-            ", slotId=" + slotId +
-            '}';
-    }
-
     public static DLSN deserialize(String dlsn) {
         byte[] data = Base64.decodeBase64(dlsn);
         ByteBuffer bb = ByteBuffer.wrap(data);
@@ -58,6 +49,15 @@ public class DLSN {
             throw new IllegalArgumentException("Invalid DLSN " + dlsn);
         }
         return new DLSN(bb.getLong(), bb.getLong(), bb.getLong());
+    }
+
+    @Override
+    public String toString() {
+        return "DLSN{" +
+            "ledgerSequenceNo=" + ledgerSequenceNo +
+            ", entryId=" + entryId +
+            ", slotId=" + slotId +
+            '}';
     }
 
     @Override
