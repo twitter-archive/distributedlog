@@ -55,7 +55,7 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
-    private class BKTransmitPacket {
+    private static class BKTransmitPacket {
         public BKTransmitPacket(long ledgerSequenceNo, int transmissionThreshold) {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();

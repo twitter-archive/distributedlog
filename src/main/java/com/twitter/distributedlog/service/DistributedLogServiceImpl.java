@@ -74,9 +74,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 response.setLocation(((OwnershipAcquireFailedException) dle).getCurrentOwner());
             }
             response.setCode(dle.getCode());
-        } else if (t instanceof IOException) {
-            response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
         } else {
+            // TODO: more specific errors.
             response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
         }
         return response;
