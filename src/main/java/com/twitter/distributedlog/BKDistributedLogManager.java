@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
+    private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
@@ -118,7 +119,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, clientId);
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
     }
 
     /**
