@@ -210,7 +210,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
-        lock.checkWriteLock();
         writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
@@ -248,7 +247,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     synchronized private void writeControlLogRecord() throws IOException {
-        lock.checkWriteLock();
         LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes(UTF_8));
         controlRec.setControl();
         writeInternal(controlRec);
@@ -262,7 +260,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      * @throws IOException
      */
     synchronized private void writeEndOfStreamMarker() throws IOException {
-        lock.checkWriteLock();
         LogRecord endOfStreamRec = new LogRecord(DistributedLogConstants.MAX_TXID, "endOfStream".getBytes(UTF_8));
         endOfStreamRec.setEndOfStream();
         writeInternal(endOfStreamRec);
@@ -289,8 +286,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         if (streamEnded) {
             throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
-
-        lock.checkWriteLock();
 
         int numRecords = 0;
         for (LogRecord r : records) {
@@ -365,7 +360,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     private void flushAndSyncInternal()
         throws LockingException, BKTransmitException, FlushException {
-        lock.checkWriteLock();
+        lock.checkWriteLock(false);
 
         long txIdToBePersisted;
 
@@ -409,7 +404,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      */
     synchronized private boolean transmit(boolean isControl)
         throws BKTransmitException, LockingException {
-        lock.checkWriteLock();
+        lock.checkWriteLock(false);
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
             BKException.Code.OK)) {
@@ -449,8 +444,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      *  task can determine if there is anything it needs to do
      */
     synchronized private boolean haveDataToTransmit() throws IOException {
-        assert(!lock.checkWriteLock());
-
         if (!transmitResult.compareAndSet(BKException.Code.OK, BKException.Code.OK)) {
             // Even if there is data it cannot be transmitted, so effectively nothing to send
             return false;

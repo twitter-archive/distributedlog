@@ -19,6 +19,7 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -230,8 +231,8 @@ public class TestBookKeeperDistributedLogManager {
         try {
             PerStreamLogWriter out2 = bkdlm2.startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
-        } catch (IOException ioe) {
-            LOG.info("Caught exception as expected", ioe);
+        } catch (OwnershipAcquireFailedException ioe) {
+            assertEquals(ioe.getCurrentOwner(),"localhost");
         }
     }
 
@@ -843,7 +844,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-separate-bk-setting";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        confLocal.setShareZKClientWithBKC(!conf.getShareZKClientWithBKC());
+        confLocal.setSeparateZKClients(!conf.getSeparateZKClients());
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;

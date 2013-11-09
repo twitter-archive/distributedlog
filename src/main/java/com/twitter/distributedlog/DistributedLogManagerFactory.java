@@ -48,6 +48,7 @@ public class DistributedLogManagerFactory {
         }
     }
 
+    private final String clientId;
     private DistributedLogConfiguration conf;
     private URI namespace;
     private final StatsLogger statsLogger;
@@ -64,10 +65,16 @@ public class DistributedLogManagerFactory {
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
                                         StatsLogger statsLogger) throws IOException, IllegalArgumentException {
+        this(conf, uri, statsLogger, DistributedLogConstants.UNKNOWN_CLIENT_ID);
+    }
+
+    public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
+                                        StatsLogger statsLogger, String clientId) throws IOException, IllegalArgumentException {
         validateInput(conf, uri);
         this.conf = conf;
         this.namespace = uri;
         this.statsLogger = statsLogger;
+        this.clientId = clientId;
         this.scheduledExecutorService = Executors.newScheduledThreadPool(
                 conf.getNumWorkerThreads(),
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
@@ -82,14 +89,11 @@ public class DistributedLogManagerFactory {
         // Build bookkeeper client
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
-                .buildNew(conf.getSeparateBKClients()).statsLogger(statsLogger);
-        if (conf.getShareZKClientWithBKC()) {
-            this.bookKeeperClientBuilder.zkc(zooKeeperClient);
-        }
+                .statsLogger(statsLogger);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
-        if (!conf.getSeparateBKClients() && bookKeeperClient == null) {
+        if (null == bookKeeperClient) {
             // get a reference of shared bookkeeper client
             try {
                 bookKeeperClient = bookKeeperClientBuilder.build();
@@ -145,8 +149,10 @@ public class DistributedLogManagerFactory {
      * @throws IllegalArgumentException
      */
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        return new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-                null, null, scheduledExecutorService, statsLogger);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
+            null, null, scheduledExecutorService, statsLogger);
+        distLogMgr.setClientId(clientId);
+        return distLogMgr;
     }
 
     /**
@@ -161,8 +167,10 @@ public class DistributedLogManagerFactory {
      */
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
-        return new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-                zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, statsLogger);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
+            zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, statsLogger);
+        distLogMgr.setClientId(clientId);
+        return distLogMgr;
     }
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {

@@ -118,10 +118,7 @@ abstract class BKLogPartitionHandler {
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
                 bkcBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig)
-                        .name(String.format("%s:shared", name)).buildNew(false).statsLogger(statsLogger);
-                if (conf.getShareZKClientWithBKC()) {
-                    bkcBuilder.zkc(zooKeeperClient);
-                }
+                        .name(String.format("%s:shared", name)).statsLogger(statsLogger);
             }
             this.bookKeeperClient = bkcBuilder.build();
         } catch (Exception e) {
