@@ -58,15 +58,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
 
-    // should each partition use a separate bookkeeper client
-    public static final String BKDL_SEPARATE_BK_CLIENT = "separateBKClients";
-    public static final boolean BKDL_SEPARATE_BK_CLIENT_DEFAULT = false;
-
     public static final String BKDL_BOOKKEEPER_LEDGERS_PATH = "bkLedgersPath";
     public static final String BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT = "/ledgers";
-
-    public static final String BKDL_SHARE_ZK_CLIENT_WITH_BKC = "shareZKClientWithBKC";
-    public static final boolean BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT = false;
 
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
@@ -103,6 +96,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
     public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
+
+    public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
+    public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
 
     public static final String BKDL_BKCLIENT_READ_TIMEOUT = "bkcReadTimeoutSeconds";
     public static final int BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT = 10;
@@ -552,8 +548,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return lock timeout
      */
-    public long getLockTimeout() {
-        return this.getLong(BKDL_LOCK_TIMEOUT, BKDL_LOCK_TIMEOUT_DEFAULT);
+    public long getLockTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_TIMEOUT, BKDL_LOCK_TIMEOUT_DEFAULT) * 1000;
     }
 
     /**
@@ -584,6 +580,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setBKClientReadTimeout(int readTimeout) {
         setProperty(BKDL_BKCLIENT_READ_TIMEOUT, readTimeout);
+        return this;
+    }
+
+    /**
+     * Get BK client read timeout
+     *
+     * @return session timeout in milliseconds
+     */
+    public int getBKClientZKSessionTimeoutMilliSeconds() {
+        return this.getInt(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set the ZK Session Timeout used by the BK Client
+     *
+     * @param sessionTimeout
+     * @return
+     */
+    public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
+        setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
         return this;
     }
 
