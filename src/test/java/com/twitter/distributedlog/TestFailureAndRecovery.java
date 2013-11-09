@@ -29,16 +29,9 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -128,7 +121,8 @@ public class TestFailureAndRecovery {
             // so that a failure will fail the journal manager
             DistributedLogConfiguration conf = new DistributedLogConfiguration();
             conf.setEnsembleSize(ensembleSize);
-            conf.setQuorumSize(ensembleSize);
+            conf.setWriteQuorumSize(ensembleSize);
+            conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
             BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-allbookiefailure");
             PerStreamLogWriter out = bkdlm.startLogSegment(txid);
@@ -204,7 +198,8 @@ public class TestFailureAndRecovery {
             // so that a failure will fail the journal manager
             DistributedLogConfiguration conf = new DistributedLogConfiguration();
             conf.setEnsembleSize(ensembleSize);
-            conf.setQuorumSize(ensembleSize);
+            conf.setWriteQuorumSize(ensembleSize);
+            conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
             BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-onebookiefailure");
             PerStreamLogWriter out = bkdlm.startLogSegment(txid);
