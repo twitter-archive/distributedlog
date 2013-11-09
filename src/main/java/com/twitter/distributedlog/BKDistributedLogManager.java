@@ -78,10 +78,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
-                        .buildNew(false).statsLogger(statsLogger);
-                if (conf.getShareZKClientWithBKC()) {
-                    this.bookKeeperClientBuilder.zkc(zooKeeperClient);
-                }
+                        .statsLogger(statsLogger);
             } else {
                 this.bookKeeperClientBuilder = bkcBuilder;
             }

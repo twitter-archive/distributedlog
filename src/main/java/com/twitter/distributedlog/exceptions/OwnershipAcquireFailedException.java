@@ -1,13 +1,13 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.LockingException;
 
-public class OwnershipAcquireFailedException extends IOException {
+public class OwnershipAcquireFailedException extends LockingException {
     private static final long serialVersionUID = 1L;
     private final String currentOwner;
 
     public OwnershipAcquireFailedException(String lockPath, String currentOwner) {
-        super(String.format("Lock acquisition failed for %s, the current owner is %s", lockPath, currentOwner));
+        super(lockPath, String.format("Lock acquisition failed, the current owner is %s", currentOwner));
         this.currentOwner = currentOwner;
     }
 

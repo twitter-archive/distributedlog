@@ -23,7 +23,8 @@ public class DistributedLogExample {
             new DistributedLogConfiguration()
                 .setLogSegmentRollingIntervalMinutes(60) // interval to roll log segment
                 .setRetentionPeriodHours(1) // retention period
-                .setQuorumSize(2) // 2 replicas
+                .setWriteQuorumSize(2) // 2 replicas
+                .setAckQuorumSize(2) // 2 replicas
                 .setEnsembleSize(3); // how many hosts to store a log segment
         // Create a distributedlog
         DistributedLogManager unpartitionedDLM =

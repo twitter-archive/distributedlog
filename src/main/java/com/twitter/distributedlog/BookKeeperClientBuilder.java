@@ -30,8 +30,6 @@ class BookKeeperClientBuilder {
     private DistributedLogConfiguration dlConfig = null;
     // bkdl config
     private BKDLConfig bkdlConfig = null;
-    // whether to build new client for each {@link #build()} call
-    private boolean buildNew = false;
     // statsLogger
     private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
 
@@ -72,20 +70,6 @@ class BookKeeperClientBuilder {
     }
 
     /**
-     * If <i>buildNew</i> is set to false, the built bookkeeper client by {@link #build()}
-     * will be cached. Following {@link #build()} always returns this cached bookkeeper
-     * client. Otherwise, each {@link #build()} will create a new bookkeeper client.
-     *
-     * @param newClient
-     *          whether to build new client for each {@link #build()}
-     * @return builder
-     */
-    public synchronized BookKeeperClientBuilder buildNew(boolean newClient) {
-        this.buildNew = newClient;
-        return this;
-    }
-
-    /**
      * <i>dlConfig</i> used to configure bookkeeper client.
      * @see {@link #bkdlConfig(BKDLConfig)}
      *
@@ -119,7 +103,6 @@ class BookKeeperClientBuilder {
      */
     public synchronized BookKeeperClientBuilder bkc(BookKeeperClient bkc) {
         this.cachedClient = bkc;
-        this.buildNew = false;
         return this;
     }
 
@@ -143,16 +126,12 @@ class BookKeeperClientBuilder {
 
     public synchronized BookKeeperClient build()
             throws InterruptedException, IOException, KeeperException {
-        if (!buildNew) {
-            if (null == cachedClient) {
-                cachedClient = buildClient();
-            } else {
-                cachedClient.addRef();
-            }
-            return cachedClient;
+        if (null == cachedClient) {
+            cachedClient = buildClient();
         } else {
-            return buildClient();
+            cachedClient.addRef();
         }
+        return cachedClient;
     }
 
     private BookKeeperClient buildClient()

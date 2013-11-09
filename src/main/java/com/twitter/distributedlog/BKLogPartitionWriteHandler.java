@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -25,8 +26,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-
 import static com.google.common.base.Charsets.UTF_8;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
@@ -39,7 +38,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private final String maxTxIdPath;
     private final MaxTxId maxTxId;
     private final int ensembleSize;
-    private final int quorumSize;
+    private final int writeQuorumSize;
+    private final int ackQuorumSize;
     private boolean lockAcquired;
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
@@ -78,7 +78,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                String clientId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
         ensembleSize = conf.getEnsembleSize();
-        quorumSize = conf.getQuorumSize();
+        writeQuorumSize = conf.getWriteQuorumSize();
+        ackQuorumSize = conf.getAckQuorumSize();
 
         maxTxIdPath = partitionRootPath + "/maxtxid";
         String lockPath = partitionRootPath + "/lock";
@@ -128,8 +129,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
 
-        lock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
-        deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
+        lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
+        deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
         lockAcquired = false;
@@ -197,7 +200,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     LOG.debug("Ledger already closed {}", lce);
                 }
             }
-            currentLedger = bookKeeperClient.get().createLedger(ensembleSize, quorumSize,
+            currentLedger = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
             String znodePath = inprogressZNode(txId);
@@ -346,7 +349,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            acquiredLocally = lock.checkWriteLock();
+            acquiredLocally = lock.checkWriteLock(true);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
