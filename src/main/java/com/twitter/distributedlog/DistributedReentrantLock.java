@@ -32,6 +32,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -50,18 +52,28 @@ import static com.google.common.base.Charsets.UTF_8;
  * mechanisms are required to ensure correctness (i.e. Fencing).
  */
 //
-class DistributedReentrantLock {
+class DistributedReentrantLock implements Runnable {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
+    private final ScheduledExecutorService executorService;
     private final ZooKeeperClient zkc;
     private final String lockPath;
+    private Future<?> asyncLockAcquireFuture = null;
+    private LockingException asyncLockAcquireException = null;
 
     private AtomicInteger lockCount = new AtomicInteger(0);
     private DistributedLock internalLock = null;
     private final long lockTimeout;
 
-    DistributedReentrantLock(ZooKeeperClient zkc, String lockPath, long lockTimeout, String clientId) throws IOException {
+    DistributedReentrantLock(
+        ScheduledExecutorService executorService,
+        ZooKeeperClient zkc,
+        String lockPath,
+        long lockTimeout,
+        String clientId) throws IOException {
+
+        this.executorService = executorService;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
 
@@ -127,13 +139,19 @@ class DistributedReentrantLock {
         }
     }
 
-    public boolean checkWriteLock() throws LockingException, OwnershipAcquireFailedException {
+    public synchronized boolean checkWriteLock(boolean acquiresync) throws LockingException {
         if (!haveLock()) {
-            LOG.info("Lost writer lock");
+            if (null != asyncLockAcquireException) {
+                throw asyncLockAcquireException;
+            }
             // We may have just lost the lock because of a ZK session timeout
             // not necessarily because someone else acquired the lock.
             // In such cases just try to reacquire. If that fails, it will throw
-            acquire("checkWriteLock");
+            if (acquiresync) {
+                acquire("checkWriteLock");
+            } else {
+                asyncLockAcquire();
+            }
             return true;
         }
 
@@ -141,11 +159,12 @@ class DistributedReentrantLock {
     }
 
     boolean haveLock() {
-        return lockCount.get() > 0;
+        return internalLock.isLockHeld();
     }
 
     public void close() {
         try {
+            asyncLockAcquireFuture.cancel(true);
             internalLock.cleanup();
             zkc.get().exists(lockPath, false);
         } catch (Exception e) {
@@ -153,10 +172,33 @@ class DistributedReentrantLock {
         }
     }
 
+    private synchronized void asyncLockAcquire() {
+        if (null == asyncLockAcquireFuture) {
+            asyncLockAcquireFuture = executorService.submit(this);
+        }
+    }
+
+    @Override
+    public void run() {
+        try {
+            asyncLockAcquireException = null;
+            acquire("checkWriteLock");
+        } catch (LockingException exc) {
+            asyncLockAcquireException = exc;
+        } catch (Exception exc) {
+            asyncLockAcquireException = new LockingException(lockPath, "Lock Acquisition Failed", exc);
+        } finally {
+            synchronized (this) {
+                asyncLockAcquireFuture = null;
+            }
+        }
+    }
+
     /**
      * Twitter commons version with some modifications.
      * <p/>
-     * TODO: Cannot use the same version to avoid a transitive dependence on two different versions of zookeeper.
+     * TODO: Cannot use the same version to avoid a transitive dependence on
+     * TODO: two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
     private static class DistributedLock {

@@ -31,7 +31,7 @@ class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier
         bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
         bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
         bkConfig.setZkLedgersRootPath(bkdlConfig.getBkLedgersPath());
-        bkConfig.setZkTimeout(conf.getZKSessionTimeoutMilliseconds());
+        bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
         this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
         refCount = 1;
         sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
@@ -40,7 +40,7 @@ class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, String name,
                      StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        int zkSessionTimeout = conf.getZKSessionTimeoutMilliseconds();
+        int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
         this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers());
         this.ownZK = true;
         this.name = name;

@@ -129,8 +129,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
 
-        lock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
-        deleteLock = new DistributedReentrantLock(zooKeeperClient, lockPath, conf.getLockTimeout() * 1000, clientId);
+        lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
+        deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
         lockAcquired = false;
@@ -347,7 +349,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            acquiredLocally = lock.checkWriteLock();
+            acquiredLocally = lock.checkWriteLock(true);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
