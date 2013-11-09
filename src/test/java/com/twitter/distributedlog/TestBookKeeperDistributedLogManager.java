@@ -843,7 +843,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-separate-bk-setting";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        confLocal.setShareZKClientWithBKC(!conf.getShareZKClientWithBKC());
+        confLocal.setSeparateZKClients(!conf.getSeparateZKClients());
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;

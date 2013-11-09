@@ -82,14 +82,11 @@ public class DistributedLogManagerFactory {
         // Build bookkeeper client
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
-                .buildNew(conf.getSeparateBKClients()).statsLogger(statsLogger);
-        if (conf.getShareZKClientWithBKC()) {
-            this.bookKeeperClientBuilder.zkc(zooKeeperClient);
-        }
+                .statsLogger(statsLogger);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
-        if (!conf.getSeparateBKClients() && bookKeeperClient == null) {
+        if (null == bookKeeperClient) {
             // get a reference of shared bookkeeper client
             try {
                 bookKeeperClient = bookKeeperClientBuilder.build();
