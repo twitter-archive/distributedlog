@@ -43,6 +43,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -128,6 +129,7 @@ public class DistributedLogClientBuilder {
         private final ConcurrentHashMap<SocketAddress, ServiceWithClient> address2Services =
                 new ConcurrentHashMap<SocketAddress, ServiceWithClient>();
         private final HashFunction hasher = Hashing.md5();
+        private final Random rnd = new Random(System.currentTimeMillis());
 
         private boolean closed = false;
         private final ReentrantReadWriteLock closeLock =
@@ -329,7 +331,10 @@ public class DistributedLogClientBuilder {
                     if (0 != hostList.size()) {
                         int hostId = MathUtils.signSafeMod(hasher.hashString(stream).asInt(), hostList.size());
                         address = hostList.get(hostId);
-                        if (null != previousAddr) {
+                        if (null != previousAddr && address.equals(previousAddr)) {
+                            // randomly pickup another host.
+                            hostId = rnd.nextInt(hostList.size());
+                            address = hostList.get(hostId);
                             int i = hostId;
                             while (previousAddr.equals(address)) {
                                 i = (i+1) % hostList.size();
