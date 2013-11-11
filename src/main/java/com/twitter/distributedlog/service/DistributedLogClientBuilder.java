@@ -9,6 +9,7 @@ import com.twitter.common.net.pool.DynamicHostSet;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
@@ -370,6 +371,12 @@ public class DistributedLogClientBuilder {
                     case FOUND:
                         String owner = response.getHeader().getLocation();
                         SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
+                        if (addr.equals(ownerAddr)) {
+                            // throw the exception to the client
+                            result.setException(new ServiceUnavailableException(
+                                    String.format("Request to stream %s is redirected to same server %s!", stream, addr)));
+                            return;
+                        }
                         ownershipRedirects.incr();
                         // redirect the request.
                         if (!stream2Addresses.replace(stream, addr, ownerAddr)) {
@@ -380,9 +387,11 @@ public class DistributedLogClientBuilder {
                                 if (null != newOwner2) {
                                     ownerAddr = newOwner2;
                                 }
+                            } else {
+                                ownerAddr = newOwner;
                             }
                         }
-                        logger.info("Redirect the request to new owner {}.", ownerAddr);
+                        logger.debug("Redirect the request to new owner {}.", ownerAddr);
                         sendWriteRequest(ownerAddr, stream, data, result);
                         break;
                     default:
