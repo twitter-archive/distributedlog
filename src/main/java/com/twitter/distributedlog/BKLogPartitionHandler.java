@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -134,7 +135,7 @@ abstract class BKLogPartitionHandler {
         // The last TxId is valid if the ledger is already completed else we must recover
         // the last TxId
         if (ledgerList.get(0).isInProgress()) {
-            long lastTxId = recoverLastTxId(ledgerList.get(0), recover);
+            long lastTxId = recoverLastTxId(ledgerList.get(0), recover).getKey();
             if (((DistributedLogConstants.INVALID_TXID == lastTxId) ||
                 (DistributedLogConstants.EMPTY_LEDGER_TX_ID == lastTxId)) &&
                 (ledgerList.size() > 1)) {
@@ -185,7 +186,7 @@ abstract class BKLogPartitionHandler {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = recoverLastTxId(l, false);
+                    long lastTxId = recoverLastTxId(l, false).getKey();
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
@@ -258,7 +259,7 @@ abstract class BKLogPartitionHandler {
      * Find the id of the last edit log transaction writen to a edit log
      * ledger.
      */
-    protected long recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
+    protected Map.Entry<Long, DLSN> recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
         throws IOException {
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
