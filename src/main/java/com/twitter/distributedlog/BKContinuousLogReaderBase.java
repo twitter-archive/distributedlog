@@ -1,5 +1,9 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.NotYetImplementedException;
+
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
@@ -8,33 +12,25 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.NotYetImplementedException;
+public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, Closeable {
+    static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderBase.class);
 
-public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier {
-    static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
-
-    private final BKDistributedLogManager bkDistributedLogManager;
-    private final long startTxId;
-    private long lastTxId;
-    private final BKLogPartitionReadHandler bkLedgerManager;
-    private ResumableBKPerStreamLogReader currentReader = null;
-    private final boolean readAheadEnabled;
-    private final int readAheadWaitTime;
+    protected final BKDistributedLogManager bkDistributedLogManager;
+    protected final BKLogPartitionReadHandler bkLedgerManager;
+    protected ResumableBKPerStreamLogReader currentReader = null;
+    protected final boolean readAheadEnabled;
+    protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
 
 
-    public BKContinuousLogReader (BKDistributedLogManager bkdlm,
-                                  String streamIdentifier,
-                                  long startTxId,
-                                  boolean readAheadEnabled,
-                                  int readAheadWaitTime) throws IOException {
+    public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
+                                     String streamIdentifier,
+                                     boolean readAheadEnabled,
+                                     int readAheadWaitTime) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
-        this.startTxId = startTxId;
-        lastTxId = startTxId - 1;
         this.readAheadEnabled = readAheadEnabled;
         this.readAheadWaitTime = readAheadWaitTime;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
@@ -63,7 +59,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    @Override
     public LogRecordWithDLSN readNext(boolean shouldBlock) throws IOException {
         if (shouldBlock) {
             throw new NotYetImplementedException("readNext with shouldBlock=true");
@@ -88,7 +83,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
                     break;
                 }
             } else {
-                LOG.debug("No reader starting at TxId: {}", (lastTxId + 1));
+                LOG.debug("No reader at specified start point: {}");
             }
 
         }
@@ -98,30 +93,12 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
                 endOfStreamEncountered = true;
                 throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
             }
-
-            lastTxId = record.getTransactionId();
         }
 
         return record;
     }
 
-    private boolean createOrPositionReader(boolean advancedOnce) throws IOException {
-        if (null == currentReader) {
-            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId));
-            if (null != currentReader) {
-                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
-                    bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
-                }
-                LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            }
-            advancedOnce = true;
-        } else {
-            currentReader.resume();
-        }
-
-        return advancedOnce;
-    }
+    abstract protected boolean createOrPositionReader(boolean advancedOnce) throws IOException;
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
@@ -141,7 +118,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    @Override
     public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException{
         LinkedList<LogRecord> retList = new LinkedList<LogRecord>();
 
@@ -162,11 +138,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     @Override
     public void notifySessionExpired() {
         zkSessionExpired = true;
-    }
-
-    @Override
-    public long getLastTxId() {
-        return lastTxId;
     }
 
     private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {

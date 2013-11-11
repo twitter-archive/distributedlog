@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.commons.codec.binary.Base64;
 
-public class DLSN {
+public class DLSN implements Comparable<DLSN> {
     static final DLSN InvalidDLSN = new DLSN(0,0,0);
     static final byte VERSION = (byte) 0;
     static final int VERSION_LEN = Long.SIZE * 3 + Byte.SIZE;
@@ -29,6 +29,17 @@ public class DLSN {
 
     public long getSlotId() {
         return slotId;
+    }
+
+    @Override
+    public int compareTo(DLSN that) {
+        if (this.ledgerSequenceNo != that.ledgerSequenceNo) {
+            return (this.ledgerSequenceNo < that.ledgerSequenceNo)? -1 : 1;
+        } else if (this.entryId != that.entryId) {
+            return (this.entryId < that.entryId)? -1 : 1;
+        } else {
+            return (this.slotId < that.slotId)? -1 : (this.slotId == that.slotId)? 0 : 1;
+        }
     }
 
     @Override
@@ -81,5 +92,16 @@ public class DLSN {
         result = 31 * result + (int) (entryId ^ (entryId >>> 32));
         result = 31 * result + (int) (slotId ^ (slotId >>> 32));
         return result;
+    }
+
+    /**
+     * Positions to a DLSN greater than the current value - this may not
+     * correspond to an actual LogRecord, its just used by the positioning logic
+     * to position the reader
+     *
+     * @return the next DLSN
+     */
+    DLSN getNextDLSN() {
+        return new DLSN(ledgerSequenceNo, entryId, slotId + 1);
     }
 }

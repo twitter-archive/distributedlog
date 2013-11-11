@@ -263,7 +263,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReader(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime());
+        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime());
     }
 
     /**

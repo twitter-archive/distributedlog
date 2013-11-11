@@ -57,6 +57,14 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
     }
 
+    public ResumableBKPerStreamLogReader getInputStream(DLSN startDLSN,
+                                                        boolean inProgressOk,
+                                                        boolean fException,
+                                                        boolean fThrowOnEmpty)
+        throws IOException {
+
+    }
+
     public ResumableBKPerStreamLogReader getInputStream(long fromTxId,
                                                         boolean inProgressOk,
                                                         boolean fException,
