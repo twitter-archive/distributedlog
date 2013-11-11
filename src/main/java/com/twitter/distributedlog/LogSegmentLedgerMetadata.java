@@ -55,13 +55,26 @@ public class LogSegmentLedgerMetadata {
 
         public int compare(LogSegmentLedgerMetadata o1,
                            LogSegmentLedgerMetadata o2) {
-            if (o1.firstTxId < o2.firstTxId) {
-                return -1;
-            } else if (o1.firstTxId == o2.firstTxId) {
-                return 0;
+            if ((o1.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
+                (o2.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+                if (o1.firstTxId < o2.firstTxId) {
+                    return -1;
+                } else if (o1.firstTxId == o2.firstTxId) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             } else {
-                return 1;
+                if (o1.ledgerSequenceNumber < o2.ledgerSequenceNumber) {
+                    return -1;
+                } else if (o1.ledgerSequenceNumber == o2.ledgerSequenceNumber) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             }
+
+
         }
     };
 
@@ -69,16 +82,26 @@ public class LogSegmentLedgerMetadata {
         = new Comparator<LogSegmentLedgerMetadata>() {
         public int compare(LogSegmentLedgerMetadata o1,
                            LogSegmentLedgerMetadata o2) {
-            if (o1.firstTxId > o2.firstTxId) {
-                return -1;
-            } else if (o1.firstTxId == o2.firstTxId) {
-                return 0;
+            if ((o1.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
+                (o2.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+                if (o1.firstTxId > o2.firstTxId) {
+                    return -1;
+                } else if (o1.firstTxId == o2.firstTxId) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             } else {
-                return 1;
+                if (o1.ledgerSequenceNumber > o2.ledgerSequenceNumber) {
+                    return -1;
+                } else if (o1.ledgerSequenceNumber == o2.ledgerSequenceNumber) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             }
         }
     };
-
 
     public LogSegmentLedgerMetadata(String zkPath,
                                     int version,

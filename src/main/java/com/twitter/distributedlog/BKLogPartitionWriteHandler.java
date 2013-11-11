@@ -213,7 +213,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
                 ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
                 if (!ledgerListDesc.isEmpty()) {
-                    ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber();
+                    ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
                 }
             }
 
