@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
@@ -53,30 +55,30 @@ class DistributedReentrantLock {
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
     private final ZooKeeperClient zkc;
-    private final String lockpath;
+    private final String lockPath;
 
     private AtomicInteger lockCount = new AtomicInteger(0);
     private DistributedLock internalLock = null;
     private final long lockTimeout;
 
-    DistributedReentrantLock(ZooKeeperClient zkc, String lockpath, long lockTimeout, String clientId) throws IOException {
-        this.lockpath = lockpath;
+    DistributedReentrantLock(ZooKeeperClient zkc, String lockPath, long lockTimeout, String clientId) throws IOException {
+        this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
 
         this.zkc = zkc;
         try {
-            if (zkc.get().exists(lockpath, false) == null) {
-                zkc.get().create(lockpath, null,
+            if (zkc.get().exists(lockPath, false) == null) {
+                zkc.get().create(lockPath, null,
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
-            internalLock = new DistributedLock(zkc, lockpath, clientId);
+            internalLock = new DistributedLock(zkc, lockPath, clientId);
         } catch (Exception e) {
             throw new IOException("Exception accessing Zookeeper", e);
         }
     }
 
-    void acquire(String reason) throws LockingException, OwnershipAcquireFailedException {
-        LOG.debug("Lock Acquire {}, {}", lockpath, reason);
+    void acquire(String reason) throws LockingException {
+        LOG.debug("Lock Acquire {}, {}", lockPath, reason);
         while (true) {
             if (lockCount.get() == 0) {
                 synchronized (this) {
@@ -88,7 +90,7 @@ class DistributedReentrantLock {
                         lockCount.set(1);
                         break;
                     } else {
-                        throw new LockingException("Failed to acquire lock within timeout");
+                        throw new LockingException(lockPath, "Failed to acquire lock within timeout");
                     }
                 }
             } else {
@@ -104,7 +106,7 @@ class DistributedReentrantLock {
     }
 
     void release(String reason) throws IOException {
-        LOG.debug("Lock Release {}, {}", lockpath, reason);
+        LOG.debug("Lock Release {}, {}", lockPath, reason);
         try {
             if (lockCount.decrementAndGet() <= 0) {
                 if (lockCount.get() < 0) {
@@ -114,7 +116,7 @@ class DistributedReentrantLock {
                 synchronized (this) {
                     if (lockCount.get() <= 0) {
                         if (internalLock.isLockHeld()) {
-                            LOG.info("Lock Release {}, {}", lockpath, reason);
+                            LOG.info("Lock Release {}, {}", lockPath, reason);
                             internalLock.unlock();
                         }
                     }
@@ -145,7 +147,7 @@ class DistributedReentrantLock {
     public void close() {
         try {
             internalLock.cleanup();
-            zkc.get().exists(lockpath, false);
+            zkc.get().exists(lockPath, false);
         } catch (Exception e) {
             LOG.debug("Could not remove watch on lock");
         }
@@ -202,9 +204,9 @@ class DistributedReentrantLock {
             this.watcher = new LockWatcher();
         }
 
-        public synchronized boolean tryLock(long timeout, TimeUnit unit) throws LockingException, OwnershipAcquireFailedException {
+        public synchronized boolean tryLock(long timeout, TimeUnit unit) throws LockingException {
             if (holdsLock) {
-                throw new LockingException("Error, already holding a lock. Call unlock first!");
+                throw new LockingException(lockPath, "Error, already holding a lock. Call unlock first!");
             }
             try {
                 prepare();
@@ -228,17 +230,18 @@ class DistributedReentrantLock {
                 return false;
             } catch (KeeperException e) {
                 // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeper Exception while trying to acquire lock", e);
+                throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock", e);
             } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
                 // No need to clean up since the node wasn't created yet.
-                throw new LockingException("ZooKeeper Connection Exception while trying to acquire lock " + lockPath + " : ", e);
+                throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock", e);
             }
+
             return true;
         }
 
         public synchronized void unlock() throws LockingException {
             if (currentId == null) {
-                throw new LockingException("Error, neither attempting to lock nor holding a lock!");
+                throw new LockingException(lockPath, "Error, neither attempting to lock nor holding a lock!");
             }
             // Try aborting!
             if (!holdsLock) {

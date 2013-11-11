@@ -49,6 +49,14 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BOOKKEEPER_QUORUM_SIZE = "quorum-size";
     public static final int BKDL_BOOKKEEPER_QUORUM_SIZE_DEFAULT = 2;
 
+    // Bookkeeper write quorum size
+    public static final String BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE = "write-quorum-size";
+    public static final int BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT = 2;
+
+    // Bookkeeper ack quorum size
+    public static final String BKDL_BOOKKEEPER_ACK_QUORUM_SIZE = "ack-quorum-size";
+    public static final int BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT = 2;
+
     // Bookkeeper digest
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
@@ -225,6 +233,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return quorum size
      */
+    @Deprecated
     public int getQuorumSize() {
         return this.getInt(BKDL_BOOKKEEPER_QUORUM_SIZE, BKDL_BOOKKEEPER_QUORUM_SIZE_DEFAULT);
     }
@@ -235,8 +244,51 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param quorumSize quorum size.
      * @return distributed log configuration
      */
+    @Deprecated
     public DistributedLogConfiguration setQuorumSize(int quorumSize) {
         setProperty(BKDL_BOOKKEEPER_QUORUM_SIZE, quorumSize);
+        return this;
+    }
+
+    /**
+     * Get write quorum size.
+     *
+     * @return write quorum size
+     */
+    public int getWriteQuorumSize() {
+        return this.getInt(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE, BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT);
+    }
+
+    /**
+     * Set write quorum size.
+     *
+     * @param quorumSize
+     *          quorum size.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setWriteQuorumSize(int quorumSize) {
+        setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE, quorumSize);
+        return this;
+    }
+
+    /**
+     * Get ack quorum size.
+     *
+     * @return ack quorum size
+     */
+    public int getAckQuorumSize() {
+        return this.getInt(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+    }
+
+    /**
+     * Set ack quorum size.
+     *
+     * @param quorumSize
+     *          quorum size.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setAckQuorumSize(int quorumSize) {
+        setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, quorumSize);
         return this;
     }
 
@@ -257,46 +309,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public String getBKDigestPW() {
         return getString(BKDL_BOOKKEEPER_DIGEST_PW, BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT);
     }
-
-    /**
-     * Set if we should use separate BK clients
-     *
-     * @param separateBKClients should use separate BK clients
-     */
-    public DistributedLogConfiguration setSeparateBKClients(boolean separateBKClients) {
-        setProperty(BKDL_SEPARATE_BK_CLIENT, separateBKClients);
-        return this;
-    }
-
-    /**
-     * Get if we should use separate BK Clients
-     *
-     * @return should use separate BK clients
-     */
-    public boolean getSeparateBKClients() {
-        return getBoolean(BKDL_SEPARATE_BK_CLIENT, BKDL_SEPARATE_BK_CLIENT_DEFAULT);
-    }
-
-    /**
-     * Set if we should share ZK client between DL and BKC
-     *
-     * @param shareZKClientWithBKC
-     *          should share ZK client between DL and BKC
-     */
-    public DistributedLogConfiguration setShareZKClientWithBKC(boolean shareZKClientWithBKC) {
-        setProperty(BKDL_SHARE_ZK_CLIENT_WITH_BKC, shareZKClientWithBKC);
-        return this;
-    }
-
-    /**
-     * Get if we should use separate BK Clients
-     *
-     * @return should use separate BK clients
-     */
-    public boolean getShareZKClientWithBKC() {
-        return getBoolean(BKDL_SHARE_ZK_CLIENT_WITH_BKC, BKDL_SHARE_ZK_CLIENT_WITH_BKC_DEFAULT);
-    }
-
 
     /**
      * Set if we should use separate ZK clients
