@@ -351,9 +351,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         synchronized DistributedLogManager setStreamStatus(
                 StreamStatus status, DistributedLogManager manager, AsyncLogWriter writer,
                 String owner, Throwable t) {
-            if (StreamStatus.INITIALIZED == status) {
+            if (StreamStatus.INITIALIZED == status && StreamStatus.INITIALIZED != this.status) {
                 numStreamsOwned.incrementAndGet();
-            } else {
+            } else if (StreamStatus.INITIALIZING == status) {
+                numStreamsOwned.decrementAndGet();
+            } else if (StreamStatus.FAILED == status && StreamStatus.INITIALIZED == this.status) {
                 numStreamsOwned.decrementAndGet();
             }
             DistributedLogManager oldManager = this.manager;
