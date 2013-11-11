@@ -46,6 +46,8 @@ public class LogSegmentLedgerMetadata {
     private long lastTxId;
     private long completionTime;
     private long ledgerSequenceNumber = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+    private long lastEntryId = -1;
+    private long lastSlotId = -1;
     private boolean inprogress;
     // zk version
     private Integer zkVersion = null;
@@ -55,13 +57,26 @@ public class LogSegmentLedgerMetadata {
 
         public int compare(LogSegmentLedgerMetadata o1,
                            LogSegmentLedgerMetadata o2) {
-            if (o1.firstTxId < o2.firstTxId) {
-                return -1;
-            } else if (o1.firstTxId == o2.firstTxId) {
-                return 0;
+            if ((o1.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
+                (o2.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+                if (o1.firstTxId < o2.firstTxId) {
+                    return -1;
+                } else if (o1.firstTxId == o2.firstTxId) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             } else {
-                return 1;
+                if (o1.ledgerSequenceNumber < o2.ledgerSequenceNumber) {
+                    return -1;
+                } else if (o1.ledgerSequenceNumber == o2.ledgerSequenceNumber) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             }
+
+
         }
     };
 
@@ -69,12 +84,23 @@ public class LogSegmentLedgerMetadata {
         = new Comparator<LogSegmentLedgerMetadata>() {
         public int compare(LogSegmentLedgerMetadata o1,
                            LogSegmentLedgerMetadata o2) {
-            if (o1.firstTxId > o2.firstTxId) {
-                return -1;
-            } else if (o1.firstTxId == o2.firstTxId) {
-                return 0;
+            if ((o1.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
+                (o2.ledgerSequenceNumber == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+                if (o1.firstTxId > o2.firstTxId) {
+                    return -1;
+                } else if (o1.firstTxId == o2.firstTxId) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             } else {
-                return 1;
+                if (o1.ledgerSequenceNumber > o2.ledgerSequenceNumber) {
+                    return -1;
+                } else if (o1.ledgerSequenceNumber == o2.ledgerSequenceNumber) {
+                    return 0;
+                } else {
+                    return 1;
+                }
             }
         }
     };
@@ -93,7 +119,9 @@ public class LogSegmentLedgerMetadata {
             DistributedLogConstants.INVALID_TXID,
             0,
             true,
-            ledgerSequenceNumber);
+            ledgerSequenceNumber,
+            -1,
+            -1);
     }
 
     public LogSegmentLedgerMetadata(String zkPath,
@@ -107,7 +135,9 @@ public class LogSegmentLedgerMetadata {
             DistributedLogConstants.INVALID_TXID,
             0,
             true,
-            0);
+            DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
+            -1,
+            -1);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
@@ -123,7 +153,9 @@ public class LogSegmentLedgerMetadata {
             lastTxId,
             completionTime,
             false,
-            0);
+            DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
+            -1,
+            -1);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
@@ -132,7 +164,8 @@ public class LogSegmentLedgerMetadata {
                                      long firstTxId,
                                      long lastTxId,
                                      long completionTime,
-                                     long ledgerSequenceNumber) {
+                                     long ledgerSequenceNumber,
+                                     long lastEntryId, long lastSlotId) {
         this(zkPath,
             version,
             ledgerId,
@@ -140,13 +173,16 @@ public class LogSegmentLedgerMetadata {
             lastTxId,
             completionTime,
             false,
-            ledgerSequenceNumber);
+            ledgerSequenceNumber,
+            lastEntryId,
+            lastSlotId);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
                                      int version,
                                      long ledgerId,
-           long firstTxId, long lastTxId, long completionTime, boolean inprogress, long ledgerSequenceNumber) {
+           long firstTxId, long lastTxId, long completionTime, boolean inprogress,
+           long ledgerSequenceNumber, long lastEntryId, long lastSlotId) {
         this.zkPath = zkPath;
         this.ledgerId = ledgerId;
         this.version = version;
@@ -155,6 +191,8 @@ public class LogSegmentLedgerMetadata {
         this.inprogress = inprogress;
         this.completionTime = completionTime;
         this.ledgerSequenceNumber = ledgerSequenceNumber;
+        this.lastEntryId = lastEntryId;
+        this.lastSlotId = lastSlotId;
     }
 
 
@@ -194,9 +232,11 @@ public class LogSegmentLedgerMetadata {
         return this.inprogress;
     }
 
-    long finalizeLedger(long newLastTxId) {
+    long finalizeLedger(long newLastTxId, long lastEntryId, long lastSlotId) {
         assert this.lastTxId == DistributedLogConstants.INVALID_TXID;
         this.lastTxId = newLastTxId;
+        this.lastEntryId = lastEntryId;
+        this.lastSlotId = lastSlotId;
         this.inprogress = false;
         this.completionTime = Utils.nowInMillis();
         return this.completionTime;
@@ -274,14 +314,16 @@ public class LogSegmentLedgerMetadata {
             long txId = Long.valueOf(parts[2]);
             long ledgerSequenceNumber = Long.valueOf(parts[3]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId, ledgerSequenceNumber);
-        } else if (parts.length == 6) {
+        } else if (parts.length == 8) {
             long ledgerId = Long.valueOf(parts[1]);
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
             long ledgerSequenceNumber = Long.valueOf(parts[5]);
+            long lastEntryId = Long.valueOf(parts[6]);
+            long lastSlotId = Long.valueOf(parts[7]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId,
-                firstTxId, lastTxId, completionTime, ledgerSequenceNumber);
+                firstTxId, lastTxId, completionTime, ledgerSequenceNumber, lastEntryId, lastSlotId);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -327,8 +369,8 @@ public class LogSegmentLedgerMetadata {
                 finalisedData = String.format("%d;%d;%d;%d",
                     version, ledgerId, firstTxId, ledgerSequenceNumber);
             } else {
-                finalisedData = String.format("%d;%d;%d;%d;%d;%d",
-                    version, ledgerId, firstTxId, lastTxId, completionTime, ledgerSequenceNumber);
+                finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d",
+                    version, ledgerId, firstTxId, lastTxId, completionTime, ledgerSequenceNumber, lastEntryId, lastSlotId);
             }
         }
         try {
