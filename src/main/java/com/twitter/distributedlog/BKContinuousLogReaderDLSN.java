@@ -2,10 +2,6 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
-package com.twitter.distributedlog;
-
-import java.io.IOException;
-
 public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase implements LogReader {
     private final DLSN startDLSN;
     private DLSN lastDLSN;
@@ -31,15 +27,10 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
         LogRecordWithDLSN record = super.readNext(shouldBlock);
 
         if (null != record) {
-            lastTxId = record.getDlsn();
+            lastDLSN = record.getDlsn();
         }
 
         return record;
-    }
-
-    @Override
-    public long getLastTxId() {
-        return lastTxId;
     }
 
     @Override

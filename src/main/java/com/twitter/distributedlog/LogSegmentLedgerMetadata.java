@@ -228,6 +228,14 @@ public class LogSegmentLedgerMetadata {
         return version;
     }
 
+    public long getLastEntryId() {
+        return lastEntryId;
+    }
+
+    public long getLastSlotId() {
+        return lastSlotId;
+    }
+
     boolean isInProgress() {
         return this.inprogress;
     }

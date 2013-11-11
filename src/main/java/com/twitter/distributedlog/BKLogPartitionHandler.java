@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -272,7 +273,7 @@ abstract class BKLogPartitionHandler {
 
             if (scanStartPoint < 0) {
                 // Ledger is empty
-                return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+                return new AbstractMap.SimpleEntry<Long,DLSN>(DistributedLogConstants.EMPTY_LEDGER_TX_ID, DLSN.InvalidDLSN);
             }
 
             if (fence) {
@@ -286,18 +287,21 @@ abstract class BKLogPartitionHandler {
             }
 
             long endTxId;
+            DLSN lastDLSN;
             while (true) {
                 BKPerStreamLogReader in
                     = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, fence);
 
                 endTxId = DistributedLogConstants.INVALID_TXID;
+                lastDLSN = DLSN.InvalidDLSN;
                 try {
-                    LogRecord record = in.readOp();
+                    LogRecordWithDLSN record = in.readOp();
                     while (record != null) {
                         if (endTxId == DistributedLogConstants.INVALID_TXID
                             || record.getTransactionId() > endTxId) {
                             endTxId = record.getTransactionId();
                         }
+                        lastDLSN = record.getDlsn();
                         record = in.readOp();
                     }
                 } catch (Exception exc) {
@@ -322,7 +326,7 @@ abstract class BKLogPartitionHandler {
                 }
             }
 
-            return endTxId;
+            return new AbstractMap.SimpleEntry<Long, DLSN>(endTxId, lastDLSN);
         } catch (Exception e) {
             throw new IOException("Exception retreiving last tx id for ledger " + l,
                 e);

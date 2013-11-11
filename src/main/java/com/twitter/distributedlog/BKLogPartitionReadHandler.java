@@ -57,11 +57,78 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
     }
 
-    public ResumableBKPerStreamLogReader getInputStream(DLSN startDLSN,
+    public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
                                                         boolean inProgressOk,
                                                         boolean fException,
                                                         boolean fThrowOnEmpty)
         throws IOException {
+        boolean logExists = false;
+        try {
+            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
+                logExists = true;
+            }
+        } catch (InterruptedException ie) {
+            LOG.error("Interrupted while deleting " + ledgerPath, ie);
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+        } catch (KeeperException ke) {
+            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+        }
+
+        if (logExists) {
+            for (LogSegmentLedgerMetadata l : getLedgerList()) {
+                LOG.debug("Inspecting Ledger: {}", l);
+                DLSN lastDLSN = new DLSN(l.getLedgerSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
+                if (l.isInProgress()) {
+                    if (!inProgressOk) {
+                        continue;
+                    }
+
+                    try {
+                        lastDLSN = recoverLastTxId(l, false).getValue();
+                    } catch (IOException exc) {
+                        lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
+                        LOG.info("Reading beyond flush point");
+                    }
+
+                    if (lastDLSN == DLSN.InvalidDLSN) {
+                        lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
+                    }
+                }
+
+                if (fromDLSN.compareTo(lastDLSN) <= 0) {
+                    try {
+                        ResumableBKPerStreamLogReader s;
+                        if(l.getLedgerSequenceNumber() > fromDLSN.getLedgerSequenceNo()) {
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l);
+                        } else {
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, fromDLSN.getEntryId());
+                        }
+                        if (s.skipTo(fromDLSN)) {
+                            return s;
+                        } else {
+                            s.close();
+                            return null;
+                        }
+                    } catch (Exception e) {
+                        LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startDLSN " + fromDLSN, e);
+                        throw new IOException("Could not open ledger for " + fromDLSN, e);
+                    }
+                } else {
+                    ledgerDataAccessor.removeLedger(l.getLedgerId());
+                }
+            }
+        } else {
+            if (fThrowOnEmpty) {
+                throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
+            }
+        }
+
+        if (fException) {
+            throw new IOException("No ledger for fromTxnId " + fromDLSN + " found.");
+        } else {
+            return null;
+        }
 
     }
 

@@ -19,6 +19,26 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
     private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
+    private long startBkEntry;
+
+    /**
+     * Construct BookKeeper log record input stream.
+     */
+    ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
+                                  ZooKeeperClient zkc,
+                                  LedgerDataAccessor ledgerDataAccessor,
+                                  LogSegmentLedgerMetadata metadata,
+                                  long startBkEntry) throws IOException {
+        super(metadata);
+        this.metadata = metadata;
+        this.ledgerManager = ledgerManager;
+        this.zkc = zkc;
+        this.zkPath = metadata.getZkPath();
+        this.ledgerDataAccessor = ledgerDataAccessor;
+        ledgerDescriptor = null;
+        this.startBkEntry = startBkEntry;
+        resume();
+    }
 
     /**
      * Construct BookKeeper log record input stream.
@@ -27,14 +47,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata) throws IOException {
-        super(metadata);
-        this.metadata = metadata;
-        this.ledgerManager = ledgerManager;
-        this.zkc = zkc;
-        this.zkPath = metadata.getZkPath();
-        this.ledgerDataAccessor = ledgerDataAccessor;
-        ledgerDescriptor = null;
-        resume();
+        this(ledgerManager, zkc, ledgerDataAccessor, metadata, 0);
     }
 
     synchronized public void resume() throws IOException {
@@ -64,7 +77,6 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             }
         }
         LedgerDescriptor h;
-        long startBkEntry = 0;
         if (null != ledgerDescriptor) {
             startBkEntry = lin.nextEntryToRead();
         }
@@ -88,6 +100,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                 h = ledgerManager.getHandleCache().openLedger(metadata, true);
             }
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
+            startBkEntry = 0;
             shouldResume = false;
         } catch (Exception e) {
             LOG.error("Could not open ledger for partition " + metadata.getLedgerId(), e);

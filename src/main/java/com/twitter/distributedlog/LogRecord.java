@@ -189,7 +189,8 @@ public class LogRecord {
                 nextRecordInStream.setFlags(in.readLong());
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
-                nextRecordInStream.setDlsn(recordStream.advanceToNextRecord());
+                nextRecordInStream.setDlsn(recordStream.getCurrentPosition());
+                recordStream.advanceToNextRecord();
                 return nextRecordInStream;
             } catch (EOFException eof) {
                 // Expected
@@ -199,13 +200,25 @@ public class LogRecord {
         }
 
         public boolean skipTo(long txId) throws IOException {
+            return skipTo(txId, null);
+        }
+
+        public boolean skipTo(DLSN dlsn) throws IOException {
+            return skipTo(null, dlsn);
+        }
+
+        private boolean skipTo(Long txId, DLSN dlsn) throws IOException {
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
                 in.mark(24);
                 try {
                     in.readLong();
-                    if (in.readLong() >= txId) {
+                    if ((null != txId) && (in.readLong() >= txId)) {
+                        in.reset();
+                        found = true;
+                        break;
+                    } else if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
                         in.reset();
                         found = true;
                         break;

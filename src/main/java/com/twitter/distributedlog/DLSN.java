@@ -5,7 +5,7 @@ import java.nio.ByteBuffer;
 import org.apache.commons.codec.binary.Base64;
 
 public class DLSN implements Comparable<DLSN> {
-    static final DLSN InvalidDLSN = new DLSN(0,0,0);
+    static final DLSN InvalidDLSN = new DLSN(0,-1,-1);
     static final byte VERSION = (byte) 0;
     static final int VERSION_LEN = Long.SIZE * 3 + Byte.SIZE;
 

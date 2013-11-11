@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -453,7 +454,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     if (!l.isInProgress()) {
                         continue;
                     }
-                    long endTxId = recoverLastTxId(l, true);
+                    Map.Entry<Long, DLSN> recoveryPoint = recoverLastTxId(l, true);
+                    long endTxId = recoveryPoint.getKey();
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {
                         LOG.error("Unrecoverable corruption has occurred in segment "
                             + l.toString() + " at path " + l.getZkPath()
@@ -468,7 +470,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     // Make the lock release symmetric by having this function acquire and
                     // release the lock and have complete and close only release the lock
                     // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, false);
+                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recoveryPoint.getValue().getEntryId(), recoveryPoint.getValue().getSlotId(), false);
                     LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
 
                 }

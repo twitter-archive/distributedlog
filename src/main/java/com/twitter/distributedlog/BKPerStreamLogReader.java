@@ -40,6 +40,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     protected LedgerDataAccessor ledgerDataAccessor;
     protected boolean isExhausted;
     private LogRecord currLogRec;
+    private DLSN startDLSN = null;
     private final boolean dontSkipControl;
 
     protected LedgerInputStream lin;
@@ -136,6 +137,12 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         isExhausted = !reader.skipTo(txId);
         return !isExhausted;
     }
+
+    public boolean skipTo(DLSN dlsn) throws IOException {
+        isExhausted = !reader.skipTo(dlsn);
+        return !isExhausted;
+    }
+
 
     /**
      * Input stream implementation which can be used by
@@ -240,14 +247,20 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         }
 
         @Override
-        public DLSN advanceToNextRecord() {
+        public void advanceToNextRecord() {
+            if (null == readPosition) {
+                return;
+            }
+            currentSlotId++;
+        }
+
+        @Override
+        public DLSN getCurrentPosition() {
             if (null == readPosition) {
                 return DLSN.InvalidDLSN;
             }
 
-            DLSN ret = new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
-            currentSlotId++;
-            return ret;
+            return new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
         }
     }
 }

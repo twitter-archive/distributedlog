@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
 interface RecordStream {
-    DLSN advanceToNextRecord();
+    void advanceToNextRecord();
+    DLSN getCurrentPosition();
 }
