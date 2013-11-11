@@ -40,6 +40,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
@@ -177,7 +180,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.lock = lock;
         this.lock.acquire("PerStreamLogWriter");
         this.transmissionThreshold
-            = conf.getOutputBufferSize();
+            = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
 
         this.ledgerSequenceNumber = ledgerSequenceNumber;
         this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, transmissionThreshold);
@@ -260,10 +263,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public Future<DLSN> write(LogRecord record) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
-        lock.checkWriteLock();
         Future<DLSN> future = writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
@@ -277,6 +279,22 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     synchronized public Future<DLSN> writeInternal(LogRecord record) throws IOException {
         Promise<DLSN> dlsn = new Promise<DLSN>();
+
+        int logRecordSize = record.getPersistentSize();
+
+        if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {
+            throw new LogRecordTooLongException(String.format(
+                    "Log Record of size %d written when only %d is allowed",
+                    logRecordSize, DistributedLogConstants.MAX_LOGRECORD_SIZE));
+        }
+
+        // If we will exceed the max number of bytes allowed per entry
+        // initiate a transmit before accepting the new log record
+        if ((writer.getPendingBytes() + logRecordSize) >
+            DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+            setReadyToFlush();
+        }
+
         writer.writeOp(record);
         packetCurrent.addToPromiseList(dlsn);
 
@@ -291,7 +309,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     synchronized private void writeControlLogRecord() throws IOException {
-        lock.checkWriteLock();
         LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes(UTF_8));
         controlRec.setControl();
         writeInternal(controlRec);
@@ -305,7 +322,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      * @throws IOException
      */
     synchronized private void writeEndOfStreamMarker() throws IOException {
-        lock.checkWriteLock();
         LogRecord endOfStreamRec = new LogRecord(DistributedLogConstants.MAX_TXID, "endOfStream".getBytes(UTF_8));
         endOfStreamRec.setEndOfStream();
         writeInternal(endOfStreamRec);
@@ -330,10 +346,8 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
         if (streamEnded) {
-            throw new IOException("Writing to a stream after it has been marked as completed");
+            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
-
-        lock.checkWriteLock();
 
         int numRecords = 0;
         for (LogRecord r : records) {
@@ -408,7 +422,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     private void flushAndSyncInternal()
         throws LockingException, BKTransmitException, FlushException {
-        lock.checkWriteLock();
+        lock.checkWriteLock(false);
 
         long txIdToBePersisted;
 
@@ -452,7 +466,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      */
     synchronized private boolean transmit(boolean isControl)
         throws BKTransmitException, LockingException {
-        lock.checkWriteLock();
+        lock.checkWriteLock(false);
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
             BKException.Code.OK)) {
@@ -492,8 +506,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      *  task can determine if there is anything it needs to do
      */
     synchronized private boolean haveDataToTransmit() throws IOException {
-        assert(!lock.checkWriteLock());
-
         if (!transmitResult.compareAndSet(BKException.Code.OK, BKException.Code.OK)) {
             // Even if there is data it cannot be transmitted, so effectively nothing to send
             return false;
