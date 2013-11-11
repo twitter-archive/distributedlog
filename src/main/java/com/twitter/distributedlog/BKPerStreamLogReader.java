@@ -73,7 +73,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                                                     long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
-        this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
+        this.reader = new LogRecord.Reader(lin, new DataInputStream(new BufferedInputStream(lin)), logVersion);
         this.isExhausted = false;
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
@@ -93,8 +93,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     }
 
     @Override
-    public LogRecord readOp() throws IOException {
-        LogRecord toRet = null;
+    public LogRecordWithDLSN readOp() throws IOException {
+        LogRecordWithDLSN toRet = null;
         if (!isExhausted) {
             do {
                 toRet = reader.readOp();
@@ -141,9 +141,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
      * Input stream implementation which can be used by
      * LogRecord.Reader
      */
-    protected static class LedgerInputStream extends InputStream {
+    protected static class LedgerInputStream extends InputStream implements RecordStream {
         private long readEntries;
         private InputStream entryStream = null;
+        LedgerReadPosition readPosition = null;
+        private long currentSlotId = 0;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
 
@@ -175,11 +177,12 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                     return null;
                 }
 
-                LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
+                readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
                 LedgerEntry e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
                 assert (e != null);
                 ledgerDataAccessor.remove(readPosition);
                 readEntries++;
+                currentSlotId = 0;
                 return e.getEntryInputStream();
             } catch (BKException bke) {
                 LOG.info("Reached the end of the stream", bke);
@@ -234,6 +237,17 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
         public void setLedgerDataAccessor(LedgerDataAccessor ledgerDataAccessor) {
             this.ledgerDataAccessor = ledgerDataAccessor;
+        }
+
+        @Override
+        public DLSN advanceToNextRecord() {
+            if (null == readPosition) {
+                return DLSN.InvalidDLSN;
+            }
+
+            DLSN ret = new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
+            currentSlotId++;
+            return ret;
         }
     }
 }

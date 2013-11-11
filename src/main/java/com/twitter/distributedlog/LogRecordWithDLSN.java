@@ -6,7 +6,7 @@ public class LogRecordWithDLSN extends LogRecord {
     /**
      * This empty constructor can only be called from Reader#readOp.
      */
-    private LogRecordWithDLSN() {
+    LogRecordWithDLSN() {
         super();
         this.dlsn = DLSN.InvalidDLSN;
     }

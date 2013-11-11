@@ -76,14 +76,14 @@ public class TestLedgerHandleCache {
         newBkc.release();
         // open ledger after bkc closed.
         try {
-            cache.openLedger(1, false);
+            cache.openLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1), false);
             fail("Should throw IOException if bookkeeper client is closed.");
         } catch (BKException.BKBookieHandleNotAvailableException ie) {
             // expected
         }
         final AtomicInteger rcHolder = new AtomicInteger(0);
         final CountDownLatch latch = new CountDownLatch(1);
-        cache.asyncOpenLedger(1, false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+        cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor result) {
                 rcHolder.set(rc);
@@ -107,14 +107,14 @@ public class TestLedgerHandleCache {
             LedgerHandleCache cache = new LedgerHandleCache(newBkc, "zkcClosed");
             // open ledger after zkc closed
             try {
-                cache.openLedger(lh.getId(), false);
+                cache.openLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId()), false);
                 fail("Should throw BKException.ZKException if zookeeper client is closed.");
             } catch (BKException.ZKException ze) {
                 // expected
             }
             final AtomicInteger rcHolder = new AtomicInteger(0);
             final CountDownLatch latch = new CountDownLatch(1);
-            cache.asyncOpenLedger(lh.getId(), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+            cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId()), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
                 @Override
                 public void operationComplete(int rc, LedgerDescriptor result) {
                     rcHolder.set(rc);
@@ -130,7 +130,7 @@ public class TestLedgerHandleCache {
 
     @Test(timeout = 60000)
     public void testOperationsOnUnexistedLedger() throws Exception {
-        LedgerDescriptor desc = new LedgerDescriptor(9999, false);
+        LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
         LedgerHandleCache cache = new LedgerHandleCache(bkc, "unexistedLedgers");
         // read last confirmed
         try {

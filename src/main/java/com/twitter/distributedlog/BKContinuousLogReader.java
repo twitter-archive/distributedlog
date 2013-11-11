@@ -64,14 +64,14 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public LogRecord readNext(boolean shouldBlock) throws IOException {
+    public LogRecordWithDLSN readNext(boolean shouldBlock) throws IOException {
         if (shouldBlock) {
             throw new NotYetImplementedException("readNext with shouldBlock=true");
         }
 
         checkClosedOrInError("LogReader#readNext");
 
-        LogRecord record = null;
+        LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
             advancedOnce = createOrPositionReader(advancedOnce);

@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(ResumableBKPerStreamLogReader.class);
 
-    private final long ledgerId;
+    private final LogSegmentLedgerMetadata metadata;
     private String zkPath;
     private final BKLogPartitionReadHandler ledgerManager;
     private final ZooKeeperClient zkc;
@@ -28,7 +28,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata) throws IOException {
         super(metadata);
-        this.ledgerId = metadata.getLedgerId();
+        this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
         this.zkPath = metadata.getZkPath();
@@ -50,7 +50,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                 LOG.debug("Unable to setup latch", exc);
             }
             for (LogSegmentLedgerMetadata l : ledgerManager.getLedgerList()) {
-                if (l.getLedgerId() == ledgerId) {
+                if (l.getLedgerId() == metadata.getLedgerId()) {
                     if (!l.isInProgress()) {
                         inProgress = false;
                         try {
@@ -72,7 +72,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         try {
             if (isInProgress()) { // we don't want to fence the current journal
                 if (null == ledgerDescriptor) {
-                    h = ledgerManager.getHandleCache().openLedger(ledgerId, false);
+                    h = ledgerManager.getHandleCache().openLedger(metadata, false);
                 } else {
                     if (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor)) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
@@ -85,13 +85,13 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                     ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
                     ledgerDescriptor = null;
                 }
-                h = ledgerManager.getHandleCache().openLedger(ledgerId, true);
+                h = ledgerManager.getHandleCache().openLedger(metadata, true);
             }
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             shouldResume = false;
         } catch (Exception e) {
-            LOG.error("Could not open ledger for partition " + ledgerId, e);
-            throw new IOException("Could not open ledger for " + ledgerId, e);
+            LOG.error("Could not open ledger for partition " + metadata.getLedgerId(), e);
+            throw new IOException("Could not open ledger for " + metadata.getLedgerId(), e);
         }
     }
 
@@ -111,7 +111,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(ledgerId, lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLedgerId(), lin.nextEntryToRead());
     }
 
     synchronized public void setReadAheadCache() {

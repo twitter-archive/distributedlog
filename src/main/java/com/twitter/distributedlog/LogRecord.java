@@ -88,7 +88,7 @@ public class LogRecord {
         return new ByteArrayInputStream(payload);
     }
 
-    private void readPayload(DataInputStream in, int logVersion) throws IOException {
+    protected void readPayload(DataInputStream in, int logVersion) throws IOException {
         int length = in.readInt();
         if (length < 0) {
             throw new EOFException("Log Record is corrupt: Negative length " + length);
@@ -102,11 +102,11 @@ public class LogRecord {
         out.write(payload);
     }
 
-    private void setTransactionId(long txid) {
+    protected void setTransactionId(long txid) {
         this.txid = txid;
     }
 
-    private void setFlags(long flags) {
+    protected void setFlags(long flags) {
         this.flags = flags;
     }
 
@@ -157,6 +157,7 @@ public class LogRecord {
      * from the persistent
       */
     static class Reader {
+        private final RecordStream recordStream;
         private final DataInputStream in;
         private final int logVersion;
         private static final int SKIP_BUFFER_SIZE = 512;
@@ -166,8 +167,9 @@ public class LogRecord {
          *
          * @param in The stream to read from.
          */
-        public Reader(DataInputStream in, int logVersion) {
+        public Reader(RecordStream recordStream, DataInputStream in, int logVersion) {
             this.logVersion = logVersion;
+            this.recordStream = recordStream;
             this.in = in;
         }
 
@@ -180,13 +182,14 @@ public class LogRecord {
          * @return the operation read from the stream, or null at the end of the file
          * @throws IOException on error.
          */
-        public LogRecord readOp() throws IOException {
+        public LogRecordWithDLSN readOp() throws IOException {
             in.mark(1);
             try {
-                LogRecord nextRecordInStream = new LogRecord();
+                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
                 nextRecordInStream.setFlags(in.readLong());
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
+                nextRecordInStream.setDlsn(recordStream.advanceToNextRecord());
                 return nextRecordInStream;
             } catch (EOFException eof) {
                 // Expected
@@ -220,6 +223,7 @@ public class LogRecord {
                         in.readFully(skipBuffer, 0 , bytesToRead);
                         read += bytesToRead;
                     }
+                    recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
                     break;
                 }

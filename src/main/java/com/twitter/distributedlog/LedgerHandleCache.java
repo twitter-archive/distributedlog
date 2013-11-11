@@ -55,9 +55,9 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized void asyncOpenLedger(long ledgerId, boolean fence,
+    public synchronized void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
                                              final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
-        final LedgerDescriptor ledgerDesc = new LedgerDescriptor(ledgerId, fence);
+        final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
         if (null == refhandle) {
             asyncOpenLedger(ledgerDesc, new AsyncCallback.OpenCallback() {
@@ -83,10 +83,10 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized LedgerDescriptor openLedger(long ledgerId, boolean fence) throws IOException, BKException {
+    public synchronized LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
-        asyncOpenLedger(ledgerId, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+        asyncOpenLedger(metadata, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor ledgerDescriptor) {
                 syncObject.setrc(rc);
@@ -97,8 +97,8 @@ public class LedgerHandleCache {
         try {
             syncObject.block(0);
         } catch (InterruptedException e) {
-            LOG.error("Interrupted when opening ledger {} : ", ledgerId, e);
-            throw new IOException("Could not open ledger for " + ledgerId, e);
+            LOG.error("Interrupted when opening ledger {} : ", metadata.getLedgerId(), e);
+            throw new IOException("Could not open ledger for " + metadata.getLedgerId(), e);
         }
         if (BKException.Code.OK == syncObject.getrc()) {
             return syncObject.getValue();

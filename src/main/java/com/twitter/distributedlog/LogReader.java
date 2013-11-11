@@ -18,7 +18,7 @@ public interface LogReader extends Closeable {
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public LogRecord readNext(boolean shouldBlock) throws IOException;
+    public LogRecordWithDLSN readNext(boolean shouldBlock) throws IOException;
 
     /**
      * Read the next numLogRec log records from the stream

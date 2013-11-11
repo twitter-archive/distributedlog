@@ -431,7 +431,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         }
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), false, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false, this);
                     } else {
                         long lastAddConfirmed;
                         try {
@@ -481,7 +481,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         }
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), true, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, true, this);
                     }
                 }
 

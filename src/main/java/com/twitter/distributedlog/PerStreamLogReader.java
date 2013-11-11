@@ -39,7 +39,7 @@ public interface PerStreamLogReader extends Closeable {
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public LogRecord readOp() throws IOException;
+    public LogRecordWithDLSN readOp() throws IOException;
 
     /**
      * Return the size of the current edits log.

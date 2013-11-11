@@ -197,7 +197,7 @@ abstract class BKLogPartitionHandler {
             }
 
             try {
-                LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), !l.isInProgress());
+                LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, !l.isInProgress());
                 BKPerStreamLogReader s
                     = new BKPerStreamLogReader(ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
 
@@ -266,7 +266,7 @@ abstract class BKLogPartitionHandler {
             boolean trySmallLedger = true;
             long scanStartPoint = 0;
             LedgerDescriptor ledgerDescriptor = null;
-            ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+            ledgerDescriptor = handleCachePriv.openLedger(l, fence);
             scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
 
             if (scanStartPoint < 0) {
