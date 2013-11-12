@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -28,7 +29,7 @@ public class LedgerDataAccessor {
     private final Counter readAheadMisses;
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
-    private LedgerReadPosition lastRemovedKey = null;
+    private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
         this(ledgerHandleCache, NullStatsLogger.INSTANCE);
@@ -120,8 +121,9 @@ public class LedgerDataAccessor {
     public void set(LedgerReadPosition key, LedgerEntry entry) {
         // Read Ahead is completing the read after the foreground reader
         // Don't add the entry to the cache
-        if ((null != lastRemovedKey) && (lastRemovedKey.getLedgerId() == key.getLedgerId()) &&
-            (lastRemovedKey.getEntryId() >= key.getEntryId())) {
+        LedgerReadPosition removeKey = lastRemovedKey.get();
+        if ((null != removeKey) && (removeKey.getLedgerId() == key.getLedgerId()) &&
+            (removeKey.getEntryId() >= key.getEntryId())) {
             return;
         }
 
@@ -140,7 +142,7 @@ public class LedgerDataAccessor {
     }
 
     public void remove(LedgerReadPosition key) {
-        lastRemovedKey = key;
+        lastRemovedKey.set(key);
         removeInternal(key);
     }
 
