@@ -23,16 +23,19 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
+    protected final boolean noBlocking;
 
 
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      boolean readAheadEnabled,
-                                     int readAheadWaitTime) throws IOException {
+                                     int readAheadWaitTime,
+                                     boolean noBlocking) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.readAheadEnabled = readAheadEnabled;
         this.readAheadWaitTime = readAheadWaitTime;
+        this.noBlocking = noBlocking;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -140,7 +143,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         zkSessionExpired = true;
     }
 
-    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {
+    public void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {
         if (endOfStreamEncountered) {
             throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
         }

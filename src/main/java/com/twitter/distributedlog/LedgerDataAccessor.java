@@ -28,6 +28,7 @@ public class LedgerDataAccessor {
     private final Counter readAheadMisses;
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
+    private LedgerReadPosition lastRemovedKey = null;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
         this(ledgerHandleCache, NullStatsLogger.INSTANCE);
@@ -61,6 +62,21 @@ public class LedgerDataAccessor {
     public void closeLedger(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException, IOException {
         ledgerHandleCache.closeLedger(ledgerDesc);
+    }
+
+    public LedgerEntry getWithNoWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
+        throws InterruptedException, BKException, IOException {
+        ReadAheadCacheValue value = cache.get(key);
+        if ((null == value) || (null == value.getLedgerEntry())) {
+            if (null != notificationObject) {
+                synchronized (notificationObject) {
+                    notificationObject.notifyAll();
+                }
+            }
+            return null;
+        } else {
+            return value.getLedgerEntry();
+        }
     }
 
     public LedgerEntry getWithWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
@@ -102,6 +118,13 @@ public class LedgerDataAccessor {
     }
 
     public void set(LedgerReadPosition key, LedgerEntry entry) {
+        // Read Ahead is completing the read after the foreground reader
+        // Don't add the entry to the cache
+        if ((null != lastRemovedKey) && (lastRemovedKey.getLedgerId() == key.getLedgerId()) &&
+            (lastRemovedKey.getEntryId() >= key.getEntryId())) {
+            return;
+        }
+
         ReadAheadCacheValue newValue = new ReadAheadCacheValue();
         ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
         if (!cachedLedgerIds.contains(key.getLedgerId())) {
@@ -117,6 +140,11 @@ public class LedgerDataAccessor {
     }
 
     public void remove(LedgerReadPosition key) {
+        lastRemovedKey = key;
+        removeInternal(key);
+    }
+
+    public void removeInternal(LedgerReadPosition key) {
         if ((null != cache.remove(key)) && (null != notificationObject)) {
             synchronized (notificationObject) {
                 notificationObject.notifyAll();

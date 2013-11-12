@@ -20,6 +20,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private boolean shouldResume = true;
     private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
     private long startBkEntry;
+    protected final boolean noBlocking;
 
     /**
      * Construct BookKeeper log record input stream.
@@ -28,8 +29,9 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata,
+                                  boolean noBlocking,
                                   long startBkEntry) throws IOException {
-        super(metadata);
+        super(metadata, noBlocking);
         this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
@@ -37,6 +39,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         this.ledgerDataAccessor = ledgerDataAccessor;
         ledgerDescriptor = null;
         this.startBkEntry = startBkEntry;
+        this.noBlocking = noBlocking;
         resume();
     }
 
@@ -46,8 +49,9 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
-                                  LogSegmentLedgerMetadata metadata) throws IOException {
-        this(ledgerManager, zkc, ledgerDataAccessor, metadata, 0);
+                                  LogSegmentLedgerMetadata metadata,
+                                  boolean noBlocking) throws IOException {
+        this(ledgerManager, zkc, ledgerDataAccessor, metadata, noBlocking, 0);
     }
 
     synchronized public void resume() throws IOException {

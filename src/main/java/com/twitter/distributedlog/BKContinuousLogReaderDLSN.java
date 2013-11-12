@@ -10,8 +10,9 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
                                      String streamIdentifier,
                                      DLSN startDLSN,
                                      boolean readAheadEnabled,
-                                     int readAheadWaitTime) throws IOException {
-        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime);
+                                     int readAheadWaitTime,
+                                     boolean noBlocking) throws IOException {
+        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking);
         this.startDLSN = startDLSN;
         lastDLSN = DLSN.InvalidDLSN;
     }
@@ -38,7 +39,7 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
         if (null == currentReader) {
             DLSN nextDLSN = lastDLSN.getNextDLSN();
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
-            currentReader = bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN));
+            currentReader = bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN), noBlocking);
             if (null != currentReader) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);

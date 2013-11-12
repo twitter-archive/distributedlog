@@ -60,7 +60,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
                                                         boolean inProgressOk,
                                                         boolean fException,
-                                                        boolean fThrowOnEmpty)
+                                                        boolean fThrowOnEmpty,
+                                                        boolean noBlocking)
         throws IOException {
         boolean logExists = false;
         try {
@@ -100,9 +101,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     try {
                         ResumableBKPerStreamLogReader s;
                         if(l.getLedgerSequenceNumber() > fromDLSN.getLedgerSequenceNo()) {
-                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l);
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking);
                         } else {
-                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, fromDLSN.getEntryId());
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking, fromDLSN.getEntryId());
                         }
                         if (s.skipTo(fromDLSN)) {
                             return s;
@@ -135,7 +136,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public ResumableBKPerStreamLogReader getInputStream(long fromTxId,
                                                         boolean inProgressOk,
                                                         boolean fException,
-                                                        boolean fThrowOnEmpty)
+                                                        boolean fThrowOnEmpty,
+                                                        boolean noBlocking)
         throws IOException {
         boolean logExists = false;
         try {
@@ -174,7 +176,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (fromTxId <= lastTxId) {
                     try {
                         ResumableBKPerStreamLogReader s
-                            = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l);
+                            = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking);
                         if (s.skipTo(fromTxId)) {
                             return s;
                         } else {
@@ -521,6 +523,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
                             }
+                            bkLedgerManager.getHandleCache().asyncReadLastConfirmed(currentLH, this, null);
                         } else {
                             next.process(BKException.Code.OK);
                         }

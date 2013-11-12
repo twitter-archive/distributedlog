@@ -10,8 +10,9 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
                                      String streamIdentifier,
                                      long startTxId,
                                      boolean readAheadEnabled,
-                                     int readAheadWaitTime) throws IOException {
-        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime);
+                                     int readAheadWaitTime,
+                                     boolean noBlocking) throws IOException {
+        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
     }
@@ -42,7 +43,7 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
     protected boolean createOrPositionReader(boolean advancedOnce) throws IOException {
         if (null == currentReader) {
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId));
+            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId), noBlocking);
             if (null != currentReader) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);

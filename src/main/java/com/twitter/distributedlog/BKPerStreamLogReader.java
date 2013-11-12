@@ -42,16 +42,18 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     private LogRecord currLogRec;
     private DLSN startDLSN = null;
     private final boolean dontSkipControl;
+    protected final boolean noBlocking;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata) {
+    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata, boolean noBlocking) {
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
         this.isExhausted = false;
         this.dontSkipControl = false;
+        this.noBlocking = noBlocking;
     }
 
     /**
@@ -67,13 +69,14 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
+        this.noBlocking = false;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
+        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(new BufferedInputStream(lin)), logVersion);
         this.isExhausted = false;
         this.ledgerDescriptor = desc;
@@ -155,6 +158,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         private long currentSlotId = 0;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
+        private final boolean noBlocking;
 
         /**
          * Construct ledger input stream
@@ -163,11 +167,13 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
-        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
+        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
+                          long firstBookKeeperEntry, boolean noBlocking)
             throws IOException {
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
+            this.noBlocking = noBlocking;
         }
 
         /**
@@ -185,7 +191,15 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 }
 
                 readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
-                LedgerEntry e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
+                LedgerEntry e;
+                if (noBlocking) {
+                    e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
+                    if (null == e) {
+                        return null;
+                    }
+                } else {
+                    e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
+                }
                 assert (e != null);
                 ledgerDataAccessor.remove(readPosition);
                 readEntries++;
