@@ -34,22 +34,9 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
     }
 
     @Override
-    protected boolean createOrPositionReader(boolean advancedOnce) throws IOException {
-        if (null == currentReader) {
-            DLSN nextDLSN = lastDLSN.getNextDLSN();
-            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
-            currentReader = bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN));
-            if (null != currentReader) {
-                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
-                    bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
-                }
-                LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
-            }
-            advancedOnce = true;
-        } else {
-            currentReader.resume();
-        }
-
-        return advancedOnce;
+    protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException {
+        DLSN nextDLSN = lastDLSN.getNextDLSN();
+        LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
+        return bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN));
     }
 }

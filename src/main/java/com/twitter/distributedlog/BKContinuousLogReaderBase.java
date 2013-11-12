@@ -98,7 +98,24 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         return record;
     }
 
-    abstract protected boolean createOrPositionReader(boolean advancedOnce) throws IOException;
+    protected boolean createOrPositionReader(boolean advancedOnce) throws IOException {
+        if (null == currentReader) {
+            currentReader = getCurrentReader();
+            if (null != currentReader) {
+                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
+                    bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
+                }
+                LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
+            }
+            advancedOnce = true;
+        } else {
+            currentReader.resume();
+        }
+
+        return advancedOnce;
+    }
+
+    abstract protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException;
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
