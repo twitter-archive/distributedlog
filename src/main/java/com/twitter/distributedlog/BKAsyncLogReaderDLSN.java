@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.zookeeper.Watcher;
 
@@ -19,8 +20,10 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
+    private IOException lastException = null;
     private ScheduledExecutorService executorService;
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();
+    private AtomicLong scheduleCount = new AtomicLong(0);
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -65,10 +68,26 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
      *         The Future may timeout if there is no record to return within the specified timeout
      */
     @Override
-    public Future<LogRecordWithDLSN> readNext(long timeout, TimeUnit timeUnit) throws IOException {
+    public synchronized Future<LogRecordWithDLSN> readNext(long timeout, TimeUnit timeUnit) throws IOException {
         checkClosedOrInError("readNext");
 
         boolean queueEmpty = pendingRequests.isEmpty();
+        Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
+        pendingRequests.add(promise);
+
+        if (queueEmpty) {
+            scheduleBackgroundRead();
+        }
+
+        return promise;
+    }
+
+    public void scheduleBackgroundRead() {
+        long prevCount = scheduleCount.getAndIncrement();
+        if (0 == prevCount) {
+            executorService.submit(this);
+        }
+
     }
 
     @Override
@@ -85,12 +104,44 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
             bkLedgerManager.close();
         }
 
+        if (null != lastException) {
+            throw lastException;
+        }
+
         bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
 
 
     @Override
     public void run() {
+        while(true) {
+            if (pendingRequests.isEmpty()) {
+                return;
+            }
+
+            try {
+                LogRecordWithDLSN record = currentReader.readNext(false);
+            } catch (IOException exc) {
+                lastException = exc;
+                return;
+            }
+
+            if (null != record) {
+                Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
+                if (null != promise) {
+                    promise.setValue(record);
+                } else {
+                    // This can only happen if there was a ZK session expire
+                    // after the loop started
+                    assert(zkSessionExpired);
+                }
+            } else {
+                if (0 == scheduleCount.decrementAndGet()) {
+                    return;
+                }
+            }
+        }
+
     }
 }
 
