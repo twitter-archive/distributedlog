@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 
@@ -10,11 +12,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.zookeeper.Watcher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
-public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable {
+public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable, AsyncNotification {
+    static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
+
     protected final BKDistributedLogManager bkDistributedLogManager;
-    protected final BKLogPartitionReadHandler bkLedgerManager;
     protected BKContinuousLogReaderDLSN currentReader = null;
     protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
@@ -31,34 +36,33 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                                      DLSN startDLSN,
                                      int readAheadWaitTime) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.readAheadWaitTime = readAheadWaitTime;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
-        this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, readAheadWaitTime, true);
+        this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, readAheadWaitTime, true, this);
     }
 
     @Override
     public void notifySessionExpired() {
         zkSessionExpired = true;
-        executorService.submit(new Runnable() {
-            @Override
-            public void run() {
-                for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
-                    promise.setException(new AlreadyClosedException("ZooKeeper Session expired"));
-                }
-            }
-        });
+        scheduleBackgroundRead();
     }
 
     private void checkClosedOrInError(String operation) throws IOException {
         if (zkSessionExpired) {
             LOG.error("Executing " + operation + " after losing connection to zookeeper");
-            throw new AlreadyClosedException("Executing " + operation + " after losing connection to zookeeper");
+            throw new RetryableReadException(currentReader.getFullyQualifiedName(), "Executing " + operation + " after losing connection to zookeeper");
         }
 
-        currentReader.checkClosedOrInError(operation);
-
+        try {
+            currentReader.checkClosedOrInError(operation);
+        } catch (IOException exc) {
+            IOException throwExc = exc;
+            if (!(exc instanceof EndOfStreamException)) {
+                throwExc = new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc);
+            }
+            throw throwExc;
+        }
     }
 
     /**
@@ -93,15 +97,11 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     @Override
     public void close() throws IOException {
         for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
-            promise.setException(new AlreadyClosedException("ZooKeeper Session expired"));
+            promise.setException(new RetryableReadException(currentReader.getFullyQualifiedName(), "Reader is closed"));
         }
 
         if (null != currentReader) {
             currentReader.close();
-        }
-
-        if (null != bkLedgerManager) {
-            bkLedgerManager.close();
         }
 
         if (null != lastException) {
@@ -114,19 +114,38 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
     @Override
     public void run() {
+        int iterations = 0;
+        LOG.debug("Scheduled Background Reader");
         while(true) {
+            LOG.debug("Executing Iteration: {}", iterations++);
             if (pendingRequests.isEmpty()) {
                 return;
             }
 
             try {
-                LogRecordWithDLSN record = currentReader.readNext(false);
+                checkClosedOrInError("background task");
+            } catch (IOException exc) {
+                Exception throwExc = exc;
+                if (!(exc instanceof EndOfStreamException)) {
+                    throwExc = new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc);
+                }
+
+                for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
+                    promise.setException(throwExc);
+                }
+                return;
+            }
+
+            LogRecordWithDLSN record = null;
+            try {
+                record = currentReader.readNext(false);
             } catch (IOException exc) {
                 lastException = exc;
                 return;
             }
 
             if (null != record) {
+                LOG.debug("Satisfied promise with record {}", record.getTransactionId());
                 Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                 if (null != promise) {
                     promise.setValue(record);
@@ -136,12 +155,29 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                     assert(zkSessionExpired);
                 }
             } else {
-                if (0 == scheduleCount.decrementAndGet()) {
+                if (0 >= scheduleCount.get()) {
                     return;
                 }
+                scheduleCount.decrementAndGet();
             }
         }
 
+    }
+
+    /**
+     * Triggered when the background activity encounters an exception
+     */
+    @Override
+    public void notifyOnError() {
+        scheduleBackgroundRead();
+    }
+
+    /**
+     * Triggered when the background activity completes an operation
+     */
+    @Override
+    public void notifyOnOperationComplete() {
+        scheduleBackgroundRead();
     }
 }
 

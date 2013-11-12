@@ -35,6 +35,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     // stats
     private final Counter readAheadWorkerWaits;
+    private final AsyncNotification notification;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -46,9 +47,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
                                      ScheduledExecutorService executorService,
-                                     StatsLogger statsLogger) throws IOException {
+                                     StatsLogger statsLogger,
+                                     AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
 
+        this.notification = notification;
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache, statsLogger);
 
@@ -78,7 +81,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         if (logExists) {
             for (LogSegmentLedgerMetadata l : getLedgerList()) {
-                LOG.debug("Inspecting Ledger: {}", l);
+                LOG.debug("Inspecting Ledger: {} for {}", l, fromDLSN);
                 DLSN lastDLSN = new DLSN(l.getLedgerSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
                 if (l.isInProgress()) {
                     if (!inProgressOk) {
@@ -101,11 +104,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     try {
                         ResumableBKPerStreamLogReader s;
                         if(l.getLedgerSequenceNumber() > fromDLSN.getLedgerSequenceNo()) {
-                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking);
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, false);
                         } else {
-                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking, fromDLSN.getEntryId());
+                            s = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, false, Math.max(0, fromDLSN.getEntryId()));
                         }
                         if (s.skipTo(fromDLSN)) {
+                            s.setNoBlocking(noBlocking);
                             return s;
                         } else {
                             s.close();
@@ -115,7 +119,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startDLSN " + fromDLSN, e);
                         throw new IOException("Could not open ledger for " + fromDLSN, e);
                     }
-                } else {
+                } else if (!noBlocking) {
                     ledgerDataAccessor.removeLedger(l.getLedgerId());
                 }
             }
@@ -252,6 +256,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     public void setReadAheadError() {
         readAheadError = true;
+        if (null != notification) {
+            notification.notifyOnError();
+        }
     }
 
     public void checkClosedOrInError() throws LogReadException {

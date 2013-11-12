@@ -292,9 +292,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long lastTxId)
+    public void completeAndCloseLogSegment(long lastTxId, long lastEntryId, long lastSlotId)
         throws IOException {
-        completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, true);
+        completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, lastEntryId, lastSlotId, true);
     }
 
     /**

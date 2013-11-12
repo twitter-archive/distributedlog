@@ -2,7 +2,12 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase implements LogReader {
+    static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderTxId.class);
+
     private final long startTxId;
     private long lastTxId;
 
@@ -11,8 +16,9 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
                                      long startTxId,
                                      boolean readAheadEnabled,
                                      int readAheadWaitTime,
-                                     boolean noBlocking) throws IOException {
-        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking);
+                                     boolean noBlocking,
+                                     AsyncNotification notification) throws IOException {
+        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking, notification);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
     }

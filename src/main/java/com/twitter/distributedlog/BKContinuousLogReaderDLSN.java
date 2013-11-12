@@ -2,7 +2,12 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase implements LogReader {
+    static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderDLSN.class);
+
     private final DLSN startDLSN;
     private DLSN lastDLSN;
 
@@ -11,8 +16,9 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
                                      DLSN startDLSN,
                                      boolean readAheadEnabled,
                                      int readAheadWaitTime,
-                                     boolean noBlocking) throws IOException {
-        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking);
+                                     boolean noBlocking,
+                                     AsyncNotification notification) throws IOException {
+        super(bkdlm, streamIdentifier, readAheadEnabled, readAheadWaitTime, noBlocking, notification);
         this.startDLSN = startDLSN;
         lastDLSN = DLSN.InvalidDLSN;
     }
@@ -36,7 +42,10 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
 
     @Override
     protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException {
-        DLSN nextDLSN = lastDLSN.getNextDLSN();
+        DLSN nextDLSN = startDLSN;
+        if (DLSN.InvalidDLSN != lastDLSN) {
+            nextDLSN = lastDLSN.getNextDLSN();
+        }
         LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
         return bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN), noBlocking);
     }

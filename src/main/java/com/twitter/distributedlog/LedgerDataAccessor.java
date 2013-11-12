@@ -30,17 +30,24 @@ public class LedgerDataAccessor {
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
+    private final AsyncNotification notification;
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
-        this(ledgerHandleCache, NullStatsLogger.INSTANCE);
-    }
+//    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
+//        this(ledgerHandleCache, NullStatsLogger.INSTANCE, null);
+//    }
+//
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger) {
+        this(ledgerHandleCache, statsLogger, null);
+    }
+
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger, AsyncNotification notification) {
         this.ledgerHandleCache = ledgerHandleCache;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
+        this.notification = notification;
     }
 
     public void setNotificationObject(Object notificationObject) {
@@ -138,6 +145,9 @@ public class LedgerDataAccessor {
         synchronized (value) {
             value.setLedgerEntry(entry);
             value.notifyAll();
+        }
+        if (null != notification) {
+            notification.notifyOnOperationComplete();
         }
     }
 

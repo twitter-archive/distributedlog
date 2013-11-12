@@ -1,6 +1,13 @@
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
+
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -271,4 +278,128 @@ public class TestInterleavedReaders {
         reader1.close();
         dlmreader.close();
     }
+
+    private static void readNext(final Thread threadToInterrupt, final CountDownLatch syncLatch, final AsyncLogReader reader) {
+        Future<LogRecordWithDLSN> record = null;
+        try {
+            record = reader.readNext(60, TimeUnit.MILLISECONDS);
+        } catch (IOException exc) {
+            threadToInterrupt.interrupt();
+        }
+        if (null != record) {
+            record.addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
+                @Override
+                public void onSuccess(LogRecordWithDLSN value) {
+                    try {
+                        DLMTestUtil.verifyLogRecord(value);
+                    } catch (Exception exc) {
+                        LOG.debug("Exception Encountered", exc);
+                        threadToInterrupt.interrupt();
+                    }
+                    syncLatch.countDown();
+                    LOG.debug("SyncLatch: " + syncLatch.getCount());
+                    TestInterleavedReaders.readNext(threadToInterrupt, syncLatch, reader);
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    threadToInterrupt.interrupt();
+                }
+            });
+        }
+    }
+
+    @Test
+    public void testSimpleAsyncRead() throws Exception {
+        String name = "distrlog-simpleasyncread";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= 10; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+            writer.close();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            blplm.completeAndCloseLogSegment(start, txid - 1);
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            blplm.close();
+        }
+
+        long start = txid;
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (long j = 1; j <= 5; j++) {
+            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+        }
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        writer.close();
+
+        final CountDownLatch syncLatch = new CountDownLatch(txid - 1);
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        final Thread currentThread = Thread.currentThread();
+
+        TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        reader.close();
+        dlm.close();
+    }
+
+    @Test
+    public void testSimpleAsyncReadPosition() throws Exception {
+        String name = "distrlog-simpleasyncreadpos";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)(dlm.startLogSegmentNonPartitioned());
+            for (long j = 1; j <= 10; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+            writer.closeAndComplete();
+        }
+
+        long start = txid;
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (long j = 1; j <= 5; j++) {
+            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+        }
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        writer.close();
+
+        final CountDownLatch syncLatch = new CountDownLatch(txid - 11);
+        final AsyncLogReader reader = dlm.getAsyncLogReader(new DLSN(2, -1, 0));
+        final Thread currentThread = Thread.currentThread();
+
+        TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        reader.close();
+        dlm.close();
+    }
+
 }

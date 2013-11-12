@@ -27,12 +27,15 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.commons.collections.keyvalue.AbstractMapEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.AbstractMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -91,6 +94,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
                 nextSlotId++;
             }
+            lastDLSN = new DLSN(ledgerSequenceNo, entryId, nextSlotId-1);
         }
 
         private void cancelPromises(int transmitResult) {
@@ -109,7 +113,12 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             }
         }
 
+        public DLSN getLastDLSN() {
+            return lastDLSN;
+        }
+
         private long ledgerSequenceNo;
+        private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
         DataOutputBuffer buffer;
     }
@@ -123,6 +132,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         = new AtomicInteger(BKException.Code.OK);
     private final DistributedReentrantLock lock;
     private LogRecord.Writer writer;
+    private DLSN lastDLSN = DLSN.InvalidDLSN;
     private long lastTxId = DistributedLogConstants.INVALID_TXID;
     private long lastTxIdFlushed = DistributedLogConstants.INVALID_TXID;
     private long lastTxIdAcknowledged = DistributedLogConstants.INVALID_TXID;
@@ -219,9 +229,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         transmitPacketQueue.add(packet);
     }
 
-    public long closeToFinalize() throws IOException {
+    public Map.Entry<Long, DLSN> closeToFinalize() throws IOException {
         close();
-        return lastTxId;
+        return new AbstractMap.SimpleEntry(lastTxId, lastDLSN);
     }
 
     @Override
@@ -538,6 +548,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         transmitPacket.processTransmitComplete(entryId, transmitResult.get());
+        if (transmitResult.get() == BKException.Code.OK) {
+            lastDLSN = transmitPacket.getLastDLSN();
+        }
+
         releasePacket(transmitPacket);
 
         synchronized (this) {

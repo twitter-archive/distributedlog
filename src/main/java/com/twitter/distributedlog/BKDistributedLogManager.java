@@ -105,7 +105,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(PartitionId partition) throws IOException {
-        return createReadLedgerHandler(partition.toString());
+        return createReadLedgerHandler(partition.toString(), null);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(PartitionId partition) throws IOException {
@@ -113,8 +113,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
+        return createReadLedgerHandler(streamIdentifier, null);
+    }
+
+    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                          AsyncNotification notification) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, notification);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
@@ -249,7 +254,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
-        throw new NotYetImplementedException("getAsyncLogReader");
+        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN, conf.getReadAheadWaitTime());
     }
 
     /**
@@ -263,7 +268,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime(), false);
+        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime(), false, null);
     }
 
     /**

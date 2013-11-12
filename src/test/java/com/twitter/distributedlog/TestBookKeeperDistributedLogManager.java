@@ -38,6 +38,9 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -232,7 +235,7 @@ public class TestBookKeeperDistributedLogManager {
             PerStreamLogWriter out2 = bkdlm2.startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
-            assertEquals(ioe.getCurrentOwner(),"localhost");
+            assertEquals(ioe.getCurrentOwner(), "localhost");
         }
     }
 

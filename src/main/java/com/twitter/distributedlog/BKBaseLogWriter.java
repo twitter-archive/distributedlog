@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
@@ -117,9 +118,9 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (ledgerManager.shouldStartNewSegment() || forceRolling) {
-            long lastTxId = ledgerWriter.closeToFinalize();
+            Map.Entry<Long, DLSN> lastPoint = ledgerWriter.closeToFinalize();
             numFlushes = ledgerWriter.getNumFlushes();
-            ledgerManager.completeAndCloseLogSegment(lastTxId);
+            ledgerManager.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);

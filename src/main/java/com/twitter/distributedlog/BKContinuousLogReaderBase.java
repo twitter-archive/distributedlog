@@ -30,9 +30,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                                      String streamIdentifier,
                                      boolean readAheadEnabled,
                                      int readAheadWaitTime,
-                                     boolean noBlocking) throws IOException {
+                                     boolean noBlocking,
+                                     AsyncNotification notification) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
         this.readAheadEnabled = readAheadEnabled;
         this.readAheadWaitTime = readAheadWaitTime;
         this.noBlocking = noBlocking;
@@ -175,5 +176,9 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         }
 
         bkDistributedLogManager.checkClosedOrInError(operation);
+    }
+
+    String getFullyQualifiedName() {
+        return bkLedgerManager.getFullyQualifiedName();
     }
 }

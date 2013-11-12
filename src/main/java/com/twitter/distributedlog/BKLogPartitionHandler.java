@@ -421,7 +421,7 @@ abstract class BKLogPartitionHandler {
         }
     }
 
-    public String getFullyQualifiedName() {
+    String getFullyQualifiedName() {
         return String.format("%s:%s", name, streamIdentifier);
     }
 }

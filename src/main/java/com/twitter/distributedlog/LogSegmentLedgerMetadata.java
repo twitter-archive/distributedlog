@@ -450,6 +450,8 @@ public class LogSegmentLedgerMetadata {
             ", lastTxId:" + lastTxId +
             ", version:" + version +
             ", completionTime:" + completionTime +
-            ", ledgerSequenceNumber:" + ledgerSequenceNumber + "]";
+            ", ledgerSequenceNumber:" + ledgerSequenceNumber +
+            ", lastEntryId:" + lastEntryId +
+            ", lastSlotId:" + lastSlotId + "]";
     }
 }
