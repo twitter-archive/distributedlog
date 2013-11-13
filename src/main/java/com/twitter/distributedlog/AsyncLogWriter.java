@@ -5,7 +5,7 @@ import com.twitter.util.Future;
 import java.io.Closeable;
 import java.io.IOException;
 
-public interface AsyncLogWriter extends Closeable {
+public interface AsyncLogWriter {
     /**
      * Write a log record to the stream.
      *
