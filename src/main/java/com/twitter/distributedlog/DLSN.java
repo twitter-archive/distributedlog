@@ -1,8 +1,7 @@
 package com.twitter.distributedlog;
 
-import java.nio.ByteBuffer;
-
 import org.apache.commons.codec.binary.Base64;
+import java.nio.ByteBuffer;
 
 public class DLSN implements Comparable<DLSN> {
     static final DLSN InvalidDLSN = new DLSN(0,-1,-1);
@@ -71,6 +70,14 @@ public class DLSN implements Comparable<DLSN> {
         return new DLSN(bb.getLong(), bb.getLong(), bb.getLong());
     }
 
+    @Override
+    public String toString() {
+        return "DLSN{" +
+            "ledgerSequenceNo=" + ledgerSequenceNo +
+            ", entryId=" + entryId +
+            ", slotId=" + slotId +
+            '}';
+    }
 
     @Override
     public boolean equals(Object o) {
