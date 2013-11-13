@@ -5,7 +5,7 @@
     <groupId>com.twitter</groupId>
     <artifactId>distributedlog</artifactId>
     <packaging>jar</packaging>
-    <version>0.2.8-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <distributionManagement>
         <repository>
             <id>artifactory-release</id>
@@ -82,12 +82,42 @@
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
-            <version>0.8.0</version>
+            <version>0.5.0</version>
         </dependency>
         <dependency>
             <groupId>com.twitter</groupId>
             <artifactId>scrooge-core_2.9.2</artifactId>
             <version>3.8.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>finagle-b3</artifactId>
+            <version>5.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>finagle-core</artifactId>
+            <version>6.5.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>finagle-ostrich4</artifactId>
+            <version>6.5.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>finagle-thrift</artifactId>
+            <version>6.5.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>servo-service</artifactId>
+            <version>2.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>servo-util</artifactId>
+            <version>2.1.2</version>
         </dependency>
         <dependency>
             <groupId>org.apache.bookkeeper</groupId>
@@ -114,6 +144,9 @@
                 <version>3.8.0</version>
                 <configuration>
                     <language>java</language>
+                    <thriftOpts>
+                        <thriftOpt>--finagle</thriftOpt>
+                    </thriftOpts>
                 </configuration>
                 <executions>
                     <execution>
