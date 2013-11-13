@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 
-public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
+public abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
     private final BKDistributedLogManager bkDistributedLogManager;
@@ -23,12 +23,10 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     private boolean forceRecovery = false;
     private LogTruncationTask lastTruncationAttempt = null;
     private Watcher sessionExpireWatcher = null;
-    private boolean zkSessionExpired = false;
 
     public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         this.bkDistributedLogManager = bkdlm;
         this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
-        sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         LOG.info("Retention Period {}", retentionPeriodInMillis);
     }
 
@@ -159,11 +157,6 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     protected void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (zkSessionExpired) {
-            LOG.error("Executing " + operation + " after losing connection to zookeeper");
-            throw new AlreadyClosedException("Executing " + operation + " after losing connection to zookeeper");
-        }
-
         if (closed) {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
@@ -321,8 +314,4 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         this.forceRecovery = forceRecovery;
     }
 
-    @Override
-    public void notifySessionExpired() {
-        zkSessionExpired = true;
-    }
 }

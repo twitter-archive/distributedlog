@@ -239,6 +239,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         }
                     }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
                 }
+            } catch (final AlreadyClosedException ioe) {
+                // TODO: change to more specific exception: e.g. bkzk session expired?
+                logger.error("DL Manager is closed. Quiting : {}", ioe);
+                Runtime.getRuntime().exit(-1);
             } catch (final IOException ioe) {
                 logger.error("Failed to write data into stream {} : ", name, ioe);
                 DistributedLogManager managerToClose = null;
@@ -420,7 +424,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.dlConfig = dlConf;
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.MEM.toString()));
         int serverPort = dlConf.getInt("server_port", 0);
-        this.clientId = DLSocketAddress.toString(DLSocketAddress.getSocketAddress(serverPort));
+        int shard = dlConf.getInt("server_shard", -1);
+        this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
 
         // Executor Service.
@@ -448,6 +453,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             @Override
             public Number getSample() {
                 return numStreamsOwned.get();
+            }
+        });
+        streamsStatsLogger.registerGauge("cached", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return streams.size();
             }
         });
         streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
