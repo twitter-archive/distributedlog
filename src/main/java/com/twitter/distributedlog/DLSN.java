@@ -41,15 +41,6 @@ public class DLSN implements Comparable<DLSN> {
         }
     }
 
-    @Override
-    public String toString() {
-        return "DLSN{" +
-            "ledgerSequenceNo=" + ledgerSequenceNo +
-            ", entryId=" + entryId +
-            ", slotId=" + slotId +
-            '}';
-    }
-
     public String serialize() {
         byte[] data = new byte[VERSION_LEN];
         ByteBuffer bb = ByteBuffer.wrap(data);
