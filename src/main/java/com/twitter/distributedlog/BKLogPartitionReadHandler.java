@@ -67,20 +67,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean noBlocking,
                                                         int readAheadWaitTime)
         throws IOException {
-        boolean logExists = false;
-        try {
-            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
-                logExists = true;
-            }
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
-        } catch (KeeperException ke) {
-            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
-        }
-
-        if (logExists) {
+        if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList()) {
                 LOG.debug("Inspecting Ledger: {} for {}", l, fromDLSN);
                 DLSN lastDLSN = new DLSN(l.getLedgerSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
@@ -160,20 +147,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean noBlocking,
                                                         int readAheadWaitTime)
         throws IOException {
-        boolean logExists = false;
-        try {
-            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
-                logExists = true;
-            }
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
-        } catch (KeeperException ke) {
-            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
-        }
-
-        if (logExists) {
+        if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList()) {
                 LOG.debug("Inspecting Ledger: {}", l);
                 long lastTxId = l.getLastTxId();
@@ -286,6 +260,22 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         if (null != notification) {
             notification.notifyOnError();
         }
+    }
+
+    private boolean doesLogExist() throws IOException {
+        boolean logExists = false;
+        try {
+            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
+                logExists = true;
+            }
+        } catch (InterruptedException ie) {
+            LOG.error("Interrupted while deleting " + ledgerPath, ie);
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+        } catch (KeeperException ke) {
+            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+        }
+        return logExists;
     }
 
     public void checkClosedOrInError() throws LogReadException {
