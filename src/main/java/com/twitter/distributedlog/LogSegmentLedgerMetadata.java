@@ -105,7 +105,6 @@ public class LogSegmentLedgerMetadata {
         }
     };
 
-
     public LogSegmentLedgerMetadata(String zkPath,
                                     int version,
                                     long ledgerId,

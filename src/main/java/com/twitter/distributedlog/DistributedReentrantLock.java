@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -229,7 +230,7 @@ class DistributedReentrantLock implements Runnable {
         }
 
         private synchronized void prepare()
-            throws LockingException, InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
+            throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
             LOG.debug("Working with locking path: {}", lockPath);
 
@@ -280,7 +281,6 @@ class DistributedReentrantLock implements Runnable {
                     cancelAttempt(false);
                 }
             }
-
             return true;
         }
 

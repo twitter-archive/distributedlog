@@ -51,8 +51,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
         this(name, conf, uri, zkcBuilder, bkcBuilder,
-            Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-            statsLogger);
+                Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+                statsLogger);
         this.ownExecutor = true;
     }
 
