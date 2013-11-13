@@ -2,6 +2,7 @@ package com.twitter.distributedlog.service;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
@@ -20,6 +21,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -72,9 +74,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 response.setLocation(((OwnershipAcquireFailedException) dle).getCurrentOwner());
             }
             response.setCode(dle.getCode());
-        } else if (t instanceof IOException) {
-            response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
         } else {
+            // TODO: more specific errors.
             response.setCode(StatusCode.INTERNAL_SERVER_ERROR);
         }
         return response;
@@ -238,6 +239,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         }
                     }, dlConfig.getZKSessionTimeoutSeconds(), TimeUnit.SECONDS);
                 }
+            } catch (final AlreadyClosedException ioe) {
+                // TODO: change to more specific exception: e.g. bkzk session expired?
+                logger.error("DL Manager is closed. Quiting : {}", ioe);
+                Runtime.getRuntime().exit(-1);
             } catch (final IOException ioe) {
                 logger.error("Failed to write data into stream {} : ", name, ioe);
                 DistributedLogManager managerToClose = null;
@@ -272,6 +277,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         public void run() {
             Queue<WriteOp> oldPendingOps;
             boolean success;
+            Stopwatch stopwatch = new Stopwatch().start();
             try {
                 DistributedLogManager dlManager = dlFactory.createDistributedLogManagerWithSharedClients(name);
                 dlManager.recover();
@@ -282,6 +288,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     pendingOps = new ArrayDeque<WriteOp>();
                     success = true;
                 }
+            } catch (final AlreadyClosedException ace) {
+                // TODO: better handling session expired.
+                logger.error("DLManager is already closed. Quit.");
+                Runtime.getRuntime().exit(-1);
+                return;
             } catch (final OwnershipAcquireFailedException oafe) {
                 logger.error("Failed to initialize stream {} : ", name, oafe);
                 synchronized (this) {
@@ -320,6 +331,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     removeMySelf(ioe);
                 }
             }
+            stopwatch.stop();
+            if (success) {
+                streamAcquireStat.registerSuccessfulEvent(stopwatch.elapsedMillis());
+            } else {
+                streamAcquireStat.registerFailedEvent(stopwatch.elapsedMillis());
+            }
             for (WriteOp op : oldPendingOps) {
                 executeOp(op, success);
             }
@@ -338,6 +355,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         synchronized DistributedLogManager setStreamStatus(
                 StreamStatus status, DistributedLogManager manager, AsyncLogWriter writer,
                 String owner, Throwable t) {
+            if (StreamStatus.INITIALIZED == status && StreamStatus.INITIALIZED != this.status) {
+                numStreamsOwned.incrementAndGet();
+            } else if (StreamStatus.INITIALIZING == status) {
+                numStreamsOwned.decrementAndGet();
+            } else if (StreamStatus.FAILED == status && StreamStatus.INITIALIZED == this.status) {
+                numStreamsOwned.decrementAndGet();
+            }
             DistributedLogManager oldManager = this.manager;
             this.manager = manager;
             this.writer = writer;
@@ -372,6 +396,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final DistributedLogManagerFactory dlFactory;
     private final ConcurrentHashMap<String, Stream> streams =
             new ConcurrentHashMap<String, Stream>();
+    private final AtomicInteger numStreamsOwned = new AtomicInteger(0);
 
     private boolean closed = false;
     private final ReentrantReadWriteLock closeLock =
@@ -385,6 +410,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     // exception stats
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
             new ConcurrentHashMap<String, Counter>();
+    // streams stats
+    private final OpStatsLogger streamAcquireStat;
 
     private final String clientId;
     private final ServerMode serverMode;
@@ -397,7 +424,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.dlConfig = dlConf;
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.MEM.toString()));
         int serverPort = dlConf.getInt("server_port", 0);
-        this.clientId = DLSocketAddress.toString(DLSocketAddress.getSocketAddress(serverPort));
+        int shard = dlConf.getInt("server_shard", -1);
+        this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
 
         // Executor Service.
@@ -415,6 +443,30 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.requestStat = requestsStatsLogger.getOpStatsLogger("request");
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
+        StatsLogger streamsStatsLogger = statsLogger.scope("streams");
+        streamsStatsLogger.registerGauge("acquired", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return numStreamsOwned.get();
+            }
+        });
+        streamsStatsLogger.registerGauge("cached", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return streams.size();
+            }
+        });
+        streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
 
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}.",
                 new Object[] { serverMode, delayMs, clientId });

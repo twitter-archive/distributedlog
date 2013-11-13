@@ -9,6 +9,7 @@ import com.twitter.common.net.pool.DynamicHostSet;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
@@ -42,6 +43,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -127,6 +129,7 @@ public class DistributedLogClientBuilder {
         private final ConcurrentHashMap<SocketAddress, ServiceWithClient> address2Services =
                 new ConcurrentHashMap<SocketAddress, ServiceWithClient>();
         private final HashFunction hasher = Hashing.md5();
+        private final Random rnd = new Random(System.currentTimeMillis());
 
         private boolean closed = false;
         private final ReentrantReadWriteLock closeLock =
@@ -326,17 +329,23 @@ public class DistributedLogClientBuilder {
                 // pickup host by hashing
                 synchronized (hostSet) {
                     if (0 != hostList.size()) {
-                        int hostId = MathUtils.signSafeMod(hasher.hashString(stream).asInt(), hostList.size());
+                        int hashCode = hasher.hashString(stream).asInt();
+                        int hostId = MathUtils.signSafeMod(hashCode, hostList.size());
                         address = hostList.get(hostId);
-                        if (null != previousAddr) {
+                        if (null != previousAddr && address.equals(previousAddr)) {
+                            ArrayList<SocketAddress> newList = new ArrayList<SocketAddress>(hostList);
+                            newList.remove(hostId);
+                            // pickup a new host by rehashing it.
+                            hostId = MathUtils.signSafeMod(hashCode, newList.size());
+                            address = newList.get(hostId);
                             int i = hostId;
                             while (previousAddr.equals(address)) {
-                                i = (i+1) % hostList.size();
+                                i = (i+1) % newList.size();
                                 if (i == hostId) {
                                     result.setException(new NoBrokersAvailableException("No host is available."));
                                     return;
                                 }
-                                address = hostList.get(i);
+                                address = newList.get(i);
                             }
                         }
                     }
@@ -370,6 +379,12 @@ public class DistributedLogClientBuilder {
                     case FOUND:
                         String owner = response.getHeader().getLocation();
                         SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
+                        if (addr.equals(ownerAddr)) {
+                            // throw the exception to the client
+                            result.setException(new ServiceUnavailableException(
+                                    String.format("Request to stream %s is redirected to same server %s!", stream, addr)));
+                            return;
+                        }
                         ownershipRedirects.incr();
                         // redirect the request.
                         if (!stream2Addresses.replace(stream, addr, ownerAddr)) {
@@ -380,14 +395,17 @@ public class DistributedLogClientBuilder {
                                 if (null != newOwner2) {
                                     ownerAddr = newOwner2;
                                 }
+                            } else {
+                                ownerAddr = newOwner;
                             }
                         }
-                        logger.info("Redirect the request to new owner {}.", ownerAddr);
+
+                        logger.debug("Redirect the request to new owner {}.", ownerAddr);
                         sendWriteRequest(ownerAddr, stream, data, result);
                         break;
                     default:
+                        logger.error("Failed to write request to {} : {}", stream, response);
                         // server side exceptions, throw to the client.
-                        removeClient(addr, sc);
                         // remove ownership to that host
                         if (stream2Addresses.remove(stream, addr)) {
                             ownershipRemoves.incr();
@@ -403,6 +421,7 @@ public class DistributedLogClientBuilder {
                     if (cause instanceof RequestTimeoutException) {
                         result.setException(cause);
                     } else {
+                        logger.error("Failed to write request to {} : {}", stream, cause.getMessage());
                         // remove this client
                         removeClient(addr, sc);
                         // remove ownership to that host
