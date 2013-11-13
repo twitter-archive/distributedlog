@@ -331,6 +331,10 @@ public class TestInterleavedReaders {
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 5; j++) {
             writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            if (j % 2 == 0) {
+                writer.setReadyToFlush();
+                writer.flushAndSync();
+            }
         }
         writer.setReadyToFlush();
         writer.flushAndSync();
@@ -368,6 +372,10 @@ public class TestInterleavedReaders {
             BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)(dlm.startLogSegmentNonPartitioned());
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+                if (j % 2 == 0) {
+                    writer.setReadyToFlush();
+                    writer.flushAndSync();
+                }
             }
             writer.closeAndComplete();
         }

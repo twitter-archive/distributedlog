@@ -32,11 +32,6 @@ public class LedgerDataAccessor {
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private final AsyncNotification notification;
 
-//    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
-//        this(ledgerHandleCache, NullStatsLogger.INSTANCE, null);
-//    }
-//
-
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger) {
         this(ledgerHandleCache, statsLogger, null);
     }
@@ -83,6 +78,7 @@ public class LedgerDataAccessor {
             }
             return null;
         } else {
+            LOG.debug("Read-ahead cache hit for async read");
             return value.getLedgerEntry();
         }
     }

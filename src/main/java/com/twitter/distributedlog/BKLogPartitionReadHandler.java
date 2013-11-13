@@ -668,8 +668,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             exceptionHandler.process(rc);
                             return;
                         }
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Read entries for {} of {}.", currentMetadata, fullyQualifiedName);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Read entries for {} of {}.", currentMetadata, fullyQualifiedName);
                         }
                         while (seq.hasMoreElements()) {
                             bkcZkExceptions.set(0);
