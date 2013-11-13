@@ -77,7 +77,7 @@ public class TestInterleavedReaders {
         }
         return numTrans;
     }
-/*
+
     @Test
     public void testInterleavedReaders() throws Exception {
         String name = "distrlog-interleaved";
@@ -277,7 +277,7 @@ public class TestInterleavedReaders {
         reader1.close();
         dlmreader.close();
     }
-*/
+
     @Test
     public void testSimpleAsyncWrite() throws Exception {
         String name = "distrlog-simpleasyncwrite";
