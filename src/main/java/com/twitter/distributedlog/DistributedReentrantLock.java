@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -37,8 +38,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -165,7 +164,7 @@ class DistributedReentrantLock implements Runnable {
     public void close() {
         try {
             asyncLockAcquireFuture.cancel(true);
-            internalLock.cleanup();
+            internalLock.cleanup(true);
             zkc.get().exists(lockPath, false);
         } catch (Exception e) {
             LOG.debug("Could not remove watch on lock");
@@ -201,7 +200,7 @@ class DistributedReentrantLock implements Runnable {
      * TODO: two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
-    private static class DistributedLock {
+    private static class DistributedLock implements AsyncCallback.VoidCallback {
 
         private final ZooKeeperClient zkClient;
         private final String lockPath;
@@ -268,7 +267,7 @@ class DistributedReentrantLock implements Runnable {
                     throw new OwnershipAcquireFailedException(lockPath, currentOwner);
                 }
             } catch (InterruptedException e) {
-                cancelAttempt();
+                cancelAttempt(true);
                 return false;
             } catch (KeeperException e) {
                 // No need to clean up since the node wasn't created yet.
@@ -276,6 +275,10 @@ class DistributedReentrantLock implements Runnable {
             } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
                 // No need to clean up since the node wasn't created yet.
                 throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock", e);
+            } finally {
+                if (!holdsLock && DistributedLogConstants.LOCK_IMMEDIATE == timeout) {
+                    cancelAttempt(false);
+                }
             }
 
             return true;
@@ -291,7 +294,7 @@ class DistributedReentrantLock implements Runnable {
                 LOG.info("Not holding lock, aborting acquisition attempt!");
             } else {
                 LOG.debug("Cleaning up this locks ephemeral node. {} {}", currentId, currentNode);
-                cleanup();
+                cleanup(true);
             }
         }
 
@@ -303,22 +306,31 @@ class DistributedReentrantLock implements Runnable {
             return holdsLock;
         }
 
-        private synchronized void cancelAttempt() {
+        @Override
+        public void processResult(int rc, String path, Object ctx) {
+            LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
+        }
+
+        private synchronized void cancelAttempt(boolean sync) {
             LOG.info("Cancelling lock attempt!");
-            cleanup();
+            cleanup(sync);
             // Bubble up failure...
             holdsLock = false;
             syncPoint.countDown();
         }
 
-        private void cleanup() {
+        private void cleanup(boolean sync) {
             LOG.debug("Cleaning up!");
             try {
-                Stat stat = zkClient.get().exists(currentNode, false);
-                if (stat != null) {
-                    zkClient.get().delete(currentNode, -1);
+                if (sync) {
+                    Stat stat = zkClient.get().exists(currentNode, false);
+                    if (stat != null) {
+                        zkClient.get().delete(currentNode, -1);
+                    } else {
+                        LOG.warn("Called cleanup but nothing to cleanup!");
+                    }
                 } else {
-                    LOG.warn("Called cleanup but nothing to cleanup!");
+                    zkClient.get().delete(currentNode, -1, this, null);
                 }
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -382,11 +394,11 @@ class DistributedReentrantLock implements Runnable {
                 } catch (InterruptedException e) {
                     LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
                         "got interrupted. Trying to cancel lock acquisition.", getCurrentId()), e);
-                    cancelAttempt();
+                    cancelAttempt(true);
                 } catch (Exception e) {
                     LOG.warn(String.format("Current LockWatcher with ephemeral node [%s] " +
                             "got a exception while accessing ZK. Trying to cancel lock acquisition.", getCurrentId()), e);
-                    cancelAttempt();
+                    cancelAttempt(true);
                 }
             }
 
@@ -405,7 +417,7 @@ class DistributedReentrantLock implements Runnable {
                             break;
                         case Expired:
                             LOG.warn(String.format("Current ZK session expired![%s]", getCurrentId()));
-                            cancelAttempt();
+                            cancelAttempt(true);
                             break;
                         default:
                             break;
