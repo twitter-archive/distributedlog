@@ -27,6 +27,8 @@ enum StatusCode {
     NOT_IMPLEMENTED = 501,
     // Service is currently unavailable (because it is overloaded or down for maintenance).
     SERVICE_UNAVAILABLE = 503,
+    //
+    LOCKING_EXCEPTION = 504,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
