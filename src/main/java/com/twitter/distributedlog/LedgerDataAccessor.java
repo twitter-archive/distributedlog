@@ -143,6 +143,7 @@ public class LedgerDataAccessor {
             value.notifyAll();
         }
         if (null != notification) {
+            LOG.debug("Notification of new entry");
             notification.notifyOnOperationComplete();
         }
     }

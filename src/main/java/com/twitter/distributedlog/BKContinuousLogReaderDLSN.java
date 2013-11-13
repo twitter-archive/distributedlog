@@ -47,6 +47,17 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
             nextDLSN = lastDLSN.getNextDLSN();
         }
         LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
-        return bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN), noBlocking);
+        return bkLedgerManager.getInputStream(nextDLSN, true, false, (lastDLSN != DLSN.InvalidDLSN), noBlocking, readAheadWaitTime);
+    }
+
+    @Override
+    protected LogRecordWithDLSN readNextWithSkip() throws IOException {
+        LogRecordWithDLSN record = null;
+        while (true) {
+            record = readNext(false);
+            if ((null == record) || (record.getDlsn().compareTo(startDLSN) >= 0)) {
+                return record;
+            }
+        }
     }
 }

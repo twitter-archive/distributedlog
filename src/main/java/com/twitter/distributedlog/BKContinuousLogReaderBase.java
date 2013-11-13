@@ -32,6 +32,8 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                                      int readAheadWaitTime,
                                      boolean noBlocking,
                                      AsyncNotification notification) throws IOException {
+        // noBlocking => readAheadEnabled
+        assert(!noBlocking || readAheadEnabled);
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
         this.readAheadEnabled = readAheadEnabled;
@@ -102,10 +104,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         return record;
     }
 
+
     protected boolean createOrPositionReader(boolean advancedOnce) throws IOException {
         if (null == currentReader) {
             currentReader = getCurrentReader();
-            if (null != currentReader) {
+            if ((null != currentReader) && !noBlocking) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
                 }
@@ -120,6 +123,8 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     }
 
     abstract protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException;
+    abstract protected LogRecordWithDLSN readNextWithSkip() throws IOException;
+
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;

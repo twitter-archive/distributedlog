@@ -138,7 +138,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
             LogRecordWithDLSN record = null;
             try {
-                record = currentReader.readNext(false);
+                record = currentReader.readNextWithSkip();
             } catch (IOException exc) {
                 lastException = exc;
                 return;

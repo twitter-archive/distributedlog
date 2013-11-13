@@ -322,6 +322,7 @@ public class TestInterleavedReaders {
             writer.closeAndComplete();
         }
 
+        boolean success = false;
         if (!(Thread.interrupted())) {
             try {
                 success = syncLatch.await(10, TimeUnit.SECONDS);
