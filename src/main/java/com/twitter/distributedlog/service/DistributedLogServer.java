@@ -118,11 +118,13 @@ public class DistributedLogServer implements Runnable {
      * Close the server.
      */
     public void close() {
-        if (null != server) {
-            server.close();
-        }
         if (null != dlService) {
             dlService.shutdown();
+        }
+        if (null != server) {
+            logger.info("Closing dl thrift server.");
+            server.close();
+            logger.info("Closed dl thrift server.");
         }
     }
 

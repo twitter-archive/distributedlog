@@ -656,7 +656,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // shutdown the executor after requesting closing streams.
         executorService.shutdown();
         try {
-            if (executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
                 logger.warn("Executor service doesn't shutdown in 60 seconds, force quiting...");
                 executorService.shutdownNow();
             }
