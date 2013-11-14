@@ -432,6 +432,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 this, buf);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
+
+            // If we had data that we flushed then we need it to make sure that
+            // background flush in the next pass will make the previous writes
+            // visible by advancing the lastAck
+            periodicFlushNeeded = !isControl;
             return true;
         } else {
             transmitMisses.inc();
@@ -511,11 +516,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             } else {
                 pFlushMisses.inc();
             }
-
-            // If we had data in this pass then we need it to flush in the next pass
-            // to make the previous writes visible by advancing the lastAck
-            periodicFlushNeeded = newData;
-
         } catch (IOException exc) {
             LOG.error("Error encountered by the periodic flush", exc);
         }
