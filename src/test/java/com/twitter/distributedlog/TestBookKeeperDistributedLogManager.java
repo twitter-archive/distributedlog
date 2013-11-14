@@ -86,6 +86,48 @@ public class TestBookKeeperDistributedLogManager {
     }
 
 
+    private void testNonPartitionedWritesInternal(String name, DistributedLogConfiguration conf) throws Exception {
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+            writer.close();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            blplm.completeAndCloseLogSegment(start, txid - 1);
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            blplm.close();
+        }
+
+        long start = txid;
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
+            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+        }
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        writer.close();
+
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 0;
+        LogRecord record = reader.readNext(false);
+        long lastTxId = -1;
+        while (null != record) {
+            DLMTestUtil.verifyLogRecord(record);
+            assert (lastTxId < record.getTransactionId());
+            lastTxId = record.getTransactionId();
+            numTrans++;
+            record = reader.readNext(false);
+        }
+        reader.close();
+        assertEquals((txid - 1), numTrans);
+    }
+
+
     @Test
     public void testSimpleWrite() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplewrite");
@@ -1257,97 +1299,8 @@ public class TestBookKeeperDistributedLogManager {
 
     @Test
     public void testNonPartitionedWrites() throws Exception {
-        String name = "distrlog-non-partitioned";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
-
-        long txid = 1;
-        for (long i = 0; i < 3; i++) {
-            long start = txid;
-            LogWriter writer = dlm.startLogSegmentNonPartitioned();
-            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
-            }
-            writer.close();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            blplm.completeAndCloseLogSegment(start, txid - 1);
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
-            blplm.close();
-        }
-
-        long start = txid;
-        LogWriter writer = dlm.startLogSegmentNonPartitioned();
-        for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
-            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
-        }
-        writer.setReadyToFlush();
-        writer.flushAndSync();
-        writer.close();
-
-        LogReader reader = dlm.getInputStream(1);
-        long numTrans = 0;
-        LogRecord record = reader.readNext(false);
-        long lastTxId = -1;
-        while (null != record) {
-            DLMTestUtil.verifyLogRecord(record);
-            assert (lastTxId < record.getTransactionId());
-            lastTxId = record.getTransactionId();
-            numTrans++;
-            record = reader.readNext(false);
-        }
-        reader.close();
-        assertEquals((txid - 1), numTrans);
-    }
-
-    @Test
-    public void testNonPartitionedWritesBulk() throws Exception {
         String name = "distrlog-non-partitioned-bulk";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
-
-        long txid = 1;
-        for (long i = 0; i < 3; i++) {
-            long start = txid;
-            LogWriter writer = dlm.startLogSegmentNonPartitioned();
-            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 10; j++) {
-                LinkedList<LogRecord> records = new LinkedList<LogRecord>();
-                for (int k = 1; k <= 10; k++) {
-                    records.add(DLMTestUtil.getLogRecordInstance(txid++));
-                }
-                writer.writeBulk(records);
-            }
-            writer.close();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            blplm.completeAndCloseLogSegment(start, txid - 1);
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
-            blplm.close();
-        }
-
-        long start = txid;
-        LogWriter writer = dlm.startLogSegmentNonPartitioned();
-        for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
-            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
-        }
-        writer.setReadyToFlush();
-        writer.flushAndSync();
-        writer.close();
-
-        assertEquals(1, dlm.getFirstTxId());
-        assertEquals(txid - 1, dlm.getLastTxId());
-
-        LogReader reader = dlm.getInputStream(1);
-        long numTrans = 0;
-        LogRecord record = reader.readNext(false);
-        long lastTxId = -1;
-        while (null != record) {
-            DLMTestUtil.verifyLogRecord(record);
-            assert (lastTxId < record.getTransactionId());
-            lastTxId = record.getTransactionId();
-            numTrans++;
-            record = reader.readNext(false);
-        }
-        writer.close();
-        reader.close();
-        dlm.close();
-        assertEquals((txid - 1), numTrans);
+        testNonPartitionedWritesInternal(name, conf);
     }
 
     @Test
@@ -1651,5 +1604,14 @@ public class TestBookKeeperDistributedLogManager {
         }
         assert(exceptionEncountered);
         reader.close();
+    }
+
+    @Test
+    public void testImmediateFlush() throws Exception {
+        String name = "distrlog-immediate-flush";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        testNonPartitionedWritesInternal(name, confLocal);
     }
 }

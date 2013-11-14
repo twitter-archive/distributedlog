@@ -255,8 +255,8 @@ public abstract class BKBaseLogWriter {
 
         long highestTransactionId = 0;
         long totalFlushes = 0;
-        long minTransmitSize = Long.MAX_VALUE;
-        long maxTransmitSize = Long.MIN_VALUE;
+        int minTransmitSize = Integer.MAX_VALUE;
+        int maxTransmitSize = Integer.MIN_VALUE;
         long totalAddConfirmed = 0;
 
         Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
