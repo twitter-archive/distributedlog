@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -52,7 +53,33 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
-    private DataOutputBuffer bufCurrent;
+    private static class BKTransmitPacket {
+        public BKTransmitPacket(int transmissionThreshold) {
+            this.isControl = false;
+            this.buffer = new DataOutputBuffer(transmissionThreshold * 6 / 5);
+        }
+
+        public void reset() {
+            buffer.reset();
+        }
+
+        public DataOutputBuffer getBuffer() {
+            return buffer;
+        }
+
+        public void setControl(boolean control) {
+            isControl = control;
+        }
+
+        public boolean isControl() {
+            return isControl;
+        }
+
+        boolean          isControl;
+        DataOutputBuffer buffer;
+    }
+
+    private BKTransmitPacket packetCurrent;
     private final AtomicInteger outstandingRequests;
     private final int transmissionThreshold;
     private final LedgerHandle lh;
@@ -75,8 +102,8 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
 
-    private final Queue<DataOutputBuffer> bufferQueue
-        = new ConcurrentLinkedQueue<DataOutputBuffer>();
+    private final Queue<BKTransmitPacket> transmitPacketQueue
+        = new ConcurrentLinkedQueue<BKTransmitPacket>();
 
     // stats
     private final StatsLogger statsLogger;
@@ -127,8 +154,8 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.transmissionThreshold
             = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
 
-        this.bufCurrent = new DataOutputBuffer();
-        this.writer = new LogRecord.Writer(bufCurrent);
+        this.packetCurrent = new BKTransmitPacket(transmissionThreshold);
+        this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
         this.lastTxIdAcknowledged = startTxId;
@@ -140,18 +167,18 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
     }
 
-    public DataOutputBuffer getBuffer() {
-        DataOutputBuffer b = bufferQueue.poll();
-        if (b == null) {
-            return new DataOutputBuffer(transmissionThreshold * 6 / 5);
+    private BKTransmitPacket getTransmitPacket() {
+        BKTransmitPacket packet = transmitPacketQueue.poll();
+        if (packet == null) {
+            return new BKTransmitPacket(transmissionThreshold);
         } else {
-            return b;
+            return packet;
         }
     }
 
-    public void freeBuffer(DataOutputBuffer b) {
-        b.reset();
-        bufferQueue.add(b);
+    private void releasePacket(BKTransmitPacket packet) {
+        packet.reset();
+        transmitPacketQueue.add(packet);
     }
 
     public long closeToFinalize() throws IOException {
@@ -415,28 +442,25 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 + " Error code : (" + transmitResult.get()
                 + ") " + BKException.getMessage(transmitResult.get()));
         }
-        if (bufCurrent.getLength() > 0) {
-            DataOutputBuffer buf = bufCurrent;
+        if (packetCurrent.getBuffer().getLength() > 0) {
+            BKTransmitPacket packet = packetCurrent;
+            packet.setControl(isControl);
             outstandingBytes = 0;
-            bufCurrent = getBuffer();
-            writer = new LogRecord.Writer(bufCurrent);
+            packetCurrent = getTransmitPacket();
+            writer = new LogRecord.Writer(packetCurrent.getBuffer());
             lastTxIdFlushed = lastTxId;
             numFlushes++;
 
             if (!isControl) {
-                numBytes += buf.getLength();
+                numBytes += packet.getBuffer().getLength();
                 numFlushesSinceRestart++;
             }
 
-            lh.asyncAddEntry(buf.getData(), 0, buf.getLength(),
-                this, buf);
+            lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().getLength(),
+                this, packet);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
-
-            // If we had data that we flushed then we need it to make sure that
-            // background flush in the next pass will make the previous writes
-            // visible by advancing the lastAck
-            periodicFlushNeeded = !isControl;
+            periodicFlushNeeded = false;
             return true;
         } else {
             transmitMisses.inc();
@@ -454,7 +478,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             return false;
         }
 
-        return (bufCurrent.getLength() > 0);
+        return (packetCurrent.getBuffer().getLength() > 0);
     }
 
     @Override
@@ -468,9 +492,16 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                     + " but is already (" + transmitResult.get() + ") \""
                     + BKException.getMessage(transmitResult.get()) + "\"");
             }
-            if (ctx instanceof DataOutputBuffer) {
-                freeBuffer((DataOutputBuffer) ctx);
-            }
+
+            assert (ctx instanceof BKTransmitPacket);
+            BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
+
+            // If we had data that we flushed then we need it to make sure that
+            // background flush in the next pass will make the previous writes
+            // visible by advancing the lastAck
+            periodicFlushNeeded = !transmitPacket.isControl();
+
+            releasePacket(transmitPacket);
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
