@@ -53,7 +53,12 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
 
     @Override
     protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException {
-        LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-        return bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId), noBlocking, readAheadWaitTime);
+        if (DLSN.InvalidDLSN == nextDLSN) {
+            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
+            return bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId), noBlocking, readAheadWaitTime);
+        } else {
+            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
+            return bkLedgerManager.getInputStream(nextDLSN, true, false, true, noBlocking, readAheadWaitTime);
+        }
     }
 }

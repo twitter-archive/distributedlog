@@ -288,5 +288,14 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
             return new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
         }
+
+        public boolean reachedEndOfLedger() {
+            try {
+                long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
+                return (readEntries > maxEntry);
+            } catch (IOException exc) {
+                return true;
+            }
+        }
     }
 }

@@ -21,6 +21,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
     private long startBkEntry;
     protected final boolean noBlocking;
+    private boolean openedWithNoRecovery = true;
 
     /**
      * Construct BookKeeper log record input stream.
@@ -97,11 +98,17 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                     h = ledgerDescriptor;
                 }
             } else {
-                if (null != ledgerDescriptor) {
+                if ((null != ledgerDescriptor) && openedWithNoRecovery) {
                     ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
                     ledgerDescriptor = null;
                 }
-                h = ledgerManager.getHandleCache().openLedger(metadata, true);
+
+                if (null != ledgerDescriptor) {
+                    h = ledgerDescriptor;
+                } else {
+                    h = ledgerManager.getHandleCache().openLedger(metadata, true);
+                    openedWithNoRecovery = false;
+                }
             }
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             startBkEntry = 0;
@@ -136,5 +143,25 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         if (null != lin) {
             lin.setLedgerDataAccessor(ledgerDataAccessor);
         }
+    }
+
+    synchronized public DLSN getNextDLSN() {
+        if (null != lin) {
+            return lin.getCurrentPosition();
+        } else {
+            return DLSN.InvalidDLSN;
+        }
+    }
+
+    synchronized boolean reachedEndOfLedger() {
+        if (null == lin) {
+            return false;
+        }
+
+        if (inProgress) {
+            return false;
+        }
+
+        return lin.reachedEndOfLedger();
     }
 }

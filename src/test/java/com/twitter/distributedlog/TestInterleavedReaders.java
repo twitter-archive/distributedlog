@@ -410,7 +410,7 @@ public class TestInterleavedReaders {
         boolean success = false;
         if (!(Thread.interrupted())) {
             try {
-                success = syncLatch.await(10, TimeUnit.SECONDS);
+                success = syncLatch.await(15, TimeUnit.SECONDS);
             } catch (InterruptedException exc) {
                 Thread.currentThread().interrupt();
             }

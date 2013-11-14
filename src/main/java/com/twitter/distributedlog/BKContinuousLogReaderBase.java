@@ -24,6 +24,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
     protected final boolean noBlocking;
+    protected DLSN nextDLSN = DLSN.InvalidDLSN;
 
 
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
@@ -128,12 +129,13 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
-        if (currentReader.isInProgress()) {
-            currentReader.requireResume();
-            shouldBreak = true;
-        } else {
+        if (currentReader.reachedEndOfLedger()) {
+            nextDLSN = currentReader.getNextDLSN();
             currentReader.close();
             currentReader = null;
+        } else {
+            currentReader.requireResume();
+            shouldBreak = true;
         }
         return shouldBreak;
     }
