@@ -119,7 +119,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         boolean          isControl;
-\        private long ledgerSequenceNo;
+        private long ledgerSequenceNo;
         private List<Promise<DLSN>> promiseList;
         DataOutputBuffer buffer;
     }
