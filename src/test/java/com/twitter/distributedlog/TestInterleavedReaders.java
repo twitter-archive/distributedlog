@@ -284,7 +284,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final CountDownLatch syncLatch = new CountDownLatch(30);
         int txid = 1;
@@ -348,9 +348,9 @@ public class TestInterleavedReaders {
                 @Override
                 public void onSuccess(LogRecordWithDLSN value) {
                     try {
-                        DLMTestUtil.verifyLogRecord(value);
+                        DLMTestUtil.verifyLargeLogRecord(value);
                     } catch (Exception exc) {
-                        LOG.debug("Exception Encountered", exc);
+                        LOG.debug("Exception Encountered when verifying log records", exc);
                         threadToInterrupt.interrupt();
                     }
                     syncLatch.countDown();
@@ -368,14 +368,18 @@ public class TestInterleavedReaders {
     @Test
     public void testSimpleAsyncRead() throws Exception {
         String name = "distrlog-simpleasyncread";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
             LogWriter writer = dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= 10; j++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
             writer.close();
             BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
@@ -387,7 +391,7 @@ public class TestInterleavedReaders {
         long start = txid;
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 5; j++) {
-            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             if (j % 2 == 0) {
                 writer.setReadyToFlush();
                 writer.flushAndSync();
@@ -421,18 +425,18 @@ public class TestInterleavedReaders {
     @Test
     public void testSimpleAsyncReadPosition() throws Exception {
         String name = "distrlog-simpleasyncreadpos";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
             BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)(dlm.startLogSegmentNonPartitioned());
             for (long j = 1; j <= 10; j++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
-                if (j % 2 == 0) {
-                    writer.setReadyToFlush();
-                    writer.flushAndSync();
-                }
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
             writer.closeAndComplete();
         }
@@ -440,7 +444,7 @@ public class TestInterleavedReaders {
         long start = txid;
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 5; j++) {
-            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
         }
         writer.setReadyToFlush();
         writer.flushAndSync();
@@ -467,4 +471,66 @@ public class TestInterleavedReaders {
         dlm.close();
     }
 
+    @Test
+    public void testSimpleAsyncReadWrite() throws Exception {
+        String name = "distrlog-simpleasyncreadwrite";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        final CountDownLatch syncLatch = new CountDownLatch(30);
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        final Thread currentThread = Thread.currentThread();
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            long start = txid;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            for (long j = 0; j < 10; j++) {
+                final long currentEntryId = j;
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsnFuture = writer.write(record);
+                dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
+                            LOG.debug("EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            currentThread.interrupt();
+                        }
+
+                        if(value.getEntryId() != currentEntryId) {
+                            LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
+                            currentThread.interrupt();
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        currentThread.interrupt();
+                    }
+                });
+                if (i == 0 && j == 0) {
+                    TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+                }
+            }
+            writer.closeAndComplete();
+        }
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(15, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        reader.close();
+        dlm.close();
+    }
 }

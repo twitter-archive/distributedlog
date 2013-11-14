@@ -205,8 +205,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 LedgerEntry e;
                 if (noBlocking) {
                     e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
-                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                     if (null == e) {
+                        LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                         return null;
                     }
                 } else {
