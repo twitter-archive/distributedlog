@@ -1,6 +1,12 @@
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
+
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -270,5 +276,63 @@ public class TestInterleavedReaders {
         reader0.close();
         reader1.close();
         dlmreader.close();
+    }
+
+    @Test
+    public void testSimpleAsyncWrite() throws Exception {
+        String name = "distrlog-simpleasyncwrite";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        final Thread currentThread = Thread.currentThread();
+        final CountDownLatch syncLatch = new CountDownLatch(30);
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            long start = txid;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            for (long j = 0; j < 10; j++) {
+                final long currentEntryId = j;
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsnFuture = writer.write(record);
+                dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
+                            LOG.debug("EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            currentThread.interrupt();
+                        }
+
+                        if(value.getEntryId() != currentEntryId) {
+                            LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
+                            currentThread.interrupt();
+                        }
+                        syncLatch.countDown();
+                        LOG.debug("SyncLatch: " + syncLatch.getCount());
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        currentThread.interrupt();
+                    }
+                });
+
+            }
+            writer.closeAndComplete();
+        }
+
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        dlm.close();
     }
 }

@@ -27,6 +27,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,10 +57,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
     private static class BKTransmitPacket {
-        public BKTransmitPacket(long ledgerSequenceNo, int transmissionThreshold) {
+        public BKTransmitPacket(long ledgerSequenceNo, int initialBufferSize) {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
-            this.buffer = new DataOutputBuffer(transmissionThreshold * 6 / 5);
+            this.isControl = false;
+            this.buffer = new DataOutputBuffer(initialBufferSize * 6 / 5);
         }
 
         public void reset() {
@@ -107,6 +109,15 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             }
         }
 
+        public void setControl(boolean control) {
+            isControl = control;
+        }
+
+        public boolean isControl() {
+            return isControl;
+        }
+
+        boolean          isControl;
         private long ledgerSequenceNo;
         private List<Promise<DLSN>> promiseList;
         DataOutputBuffer buffer;
@@ -143,6 +154,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private final StatsLogger statsLogger;
     private final Counter transmitSuccesses;
     private final Counter transmitMisses;
+    private final OpStatsLogger transmitPacketSize;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
 
@@ -167,6 +179,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
         transmitSuccesses = transmitStatsLogger.getCounter("success");
         transmitMisses = transmitStatsLogger.getCounter("miss");
+        transmitPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
         // outstanding requests
         transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
@@ -190,7 +203,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
 
         this.ledgerSequenceNumber = ledgerSequenceNumber;
-        this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, transmissionThreshold);
+        this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, Math.max(transmissionThreshold, 1024));
         this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
@@ -206,7 +219,8 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private BKTransmitPacket getTransmitPacket() {
         BKTransmitPacket packet = transmitPacketQueue.poll();
         if (packet == null) {
-            return new BKTransmitPacket(ledgerSequenceNumber, transmissionThreshold);
+            return new BKTransmitPacket(ledgerSequenceNumber,
+                Math.max(transmissionThreshold, getAverageTransmitSize()));
         } else {
             return packet;
         }
@@ -485,6 +499,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
         if (packetCurrent.getBuffer().getLength() > 0) {
             BKTransmitPacket packet = packetCurrent;
+            packet.setControl(isControl);
             outstandingBytes = 0;
             packetCurrent = getTransmitPacket();
             writer = new LogRecord.Writer(packetCurrent.getBuffer());
@@ -500,6 +515,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 this, packet);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
+            periodicFlushNeeded = false;
             return true;
         } else {
             transmitMisses.inc();
@@ -523,10 +539,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     @Override
     public void addComplete(int rc, LedgerHandle handle,
                             long entryId, Object ctx) {
+        assert (ctx instanceof BKTransmitPacket);
         BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
         synchronized (this) {
             outstandingRequests.decrementAndGet();
-            assert (ctx instanceof BKTransmitPacket);
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 LOG.warn("Tried to set transmit result to (" + rc + ") \""
                     + BKException.getMessage(rc) + "\""
@@ -536,9 +552,18 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         transmitPacket.processTransmitComplete(entryId, transmitResult.get());
-        releasePacket(transmitPacket);
 
         synchronized (this) {
+            if (BKException.Code.OK == rc) {
+                // If we had data that we flushed then we need it to make sure that
+                // background flush in the next pass will make the previous writes
+                // visible by advancing the lastAck
+                periodicFlushNeeded = !transmitPacket.isControl();
+                transmitPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
+            } else {
+                transmitPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
+            }
+            releasePacket(transmitPacket);
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
@@ -554,9 +579,15 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         this.numFlushes = numFlushes;
     }
 
-    public synchronized long getAverageTransmitSize() {
+    public synchronized int getAverageTransmitSize() {
         if (numFlushesSinceRestart > 0) {
-            return numBytes/numFlushesSinceRestart;
+            long ret = numBytes/numFlushesSinceRestart;
+
+            if (ret < Integer.MIN_VALUE || ret > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException
+                    (ret + " transmit size should never exceed max transmit size");
+            }
+            return (int) ret;
         }
 
         return 0;
@@ -584,11 +615,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             } else {
                 pFlushMisses.inc();
             }
-
-            // If we had data in this pass then we need it to flush in the next pass
-            // to make the previous writes visible by advancing the lastAck
-            periodicFlushNeeded = newData;
-
         } catch (IOException exc) {
             LOG.error("Error encountered by the periodic flush", exc);
         }
