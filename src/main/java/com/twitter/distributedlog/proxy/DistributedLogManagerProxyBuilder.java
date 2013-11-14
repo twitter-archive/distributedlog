@@ -62,6 +62,11 @@ public class DistributedLogManagerProxyBuilder {
         public Future<DLSN> write(LogRecord record) throws IOException {
             return client.write(name, ByteBuffer.wrap(record.getPayload()));
         }
+
+        @Override
+        public void close() {
+            // nop
+        }
     }
 
     public DistributedLogManagerProxy build() {

@@ -132,9 +132,14 @@ public class DistributedLogServer implements Runnable {
      * @param args
      *          distributedlog server args
      */
-    public static void main(String[] args) {
+    public static DistributedLogServer run(String[] args) {
         final DistributedLogServer server = new DistributedLogServer(args);
         server.run();
+        return server;
+    }
+
+    public static void main(String[] args) {
+        final DistributedLogServer server = run(args);
         final CountDownLatch keepAliveLatch = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
