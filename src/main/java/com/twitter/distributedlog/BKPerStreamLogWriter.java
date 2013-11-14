@@ -59,6 +59,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         public BKTransmitPacket(long ledgerSequenceNo, int transmissionThreshold) {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
+            this.isControl = false;
             this.buffer = new DataOutputBuffer(transmissionThreshold * 6 / 5);
         }
 
@@ -107,6 +108,15 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             }
         }
 
+        public void setControl(boolean control) {
+            isControl = control;
+        }
+
+        public boolean isControl() {
+            return isControl;
+        }
+
+        boolean          isControl;
         private long ledgerSequenceNo;
         private List<Promise<DLSN>> promiseList;
         DataOutputBuffer buffer;
@@ -485,6 +495,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
         if (packetCurrent.getBuffer().getLength() > 0) {
             BKTransmitPacket packet = packetCurrent;
+            packet.setControl(isControl);
             outstandingBytes = 0;
             packetCurrent = getTransmitPacket();
             writer = new LogRecord.Writer(packetCurrent.getBuffer());
@@ -500,6 +511,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 this, packet);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
+            periodicFlushNeeded = false;
             return true;
         } else {
             transmitMisses.inc();
@@ -536,9 +548,14 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         transmitPacket.processTransmitComplete(entryId, transmitResult.get());
-        releasePacket(transmitPacket);
 
         synchronized (this) {
+            // If we had data that we flushed then we need it to make sure that
+            // background flush in the next pass will make the previous writes
+            // visible by advancing the lastAck
+            periodicFlushNeeded = !transmitPacket.isControl();
+            releasePacket(transmitPacket);
+
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
@@ -584,11 +601,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             } else {
                 pFlushMisses.inc();
             }
-
-            // If we had data in this pass then we need it to flush in the next pass
-            // to make the previous writes visible by advancing the lastAck
-            periodicFlushNeeded = newData;
-
         } catch (IOException exc) {
             LOG.error("Error encountered by the periodic flush", exc);
         }
