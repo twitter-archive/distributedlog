@@ -153,7 +153,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         }
     }
 
-    synchronized boolean reachedEndOfLedger() {
+    synchronized boolean reachedEndOfLogSegment() {
         if (null == lin) {
             return false;
         }

@@ -92,13 +92,12 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }
-            writer.close();
+            writer.closeAndComplete();
             BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            blplm.completeAndCloseLogSegment(start, txid - 1);
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
             blplm.close();
         }
@@ -1599,6 +1598,8 @@ public class TestBookKeeperDistributedLogManager {
                 numTrans++;
                 record = reader.readNext(false);
             }
+        } catch (LogReadException exc) {
+            exceptionEncountered = true;
         } catch (LogNotFoundException exc) {
             exceptionEncountered = true;
         }

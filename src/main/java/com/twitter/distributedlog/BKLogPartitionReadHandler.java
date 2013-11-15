@@ -122,8 +122,10 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startDLSN " + fromDLSN, e);
                         throw new IOException("Could not open ledger for " + fromDLSN, e);
                     }
-                } else if (!noBlocking) {
-                    ledgerDataAccessor.removeLedger(l.getLedgerId());
+                } else {
+                    if (!noBlocking) {
+                        ledgerDataAccessor.removeLedger(l.getLedgerId());
+                    }
                 }
             }
         } else {

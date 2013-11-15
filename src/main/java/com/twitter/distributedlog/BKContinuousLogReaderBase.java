@@ -129,7 +129,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
-        if (currentReader.reachedEndOfLedger()) {
+        if (currentReader.reachedEndOfLogSegment()) {
             nextDLSN = currentReader.getNextDLSN();
             currentReader.close();
             currentReader = null;

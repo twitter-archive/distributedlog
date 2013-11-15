@@ -25,7 +25,7 @@ public class LedgerDescriptor {
         return ledgerSequenceNo;
     }
 
-    public boolean getFenced() {
+    public boolean isFenced() {
         return fenced;
     }
 

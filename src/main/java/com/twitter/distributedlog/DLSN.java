@@ -102,4 +102,15 @@ public class DLSN implements Comparable<DLSN> {
     DLSN getNextDLSN() {
         return new DLSN(ledgerSequenceNo, entryId, slotId + 1);
     }
+
+    /**
+     * Positions to a DLSN greater than the current value - this may not
+     * correspond to an actual LogRecord, its just used by the positioning logic
+     * to position the reader
+     *
+     * @return the next DLSN
+     */
+    DLSN positionOnTheNextLedger() {
+        return new DLSN(ledgerSequenceNo + 1 , 0, 0);
+    }
 }
