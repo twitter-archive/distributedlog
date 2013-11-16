@@ -391,7 +391,15 @@ public class DistributedLogClientBuilder {
                     case FOUND:
                         if (response.getHeader().isSetLocation()) {
                             String owner = response.getHeader().getLocation();
-                            SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
+                            SocketAddress ownerAddr;
+                            try {
+                                ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
+                            } catch (IOException e) {
+                                // invalid owner
+                                ownershipRedirects.incr();
+                                doWrite(stream, data, result, addr);
+                                return;
+                            }
                             if (addr.equals(ownerAddr)) {
                                 // throw the exception to the client
                                 result.setException(new ServiceUnavailableException(
@@ -426,6 +434,7 @@ public class DistributedLogClientBuilder {
                         if (stream2Addresses.remove(stream, addr)) {
                             ownershipRemoves.incr();
                         }
+                        ownershipRedirects.incr();
                         doWrite(stream, data, result, addr);
                         break;
                     default:
