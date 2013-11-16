@@ -123,6 +123,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         throw new IOException("Could not open ledger for " + fromDLSN, e);
                     }
                 } else {
+                    if (fromDLSN.getLedgerSequenceNo() == lastDLSN.getLedgerSequenceNo()) {
+                        // We specified a position past the end of the current ledger; position on the first record of the
+                        // next ledger
+                        fromDLSN = fromDLSN.positionOnTheNextLedger();
+                    }
+
                     if (!noBlocking) {
                         ledgerDataAccessor.removeLedger(l.getLedgerId());
                     }

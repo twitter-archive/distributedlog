@@ -377,13 +377,12 @@ public class TestInterleavedReaders {
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            LogWriter writer = dlm.startLogSegmentNonPartitioned();
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
-            writer.close();
+            writer.closeAndComplete();
             BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            blplm.completeAndCloseLogSegment(start, txid - 1);
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
             blplm.close();
         }

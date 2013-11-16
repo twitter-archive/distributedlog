@@ -323,6 +323,7 @@ abstract class BKLogPartitionHandler {
                         LOG.info("Retrying recovery from the beginning of the ledger");
                         scanStartPoint = 0;
                     }
+                    ledgerDescriptor = handleCachePriv.openLedger(l, fence);
                 }
             }
 
