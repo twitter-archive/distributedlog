@@ -35,10 +35,12 @@ import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -318,7 +320,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             Stopwatch stopwatch = new Stopwatch().start();
             try {
                 DistributedLogManager dlManager = dlFactory.createDistributedLogManagerWithSharedClients(name);
-                dlManager.recover();
+                try {
+                    dlManager.recover();
+                } catch (IOException ioe){
+                    try {
+                        dlManager.close();
+                    } catch (IOException ioe2) {
+                        logger.error("Failed on closing dl manager after failed recovering stream {} : ",
+                                name, ioe2);
+                    }
+                    throw ioe;
+                }
                 AsyncLogWriter w = dlManager.startAsyncLogSegmentNonPartitioned();
                 synchronized (this) {
                     setStreamStatus(StreamStatus.INITIALIZED, dlManager, w, null, null);
@@ -408,6 +420,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             if (null != owner && owner.equals(clientId)) {
                 // I lost the ownership but left a lock over zookeeper
                 // I should not ask client to redirect to myself again as I can't handle it :(
+                // shutdown myself
+                triggerShutdown();
                 this.owner = null;
             } else {
                 this.owner = owner;
@@ -496,6 +510,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private boolean closed = false;
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
+    private final AtomicBoolean closing = new AtomicBoolean(false);
+    private final CountDownLatch keepAliveLatch;
     private final Object txnLock = new Object();
 
     // Stats
@@ -513,7 +529,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final ScheduledExecutorService executorService;
     private final long delayMs;
 
-    DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger)
+    DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger,
+                              CountDownLatch keepAliveLatch)
             throws IOException {
         // Configuration.
         this.dlConfig = dlConf;
@@ -522,6 +539,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         int shard = dlConf.getInt("server_shard", -1);
         this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
+        this.keepAliveLatch = keepAliveLatch;
 
         // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(
@@ -663,5 +681,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         } catch (InterruptedException ie) {
             logger.warn("Interrupted on waiting shutting down executor service : ", ie);
         }
+        keepAliveLatch.countDown();
+    }
+
+    void triggerShutdown() {
+        // avoid spawning too many threads.
+        if (!closing.compareAndSet(false, true)) {
+            return;
+        }
+        Thread shutdownThread = new Thread("ShutdownThread") {
+            @Override
+            public void run() {
+                shutdown();
+            }
+        };
+        shutdownThread.start();
     }
 }
