@@ -1570,7 +1570,7 @@ public class TestBookKeeperDistributedLogManager {
                 numTrans++;
                 record = reader.readNext(false);
             }
-        } catch (LogReadException exc) {
+        } catch (LogReadException readexc) {
             exceptionEncountered = true;
         } catch (LogNotFoundException exc) {
             exceptionEncountered = true;

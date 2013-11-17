@@ -216,17 +216,20 @@ public class LogRecord {
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
-                in.mark(16);
+                in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
                 try {
                     in.readLong();
                     long currTxId = in.readLong();
                     if ((null != txId) && (currTxId >= txId)) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Found position {} beyond {}", currTxId, txId);
+                        }
                         in.reset();
                         found = true;
                         break;
                     } else if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
                         if (LOG.isTraceEnabled()) {
-                            LOG.trace("Found position {} greater than {}", recordStream.getCurrentPosition(), dlsn);
+                            LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
                         }
                         in.reset();
                         found = true;
@@ -234,7 +237,9 @@ public class LogRecord {
                     }
                     int length = in.readInt();
                     if (length < 0) {
-                        LOG.debug("Reading negative length");
+                        // We should never really see this as we only write complete entries to
+                        // BK and BK client has logic to detect torn writes (through checksum)
+                        LOG.info("Encountered Record with negative length at TxId: {}", currTxId);
                         break;
                     }
                     if (null == skipBuffer) {
@@ -247,11 +252,11 @@ public class LogRecord {
                         read += bytesToRead;
                     }
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Skipped Record with DLSN {}", recordStream.getCurrentPosition());
+                        LOG.trace("Skipped Record with TxId {} DLSN {}", currTxId, recordStream.getCurrentPosition());
                     }
                     recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
-                    LOG.debug("Exception encountered", eof);
+                    LOG.debug("Skip encountered end of file Exception", eof);
                     break;
                 }
             }

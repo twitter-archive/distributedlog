@@ -120,11 +120,16 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         return new LedgerReadPosition(metadata.getLedgerId(), lin.nextEntryToRead());
     }
 
-    synchronized public void setReadAheadCache() {
-        ledgerDataAccessor = ledgerManager.getLedgerDataAccessor();
-        if (null != lin) {
-            lin.setLedgerDataAccessor(ledgerDataAccessor);
+    synchronized boolean reachedEndOfLogSegment() {
+        if (null == lin) {
+            return false;
         }
+
+        if (inProgress) {
+            return false;
+        }
+
+        return lin.reachedEndOfLedger();
     }
 
     synchronized public DLSN getNextDLSN() {
