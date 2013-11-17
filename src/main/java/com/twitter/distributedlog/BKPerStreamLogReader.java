@@ -42,7 +42,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     private LogRecord currLogRec;
     private DLSN startDLSN = null;
     private final boolean dontSkipControl;
-    protected boolean noBlocking;
+    protected final boolean noBlocking;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
@@ -77,7 +77,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                                                     long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking);
-        this.reader = new LogRecord.Reader(lin, new DataInputStream(new BufferedInputStream(lin)), logVersion);
+        this.reader = new LogRecord.Reader(lin, new DataInputStream(new BufferedInputStream(lin, 24)), logVersion);
         this.isExhausted = false;
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
@@ -89,13 +89,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
     protected synchronized LedgerDataAccessor getLedgerDataAccessor() {
         return this.ledgerDataAccessor;
-    }
-
-    public void setNoBlocking(boolean noBlocking) {
-        this.noBlocking = noBlocking;
-        if (null != lin) {
-            lin.setNoBlocking(noBlocking);
-        }
     }
 
     @Override
@@ -149,6 +142,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     }
 
     public boolean skipTo(DLSN dlsn) throws IOException {
+        LOG.info("Skip To {}", dlsn);
         isExhausted = !reader.skipTo(dlsn);
         return !isExhausted;
     }
@@ -165,7 +159,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         private long currentSlotId = 0;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
-        private boolean noBlocking;
+        private final boolean noBlocking;
 
         /**
          * Construct ledger input stream
@@ -177,13 +171,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
                           long firstBookKeeperEntry, boolean noBlocking)
             throws IOException {
+            LOG.debug("First BookKeeper Entry {}", firstBookKeeperEntry);
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
-            this.noBlocking = noBlocking;
-        }
-
-        public void setNoBlocking(boolean noBlocking) {
             this.noBlocking = noBlocking;
         }
 
@@ -214,6 +205,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 }
                 assert (e != null);
                 ledgerDataAccessor.remove(readPosition);
+                LOG.debug("Read Entry {}", readPosition.getEntryId());
                 readEntries++;
                 currentSlotId = 0;
                 return e.getEntryInputStream();

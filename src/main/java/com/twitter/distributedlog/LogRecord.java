@@ -24,12 +24,17 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Helper classes for reading the ops from an InputStream.
  * All ops derive from LogRecord and are only
  * instantiated from Reader#readOp()
  */
 public class LogRecord {
+    static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);
+
     private long flags;
     private long txid;
     private byte[] payload;
@@ -183,7 +188,6 @@ public class LogRecord {
          * @throws IOException on error.
          */
         public LogRecordWithDLSN readOp() throws IOException {
-            in.mark(1);
             try {
                 LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
                 nextRecordInStream.setFlags(in.readLong());
@@ -208,23 +212,29 @@ public class LogRecord {
         }
 
         private boolean skipTo(Long txId, DLSN dlsn) throws IOException {
+            LOG.debug("SkipTo");
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
-                in.mark(24);
+                in.mark(16);
                 try {
                     in.readLong();
-                    if ((null != txId) && (in.readLong() >= txId)) {
+                    long currTxId = in.readLong();
+                    if ((null != txId) && (currTxId >= txId)) {
                         in.reset();
                         found = true;
                         break;
                     } else if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Found position {} greater than {}", recordStream.getCurrentPosition(), dlsn);
+                        }
                         in.reset();
                         found = true;
                         break;
                     }
                     int length = in.readInt();
                     if (length < 0) {
+                        LOG.debug("Reading negative length");
                         break;
                     }
                     if (null == skipBuffer) {
@@ -236,8 +246,12 @@ public class LogRecord {
                         in.readFully(skipBuffer, 0 , bytesToRead);
                         read += bytesToRead;
                     }
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Skipped Record with DLSN {}", recordStream.getCurrentPosition());
+                    }
                     recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
+                    LOG.debug("Exception encountered", eof);
                     break;
                 }
             }

@@ -18,7 +18,8 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private final ZooKeeperClient zkc;
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
-    private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
+    private boolean watchSet = false;
+    private AtomicBoolean nodeDeleteNotification = new AtomicBoolean(false);
     private long startBkEntry;
     protected final boolean noBlocking;
     private boolean openedWithNoRecovery = true;
@@ -60,56 +61,37 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return;
         }
 
-        if (isInProgress() && reInitializeMetadata.compareAndSet(true, false)) {
+        if (isInProgress() && !watchSet) {
             try {
-                zkc.get().exists(zkPath, this);
+                if (null == zkc.get().exists(zkPath, this)) {
+                    nodeDeleteNotification.set(true);
+                }
+                watchSet = true;
             } catch (Exception exc) {
-                reInitializeMetadata.set(true);
+                watchSet = false;
                 LOG.debug("Unable to setup latch", exc);
             }
-            for (LogSegmentLedgerMetadata l : ledgerManager.getLedgerList()) {
-                if (l.getLedgerId() == metadata.getLedgerId()) {
-                    if (!l.isInProgress()) {
-                        inProgress = false;
-                        try {
-                            zkc.get().exists(zkPath, false);
-                        } catch (Exception exc) {
-                            LOG.debug("Unable to remove latch", exc);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        LedgerDescriptor h;
-        if (null != ledgerDescriptor) {
-            startBkEntry = lin.nextEntryToRead();
         }
 
         try {
-            if (isInProgress()) { // we don't want to fence the current journal
-                if (null == ledgerDescriptor) {
-                    h = ledgerManager.getHandleCache().openLedger(metadata, false);
-                } else {
+            LedgerDescriptor h;
+            if (null == ledgerDescriptor){
+                h = ledgerManager.getHandleCache().openLedger(metadata, !isInProgress());
+            }  else {
+                startBkEntry = lin.nextEntryToRead();
+                if(nodeDeleteNotification.compareAndSet(true, false)) {
+                    ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
+                    LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry, ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    inProgress = false;
+                } else if (isInProgress()) {
                     if (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor)) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
                     }
                     LOG.debug("Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
-                    h = ledgerDescriptor;
                 }
-            } else {
-                if ((null != ledgerDescriptor) && openedWithNoRecovery) {
-                    ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
-                    ledgerDescriptor = null;
-                }
-
-                if (null != ledgerDescriptor) {
-                    h = ledgerDescriptor;
-                } else {
-                    h = ledgerManager.getHandleCache().openLedger(metadata, true);
-                    openedWithNoRecovery = false;
-                }
+                h = ledgerDescriptor;
             }
+
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             startBkEntry = 0;
             shouldResume = false;
@@ -127,9 +109,9 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         if ((event.getType() == Watcher.Event.EventType.None)
             && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
             LOG.debug("Reconnected ...");
-        } else {
-            reInitializeMetadata.set(true);
-            LOG.debug("Node Changed");
+        } else if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
+            nodeDeleteNotification.set(true);
+            LOG.debug("Node Deleted");
         }
     }
 

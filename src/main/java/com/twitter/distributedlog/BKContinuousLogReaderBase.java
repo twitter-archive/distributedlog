@@ -115,7 +115,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                 }
                 LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             }
-            advancedOnce = true;
+            advancedOnce = (currentReader == null);
         } else {
             currentReader.resume();
         }
