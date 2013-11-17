@@ -73,8 +73,14 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                                                     long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
-        this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
+        this.reader = new LogRecord.Reader(new DataInputStream(
+            new BufferedInputStream(lin,
+                // Size the buffer only as much look ahead we need for skipping
+                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT + Long.SIZE)),
+            logVersion);
         this.isExhausted = false;
+        // Note: The caller of the function (or a derived class is expected to open the
+        // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
     }
@@ -182,6 +188,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 readEntries++;
                 return e.getEntryInputStream();
             } catch (BKException bke) {
+                if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
+                    (ledgerDesc.isFenced() &&
+                        (bke.getCode() == BKException.Code.NoSuchEntryException))) {
+                    throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
+                }
                 LOG.info("Reached the end of the stream", bke);
             } catch (Exception e) {
                 throw new IOException("Error reading entries from bookkeeper", e);
@@ -234,6 +245,15 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
         public void setLedgerDataAccessor(LedgerDataAccessor ledgerDataAccessor) {
             this.ledgerDataAccessor = ledgerDataAccessor;
+        }
+
+        public boolean reachedEndOfLedger() {
+            try {
+                long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
+                return (readEntries > maxEntry);
+            } catch (IOException exc) {
+                return false;
+            }
         }
     }
 }
