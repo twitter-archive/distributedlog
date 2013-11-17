@@ -250,7 +250,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
             this.ledgerDataAccessor = ledgerDataAccessor;
         }
 
-<<<<<<< HEAD
         @Override
         public DLSN advanceToNextRecord() {
             if (null == readPosition) {
@@ -260,7 +259,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
             DLSN ret = new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
             currentSlotId++;
             return ret;
-=======
+        }
+
         public boolean reachedEndOfLedger() {
             try {
                 long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
@@ -268,7 +268,6 @@ class BKPerStreamLogReader implements PerStreamLogReader {
             } catch (IOException exc) {
                 return false;
             }
->>>>>>> DLOG_0.3
         }
     }
 }
