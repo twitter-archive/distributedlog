@@ -129,7 +129,6 @@ public class DistributedLogClientBuilder {
         private final ConcurrentHashMap<SocketAddress, ServiceWithClient> address2Services =
                 new ConcurrentHashMap<SocketAddress, ServiceWithClient>();
         private final HashFunction hasher = Hashing.md5();
-        private final Random rnd = new Random(System.currentTimeMillis());
 
         private boolean closed = false;
         private final ReentrantReadWriteLock closeLock =
@@ -263,12 +262,14 @@ public class DistributedLogClientBuilder {
                 removed = Sets.difference(hostSet, newSet).immutableCopy();
                 added = Sets.difference(newSet, hostSet).immutableCopy();
                 for (SocketAddress node: removed) {
-                    hostSet.remove(node);
-                    logger.info("Node {} left.", node);
+                    if (hostSet.remove(node)) {
+                        logger.info("Node {} left.", node);
+                    }
                 }
                 for (SocketAddress node: added) {
-                    hostSet.add(node);
-                    logger.info("Node {} joined.", node);
+                    if (hostSet.add(node)) {
+                        logger.info("Node {} joined.", node);
+                    }
                 }
             }
 
@@ -286,6 +287,17 @@ public class DistributedLogClientBuilder {
                 logger.info("Host list becomes : {}.", hostList);
             }
 
+        }
+
+        private void removeSocketAddress(SocketAddress host, Throwable t) {
+            synchronized (hostSet) {
+                if (hostSet.remove(host)) {
+                    logger.info("Node {} left due to : ", host, t);
+                }
+                hostList = new ArrayList<SocketAddress>(hostSet);
+                Collections.sort(hostList, HostComparator.instance);
+                logger.info("Host list becomes : {}.", hostList);
+            }
         }
 
         public void close() {
@@ -377,31 +389,53 @@ public class DistributedLogClientBuilder {
                         result.setValue(DLSN.deserialize(response.getDlsn()));
                         break;
                     case FOUND:
-                        String owner = response.getHeader().getLocation();
-                        SocketAddress ownerAddr = DLSocketAddress.parseSocketAddress(owner);
-                        if (addr.equals(ownerAddr)) {
-                            // throw the exception to the client
-                            result.setException(new ServiceUnavailableException(
-                                    String.format("Request to stream %s is redirected to same server %s!", stream, addr)));
-                            return;
+                        if (response.getHeader().isSetLocation()) {
+                            String owner = response.getHeader().getLocation();
+                            SocketAddress ownerAddr;
+                            try {
+                                ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
+                            } catch (IOException e) {
+                                // invalid owner
+                                ownershipRedirects.incr();
+                                doWrite(stream, data, result, addr);
+                                return;
+                            }
+                            if (addr.equals(ownerAddr)) {
+                                // throw the exception to the client
+                                result.setException(new ServiceUnavailableException(
+                                        String.format("Request to stream %s is redirected to same server %s!", stream, addr)));
+                                return;
+                            }
+                            ownershipRedirects.incr();
+                            // redirect the request.
+                            if (!stream2Addresses.replace(stream, addr, ownerAddr)) {
+                                // ownership already changed
+                                SocketAddress newOwner = stream2Addresses.get(stream);
+                                if (null == newOwner) {
+                                    SocketAddress newOwner2 = stream2Addresses.putIfAbsent(stream, ownerAddr);
+                                    if (null != newOwner2) {
+                                        ownerAddr = newOwner2;
+                                    }
+                                } else {
+                                    ownerAddr = newOwner;
+                                }
+                            }
+
+                            logger.debug("Redirect the request to new owner {}.", ownerAddr);
+                            sendWriteRequest(ownerAddr, stream, data, result);
+                        } else {
+                            // no owner found
+                            doWrite(stream, data, result, addr);
+                        }
+                        break;
+                    case SERVICE_UNAVAILABLE:
+                        // we are receiving SERVICE_UNAVAILABLE exception from proxy, it means proxy or the stream is closed
+                        // redirect the request.
+                        if (stream2Addresses.remove(stream, addr)) {
+                            ownershipRemoves.incr();
                         }
                         ownershipRedirects.incr();
-                        // redirect the request.
-                        if (!stream2Addresses.replace(stream, addr, ownerAddr)) {
-                            // ownership already changed
-                            SocketAddress newOwner = stream2Addresses.get(stream);
-                            if (null == newOwner) {
-                                SocketAddress newOwner2 = stream2Addresses.putIfAbsent(stream, ownerAddr);
-                                if (null != newOwner2) {
-                                    ownerAddr = newOwner2;
-                                }
-                            } else {
-                                ownerAddr = newOwner;
-                            }
-                        }
-
-                        logger.debug("Redirect the request to new owner {}.", ownerAddr);
-                        sendWriteRequest(ownerAddr, stream, data, result);
+                        doWrite(stream, data, result, addr);
                         break;
                     default:
                         logger.error("Failed to write request to {} : {}", stream, response);
@@ -421,7 +455,10 @@ public class DistributedLogClientBuilder {
                     if (cause instanceof RequestTimeoutException) {
                         result.setException(cause);
                     } else {
-                        logger.error("Failed to write request to {} : {}", stream, cause.getMessage());
+                        logger.error("Failed to write request to {} @ {} : {}",
+                                new Object[] { stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass() });
+                        // remove from host list
+                        removeSocketAddress(addr, cause);
                         // remove this client
                         removeClient(addr, sc);
                         // remove ownership to that host

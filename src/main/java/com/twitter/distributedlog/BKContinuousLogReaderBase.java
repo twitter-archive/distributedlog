@@ -107,7 +107,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                 }
                 LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             }
-            advancedOnce = true;
+            advancedOnce = (currentReader == null);
         } else {
             currentReader.resume();
         }
@@ -119,12 +119,12 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
-        if (currentReader.isInProgress()) {
-            currentReader.requireResume();
-            shouldBreak = true;
-        } else {
+        if (currentReader.reachedEndOfLogSegment()) {
             currentReader.close();
             currentReader = null;
+        } else {
+            currentReader.requireResume();
+            shouldBreak = true;
         }
         return shouldBreak;
     }

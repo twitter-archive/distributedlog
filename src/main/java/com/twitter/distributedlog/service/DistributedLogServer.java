@@ -40,6 +40,7 @@ public class DistributedLogServer implements Runnable {
 
     private DistributedLogServiceImpl dlService = null;
     private Server server = null;
+    private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
 
     DistributedLogServer(String[] args) {
         this.args = args;
@@ -100,7 +101,7 @@ public class DistributedLogServer implements Runnable {
     void runServer(DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
         // dl service
-        dlService = new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""));
+        dlService = new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
         // starts dl server
         server = ServerBuilder.safeBuild(
@@ -118,12 +119,18 @@ public class DistributedLogServer implements Runnable {
      * Close the server.
      */
     public void close() {
-        if (null != server) {
-            server.close();
-        }
         if (null != dlService) {
             dlService.shutdown();
         }
+        if (null != server) {
+            logger.info("Closing dl thrift server.");
+            server.close();
+            logger.info("Closed dl thrift server.");
+        }
+    }
+
+    public void join() throws InterruptedException {
+        keepAliveLatch.await();
     }
 
     /**
@@ -132,23 +139,26 @@ public class DistributedLogServer implements Runnable {
      * @param args
      *          distributedlog server args
      */
-    public static void main(String[] args) {
+    public static DistributedLogServer run(String[] args) {
         final DistributedLogServer server = new DistributedLogServer(args);
         server.run();
-        final CountDownLatch keepAliveLatch = new CountDownLatch(1);
+        return server;
+    }
+
+    public static void main(String[] args) {
+        final DistributedLogServer server = run(args);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {
                 logger.info("Closing DistributedLog Server.");
                 server.close();
                 logger.info("Closed DistributedLog Server.");
-                keepAliveLatch.countDown();
             }
         });
         try {
-            keepAliveLatch.await();
+            server.join();
         } catch (InterruptedException e) {
-            logger.info("Quit DistributedLog Server : ", e);
+            logger.warn("Interrupted when waiting distributedlog server to be finished : ", e);
         }
     }
 
