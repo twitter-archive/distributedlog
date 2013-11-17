@@ -565,11 +565,16 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
         synchronized (this) {
             if (BKException.Code.OK == rc) {
-                lastDLSN = transmitPacket.getLastDLSN();
-                // If we had data that we flushed then we need it to make sure that
-                // background flush in the next pass will make the previous writes
-                // visible by advancing the lastAck
-                periodicFlushNeeded = !transmitPacket.isControl();
+                if (!transmitPacket.isControl()) {
+                    if (lastDLSN.compareTo(transmitPacket.getLastDLSN()) < 0) {
+                        lastDLSN = transmitPacket.getLastDLSN();
+                    }
+
+                    // If we had data that we flushed then we need it to make sure that
+                    // background flush in the next pass will make the previous writes
+                    // visible by advancing the lastAck
+                    periodicFlushNeeded = true;
+                }
                 transmitPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
             } else {
                 transmitPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
