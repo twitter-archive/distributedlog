@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.util.ExecutorServiceFuturePool;
 
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -32,6 +33,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
+    private ExecutorServiceFuturePool futurePool = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
         this(name, conf, uri, null, null, NullStatsLogger.INSTANCE);
@@ -217,7 +219,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedAsyncLogWriter(conf, this);
+        if (null == futurePool) {
+            if (ownExecutor) {
+                futurePool = new ExecutorServiceFuturePool(executorService);
+            } else {
+                futurePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
+                    new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+            }
+        }
+
+        return new BKUnPartitionedAsyncLogWriter(conf, this, futurePool);
     }
 
     /**
