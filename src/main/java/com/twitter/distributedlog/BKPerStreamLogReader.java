@@ -76,7 +76,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.reader = new LogRecord.Reader(new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
-                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT + Long.SIZE)),
+                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT + Long.SIZE/8)),
             logVersion);
         this.isExhausted = false;
         // Note: The caller of the function (or a derived class is expected to open the
