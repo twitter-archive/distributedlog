@@ -139,16 +139,4 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return DLSN.InvalidDLSN;
         }
     }
-
-    synchronized boolean reachedEndOfLogSegment() {
-        if (null == lin) {
-            return false;
-        }
-
-        if (inProgress) {
-            return false;
-        }
-
-        return lin.reachedEndOfLedger();
-    }
 }
