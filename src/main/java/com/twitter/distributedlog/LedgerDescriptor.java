@@ -18,7 +18,7 @@ public class LedgerDescriptor {
         return ledgerId;
     }
 
-    public boolean getFenced() {
+    public boolean isFenced() {
         return fenced;
     }
 
