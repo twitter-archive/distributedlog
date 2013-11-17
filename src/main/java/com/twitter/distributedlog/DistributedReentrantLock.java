@@ -235,7 +235,7 @@ class DistributedReentrantLock implements Runnable {
         }
 
         private synchronized int prepare()
-            throws LockingException, InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
+            throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
             LOG.debug("Working with locking path: {}", lockPath);
 
