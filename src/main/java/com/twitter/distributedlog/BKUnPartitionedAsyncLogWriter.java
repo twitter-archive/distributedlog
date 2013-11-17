@@ -2,10 +2,10 @@ package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
-import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Future;
+import com.twitter.util.FuturePool;
 
 import java.io.IOException;
 
@@ -14,15 +14,14 @@ import java.util.concurrent.Executors;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
-    private final ExecutorService executorService;
-    private final ExecutorServiceFuturePool futurePool;
+    private final FuturePool futurePool;
 
 
-    public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
+    public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
+                                         BKDistributedLogManager bkdlm,
+                                         FuturePool futurePool) throws IOException {
         super(conf, bkdlm);
-        executorService = Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("BKALW-" + bkdlm.name + "-executor-%d").build());
-        futurePool = new ExecutorServiceFuturePool(executorService);
+        this.futurePool = futurePool;
     }
 
     /**
