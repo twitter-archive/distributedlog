@@ -42,7 +42,7 @@ public class LedgerHandleCache {
      */
     private void asyncOpenLedger(LedgerDescriptor ledgerDesc, AsyncCallback.OpenCallback callback, Object ctx) {
         try {
-            if (!ledgerDesc.getFenced()) {
+            if (!ledgerDesc.isFenced()) {
                 bkc.get().asyncOpenLedgerNoRecovery(ledgerDesc.getLedgerId(),
                         BookKeeper.DigestType.CRC32, digestpw.getBytes(UTF_8), callback, ctx);
             } else {

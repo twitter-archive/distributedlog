@@ -24,12 +24,17 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Helper classes for reading the ops from an InputStream.
  * All ops derive from LogRecord and are only
  * instantiated from Reader#readOp()
  */
 public class LogRecord {
+    static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);
+
     private long flags;
     private long txid;
     private byte[] payload;
@@ -183,7 +188,6 @@ public class LogRecord {
          * @throws IOException on error.
          */
         public LogRecordWithDLSN readOp() throws IOException {
-            in.mark(1);
             try {
                 LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
                 nextRecordInStream.setFlags(in.readLong());
@@ -202,16 +206,23 @@ public class LogRecord {
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
-                in.mark(24);
+                in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
                 try {
                     in.readLong();
-                    if (in.readLong() >= txId) {
+                    long currTxId = in.readLong();
+                    if (currTxId >= txId) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Found position {} beyond {}", currTxId, txId);
+                        }
                         in.reset();
                         found = true;
                         break;
                     }
                     int length = in.readInt();
                     if (length < 0) {
+                        // We should never really see this as we only write complete entries to
+                        // BK and BK client has logic to detect torn writes (through checksum)
+                        LOG.info("Encountered Record with negative length at TxId: {}", currTxId);
                         break;
                     }
                     if (null == skipBuffer) {
@@ -223,8 +234,12 @@ public class LogRecord {
                         in.readFully(skipBuffer, 0 , bytesToRead);
                         read += bytesToRead;
                     }
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Skipped Record with TxId {}", currTxId);
+                    }
                     recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
+                    LOG.debug("Skip encountered end of file Exception", eof);
                     break;
                 }
             }
