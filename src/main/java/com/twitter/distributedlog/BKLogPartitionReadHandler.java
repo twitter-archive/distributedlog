@@ -151,7 +151,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
 
         if (logExists) {
-            for (LogSegmentLedgerMetadata l : getLedgerList()) {
+            for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
                 LOG.debug("Inspecting Ledger: {}", l);
                 long lastTxId = l.getLastTxId();
                 if (l.isInProgress()) {
@@ -484,7 +484,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("Reinitializing metadata for {}.", fullyQualifiedName);
                     }
-                    bkLedgerManager.getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
+                    bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
                 } else {
                     next.process(BKException.Code.OK);
                 }

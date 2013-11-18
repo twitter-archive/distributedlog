@@ -24,6 +24,7 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -35,10 +36,18 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.google.common.collect.Sets;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -69,7 +78,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Password to use when creating ledgers. </li>
  * </ul>
  */
-abstract class BKLogPartitionHandler {
+abstract class BKLogPartitionHandler implements Watcher  {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -85,6 +94,47 @@ abstract class BKLogPartitionHandler {
     protected long lastLedgerRollingTimeMillis = -1;
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
+    private AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
+    private AtomicReference<Watcher> chainedWatcher = new AtomicReference<Watcher>();
+
+    // Maintain the list of ledgers
+    protected final Map<String, LogSegmentLedgerMetadata> logSegments =
+        new HashMap<String, LogSegmentLedgerMetadata>();
+    protected volatile GetLedgersTask firstGetLedgersTask = null;
+
+    static class GetLedgersTask implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> {
+        final String path;
+        final boolean allowEmpty;
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        int rc = BKException.Code.InterruptedException;
+
+        GetLedgersTask(String path, boolean allowEmpty) {
+            this.path = path;
+            this.allowEmpty = allowEmpty;
+        }
+
+        @Override
+        public void operationComplete(int rc, List<LogSegmentLedgerMetadata > logSegmentLedgerMetadatas) {
+            this.rc = rc;
+            if (BKException.Code.OK == rc) {
+                LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
+            }
+            countDownLatch.countDown();
+        }
+
+        void waitForFinish() throws IOException {
+            try {
+                countDownLatch.await();
+            } catch (InterruptedException e) {
+                throw new IOException("Interrupted on getting ledgers list for " + path, e);
+            }
+            if ((KeeperException.Code.OK.intValue() != rc) &&
+                ((KeeperException.Code.NONODE.intValue() != rc) || (!allowEmpty))) {
+                throw new IOException("Error getting ledgers list for " + path);
+            }
+        }
+    }
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -128,9 +178,28 @@ abstract class BKLogPartitionHandler {
         }
     }
 
+    protected void scheduleGetLedgersTask(boolean watch, boolean allowEmpty) {
+        if (!watch) {
+            ledgerListWatchSet.set(true);
+        }
+        firstGetLedgersTask = new GetLedgersTask(getFullyQualifiedName(), allowEmpty);
+        asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, watch ? this : null, firstGetLedgersTask);
+        LOG.info("Scheduled get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
+    }
+
+    protected void waitFirstGetLedgersTaskToFinish() throws IOException {
+        GetLedgersTask task = firstGetLedgersTask;
+        if (null != task) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Wait first getting ledgers task to finish for {}.", getFullyQualifiedName());
+            }
+            task.waitForFinish();
+        }
+    }
+
     public long getLastTxId(boolean recover) throws IOException {
         checkLogStreamExists();
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true);
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true, true);
 
         // The ledger list should at least have one element
         // The last TxId is valid if the ledger is already completed else we must recover
@@ -178,7 +247,7 @@ abstract class BKLogPartitionHandler {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
-        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(true);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             LOG.debug("Inspecting Ledger: {}", l);
             if (thresholdTxId < l.getFirstTxId()) {
@@ -336,84 +405,216 @@ abstract class BKLogPartitionHandler {
         }
     }
 
-    public List<LogSegmentLedgerMetadata> getLedgerList(boolean throwOnEmpty) throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
+    public String getFullyQualifiedName() {
+        return String.format("%s:%s", name, streamIdentifier);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean throwOnEmpty) throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
+    // Ledgers Related Functions
+
+    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean throwOnEmpty) throws IOException {
+        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
     }
 
-    public List<LogSegmentLedgerMetadata> getLedgerList() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, false);
+    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean forceFetch, boolean throwOnEmpty) throws IOException {
+        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
+    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch) throws IOException {
+        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.COMPARATOR, false);
+    }
+
+    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean forceFetch) throws IOException {
+        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
+    }
+
+    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, Comparator comparator, boolean throwOnEmpty)
+        throws IOException {
+        if (forceFetch) {
+            return forceGetLedgerList(comparator, throwOnEmpty);
+        } else {
+            if(!ledgerListWatchSet.get()) {
+                scheduleGetLedgersTask(true, true);
+            }
+            waitFirstGetLedgersTaskToFinish();
+            List<LogSegmentLedgerMetadata> segmentsToReturn;
+            synchronized (logSegments) {
+                segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+                segmentsToReturn.addAll(logSegments.values());
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Cached log segments : {}", segmentsToReturn);
+                }
+            }
+            Collections.sort(segmentsToReturn, comparator);
+            return segmentsToReturn;
+        }
     }
 
     /**
      * Get a list of all segments in the journal.
      */
-    protected List<LogSegmentLedgerMetadata> getLedgerList(Comparator comparator, boolean throwOnEmpty) throws IOException {
-        List<LogSegmentLedgerMetadata> ledgers
-            = new ArrayList<LogSegmentLedgerMetadata>();
-        try {
-            List<String> ledgerNames = zooKeeperClient.get().getChildren(ledgerPath, false);
-            for (String n : ledgerNames) {
-                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient,
-                    ledgerPath + "/" + n, conf.getDLLedgerMetadataLayoutVersion());
-                ledgers.add(l);
-                if (!l.isInProgress() && (lastLedgerRollingTimeMillis < l.getCompletionTime())) {
-                    lastLedgerRollingTimeMillis = l.getCompletionTime();
+    protected List<LogSegmentLedgerMetadata> forceGetLedgerList(final Comparator comparator,
+                                                                boolean throwOnEmpty) throws IOException {
+        final List<LogSegmentLedgerMetadata> ledgers = new ArrayList<LogSegmentLedgerMetadata>();
+        final AtomicInteger result = new AtomicInteger(-1);
+        final CountDownLatch latch = new CountDownLatch(1);
+        int retryCount = 5;
+        int backOff = conf.getReadAheadWaitTime();
+        do {
+            ledgers.clear();
+            asyncGetLedgerListInternal(comparator, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+                @Override
+                public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
+                    result.set(rc);
+                    if (KeeperException.Code.OK.intValue() == rc) {
+                        ledgers.addAll(logSegmentLedgerMetadatas);
+                    } else {
+                        LOG.error("Failed to get ledger list for {} : ", getFullyQualifiedName(), KeeperException.create(rc));
+                    }
+                    latch.countDown();
                 }
+            });
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                throw new IOException("Interrupting getting ledger list for " + getFullyQualifiedName(), e);
             }
-        } catch (Exception e) {
-            throw new IOException("Exception reading ledger list from zk", e);
-        }
+
+            KeeperException.Code rc = KeeperException.Code.get(result.get());
+            if (rc == KeeperException.Code.OK) {
+                break;
+            } else if((rc != KeeperException.Code.SESSIONEXPIRED) &&
+                (rc != KeeperException.Code.CONNECTIONLOSS) &&
+                (rc != KeeperException.Code.SESSIONMOVED)) {
+                throw new IOException("Exception reading ledger list for " + getFullyQualifiedName(), KeeperException.create(rc));
+            }
+
+            retryCount--;
+            try {
+                Thread.sleep(backOff);
+            } catch (InterruptedException exc) {
+                //start a new iteration
+            }
+        } while (retryCount > 0);
 
         if (throwOnEmpty && ledgers.isEmpty()) {
             throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
         }
-
-        Collections.sort(ledgers, comparator);
         return ledgers;
     }
 
-    protected void getLedgerList(final Comparator comparator, Watcher watcher,
-            final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
+    /**
+     * Add the segment <i>metadata</i> for <i>name</i> in the cache.
+     *
+     * @param name
+     *          segment znode name.
+     * @param metadata
+     *          segment metadata.
+     */
+    protected void addLogSegmentToCache(String name, LogSegmentLedgerMetadata metadata) {
+        synchronized (logSegments) {
+            if (!logSegments.containsKey(name)) {
+                logSegments.put(name, metadata);
+                LOG.debug("Added log segment ({} : {}) to cache.", name, metadata);
+            }
+        }
+        // update the last ledger rolling time
+        if (!metadata.isInProgress() && (lastLedgerRollingTimeMillis < metadata.getCompletionTime())) {
+            lastLedgerRollingTimeMillis = metadata.getCompletionTime();
+        }
+    }
+
+    protected LogSegmentLedgerMetadata readLogSegmentFromCache(String name) {
+        synchronized (logSegments) {
+            return logSegments.get(name);
+        }
+    }
+
+    protected void removeLogSegmentToCache(String name) {
+        synchronized (logSegments) {
+            LogSegmentLedgerMetadata metadata = logSegments.remove(name);
+            LOG.debug("Removed log segment ({} : {}) from cache.", name, metadata);
+        }
+    }
+
+    protected void asyncGetLedgerList(final Comparator comparator, Watcher watcher,
+                                      final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
+        if (null != watcher) {
+            chainedWatcher.set(watcher);
+            watcher = this;
+        }
+        asyncGetLedgerListInternal(comparator, watcher, callback);
+    }
+
+    private void asyncGetLedgerListInternal(final Comparator comparator, Watcher watcher,
+                                            final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
         try {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Async getting ledger list for {}.", getFullyQualifiedName());
+            }
             zooKeeperClient.get().getChildren(ledgerPath, watcher, new AsyncCallback.Children2Callback() {
                 @Override
                 public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
                     if (KeeperException.Code.OK.intValue() != rc) {
-                        callback.operationComplete(-1, null);
+                        callback.operationComplete(rc, null);
                         return;
                     }
-                    final List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(children.size());
-                    final AtomicInteger numChildren = new AtomicInteger(children.size());
+
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Got ledger list from {} : {}", ledgerPath, children);
+                    }
+
+                    ledgerListWatchSet.set(true);
+                    Set<String> segmentsReceived = new HashSet<String>();
+                    segmentsReceived.addAll(children);
+                    Set<String> segmentsAdded;
+                    Set<String> segmentsRemoved;
+                    final List<LogSegmentLedgerMetadata> segmentList;
+                    synchronized (logSegments) {
+                        Set<String> segmentsCached = logSegments.keySet();
+                        segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
+                        segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
+                        for (String s : segmentsRemoved) {
+                            logSegments.remove(s);
+                            LOG.debug("Removed log segment {} from cache.", s);
+                        }
+                        segmentList = new ArrayList<LogSegmentLedgerMetadata>(segmentsAdded.size() + logSegments.size());
+                        segmentList.addAll(logSegments.values());
+                    }
+
+                    if (segmentsAdded.isEmpty()) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("No segments added for {}.", getFullyQualifiedName());
+                        }
+                        Collections.sort(segmentList, comparator);
+                        callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
+                        return;
+                    }
+
+                    final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
-                    for (String n: children) {
-                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n, conf.getDLLedgerMetadataLayoutVersion(),
-                        new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
-                            @Override
-                            public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
-                                if (BKException.Code.OK != rc) {
-                                    // fail fast
-                                    if (1 == numFailures.incrementAndGet()) {
-                                        // :( properly we need dlog related response code.
-                                        callback.operationComplete(rc, null);
-                                        return;
+                    for (final String segment: segmentsAdded) {
+                        LogSegmentLedgerMetadata.read(zooKeeperClient,
+                            ledgerPath + "/" + segment, conf.getDLLedgerMetadataLayoutVersion(),
+                            new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
+                                @Override
+                                public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
+                                    if (BKException.Code.OK != rc) {
+                                        // fail fast
+                                        if (1 == numFailures.incrementAndGet()) {
+                                            // :( properly we need dlog related response code.
+                                            callback.operationComplete(rc, null);
+                                            return;
+                                        }
+                                    } else {
+                                        addLogSegmentToCache(segment, result);
+                                        segmentList.add(result);
                                     }
-                                } else {
-                                    segments.add(result);
+                                    if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
+                                        Collections.sort(segmentList, comparator);
+                                        callback.operationComplete(BKException.Code.OK, segmentList);
+                                    }
                                 }
-                                if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
-                                    Collections.sort(segments, comparator);
-                                    callback.operationComplete(BKException.Code.OK, segments);
-                                }
-                            }
-                        });
+                            });
                     }
                 }
             }, null);
@@ -424,7 +625,25 @@ abstract class BKLogPartitionHandler {
         }
     }
 
-    public String getFullyQualifiedName() {
-        return String.format("%s:%s", name, streamIdentifier);
+    @Override
+    public void process(WatchedEvent event) {
+        Watcher cw = chainedWatcher.get();
+        if (null != cw) {
+            cw.process(event);
+            chainedWatcher.set(null);
+        }
+
+        if (Watcher.Event.EventType.None.equals(event.getType())) {
+            if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
+                if (!ledgerListWatchSet.get()) {
+                    asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, this, new GetLedgersTask(getFullyQualifiedName(), false));
+                }
+            } else if (event.getState() == Watcher.Event.KeeperState.Expired) {
+                ledgerListWatchSet.set(false);
+            }
+        } else if (Watcher.Event.EventType.NodeChildrenChanged.equals(event.getType())) {
+            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, this, new GetLedgersTask(getFullyQualifiedName(), false));
+        }
     }
+
 }
