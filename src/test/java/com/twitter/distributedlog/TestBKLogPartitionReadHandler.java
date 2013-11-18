@@ -69,11 +69,11 @@ public class TestBKLogPartitionReadHandler {
         prepareLogSegments(dlName, 3, 3);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
         BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
-        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, false);
+        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(true, LogSegmentLedgerMetadata.COMPARATOR, false);
         final AtomicReference<List<LogSegmentLedgerMetadata>> resultHolder =
                 new AtomicReference<List<LogSegmentLedgerMetadata>>(null);
         final CountDownLatch latch = new CountDownLatch(1);
-        readHandler.getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+        readHandler.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
             @Override
             public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
                 resultHolder.set(result);
