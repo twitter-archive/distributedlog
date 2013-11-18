@@ -186,7 +186,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             else {
                 LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
-                LOG.error("Last Committed Ledger {}", getLedgerListDesc());
+                LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
                 throw new IOException("We've already seen " + txId
                     + ". A new stream cannot be created with it");
             }
@@ -214,7 +214,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             if (conf.getDLLedgerMetadataLayoutVersion() >=
                 DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
-                List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+                List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
                 ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
                 if (!ledgerListDesc.isEmpty()) {
                     ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
@@ -450,7 +450,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 if (recovered) {
                     return;
                 }
-                for (LogSegmentLedgerMetadata l : getLedgerList()) {
+                for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
                     if (!l.isInProgress()) {
                         continue;
                     }
@@ -536,7 +536,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     void purgeLogsOlderThanTimestamp(final long minTimestampToKeep, final long sanityCheckThreshold,
                                      final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         assert (minTimestampToKeep < Utils.nowInMillis());
-        getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+        asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
             @Override
             public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
                 if (BKException.Code.OK != rc) {
@@ -574,7 +574,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
         throws IOException {
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList();
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);
 
         // If we are deleting the log we can remove the last entry else we must retain
         // at least one ledger for the stream

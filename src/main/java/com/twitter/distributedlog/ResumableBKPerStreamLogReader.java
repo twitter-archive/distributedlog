@@ -18,7 +18,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private final ZooKeeperClient zkc;
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
-    private boolean watchSet = false;
+    private AtomicBoolean watchSet = new AtomicBoolean(false);
     private AtomicBoolean nodeDeleteNotification = new AtomicBoolean(false);
     private long startBkEntry;
     protected final boolean noBlocking;
@@ -61,14 +61,13 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return;
         }
 
-        if (isInProgress() && !watchSet) {
+        if (isInProgress() && !watchSet.compareAndSet(false, true)) {
             try {
                 if (null == zkc.get().exists(zkPath, this)) {
                     nodeDeleteNotification.set(true);
                 }
-                watchSet = true;
             } catch (Exception exc) {
-                watchSet = false;
+                watchSet.set(false);
                 LOG.debug("Unable to setup latch", exc);
             }
         }
@@ -106,9 +105,12 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     }
 
     public void process(WatchedEvent event) {
-        if ((event.getType() == Watcher.Event.EventType.None)
-            && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
-            LOG.debug("Reconnected ...");
+        if (event.getType() == Watcher.Event.EventType.None) {
+            if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
+                LOG.debug("Reconnected ...");
+            } else if (event.getState() == Watcher.Event.KeeperState.Expired) {
+                watchSet.set(false);
+            }
         } else if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
             nodeDeleteNotification.set(true);
             LOG.debug("Node Deleted");
