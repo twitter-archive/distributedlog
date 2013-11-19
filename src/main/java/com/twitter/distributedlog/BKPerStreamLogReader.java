@@ -73,7 +73,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                                                     long firstBookKeeperEntry)
         throws IOException {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
-        this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
+        this.reader = new LogRecord.Reader(new DataInputStream(
+            new BufferedInputStream(lin,
+                // Size the buffer only as much look ahead we need for skipping
+                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT + Long.SIZE)),
+            logVersion);
         this.isExhausted = false;
         // Note: The caller of the function (or a derived class is expected to open the
         // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
