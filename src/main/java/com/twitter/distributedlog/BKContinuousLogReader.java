@@ -125,12 +125,12 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
     private boolean handleEndOfCurrentStream() throws IOException {
         boolean shouldBreak = false;
-        if (currentReader.isInProgress()) {
-            currentReader.requireResume();
-            shouldBreak = true;
-        } else {
+        if (currentReader.reachedEndOfLogSegment()) {
             currentReader.close();
             currentReader = null;
+        } else {
+            currentReader.requireResume();
+            shouldBreak = true;
         }
         return shouldBreak;
     }

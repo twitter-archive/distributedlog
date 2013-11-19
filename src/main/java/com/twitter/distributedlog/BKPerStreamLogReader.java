@@ -188,6 +188,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 readEntries++;
                 return e.getEntryInputStream();
             } catch (BKException bke) {
+                if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
+                    (ledgerDesc.isFenced() &&
+                        (bke.getCode() == BKException.Code.NoSuchEntryException))) {
+                    throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
+                }
                 LOG.info("Reached the end of the stream", bke);
             } catch (Exception e) {
                 throw new IOException("Error reading entries from bookkeeper", e);
@@ -240,6 +245,15 @@ class BKPerStreamLogReader implements PerStreamLogReader {
 
         public void setLedgerDataAccessor(LedgerDataAccessor ledgerDataAccessor) {
             this.ledgerDataAccessor = ledgerDataAccessor;
+        }
+
+        public boolean reachedEndOfLedger() {
+            try {
+                long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
+                return (readEntries > maxEntry);
+            } catch (IOException exc) {
+                return false;
+            }
         }
     }
 }

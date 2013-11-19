@@ -81,11 +81,16 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                     h = ledgerDescriptor;
                 }
             } else {
-                if (null != ledgerDescriptor) {
+                if ((null != ledgerDescriptor) && !ledgerDescriptor.isFenced()) {
                     ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
                     ledgerDescriptor = null;
                 }
-                h = ledgerManager.getHandleCache().openLedger(ledgerId, true);
+
+                if (null != ledgerDescriptor) {
+                    h = ledgerDescriptor;
+                } else {
+                    h = ledgerManager.getHandleCache().openLedger(ledgerId, true);
+                }
             }
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             shouldResume = false;
@@ -119,5 +124,17 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         if (null != lin) {
             lin.setLedgerDataAccessor(ledgerDataAccessor);
         }
+    }
+
+    synchronized boolean reachedEndOfLogSegment() {
+        if (null == lin) {
+            return false;
+        }
+
+        if (inProgress) {
+            return false;
+        }
+
+        return lin.reachedEndOfLedger();
     }
 }
