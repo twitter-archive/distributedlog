@@ -18,7 +18,8 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
     private final ZooKeeperClient zkc;
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
-    private AtomicBoolean reInitializeMetadata = new AtomicBoolean(true);
+    private boolean watchSet = false;
+    private AtomicBoolean nodeDeleteNotification = new AtomicBoolean(false);
 
     /**
      * Construct BookKeeper log record input stream.
@@ -42,56 +43,38 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return;
         }
 
-        if (isInProgress() && reInitializeMetadata.compareAndSet(true, false)) {
+        if (isInProgress() && !watchSet) {
             try {
-                zkc.get().exists(zkPath, this);
+                if (null == zkc.get().exists(zkPath, this)) {
+                    nodeDeleteNotification.set(true);
+                }
+                watchSet = true;
             } catch (Exception exc) {
-                reInitializeMetadata.set(true);
+                watchSet = false;
                 LOG.debug("Unable to setup latch", exc);
             }
-            for (LogSegmentLedgerMetadata l : ledgerManager.getLedgerList()) {
-                if (l.getLedgerId() == ledgerId) {
-                    if (!l.isInProgress()) {
-                        inProgress = false;
-                        try {
-                            zkc.get().exists(zkPath, false);
-                        } catch (Exception exc) {
-                            LOG.debug("Unable to remove latch", exc);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        LedgerDescriptor h;
-        long startBkEntry = 0;
-        if (null != ledgerDescriptor) {
-            startBkEntry = lin.nextEntryToRead();
         }
 
         try {
-            if (isInProgress()) { // we don't want to fence the current journal
-                if (null == ledgerDescriptor) {
-                    h = ledgerManager.getHandleCache().openLedger(ledgerId, false);
-                } else {
+            long startBkEntry = 0;
+            LedgerDescriptor h;
+            if (null == ledgerDescriptor){
+                h = ledgerManager.getHandleCache().openLedger(ledgerId, !isInProgress());
+            }  else {
+                startBkEntry = lin.nextEntryToRead();
+                if(nodeDeleteNotification.compareAndSet(true, false)) {
+                    ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
+                    LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry, ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    inProgress = false;
+                } else if (isInProgress()) {
                     if (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor)) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
                     }
                     LOG.debug("Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
-                    h = ledgerDescriptor;
                 }
-            } else {
-                if ((null != ledgerDescriptor) && !ledgerDescriptor.isFenced()) {
-                    ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
-                    ledgerDescriptor = null;
-                }
-
-                if (null != ledgerDescriptor) {
-                    h = ledgerDescriptor;
-                } else {
-                    h = ledgerManager.getHandleCache().openLedger(ledgerId, true);
-                }
+                h = ledgerDescriptor;
             }
+
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             shouldResume = false;
         } catch (Exception e) {
@@ -108,22 +91,15 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
         if ((event.getType() == Watcher.Event.EventType.None)
             && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
             LOG.debug("Reconnected ...");
-        } else {
-            reInitializeMetadata.set(true);
-            LOG.debug("Node Changed");
+        } else if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
+            nodeDeleteNotification.set(true);
+            LOG.debug("Node Deleted");
         }
     }
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
         return new LedgerReadPosition(ledgerId, lin.nextEntryToRead());
-    }
-
-    synchronized public void setReadAheadCache() {
-        ledgerDataAccessor = ledgerManager.getLedgerDataAccessor();
-        if (null != lin) {
-            lin.setLedgerDataAccessor(ledgerDataAccessor);
-        }
     }
 
     synchronized boolean reachedEndOfLogSegment() {

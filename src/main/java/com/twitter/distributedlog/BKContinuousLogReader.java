@@ -115,7 +115,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
                 }
                 LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             }
-            advancedOnce = true;
+            advancedOnce = (currentReader == null);
         } else {
             currentReader.resume();
         }
