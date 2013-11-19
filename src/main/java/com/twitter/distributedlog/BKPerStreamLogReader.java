@@ -75,6 +75,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
         this.reader = new LogRecord.Reader(new DataInputStream(new BufferedInputStream(lin)), logVersion);
         this.isExhausted = false;
+        // Note: The caller of the function (or a derived class is expected to open the
+        // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
     }
