@@ -9,12 +9,10 @@ import java.util.concurrent.TimeUnit;
 
 public interface AsyncLogReader extends Closeable {
     /**
+     * Read the next record from the log stream
      *
-     * @param timeout - timeout value
-     * @param timeUnit - units associated with the timeout value
      * @return A promise that when satisfied will contain the Log Record with its DLSN;
      * The Future may timeout if there is no record to return within the specified timeout
-     * @throws IOException
      */
     public Future<LogRecordWithDLSN> readNext();
 }

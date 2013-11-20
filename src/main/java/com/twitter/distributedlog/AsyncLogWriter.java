@@ -10,7 +10,8 @@ public interface AsyncLogWriter extends Closeable {
      * Write a log record to the stream.
      *
      * @param record single log record
-     * @throws java.io.IOException
+     * @return A Future which contains a DLSN if the record was successfully written
+     * or an exception if the write fails
      */
     public Future<DLSN> write(LogRecord record);
 }

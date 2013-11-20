@@ -297,6 +297,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
+        if ((record.getTransactionId() < 0) ||
+            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         Future<DLSN> future = writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
@@ -309,11 +314,6 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     synchronized public Future<DLSN> writeInternal(LogRecord record) throws IOException {
-        if ((record.getTransactionId() < 0) ||
-            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
-            throw new IOException("Invalid Transaction Id");
-        }
-
         int logRecordSize = record.getPersistentSize();
 
         if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {
@@ -386,6 +386,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
         int numRecords = 0;
         for (LogRecord r : records) {
+            if ((r.getTransactionId() < 0) ||
+                (r.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+                throw new IOException("Invalid Transaction Id");
+            }
             writeInternal(r);
             numRecords++;
             if (outstandingBytes > transmissionThreshold) {
