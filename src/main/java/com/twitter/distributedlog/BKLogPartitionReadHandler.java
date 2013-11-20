@@ -129,20 +129,13 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
 
     public void close() throws IOException {
-        try {
-            if (null != readAheadWorker) {
-                readAheadWorker.stop();
-            }
-
-            if (null != ledgerDataAccessor) {
-                ledgerDataAccessor.clear();
-            }
-
-            super.close();
-
-        } catch (Exception e) {
-            throw new IOException("Couldn't close zookeeper client", e);
+        if (null != readAheadWorker) {
+            readAheadWorker.stop();
         }
+        if (null != ledgerDataAccessor) {
+            ledgerDataAccessor.clear();
+        }
+        super.close();
     }
 
     private void setWatcherOnLedgerRoot(Watcher watcher) throws IOException, KeeperException, InterruptedException {
