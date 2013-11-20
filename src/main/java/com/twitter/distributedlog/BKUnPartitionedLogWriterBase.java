@@ -75,10 +75,14 @@ public class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
 
     public void closeAndComplete() throws IOException {
         if (null != perStreamWriter && null != partitionHander) {
-            waitForTruncation();
-            Map.Entry<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
-            partitionHander.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
-            partitionHander.close();
+            try {
+                waitForTruncation();
+                Map.Entry<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
+                partitionHander.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
+            } finally {
+                // ensure partition handler is closed.
+                partitionHander.close();
+            }
             perStreamWriter = null;
             partitionHander = null;
         }

@@ -71,10 +71,11 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
      *         The Future may timeout if there is no record to return within the specified timeout
      */
     @Override
-    public synchronized Future<LogRecordWithDLSN> readNext() throws IOException {
+    public synchronized Future<LogRecordWithDLSN> readNext() {
         Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
 
-        if (null != checkClosedOrInError("background task")) {
+        IOException throwExc = checkClosedOrInError("readNext");
+        if (null != throwExc) {
             for (Promise<LogRecordWithDLSN> pendingPromise : pendingRequests) {
                 pendingPromise.setException(throwExc);
             }
@@ -126,14 +127,8 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                 return;
             }
 
-            try {
-                checkClosedOrInError("background task");
-            } catch (IOException exc) {
-                Exception throwExc = exc;
-                if (!(exc instanceof EndOfStreamException)) {
-                    throwExc = new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc);
-                }
-
+            IOException throwExc = checkClosedOrInError("readNext");
+            if (null != throwExc) {
                 for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
                     promise.setException(throwExc);
                 }

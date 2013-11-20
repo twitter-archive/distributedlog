@@ -339,8 +339,8 @@ public class TestInterleavedReaders {
     private static void readNext(final Thread threadToInterrupt, final CountDownLatch syncLatch, final AsyncLogReader reader) {
         Future<LogRecordWithDLSN> record = null;
         try {
-            record = reader.readNext(60, TimeUnit.MILLISECONDS);
-        } catch (IOException exc) {
+            record = reader.readNext();
+        } catch (Exception exc) {
             threadToInterrupt.interrupt();
         }
         if (null != record) {
