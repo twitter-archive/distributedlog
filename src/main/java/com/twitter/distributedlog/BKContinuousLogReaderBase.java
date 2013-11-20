@@ -43,14 +43,16 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      */
     @Override
     public void close() throws IOException {
-        if (null != currentReader) {
-            currentReader.close();
+        try {
+            if (null != currentReader) {
+                currentReader.close();
+            }
+            if (null != bkLedgerManager) {
+                bkLedgerManager.close();
+            }
+        } finally {
+            bkDistributedLogManager.unregister(sessionExpireWatcher);
         }
-
-        if (null != bkLedgerManager) {
-            bkLedgerManager.close();
-        }
-        bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
 
     /**
