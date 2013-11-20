@@ -309,6 +309,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     synchronized public Future<DLSN> writeInternal(LogRecord record) throws IOException {
+        if ((record.getTransactionId() < 0) ||
+            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         int logRecordSize = record.getPersistentSize();
 
         if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {

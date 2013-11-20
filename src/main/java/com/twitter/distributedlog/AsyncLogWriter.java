@@ -12,5 +12,5 @@ public interface AsyncLogWriter extends Closeable {
      * @param record single log record
      * @throws java.io.IOException
      */
-    public Future<DLSN> write(LogRecord record) throws IOException;
+    public Future<DLSN> write(LogRecord record);
 }

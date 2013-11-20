@@ -23,7 +23,6 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     protected BKContinuousLogReaderDLSN currentReader = null;
     protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
-    private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
     private IOException lastException = null;
     private ScheduledExecutorService executorService;
@@ -44,14 +43,12 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
     @Override
     public void notifySessionExpired() {
-        zkSessionExpired = true;
         scheduleBackgroundRead();
     }
 
-    private void checkClosedOrInError(String operation) throws IOException {
-        if (zkSessionExpired) {
-            LOG.error("Executing " + operation + " after losing connection to zookeeper");
-            throw new RetryableReadException(currentReader.getFullyQualifiedName(), "Executing " + operation + " after losing connection to zookeeper");
+    private IOException checkClosedOrInError(String operation) {
+        if (null != lastException) {
+            return lastException;
         }
 
         try {
@@ -61,8 +58,10 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
             if (!(exc instanceof EndOfStreamException)) {
                 throwExc = new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc);
             }
-            throw throwExc;
+            return throwExc;
         }
+
+        return null;
     }
 
     /**
@@ -72,11 +71,19 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
      *         The Future may timeout if there is no record to return within the specified timeout
      */
     @Override
-    public synchronized Future<LogRecordWithDLSN> readNext(long timeout, TimeUnit timeUnit) throws IOException {
-        checkClosedOrInError("readNext");
+    public synchronized Future<LogRecordWithDLSN> readNext() throws IOException {
+        Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
+
+        if (null != checkClosedOrInError("background task")) {
+            for (Promise<LogRecordWithDLSN> pendingPromise : pendingRequests) {
+                pendingPromise.setException(throwExc);
+            }
+            pendingRequests.clear();
+            promise.setException((throwExc));
+            return promise;
+        }
 
         boolean queueEmpty = pendingRequests.isEmpty();
-        Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
         pendingRequests.add(promise);
 
         if (queueEmpty) {
@@ -98,14 +105,11 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     public void close() throws IOException {
         for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
             promise.setException(new RetryableReadException(currentReader.getFullyQualifiedName(), "Reader is closed"));
+            pendingRequests.clear();
         }
 
         if (null != currentReader) {
             currentReader.close();
-        }
-
-        if (null != lastException) {
-            throw lastException;
         }
 
         bkDistributedLogManager.unregister(sessionExpireWatcher);
@@ -133,6 +137,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                 for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
                     promise.setException(throwExc);
                 }
+                pendingRequests.clear();
                 return;
             }
 
@@ -149,10 +154,6 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                 Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                 if (null != promise) {
                     promise.setValue(record);
-                } else {
-                    // This can only happen if there was a ZK session expire
-                    // after the loop started
-                    assert(zkSessionExpired);
                 }
             } else {
                 if (0 >= scheduleCount.get()) {

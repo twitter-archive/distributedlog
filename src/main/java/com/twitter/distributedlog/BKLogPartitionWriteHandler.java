@@ -176,8 +176,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
         checkLogExists();
 
+        if ((txId < 0) ||
+            (txId == DistributedLogConstants.MAX_TXID)) {
+            throw new IOException("Invalid Transaction Id");
+        }
+
         lock.acquire("StartLogSegment");
         lockAcquired = true;
+
         long highestTxIdWritten = maxTxId.get();
         if (txId < highestTxIdWritten) {
             if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {

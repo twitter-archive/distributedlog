@@ -16,5 +16,5 @@ public interface AsyncLogReader extends Closeable {
      * The Future may timeout if there is no record to return within the specified timeout
      * @throws IOException
      */
-    public Future<LogRecordWithDLSN> readNext(long timeout, TimeUnit timeUnit) throws IOException;
+    public Future<LogRecordWithDLSN> readNext();
 }
