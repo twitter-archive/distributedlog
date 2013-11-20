@@ -56,14 +56,25 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
      */
     public void close() throws IOException {
         closed = true;
-        waitForTruncation();
-        for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
-            writer.close();
+        try {
+            waitForTruncation();
+            for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
+                try {
+                    writer.close();
+                } catch (IOException ioe) {
+                    LOG.error("Failed to close per stream writer : ", ioe);
+                }
+            }
+            for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
+                try {
+                    partitionWriteHandler.close();
+                } catch (IOException ioe) {
+                    LOG.error("Failed to close writer handler : ", ioe);
+                }
+            }
+        } finally {
+            bkDistributedLogManager.unregister(sessionExpireWatcher);
         }
-        for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
-            partitionWriteHandler.close();
-        }
-        bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
 
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(PartitionId partition, boolean recover) throws IOException {
