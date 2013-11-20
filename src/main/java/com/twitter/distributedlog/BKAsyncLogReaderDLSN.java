@@ -4,17 +4,19 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
+import com.twitter.util.Throw;
 
 import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import scala.Option;
 
 public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
@@ -24,7 +26,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean endOfStreamEncountered = false;
-    private IOException lastException = null;
+    private AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
     private ScheduledExecutorService executorService;
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();
     private AtomicLong scheduleCount = new AtomicLong(0);
@@ -43,25 +45,31 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
     @Override
     public void notifySessionExpired() {
+        // ZK Session notification is an indication to check if this has resulted in a fatal error
+        // of the underlying reader, in itself this reader doesnt error out unless the underlying
+        // reader has hit an error
         scheduleBackgroundRead();
     }
 
-    private IOException checkClosedOrInError(String operation) {
-        if (null != lastException) {
-            return lastException;
-        }
-
-        try {
-            currentReader.checkClosedOrInError(operation);
-        } catch (IOException exc) {
-            IOException throwExc = exc;
-            if (!(exc instanceof EndOfStreamException)) {
-                throwExc = new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc);
+    private boolean checkClosedOrInError(String operation) {
+        if (null != lastException.get()) {
+            try {
+                currentReader.checkClosedOrInError(operation);
+            } catch (IOException exc) {
+                lastException.set(exc);
+                if (!(exc instanceof EndOfStreamException)) {
+                    lastException.set(new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc));
+                }
             }
-            return throwExc;
         }
 
-        return null;
+        if (null != lastException.get()) {
+            LOG.trace("Cancelling pending reads");
+            cancelAllPendingReads(lastException.get());
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -74,13 +82,8 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     public synchronized Future<LogRecordWithDLSN> readNext() {
         Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
 
-        IOException throwExc = checkClosedOrInError("readNext");
-        if (null != throwExc) {
-            for (Promise<LogRecordWithDLSN> pendingPromise : pendingRequests) {
-                pendingPromise.setException(throwExc);
-            }
-            pendingRequests.clear();
-            promise.setException((throwExc));
+        if (checkClosedOrInError("readNext")) {
+            promise.setException(lastException.get());
             return promise;
         }
 
@@ -104,10 +107,8 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
     @Override
     public void close() throws IOException {
-        for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
-            promise.setException(new RetryableReadException(currentReader.getFullyQualifiedName(), "Reader is closed"));
-            pendingRequests.clear();
-        }
+        cancelAllPendingReads(new RetryableReadException(
+            currentReader.getFullyQualifiedName(), "Reader was closed"));
 
         if (null != currentReader) {
             currentReader.close();
@@ -116,23 +117,42 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
         bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
 
+    private void cancelAllPendingReads(Throwable throwExc) {
+        for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
+            promise.updateIfEmpty(new Throw(throwExc));
+        }
+        pendingRequests.clear();
+    }
+
 
     @Override
     public void run() {
         int iterations = 0;
         LOG.debug("Scheduled Background Reader");
         while(true) {
-            LOG.debug("Executing Iteration: {}", iterations++);
-            if (pendingRequests.isEmpty()) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Executing Iteration: {}", iterations++);
+            }
+
+            Promise<LogRecordWithDLSN> nextPromise = pendingRequests.peek();
+
+            // Queue is empty, nothing to read, return
+            if (null == nextPromise) {
+                LOG.trace("Queue Empty waiting for Input");
                 return;
             }
 
-            IOException throwExc = checkClosedOrInError("readNext");
-            if (null != throwExc) {
-                for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
-                    promise.setException(throwExc);
+            // If the oldest pending promise is interrupted then we must mark
+            // the reader in error and abort all pending reads since we dont
+            // know the last consumed read
+            if (null == lastException.get()) {
+                if (nextPromise.isInterrupted().isDefined()) {
+                    lastException.set(nextPromise.isInterrupted().get());
                 }
-                pendingRequests.clear();
+            }
+
+            if (checkClosedOrInError("readNext")) {
+                LOG.trace("Exception", lastException.get());
                 return;
             }
 
@@ -140,18 +160,22 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
             try {
                 record = currentReader.readNextWithSkip();
             } catch (IOException exc) {
-                lastException = exc;
+                lastException.set(exc);
+                LOG.trace("read with skip Exception", lastException.get());
                 return;
             }
 
             if (null != record) {
-                LOG.debug("Satisfied promise with record {}", record.getTransactionId());
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Satisfied promise with record {}", record.getTransactionId());
+                }
                 Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                 if (null != promise) {
                     promise.setValue(record);
                 }
             } else {
                 if (0 >= scheduleCount.get()) {
+                    LOG.trace("Schedule count Exception", lastException.get());
                     return;
                 }
                 scheduleCount.decrementAndGet();

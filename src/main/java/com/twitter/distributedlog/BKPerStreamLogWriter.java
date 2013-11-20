@@ -72,6 +72,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             // so safest to just create a new list so the old list can move with
             // with the thread, hence avoiding using clear to measure accurate GC
             // behavior
+            cancelPromises(BKException.Code.InterruptedException);
             promiseList = new LinkedList<Promise<DLSN>>();
             buffer.reset();
         }
@@ -91,9 +92,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         private void satisfyPromises(long entryId) {
             long nextSlotId = 0;
             for(Promise<DLSN> promise : promiseList) {
+                LOG.trace("Promise satisfied");
                 promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
                 nextSlotId++;
             }
+            promiseList.clear();
             lastDLSN = new DLSN(ledgerSequenceNo, entryId, nextSlotId-1);
         }
 
@@ -103,6 +106,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                     + transmitResult + ") "
                     + BKException.getMessage(transmitResult)));
             }
+            promiseList.clear();
         }
 
         public void processTransmitComplete(long entryId, int transmitResult) {
@@ -248,6 +252,11 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void close() throws IOException {
+        closeInternal(true, true);
+    }
+
+    public void closeInternal(boolean attemptFlush, boolean canThrow) throws IOException {
+        IOException throwExc = null;
         // Cancel the periodic flush schedule first
         // The task is allowed to exit gracefully
         // The attempt to flush will synchronize with the
@@ -256,18 +265,22 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             periodicFlushSchedule.cancel(false);
         }
 
-        if (!isStreamInError()) {
-            setReadyToFlush();
-            flushAndSync();
+        if (attemptFlush && !isStreamInError()) {
+            try {
+                setReadyToFlush();
+                flushAndSync();
+            } catch (IOException exc) {
+                throwExc = exc;
+            }
         }
         try {
             lh.close();
         } catch (InterruptedException ie) {
-            throw new IOException("Interrupted waiting on close", ie);
+            LOG.warn("Interrupted waiting on close", ie);
         } catch (BKException.BKLedgerClosedException lce) {
             LOG.debug("Ledger already closed");
         } catch (BKException bke) {
-            throw new IOException("BookKeeper error during close", bke);
+            LOG.warn("BookKeeper error during close", bke);
         } finally {
             lock.release("PerStreamLogWriterClose");
         }
@@ -275,20 +288,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     @Override
     public void abort() throws IOException {
-        if (null != periodicFlushSchedule) {
-            periodicFlushSchedule.cancel(false);
-        }
-
-        try {
-            lh.close();
-        } catch (InterruptedException ie) {
-            throw new IOException("Interrupted waiting on close", ie);
-        } catch (BKException bke) {
-            throw new IOException("BookKeeper error during abort", bke);
-        }
-
-        lock.release("PerStreamLogWriterAbort");
-
+        closeInternal(false, false);
     }
 
     @Override

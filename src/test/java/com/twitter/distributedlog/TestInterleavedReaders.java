@@ -341,6 +341,7 @@ public class TestInterleavedReaders {
         try {
             record = reader.readNext();
         } catch (Exception exc) {
+            LOG.debug("Encountered Exception");
             threadToInterrupt.interrupt();
         }
         if (null != record) {
@@ -359,6 +360,7 @@ public class TestInterleavedReaders {
                 }
                 @Override
                 public void onFailure(Throwable cause) {
+                    LOG.debug("Encountered Exception");
                     threadToInterrupt.interrupt();
                 }
             });
