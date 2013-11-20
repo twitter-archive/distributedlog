@@ -702,17 +702,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public void close() throws IOException {
-        try {
-            super.close();
-            if (lockAcquired) {
+        if (lockAcquired) {
+            try {
                 lock.release("WriteHandlerClose");
-                lockAcquired = false;
+            } catch (IOException ioe) {
+                LOG.error("Error on releasing WriteHandlerClose {} : ", getFullyQualifiedName(), ioe);
             }
-            lock.close();
-            deleteLock.close();
-        } catch (Exception e) {
-            throw new IOException("Couldn't close zookeeper client", e);
+            lockAcquired = false;
         }
+        lock.close();
+        deleteLock.close();
+        // close the zookeeper client & bookkeeper client after closing the lock
+        super.close();
     }
 
     /**
