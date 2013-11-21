@@ -68,11 +68,13 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         public void reset() {
-            // Likely will have to move promise fulfillment to a separate thread
-            // so safest to just create a new list so the old list can move with
-            // with the thread, hence avoiding using clear to measure accurate GC
-            // behavior
-            cancelPromises(BKException.Code.InterruptedException);
+            if (null != promiseList) {
+                // Likely will have to move promise fulfillment to a separate thread
+                // so safest to just create a new list so the old list can move with
+                // with the thread, hence avoiding using clear to measure accurate GC
+                // behavior
+                cancelPromises(BKException.Code.InterruptedException);
+            }
             promiseList = new LinkedList<Promise<DLSN>>();
             buffer.reset();
         }
@@ -273,6 +275,12 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
                 throwExc = exc;
             }
         }
+
+        // Packet reset will cancel any outstanding promises
+        if (null != packetCurrent) {
+            packetCurrent.reset();
+        }
+
         try {
             lh.close();
         } catch (InterruptedException ie) {
