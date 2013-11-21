@@ -284,6 +284,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         } finally {
             lock.release("PerStreamLogWriterClose");
         }
+
+        if (canThrow && (null != throwExc)) {
+            throw throwExc;
+        }
     }
 
     @Override
