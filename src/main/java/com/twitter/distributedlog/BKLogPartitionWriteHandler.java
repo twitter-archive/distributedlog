@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -184,10 +185,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
             }
             else {
-                LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
+                LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
                 LOG.error("Last Committed Ledger {}", getLedgerListDesc());
-                throw new IOException("We've already seen " + txId
-                    + ". A new stream cannot be created with it");
+                throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
             }
         }
         boolean writeInprogressZnode = false;

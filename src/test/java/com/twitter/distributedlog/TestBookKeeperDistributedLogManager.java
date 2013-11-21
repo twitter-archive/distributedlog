@@ -21,6 +21,7 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -239,8 +240,8 @@ public class TestBookKeeperDistributedLogManager {
             out = bkdlm.startLogSegment(txid);
             fail("Shouldn't be able to start another journal from " + txid
                 + " when one already exists");
-        } catch (IOException ioe) {
-            LOG.info("Caught exception as expected", ioe);
+        } catch (TransactionIdOutOfOrderException rste) {
+            LOG.info("Caught exception as expected", rste);
         }
 
         // open journal continuing from before
