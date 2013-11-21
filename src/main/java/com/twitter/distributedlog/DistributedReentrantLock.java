@@ -263,15 +263,12 @@ class DistributedReentrantLock implements Runnable {
                 // only wait the lock for non-immediate lock
                 watcher.checkForLock(DistributedLogConstants.LOCK_IMMEDIATE != timeout);
                 if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
-                    boolean success = true;
                     if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
                         syncPoint.await();
                     }
                     else {
-                        success = syncPoint.await(timeout, unit);
+                        syncPoint.await(timeout, unit);
                     }
-                    // assert success => holdsLock
-                    assert(!success || holdsLock);
                 }
                 if (!holdsLock) {
                     throw new OwnershipAcquireFailedException(lockPath, currentOwner);
@@ -286,7 +283,7 @@ class DistributedReentrantLock implements Runnable {
                 // No need to clean up since the node wasn't created yet.
                 throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock " + lockPath, e);
             } finally {
-                if (!holdsLock && DistributedLogConstants.LOCK_IMMEDIATE == timeout) {
+                if (!holdsLock) {
                     cancelAttempt(false, this.epoch.get());
                 }
             }
