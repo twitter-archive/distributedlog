@@ -130,7 +130,7 @@ public class TestBookKeeperDistributedLogManager {
     public void testSimpleWrite() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplewrite");
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(i);
             out.write(op);
@@ -150,7 +150,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-txncount";
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, name);
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(i);
             out.write(op);
@@ -170,7 +170,7 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            PerStreamLogWriter out = bkdlm.startLogSegment(start);
+            LogWriter out = bkdlm.startLogSegment(start);
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -182,7 +182,7 @@ public class TestBookKeeperDistributedLogManager {
         }
 
         long start = txid;
-        PerStreamLogWriter out = bkdlm.startLogSegment(start);
+        LogWriter out = bkdlm.startLogSegment(start);
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
@@ -217,7 +217,7 @@ public class TestBookKeeperDistributedLogManager {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-restartFrom1");
         long txid = 1;
         long start = txid;
-        PerStreamLogWriter out = bkdlm.startLogSegment(txid);
+        LogWriter out = bkdlm.startLogSegment(txid);
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
@@ -270,9 +270,9 @@ public class TestBookKeeperDistributedLogManager {
         BKLogPartitionWriteHandler bkdlm1 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
         BKLogPartitionWriteHandler bkdlm2 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
 
-        PerStreamLogWriter out1 = bkdlm1.startLogSegment(start);
+        LogWriter out1 = bkdlm1.startLogSegment(start);
         try {
-            PerStreamLogWriter out2 = bkdlm2.startLogSegment(start);
+            LogWriter out2 = bkdlm2.startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
             assertEquals(ioe.getCurrentOwner(),"localhost");
@@ -285,7 +285,7 @@ public class TestBookKeeperDistributedLogManager {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, name);
         long txid = 1;
         final long numTransactions = 10000;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         for (long i = 1; i <= numTransactions; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(i);
             out.write(op);
@@ -304,7 +304,7 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            PerStreamLogWriter out = bkdlm.startLogSegment(start);
+            LogWriter out = bkdlm.startLogSegment(start);
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -316,7 +316,7 @@ public class TestBookKeeperDistributedLogManager {
                 zkc.exists(bkdlm.completedLedgerZNode(start, (txid - 1)), false));
         }
         long start = txid;
-        PerStreamLogWriter out = bkdlm.startLogSegment(start);
+        LogWriter out = bkdlm.startLogSegment(start);
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
@@ -623,7 +623,7 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            PerStreamLogWriter out = bkdlm.startLogSegment(start);
+            LogWriter out = bkdlm.startLogSegment(start);
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -635,7 +635,7 @@ public class TestBookKeeperDistributedLogManager {
         }
 
         long start = txid;
-        PerStreamLogWriter out = bkdlm.startLogSegment(start);
+        LogWriter out = bkdlm.startLogSegment(start);
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
@@ -671,7 +671,7 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            PerStreamLogWriter out = bkdlm.startLogSegment(start);
+            LogWriter out = bkdlm.startLogSegment(start);
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -687,7 +687,7 @@ public class TestBookKeeperDistributedLogManager {
         }
 
         long start = txid;
-        PerStreamLogWriter out = bkdlm.startLogSegment(start);
+        LogWriter out = bkdlm.startLogSegment(start);
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
@@ -1518,7 +1518,7 @@ public class TestBookKeeperDistributedLogManager {
     public void testMaxLogRecSize() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         try {
             LogRecord op = new LogRecord(txid, DLMTestUtil.repeatString(
@@ -1540,7 +1540,7 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.setOutputBufferSize(1024 * 1024);
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         byte[] largePayload = DLMTestUtil.repeatString(DLMTestUtil.repeatString("abcdefgh", 256), 256).getBytes();
         try {

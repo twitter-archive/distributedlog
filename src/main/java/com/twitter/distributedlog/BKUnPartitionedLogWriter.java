@@ -118,6 +118,21 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
         closeAndComplete();
     }
 
+    /**
+     * Close the stream without necessarily flushing immediately.
+     * This may be called if the stream is in error such as after a
+     * previous write or close threw an exception.
+     */
+    @Override
+    public void abort() throws IOException {
+        if (null != perStreamWriter) {
+            perStreamWriter.abort();
+            perStreamWriter = null;
+        }
+
+        close();
+    }
+
     public void closeAndComplete() throws IOException {
         if (null != perStreamWriter && null != partitionHander) {
             try {

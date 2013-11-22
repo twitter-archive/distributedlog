@@ -51,7 +51,6 @@ import static com.google.common.base.Charsets.UTF_8;
  * acquired the lock and started writing to bookkeeper. Therefore other
  * mechanisms are required to ensure correctness (i.e. Fencing).
  */
-//
 class DistributedReentrantLock implements Runnable {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
