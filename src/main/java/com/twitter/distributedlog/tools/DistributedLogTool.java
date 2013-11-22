@@ -261,6 +261,30 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    class DeleteCommand extends PerStreamCommand {
+
+        protected DeleteCommand() {
+            super("delete", "delete a given stream");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
+                getStreamName(), getConf(), getUri());
+            try {
+                dlm.delete();
+            } finally {
+                dlm.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "delete";
+        }
+    }
+
     class DumpCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
@@ -377,6 +401,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new ListCommand());
         addCommand(new DumpCommand());
         addCommand(new ShowCommand());
+        addCommand(new DeleteCommand());
     }
 
     @Override
