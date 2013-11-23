@@ -22,7 +22,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
-    protected BKContinuousLogReaderDLSN currentReader = null;
+    protected final BKContinuousLogReaderDLSN currentReader;
     protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean endOfStreamEncountered = false;
@@ -110,9 +110,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
         cancelAllPendingReads(new RetryableReadException(
             currentReader.getFullyQualifiedName(), "Reader was closed"));
 
-        if (null != currentReader) {
-            currentReader.close();
-        }
+        currentReader.close();
 
         bkDistributedLogManager.unregister(sessionExpireWatcher);
     }

@@ -29,7 +29,6 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.collections.keyvalue.AbstractMapEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -249,7 +248,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
 
     public Map.Entry<Long, DLSN> closeToFinalize() throws IOException {
         close();
-        return new AbstractMap.SimpleEntry(lastTxId, lastDLSN);
+        synchronized (this) {
+            return new AbstractMap.SimpleEntry(lastTxId, lastDLSN);
+        }
     }
 
     @Override
@@ -277,8 +278,10 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         }
 
         // Packet reset will cancel any outstanding promises
-        if (null != packetCurrent) {
-            packetCurrent.reset();
+        synchronized (this) {
+            if (null != packetCurrent) {
+                packetCurrent.reset();
+            }
         }
 
         try {
