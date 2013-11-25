@@ -154,8 +154,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         this.lh = lh;
         this.lock = lock;
         this.lock.acquire("BKPerStreamLogWriter");
-        this.transmissionThreshold
-            = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
+
+        if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+            LOG.warn("Setting output buffer size {} greater than max transmission size {}",
+                conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
+            this.transmissionThreshold = DistributedLogConstants.MAX_TRANSMISSION_SIZE;
+        } else {
+            this.transmissionThreshold = conf.getOutputBufferSize();
+        }
 
         this.packetCurrent = new BKTransmitPacket(Math.max(transmissionThreshold, 1024));
         this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
