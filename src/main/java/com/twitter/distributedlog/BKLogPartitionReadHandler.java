@@ -85,7 +85,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }
 
                     try {
-                        lastTxId = recoverLastTxId(l, false);
+                        lastTxId = recoverLastTxIdInLedger(l, false);
                     } catch (IOException exc) {
                         lastTxId = l.getFirstTxId();
                         LOG.info("Reading beyond flush point");

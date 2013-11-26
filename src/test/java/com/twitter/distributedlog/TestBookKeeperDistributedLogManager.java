@@ -1497,6 +1497,10 @@ public class TestBookKeeperDistributedLogManager {
             }
         }
 
+        assertEquals(txid - 1, dlm.getLastTxId());
+        LogRecord last = dlm.getLastLogRecord();
+        assertEquals(txid - 1, last.getTransactionId());
+        DLMTestUtil.verifyLogRecord(last);
         assert(dlm.isEndOfStreamMarked());
 
         long start = txid;
@@ -1613,5 +1617,49 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(0);
         testNonPartitionedWritesInternal(name, confLocal);
+    }
+
+    @Test
+    public void testLastLogRecordWithEmptyLedgers() throws Exception {
+        String name = "distrlog-lastLogRec-emptyledgers";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            BKUnPartitionedLogWriter out = (BKUnPartitionedLogWriter)dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+                out.write(op);
+            }
+            out.closeAndComplete();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+
+            assertNotNull(
+                zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            blplm.startLogSegment(txid - 1);
+            blplm.completeAndCloseLogSegment(txid - 1, txid - 1);
+            assertNotNull(
+                zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1), false));
+            blplm.close();
+        }
+
+        long start = txid;
+        BKUnPartitionedLogWriter out = (BKUnPartitionedLogWriter)dlm.startLogSegmentNonPartitioned();
+        LogRecord op = DLMTestUtil.getLogRecordInstance(txid);
+        op.setControl();
+        out.write(op);
+        out.setReadyToFlush();
+        out.flushAndSync();
+        out.close();
+        dlm.close();
+
+        dlm = DLMTestUtil.createNewDLM(conf, name);
+
+        assertEquals(txid - 1, dlm.getLastTxId());
+        LogRecord last = dlm.getLastLogRecord();
+        assertEquals(txid - 1, last.getTransactionId());
+        DLMTestUtil.verifyLogRecord(last);
+
+        dlm.close();
     }
 }
