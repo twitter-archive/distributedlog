@@ -12,6 +12,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.util.Pair;
+
 class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwareLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKPartitionAwareLogWriter.class);
     private HashMap<String, BKPerStreamLogWriter> partitionToWriter;
@@ -98,8 +100,8 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
             BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
             if (null != perStreamWriter && null != partitionHander) {
                 waitForTruncation();
-                Map.Entry<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
-                partitionHander.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
+                Pair<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
+                partitionHander.completeAndCloseLogSegment(lastPoint.getFirst(), lastPoint.getLast().getEntryId(), lastPoint.getLast().getSlotId());
                 partitionHander.close();
                 deletedStreams.add(streamIdentifier);
             }

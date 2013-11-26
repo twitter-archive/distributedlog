@@ -1,6 +1,8 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.util.Pair;
+
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -460,8 +462,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     if (!l.isInProgress()) {
                         continue;
                     }
-                    Map.Entry<Long, DLSN> recoveryPoint = recoverLastTxId(l, true);
-                    long endTxId = recoveryPoint.getKey();
+                    Pair<Long, DLSN> recoveryPoint = recoverLastTxId(l, true);
+                    long endTxId = recoveryPoint.getFirst();
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {
                         LOG.error("Unrecoverable corruption has occurred in segment "
                             + l.toString() + " at path " + l.getZkPath()
@@ -476,7 +478,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     // Make the lock release symmetric by having this function acquire and
                     // release the lock and have complete and close only release the lock
                     // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recoveryPoint.getValue().getEntryId(), recoveryPoint.getValue().getSlotId(), false);
+                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recoveryPoint.getLast().getEntryId(), recoveryPoint.getLast().getSlotId(), false);
                     LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
 
                 }

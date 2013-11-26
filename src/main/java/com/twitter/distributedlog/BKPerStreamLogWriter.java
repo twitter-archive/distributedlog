@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.util.Pair;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
@@ -247,9 +248,9 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         transmitPacketQueue.add(packet);
     }
 
-    public Map.Entry<Long, DLSN> closeToFinalize() throws IOException {
+    public Pair<Long, DLSN> closeToFinalize() throws IOException {
         close();
-        return new AbstractMap.SimpleEntry(lastTxId, lastDLSN);
+        return Pair.of(lastTxId, lastDLSN);
     }
 
     @Override

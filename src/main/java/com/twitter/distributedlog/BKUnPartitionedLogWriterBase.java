@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.Map;
 
+import com.twitter.distributedlog.util.Pair;
+
 public class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKPerStreamLogWriter perStreamWriter = null;
     private BKLogPartitionWriteHandler partitionHander = null;
@@ -77,8 +79,8 @@ public class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         if (null != perStreamWriter && null != partitionHander) {
             try {
                 waitForTruncation();
-                Map.Entry<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
-                partitionHander.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
+                Pair<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
+                partitionHander.completeAndCloseLogSegment(lastPoint.getFirst(), lastPoint.getLast().getEntryId(), lastPoint.getLast().getSlotId());
             } finally {
                 // ensure partition handler is closed.
                 partitionHander.close();

@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.Pair;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -205,7 +206,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
         // The last TxId is valid if the ledger is already completed else we must recover
         // the last TxId
         if (ledgerList.get(0).isInProgress()) {
-            long lastTxId = recoverLastTxId(ledgerList.get(0), recover).getKey();
+            long lastTxId = recoverLastTxId(ledgerList.get(0), recover).getFirst();
             if (((DistributedLogConstants.INVALID_TXID == lastTxId) ||
                 (DistributedLogConstants.EMPTY_LEDGER_TX_ID == lastTxId)) &&
                 (ledgerList.size() > 1)) {
@@ -256,7 +257,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = recoverLastTxId(l, false).getKey();
+                    long lastTxId = recoverLastTxId(l, false).getFirst();
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
@@ -331,7 +332,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
      * Find the id of the last edit log transaction writen to a edit log
      * ledger.
      */
-    protected Map.Entry<Long, DLSN> recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
+    protected Pair<Long, DLSN> recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
         throws IOException {
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
@@ -344,7 +345,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
             if (scanStartPoint < 0) {
                 // Ledger is empty
-                return new AbstractMap.SimpleEntry<Long,DLSN>(DistributedLogConstants.EMPTY_LEDGER_TX_ID, DLSN.InvalidDLSN);
+                return Pair.of(DistributedLogConstants.EMPTY_LEDGER_TX_ID, DLSN.InvalidDLSN);
             }
 
             if (fence) {
@@ -400,7 +401,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                 }
             }
 
-            return new AbstractMap.SimpleEntry<Long, DLSN>(endTxId, lastDLSN);
+            return Pair.of(endTxId, lastDLSN);
         } catch (Exception e) {
             throw new IOException("Exception retreiving last tx id for ledger " + l,
                 e);

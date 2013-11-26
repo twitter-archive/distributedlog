@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.util.Pair;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.Watcher;
@@ -127,9 +128,9 @@ public abstract class BKBaseLogWriter {
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (ledgerManager.shouldStartNewSegment() || forceRolling) {
-            Map.Entry<Long, DLSN> lastPoint = ledgerWriter.closeToFinalize();
+            Pair<Long, DLSN> lastPoint = ledgerWriter.closeToFinalize();
             numFlushes = ledgerWriter.getNumFlushes();
-            ledgerManager.completeAndCloseLogSegment(lastPoint.getKey(), lastPoint.getValue().getEntryId(), lastPoint.getValue().getSlotId());
+            ledgerManager.completeAndCloseLogSegment(lastPoint.getFirst(), lastPoint.getLast().getEntryId(), lastPoint.getLast().getSlotId());
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
