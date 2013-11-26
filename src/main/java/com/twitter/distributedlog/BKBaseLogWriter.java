@@ -54,7 +54,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
      *
      * @throws java.io.IOException if the log stream can't be closed,
      */
-    public void close() throws IOException {
+    public void close() {
         closed = true;
         try {
             waitForTruncation();

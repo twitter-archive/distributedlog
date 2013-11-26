@@ -30,7 +30,7 @@ else
 fi
 
 BINDIR=`dirname "$0"`
-DLOG_HOME=`cd $BINDIR/..;pwd`
+DLOG_HOME=`cd $BINDIR/.. > /dev/null;pwd`
 
 DEFAULT_LOG_CONF=$DLOG_HOME/conf/log4j.properties
 

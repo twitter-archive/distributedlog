@@ -49,4 +49,11 @@ public interface LogWriter extends Closeable {
      * @throws IOException
      */
     public void markEndOfStream() throws IOException;
+
+    /**
+     * Close the stream without necessarily flushing immediately.
+     * This may be called if the stream is in error such as after a
+     * previous write or close threw an exception.
+     */
+    public void abort() throws IOException;
 }

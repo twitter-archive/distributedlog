@@ -28,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -51,7 +50,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable {
+class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
     private static class BKTransmitPacket {
@@ -102,6 +101,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     private boolean periodicFlushNeeded = false;
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
+    private boolean enforceLock = true;
 
     private final Queue<BKTransmitPacket> transmitPacketQueue
         = new ConcurrentLinkedQueue<BKTransmitPacket>();
@@ -153,9 +153,15 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         syncLatch = null;
         this.lh = lh;
         this.lock = lock;
-        this.lock.acquire("PerStreamLogWriter");
-        this.transmissionThreshold
-            = Math.min(conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
+        this.lock.acquire("BKPerStreamLogWriter");
+
+        if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+            LOG.warn("Setting output buffer size {} greater than max transmission size {}",
+                conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
+            this.transmissionThreshold = DistributedLogConstants.MAX_TRANSMISSION_SIZE;
+        } else {
+            this.transmissionThreshold = conf.getOutputBufferSize();
+        }
 
         this.packetCurrent = new BKTransmitPacket(Math.max(transmissionThreshold, 1024));
         this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
@@ -185,12 +191,19 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
     }
 
     public long closeToFinalize() throws IOException {
-        close();
+        // Its important to enforce the write-lock here as we are going to make
+        // metadata changes following this call
+        closeInternal(true, true);
         return lastTxId;
     }
 
     @Override
     public void close() throws IOException {
+        closeInternal(true, false);
+    }
+
+    public void closeInternal(boolean attemptFlush, boolean enforceLock) throws IOException {
+        IOException throwExc = null;
         // Cancel the periodic flush schedule first
         // The task is allowed to exit gracefully
         // The attempt to flush will synchronize with the
@@ -199,39 +212,39 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
             periodicFlushSchedule.cancel(false);
         }
 
-        if (!isStreamInError()) {
-            setReadyToFlush();
-            flushAndSync();
+        if (attemptFlush && !isStreamInError()) {
+            try {
+                // BookKeeper fencing will disallow multiple writers, so if we have
+                // already lost the lock, this operation will fail, so we let the caller
+                // decide if we should enforce the lock
+                this.enforceLock = enforceLock;
+                setReadyToFlush();
+                flushAndSync();
+            } catch (IOException exc) {
+                throwExc = exc;
+            }
         }
+
         try {
             lh.close();
         } catch (InterruptedException ie) {
-            throw new IOException("Interrupted waiting on close", ie);
+            LOG.warn("Interrupted waiting on close", ie);
         } catch (BKException.BKLedgerClosedException lce) {
             LOG.debug("Ledger already closed");
         } catch (BKException bke) {
-            throw new IOException("BookKeeper error during close", bke);
+            LOG.warn("BookKeeper error during close", bke);
         } finally {
             lock.release("PerStreamLogWriterClose");
+        }
+
+        if (attemptFlush && (null != throwExc)) {
+            throw throwExc;
         }
     }
 
     @Override
     public void abort() throws IOException {
-        if (null != periodicFlushSchedule) {
-            periodicFlushSchedule.cancel(false);
-        }
-
-        try {
-            lh.close();
-        } catch (InterruptedException ie) {
-            throw new IOException("Interrupted waiting on close", ie);
-        } catch (BKException bke) {
-            throw new IOException("BookKeeper error during abort", bke);
-        }
-
-        lock.release("PerStreamLogWriterAbort");
-
+        closeInternal(false, false);
     }
 
     @Override
@@ -388,9 +401,15 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
         return syncLatch;
     }
 
+    private void checkWriteLock() throws LockingException {
+        if (enforceLock) {
+            lock.checkWriteLock(false);
+        }
+    }
+
     private void flushAndSyncInternal()
         throws LockingException, BKTransmitException, FlushException {
-        lock.checkWriteLock(false);
+        checkWriteLock();
 
         long txIdToBePersisted;
 
@@ -434,7 +453,7 @@ class BKPerStreamLogWriter implements PerStreamLogWriter, AddCallback, Runnable 
      */
     synchronized private boolean transmit(boolean isControl)
         throws BKTransmitException, LockingException {
-        lock.checkWriteLock(false);
+        checkWriteLock();
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
             BKException.Code.OK)) {
