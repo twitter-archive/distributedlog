@@ -126,24 +126,25 @@ abstract class BKLogPartitionHandler {
         }
     }
 
-    public long getLastTxId(boolean recover) throws IOException {
+    public LogRecord getLastLogRecord(boolean recover, boolean includeEndOfStream) throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true);
 
-        // The ledger list should at least have one element
-        // The last TxId is valid if the ledger is already completed else we must recover
-        // the last TxId
-        if (ledgerList.get(0).isInProgress()) {
-            long lastTxId = recoverLastTxId(ledgerList.get(0), recover);
-            if (((DistributedLogConstants.INVALID_TXID == lastTxId) ||
-                (DistributedLogConstants.EMPTY_LEDGER_TX_ID == lastTxId)) &&
-                (ledgerList.size() > 1)) {
-                lastTxId = ledgerList.get(1).getLastTxId();
+        for (LogSegmentLedgerMetadata metadata: ledgerList) {
+            LogRecord record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
+
+            if (null != record) {
+                return record;
             }
-            return lastTxId;
-        } else {
-            return ledgerList.get(0).getLastTxId();
         }
+
+        throw new LogEmptyException("Log " + getFullyQualifiedName() + " has no records");
+    }
+
+    public long getLastTxId(boolean recover,
+                            boolean includeEndOfStream) throws IOException {
+        checkLogStreamExists();
+        return getLastLogRecord(recover, includeEndOfStream).getTransactionId();
     }
 
     public long getFirstTxId() throws IOException {
@@ -159,14 +160,14 @@ abstract class BKLogPartitionHandler {
     private void checkLogStreamExists() throws IOException {
         try {
             if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
-                throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
+                throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", ledgerPath, ie);
-            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         } catch (KeeperException ke) {
             LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
-            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
     }
 
@@ -185,7 +186,7 @@ abstract class BKLogPartitionHandler {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = recoverLastTxId(l, false);
+                    long lastTxId = recoverLastTxIdInLedger(l, false);
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
@@ -260,8 +261,28 @@ abstract class BKLogPartitionHandler {
      * Find the id of the last edit log transaction writen to a edit log
      * ledger.
      */
-    protected long recoverLastTxId(LogSegmentLedgerMetadata l, boolean fence)
+    protected long recoverLastTxIdInLedger(LogSegmentLedgerMetadata l, boolean fence) throws IOException {
+        LogRecord record = recoverLastRecordInLedger(l, fence, fence, true);
+
+        if (null == record) {
+            return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+        }
+        else {
+            return record.getTransactionId();
+        }
+    }
+
+    /**
+     * Find the id of the last edit log transaction writen to a edit log
+     * ledger.
+     */
+    protected LogRecord recoverLastRecordInLedger(LogSegmentLedgerMetadata l,
+                                                  boolean fence,
+                                                  boolean includeControl,
+                                                  boolean includeEndOfStream)
         throws IOException {
+        LogRecord lastRecord = null;
+        Throwable exceptionEncountered = null;
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
             LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
@@ -273,7 +294,7 @@ abstract class BKLogPartitionHandler {
 
             if (scanStartPoint < 0) {
                 // Ledger is empty
-                return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+                return null;
             }
 
             if (fence) {
@@ -286,32 +307,36 @@ abstract class BKLogPartitionHandler {
                 }
             }
 
-            long endTxId;
             while (true) {
                 BKPerStreamLogReader in
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, fence);
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, includeControl);
 
-                endTxId = DistributedLogConstants.INVALID_TXID;
+                lastRecord = null;
                 try {
                     LogRecord record = in.readOp();
                     while (record != null) {
-                        if (endTxId == DistributedLogConstants.INVALID_TXID
-                            || record.getTransactionId() > endTxId) {
-                            endTxId = record.getTransactionId();
+                        if ((null == lastRecord
+                            || record.getTransactionId() > lastRecord.getTransactionId()) &&
+                            (includeEndOfStream || !record.isEndOfStream())) {
+                            lastRecord = record;
                         }
                         record = in.readOp();
                     }
                 } catch (Exception exc) {
                     LOG.info("Reading beyond flush point", exc);
+                    exceptionEncountered = exc;
                 } finally {
                     in.close();
                 }
 
                 if (0 == scanStartPoint) {
                     break;
-                } else if (endTxId != DistributedLogConstants.INVALID_TXID) {
+                } else if (null != lastRecord) {
                     break;
                 } else {
+                    // Retry from a different point in the ledger
+                    exceptionEncountered = null;
+
                     if (trySmallLedger && (scanStartPoint > DistributedLogConstants.SMALL_LEDGER_THRESHOLD)) {
                         LOG.info("Retrying recovery from an earlier point in the ledger");
                         scanStartPoint -= DistributedLogConstants.SMALL_LEDGER_THRESHOLD;
@@ -325,12 +350,22 @@ abstract class BKLogPartitionHandler {
                     ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
                 }
             }
-
-            return endTxId;
         } catch (Exception e) {
             throw new IOException("Exception retreiving last tx id for ledger " + l,
                 e);
         }
+
+        // If there was an exception while reading the last record, we cant rely on the value
+        // so we must throw the error to the caller
+        if (null != exceptionEncountered) {
+            throw new IOException("Exception while retrieving last log record", exceptionEncountered);
+        }
+
+        if (includeControl && (null == lastRecord)) {
+            throw new IOException("Exception while retrieving last log record");
+        }
+
+        return lastRecord;
     }
 
     public List<LogSegmentLedgerMetadata> getLedgerList(boolean throwOnEmpty) throws IOException {
@@ -370,7 +405,7 @@ abstract class BKLogPartitionHandler {
         }
 
         if (throwOnEmpty && ledgers.isEmpty()) {
-            throw new LogEmptyException("Log " + name + ":" + getFullyQualifiedName() + " is empty");
+            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
 
         Collections.sort(ledgers, comparator);
