@@ -467,7 +467,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     if (!l.isInProgress()) {
                         continue;
                     }
-                    long endTxId = recoverLastTxId(l, true);
+                    long endTxId = recoverLastTxIdInLedger(l, true);
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {
                         LOG.error("Unrecoverable corruption has occurred in segment "
                             + l.toString() + " at path " + l.getZkPath()
