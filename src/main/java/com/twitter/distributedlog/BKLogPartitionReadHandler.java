@@ -77,7 +77,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }
 
                     try {
-                        lastDLSN = recoverLastTxId(l, false).getValue();
+                        lastDLSN = recoverLastTxIdInLedger(l, false).getLast();
                     } catch (IOException exc) {
                         lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
                         LOG.info("Reading beyond flush point");
@@ -165,7 +165,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }
 
                     try {
-                        lastTxId = recoverLastTxId(l, false).getKey();
+                        lastTxId = recoverLastTxIdInLedger(l, false).getFirst();
                     } catch (IOException exc) {
                         lastTxId = l.getFirstTxId();
                         LOG.info("Reading beyond flush point");

@@ -7,6 +7,7 @@ import com.twitter.util.Promise;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -287,6 +288,7 @@ public class TestInterleavedReaders {
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final CountDownLatch syncLatch = new CountDownLatch(30);
+        final AtomicReference<DLSN> maxDLSN = new AtomicReference<DLSN>(DLSN.InvalidDLSN);
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
@@ -308,6 +310,11 @@ public class TestInterleavedReaders {
                             LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
                             currentThread.interrupt();
                         }
+
+                        if (value.compareTo(maxDLSN.get()) > 0) {
+                            maxDLSN.set(value);
+                        }
+
                         syncLatch.countDown();
                         LOG.debug("SyncLatch: " + syncLatch.getCount());
                     }
@@ -333,6 +340,11 @@ public class TestInterleavedReaders {
 
         assert(!(Thread.interrupted()));
         assert(success);
+
+        LogRecordWithDLSN last = dlm.getLastLogRecord();
+        assertEquals(last.getDlsn(), maxDLSN.get());
+        DLMTestUtil.verifyLargeLogRecord(last);
+
         dlm.close();
     }
 

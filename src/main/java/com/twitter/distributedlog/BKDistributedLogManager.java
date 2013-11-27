@@ -156,7 +156,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public boolean isEndOfStreamMarked() throws IOException {
-        return (getLastTxId() == DistributedLogConstants.MAX_TXID);
+        return (getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, true) == DistributedLogConstants.MAX_TXID);
     }
 
     /**
@@ -167,7 +167,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
         long position = 0;
         try {
-            position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true);
+            position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
                 DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
                 position = 0;
@@ -308,6 +308,39 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return returnValue;
     }
 
+    /**
+     * Get the last log record in the stream
+     *
+     * @param partition – the partition within the log stream to read from
+     * @return the last log record in the stream
+     * @throws java.io.IOException if a stream cannot be found.
+     */
+    @Override
+    public LogRecordWithDLSN getLastLogRecord(PartitionId partition) throws IOException {
+        return getLastLogRecordInternal(partition.toString(), false);
+    }
+
+    /**
+     * Get the last log record in the stream
+     *
+     * @return the last log record in the stream
+     * @throws java.io.IOException if a stream cannot be found.
+     */
+    @Override
+    public LogRecordWithDLSN getLastLogRecord() throws IOException {
+        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM, false);
+    }
+
+    public LogRecordWithDLSN getLastLogRecordInternal(String streamIdentifier, boolean includeEndOfStream) throws IOException {
+        checkClosedOrInError("getLastLogRecord");
+        BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
+        try {
+            return ledgerHandler.getLastLogRecord(false, includeEndOfStream);
+        } finally {
+            ledgerHandler.close();
+        }
+    }
+
     @Override
     public long getFirstTxId(PartitionId partition) throws IOException {
         return getFirstTxIdInternal(partition.toString());
@@ -330,19 +363,39 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getLastTxId(PartitionId partition) throws IOException {
-        return getLastTxIdInternal(partition.toString(), false);
+        return getLastTxIdInternal(partition.toString(), false, false);
     }
 
     @Override
     public long getLastTxId() throws IOException {
-        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false);
+        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, false);
     }
 
-    private long getLastTxIdInternal(String streamIdentifier, boolean recover) throws IOException {
+    private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
         checkClosedOrInError("getLastTxIdInternal");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
-            return ledgerHandler.getLastTxId(recover);
+            return ledgerHandler.getLastTxId(recover, includeEndOfStream);
+        } finally {
+            ledgerHandler.close();
+        }
+    }
+
+    @Override
+    public DLSN getLastDLSN(PartitionId partition) throws IOException {
+        return getLastDLSNInternal(partition.toString(), false, false);
+    }
+
+    @Override
+    public DLSN getLastDLSN() throws IOException {
+        return getLastDLSNInternal(DistributedLogConstants.DEFAULT_STREAM, false, false);
+    }
+
+    private DLSN getLastDLSNInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
+        checkClosedOrInError("getLastDLSN");
+        BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
+        try {
+            return ledgerHandler.getLastDLSN(recover, includeEndOfStream);
         } finally {
             ledgerHandler.close();
         }

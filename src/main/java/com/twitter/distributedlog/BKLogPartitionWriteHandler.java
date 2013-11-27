@@ -476,7 +476,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     if (!l.isInProgress()) {
                         continue;
                     }
-                    Pair<Long, DLSN> recoveryPoint = recoverLastTxId(l, true);
+                    Pair<Long, DLSN> recoveryPoint = recoverLastTxIdInLedger(l, true);
                     long endTxId = recoveryPoint.getFirst();
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {
                         LOG.error("Unrecoverable corruption has occurred in segment "
