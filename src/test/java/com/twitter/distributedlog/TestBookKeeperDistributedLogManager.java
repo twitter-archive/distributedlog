@@ -1472,6 +1472,10 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         txid = writeAndMarkEndOfStream(dlm, txid);
 
+        assertEquals(txid - 1, dlm.getLastTxId());
+        LogRecord last = dlm.getLastLogRecord();
+        assertEquals(txid - 1, last.getTransactionId());
+        DLMTestUtil.verifyLogRecord(last);
         assert(dlm.isEndOfStreamMarked());
 
         assertEquals(txid - 1, dlm.getLastTxId());
