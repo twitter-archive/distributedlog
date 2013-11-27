@@ -101,6 +101,7 @@ class DLMTestUtil {
     static void verifyLogRecord(LogRecord record) {
         assertEquals(generatePayload(record.getTransactionId()).length, record.getPayload().length);
         assertArrayEquals(generatePayload(record.getTransactionId()), record.getPayload());
+        assert(!record.isControl());
         verifyPayload(record.getTransactionId(), record.getPayload());
     }
 
