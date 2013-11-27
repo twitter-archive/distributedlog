@@ -102,6 +102,25 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getTxIdNotLaterThan(long fromTxnId)
         throws IOException;
 
+    /**
+     * Get the last log record in the stream
+     *
+     * @param partition – the partition within the log stream to read from
+     * @return the last log record in the stream
+     * @throws IOException if a stream cannot be found.
+     */
+    public LogRecord getLastLogRecord(PartitionId partition)
+        throws IOException;
+
+    /**
+     * Get the last log record in the stream
+     *
+     * @return the last log record in the stream
+     * @throws IOException if a stream cannot be found.
+     */
+    public LogRecord getLastLogRecord()
+        throws IOException;
+
 
     public long getFirstTxId(PartitionId partition) throws IOException;
 
