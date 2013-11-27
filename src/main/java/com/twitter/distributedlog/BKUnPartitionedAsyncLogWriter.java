@@ -42,7 +42,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             }
         }).flatMap(new ExceptionalFunction<BKPerStreamLogWriter, Future<DLSN>>() {
             public Future<DLSN> applyE(BKPerStreamLogWriter w) throws IOException {
-                return w.write(record);
+                return w.asyncWrite(record);
             }
         });
     }
