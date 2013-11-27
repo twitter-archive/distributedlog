@@ -54,7 +54,7 @@ public class TestFailureScenarios {
     @Test
     public void testExceptionDuringStartNewSegment() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-exc-new-segment");
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -84,7 +84,7 @@ public class TestFailureScenarios {
             FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate,
             FailpointUtils.FailPointActions.FailPointAction_Throw);
 
-        PerStreamLogWriter outAborted = null;
+        LogWriter outAborted = null;
         try {
             outAborted = bkdlm.startLogSegment(101);
             for (long i = 1; i <= 100; i++) {
@@ -123,7 +123,7 @@ public class TestFailureScenarios {
     @Test
     public void testFailureInComplete() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-failure-complete-ledger");
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
