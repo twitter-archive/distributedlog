@@ -1478,12 +1478,6 @@ public class TestBookKeeperDistributedLogManager {
         DLMTestUtil.verifyLogRecord(last);
         assert(dlm.isEndOfStreamMarked());
 
-        assertEquals(txid - 1, dlm.getLastTxId());
-        LogRecord last = dlm.getLastLogRecord();
-        assertEquals(txid - 1, last.getTransactionId());
-        DLMTestUtil.verifyLogRecord(last);
-        assert(dlm.isEndOfStreamMarked());
-
         long start = txid;
         LogWriter writer = null;
         boolean exceptionEncountered = false;
