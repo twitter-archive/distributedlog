@@ -23,9 +23,6 @@ import java.io.IOException;
 /**
  * A generic abstract class to support reading edits log data from
  * persistent storage.
- * <p/>
- * It should stream bytes from the storage exactly as they were written
- * into the #{@link PerStreamLogWriter}.
  */
 public interface PerStreamLogReader extends Closeable {
     /**

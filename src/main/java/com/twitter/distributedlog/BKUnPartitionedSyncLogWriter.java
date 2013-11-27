@@ -53,4 +53,14 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
             DistributedLogConstants.MAX_TXID).markEndOfStream();
         closeAndComplete();
     }
+
+    /**
+     * Close the stream without necessarily flushing immediately.
+     * This may be called if the stream is in error such as after a
+     * previous write or close threw an exception.
+     */
+    @Override
+    public void abort() throws IOException {
+        super.abort();
+    }
 }

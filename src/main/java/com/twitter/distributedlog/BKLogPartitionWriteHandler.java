@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -78,8 +79,22 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                String clientId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
         ensembleSize = conf.getEnsembleSize();
-        writeQuorumSize = conf.getWriteQuorumSize();
-        ackQuorumSize = conf.getAckQuorumSize();
+
+        if (ensembleSize < conf.getWriteQuorumSize()) {
+            writeQuorumSize = ensembleSize;
+            LOG.warn("Setting write quorum size {} greater than ensemble size {}",
+                conf.getWriteQuorumSize(), ensembleSize);
+        } else {
+            writeQuorumSize = conf.getWriteQuorumSize();
+        }
+
+        if (writeQuorumSize < conf.getAckQuorumSize()) {
+            ackQuorumSize = writeQuorumSize;
+            LOG.warn("Setting write ack quorum size {} greater than write quorum size {}",
+                conf.getAckQuorumSize(), writeQuorumSize);
+        } else {
+            ackQuorumSize = conf.getAckQuorumSize();
+        }
 
         maxTxIdPath = partitionRootPath + "/maxtxid";
         String lockPath = partitionRootPath + "/lock";
@@ -184,10 +199,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
             }
             else {
-                LOG.error("We've already seen TxId {} the max TXId is {}", txId, maxTxId);
+                LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
                 LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
-                throw new IOException("We've already seen " + txId
-                    + ". A new stream cannot be created with it");
+                throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
             }
         }
         boolean writeInprogressZnode = false;
