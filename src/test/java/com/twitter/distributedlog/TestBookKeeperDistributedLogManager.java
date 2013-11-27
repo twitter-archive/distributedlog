@@ -21,6 +21,7 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -241,8 +242,8 @@ public class TestBookKeeperDistributedLogManager {
             out.write(DLMTestUtil.getLogRecordInstance(txid));
             fail("Shouldn't be able to start another journal from " + txid
                 + " when one already exists");
-        } catch (IOException ioe) {
-            LOG.info("Caught exception as expected", ioe);
+        } catch (TransactionIdOutOfOrderException rste) {
+            LOG.info("Caught exception as expected", rste);
         } finally {
             out.close();
         }
@@ -273,9 +274,9 @@ public class TestBookKeeperDistributedLogManager {
         BKLogPartitionWriteHandler bkdlm1 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
         BKLogPartitionWriteHandler bkdlm2 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
 
-        PerStreamLogWriter out1 = bkdlm1.startLogSegment(start);
+        LogWriter out1 = bkdlm1.startLogSegment(start);
         try {
-            PerStreamLogWriter out2 = bkdlm2.startLogSegment(start);
+            LogWriter out2 = bkdlm2.startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
             assertEquals(ioe.getCurrentOwner(), "localhost");
@@ -1492,7 +1493,7 @@ public class TestBookKeeperDistributedLogManager {
     public void testMaxLogRecSize() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         try {
             LogRecord op = new LogRecord(txid, DLMTestUtil.repeatString(
@@ -1514,7 +1515,7 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.setOutputBufferSize(1024 * 1024);
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
         long txid = 1;
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         byte[] largePayload = DLMTestUtil.repeatString(DLMTestUtil.repeatString("abcdefgh", 256), 256).getBytes();
         try {
