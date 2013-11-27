@@ -75,7 +75,7 @@ public class TestFailureAndRecovery {
     @Test
     public void testSimpleRecovery() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplerecovery");
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -125,7 +125,7 @@ public class TestFailureAndRecovery {
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
             BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-allbookiefailure");
-            PerStreamLogWriter out = bkdlm.startLogSegment(txid);
+            LogWriter out = bkdlm.startLogSegment(txid);
 
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -202,7 +202,7 @@ public class TestFailureAndRecovery {
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
             BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-onebookiefailure");
-            PerStreamLogWriter out = bkdlm.startLogSegment(txid);
+            LogWriter out = bkdlm.startLogSegment(txid);
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -241,7 +241,7 @@ public class TestFailureAndRecovery {
     @Test
     public void testRecoveryEmptyLedger() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
-        PerStreamLogWriter out = bkdlm.startLogSegment(1);
+        LogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -257,7 +257,7 @@ public class TestFailureAndRecovery {
         out.close();
         bkdlm.completeAndCloseLogSegment(1, 100);
         assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
-        PerStreamLogWriter outEmpty = bkdlm.startLogSegment(101);
+        LogWriter outEmpty = bkdlm.startLogSegment(101);
         outEmpty.abort();
 
         assertNull(zkc.exists(bkdlm.completedLedgerZNode(101, 101), false));
