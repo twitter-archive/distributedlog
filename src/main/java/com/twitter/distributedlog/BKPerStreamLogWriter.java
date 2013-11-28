@@ -30,7 +30,6 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.collections.keyvalue.AbstractMapEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -259,7 +258,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         // Its important to enforce the write-lock here as we are going to make
         // metadata changes following this call
         closeInternal(true, true);
-        return Pair.of(lastTxId, lastDLSN);
+        synchronized (this) {
+            return Pair.of(lastTxId, lastDLSN);
+        }
     }
 
     @Override
@@ -291,8 +292,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         // Packet reset will cancel any outstanding promises
-        if (null != packetCurrent) {
-            packetCurrent.reset();
+        synchronized (this) {
+            if (null != packetCurrent) {
+                packetCurrent.reset();
+            }
         }
 
         try {
