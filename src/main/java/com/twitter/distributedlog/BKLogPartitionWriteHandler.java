@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import org.apache.bookkeeper.client.AsyncCallback;
@@ -133,8 +134,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 zooKeeperClient.get().create(ledgerPath, new byte[]{'0'},
                     ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
-        } catch (Exception e) {
-            throw new IOException("Error initializing zk", e);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            throw new IOException("Encountered zookeeper connection issue when initializing handler for " +
+                    getFullyQualifiedName(), e);
+        } catch (KeeperException ke) {
+            throw new IOException("Encountered zookeeper issue when initializing handler for " + getFullyQualifiedName(), ke);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on constructing log partition handler for " +
+                    getFullyQualifiedName(), ie);
         }
 
         if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
@@ -264,7 +271,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     LOG.error("Error closing ledger", e2);
                 }
             }
-            throw new IOException("Error creating ledger", e);
+            if (e instanceof IOException) {
+                throw (IOException) e;
+            } else {
+                throw new IOException("Error creating ledger", e);
+            }
         }
     }
 
@@ -476,8 +487,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();
                 }
                 recovered = true;
-            } catch (IOException io) {
-                throw new IOException("Couldn't get list of inprogress segments", io);
             } finally {
                 lock.release("RecoverIncompleteSegments");
             }
@@ -487,6 +496,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     public void deleteLog() throws IOException {
         try {
             checkLogExists();
+        } catch (DLInterruptedException die) {
+            throw die;
         } catch (IOException exc) {
             return;
         }
@@ -515,6 +526,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + ledgerPath, ie);
+            throw new DLInterruptedException("Interrupted while deleting " + ledgerPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
         }

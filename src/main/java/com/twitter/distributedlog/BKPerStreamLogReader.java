@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.slf4j.Logger;
@@ -194,8 +195,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                     throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
                 }
                 LOG.info("Reached the end of the stream", bke);
-            } catch (Exception e) {
-                throw new IOException("Error reading entries from bookkeeper", e);
+            } catch (InterruptedException ie) {
+                throw new DLInterruptedException("Interrupted reading entries from bookkeeper", ie);
             }
             return null;
         }

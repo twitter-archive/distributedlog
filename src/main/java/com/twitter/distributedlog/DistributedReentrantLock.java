@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
@@ -83,8 +84,10 @@ class DistributedReentrantLock implements Runnable {
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
             internalLock = new DistributedLock(zkc, lockPath, clientId);
-        } catch (Exception e) {
-            throw new IOException("Exception accessing Zookeeper", e);
+        } catch (KeeperException ke) {
+            throw new IOException("Exception when creating zookeeper lock " + lockPath, ke);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on creating zookeeper lock " + lockPath, e);
         }
     }
 
@@ -266,7 +269,9 @@ class DistributedReentrantLock implements Runnable {
                         syncPoint.await();
                     }
                     else {
-                        syncPoint.await(timeout, unit);
+                        if (!syncPoint.await(timeout, unit)) {
+                            LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
+                        }
                     }
                 }
                 if (!holdsLock) {

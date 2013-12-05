@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
@@ -160,8 +161,13 @@ class LogSegmentLedgerMetadata {
             return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
-        } catch (Exception e) {
-            throw new IOException("Error reading from zookeeper", e);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on reading log segment metadata from " + path, ie);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            throw new IOException("Encountered zookeeper connection issue when reading log segment metadata from "
+                    + path, zce);
+        } catch (KeeperException ke) {
+            throw new IOException("Encountered zookeeper issue when reading log segment metadata from " + path, ke);
         }
     }
 
@@ -239,6 +245,8 @@ class LogSegmentLedgerMetadata {
             zkVersion = 0;
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on creating ledger znode " + path, ie);
         } catch (Exception e) {
             LOG.error("Error creating ledger znode {}", path, e);
             throw new IOException("Error creating ledger znode" + path);

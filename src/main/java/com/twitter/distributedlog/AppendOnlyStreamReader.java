@@ -31,20 +31,16 @@ public class AppendOnlyStreamReader extends InputStream {
      * @return input stream, or null if no more entries
      */
     private InputStream nextStream() throws IOException {
-        try {
-            LogRecord record = reader.readNext(false);
+        LogRecord record = reader.readNext(false);
+        if (null != record) {
+            return record.getPayLoadInputStream();
+        } else {
+            record = reader.readNext(false);
             if (null != record) {
                 return record.getPayLoadInputStream();
             } else {
-                record = reader.readNext(false);
-                if (null != record) {
-                    return record.getPayLoadInputStream();
-                } else {
-                    return null;
-                }
+                return null;
             }
-        } catch (Exception e) {
-            throw new IOException("Error reading entries from bookkeeper", e);
         }
     }
 

@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 
 import org.apache.bookkeeper.client.BKException;
@@ -121,8 +122,10 @@ abstract class BKLogPartitionHandler {
                         .name(String.format("%s:shared", name)).statsLogger(statsLogger);
             }
             this.bookKeeperClient = bkcBuilder.build();
-        } catch (Exception e) {
-            throw new IOException("Error initializing zk", e);
+        } catch (KeeperException e) {
+            throw new IOException("Error initializing bookkeeper client", e);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted initializing bookkeeper client", ie);
         }
     }
 
@@ -186,7 +189,7 @@ abstract class BKLogPartitionHandler {
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
@@ -214,7 +217,9 @@ abstract class BKLogPartitionHandler {
                         (lastTxId < thresholdTxId)) {
                         return lastTxId;
                     }
-                } catch (Exception exc) {
+                } catch (DLInterruptedException ie) {
+                    throw ie;
+                } catch (IOException exc) {
                     LOG.info("Optimistic Transaction Id recovery failed.", exc);
                 }
             }
@@ -238,7 +243,7 @@ abstract class BKLogPartitionHandler {
                     return prevRecord.getTransactionId();
                 }
 
-            } catch (Exception e) {
+            } catch (BKException e) {
                 throw new IOException("Could not open ledger for " + thresholdTxId, e);
             }
 
@@ -344,7 +349,9 @@ abstract class BKLogPartitionHandler {
                         }
                         record = in.readOp();
                     }
-                } catch (Exception exc) {
+                } catch (DLInterruptedException die) {
+                    throw die;
+                } catch (IOException exc) {
                     LOG.info("Reading beyond flush point", exc);
                     exceptionEncountered = exc;
                 } finally {
@@ -372,9 +379,8 @@ abstract class BKLogPartitionHandler {
                     ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
                 }
             }
-        } catch (Exception e) {
-            throw new IOException("Exception retreiving last tx id for ledger " + l,
-                e);
+        } catch (BKException e) {
+            throw new IOException("Exception retreiving last tx id for ledger " + l, e);
         }
 
         // If there was an exception while reading the last record, we cant rely on the value
@@ -421,8 +427,12 @@ abstract class BKLogPartitionHandler {
                     lastLedgerRollingTimeMillis = l.getCompletionTime();
                 }
             }
-        } catch (Exception e) {
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            throw new IOException("Exception on establishing zookeeper connection : ", zce);
+        } catch (KeeperException e) {
             throw new IOException("Exception reading ledger list from zk", e);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on reading ledger list from zk", e);
         }
 
         if (throwOnEmpty && ledgers.isEmpty()) {

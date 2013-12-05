@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
@@ -62,6 +63,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             } else {
                 zooKeeperClient.get().setData(zkPath, metadata, currentStat.getVersion());
             }
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on creating or updating container metadata", ie);
         } catch (Exception exc) {
             throw new IOException("Exception creating or updating container metadata", exc);
         }
@@ -95,6 +98,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             } else {
                 return zooKeeperClient.get().getData(zkPath, false, currentStat);
             }
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Error reading the max tx id from zk", ie);
         } catch (Exception e) {
             throw new IOException("Error reading the max tx id from zk", e);
         }

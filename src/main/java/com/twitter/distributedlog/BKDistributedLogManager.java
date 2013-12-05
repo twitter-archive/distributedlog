@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -87,7 +88,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
-            throw new IOException("Error initializing zk", ie);
+            throw new DLInterruptedException("Error initializing zk", ie);
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
@@ -460,7 +461,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 ZKUtil.deleteRecursive(zkc.get(), zkPath);
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted while accessing ZK", ie);
-                throw new IOException("Error initializing zk", ie);
+                throw new DLInterruptedException("Error initializing zk", ie);
             } catch (KeeperException ke) {
                 LOG.error("Error accessing entry in zookeeper", ke);
                 throw new IOException("Error initializing zk", ke);

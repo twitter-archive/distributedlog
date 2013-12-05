@@ -321,7 +321,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             if (null != lastTruncationAttempt) {
                 lastTruncationAttempt.waitForCompletion();
             }
-        } catch (Exception exc) {
+        } catch (InterruptedException exc) {
             LOG.info("Wait For truncation failed", exc);
         }
     }

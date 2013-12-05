@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -68,8 +69,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 logExists = true;
             }
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Interrupted while checking " + ledgerPath, ie);
+            throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
@@ -86,6 +87,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                     try {
                         lastTxId = recoverLastTxIdInLedger(l, false);
+                    } catch (DLInterruptedException die) {
+                        throw die;
                     } catch (IOException exc) {
                         lastTxId = l.getFirstTxId();
                         LOG.info("Reading beyond flush point");
@@ -106,9 +109,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             s.close();
                             return null;
                         }
-                    } catch (Exception e) {
+                    } catch (IOException e) {
                         LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startTxId " + fromTxId, e);
-                        throw new IOException("Could not open ledger for " + fromTxId, e);
+                        throw e;
                     }
                 } else {
                     ledgerDataAccessor.removeLedger(l.getLedgerId());

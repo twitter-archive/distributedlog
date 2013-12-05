@@ -3,6 +3,9 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
@@ -48,9 +51,15 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                 if (null == zkc.get().exists(zkPath, this)) {
                     nodeDeleteNotification.set(true);
                 }
-            } catch (Exception exc) {
+            } catch (ZooKeeperClient.ZooKeeperConnectionException exc) {
                 watchSet.set(false);
-                LOG.debug("Unable to setup latch", exc);
+                LOG.debug("Error on setup latch due to zookeeper connection issue : ", exc);
+            } catch (KeeperException ke) {
+                watchSet.set(false);
+                LOG.debug("Error on setup latch due to zookeeper exception : ", ke);
+            } catch (InterruptedException ie) {
+                watchSet.set(false);
+                throw new DLInterruptedException("Interrupted on setup latch : ", ie);
             }
         }
 
@@ -76,9 +85,14 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
 
             positionInputStream(h, ledgerDataAccessor, startBkEntry);
             shouldResume = false;
-        } catch (Exception e) {
-            LOG.error("Could not open ledger for partition " + ledgerId, e);
-            throw new IOException("Could not open ledger for " + ledgerId, e);
+        } catch (IOException e) {
+            LOG.error("Could not open ledger {}", ledgerId, e);
+            throw e;
+        } catch (BKException e) {
+            LOG.error("Could not open ledger {}", ledgerId, e);
+            throw new IOException("Could not open ledger " + ledgerId, e);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on opening ledger " + ledgerId, ie);
         }
     }
 
