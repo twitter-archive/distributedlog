@@ -34,7 +34,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -1626,7 +1625,7 @@ public class TestBookKeeperDistributedLogManager {
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            BKUnPartitionedLogWriter out = (BKUnPartitionedLogWriter)dlm.startLogSegmentNonPartitioned();
+            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -1644,7 +1643,7 @@ public class TestBookKeeperDistributedLogManager {
         }
 
         long start = txid;
-        BKUnPartitionedLogWriter out = (BKUnPartitionedLogWriter)dlm.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
         LogRecord op = DLMTestUtil.getLogRecordInstance(txid);
         op.setControl();
         out.write(op);

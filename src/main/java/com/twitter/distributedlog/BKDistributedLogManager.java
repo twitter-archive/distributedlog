@@ -199,9 +199,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized BKUnPartitionedLogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedLogWriter(conf, this);
+        return new BKUnPartitionedSyncLogWriter(conf, this);
     }
 
     /**
