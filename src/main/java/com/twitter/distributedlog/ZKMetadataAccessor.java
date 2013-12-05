@@ -83,7 +83,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
 
     /**
      * Retrieve the metadata stored at the node
-     * @return
+     * @return byte array containing the metadata
      * @throws IOException
      */
     @Override

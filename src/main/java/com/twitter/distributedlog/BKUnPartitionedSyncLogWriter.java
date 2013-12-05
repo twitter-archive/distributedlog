@@ -24,7 +24,7 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
     /**
      * Write edits logs operation to the stream.
      *
-     * @param record list of records
+     * @param records list of records
      */
     @Override
     public int writeBulk(List<LogRecord> records) throws IOException {
