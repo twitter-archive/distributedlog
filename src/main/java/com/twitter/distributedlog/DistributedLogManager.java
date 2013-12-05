@@ -119,6 +119,27 @@ public interface DistributedLogManager extends MetadataAccessor {
 
     public long getLastTxId() throws IOException;
 
+    /**
+     * Get the number of log records in the active portion of the stream for the
+     * given partition
+     * Any log segments that have already been truncated will not be included
+     *
+     * @param partition the partition within the log
+     * @return number of log records
+     * @throws IOException
+     */
+    public long getLogRecordCount(PartitionId partition) throws IOException;
+
+    /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return number of log records
+     * @throws IOException
+     */
+    public long getLogRecordCount() throws IOException;
+
     public void recover(PartitionId partition) throws IOException;
 
     public void recover() throws IOException;

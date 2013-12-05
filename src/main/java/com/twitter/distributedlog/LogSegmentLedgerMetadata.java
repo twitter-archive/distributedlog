@@ -36,7 +36,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * Utility class for storing the metadata associated
  * with a single edit log segment, stored in a single ledger
  */
-public class LogSegmentLedgerMetadata {
+class LogSegmentLedgerMetadata {
     static final Logger LOG = LoggerFactory.getLogger(LogSegmentLedgerMetadata.class);
 
     private String zkPath;
@@ -45,6 +45,7 @@ public class LogSegmentLedgerMetadata {
     private final long firstTxId;
     private long lastTxId;
     private long completionTime;
+    private int recordCount;
     private boolean inprogress;
     // zk version
     private Integer zkVersion = null;
@@ -78,6 +79,9 @@ public class LogSegmentLedgerMetadata {
         }
     };
 
+    static final int LOGRECORD_COUNT_SHIFT = 32;
+    static final long LOGRECORD_COUNT_MASK = 0xffffffff00000000L;
+    static final long METADATA_VERSION_MASK = 0x00000000ffffffffL;
 
     LogSegmentLedgerMetadata(String zkPath, int version,
                              long ledgerId, long firstTxId) {
@@ -89,8 +93,8 @@ public class LogSegmentLedgerMetadata {
         this.inprogress = true;
     }
 
-    LogSegmentLedgerMetadata(String zkPath, int version, long ledgerId,
-                             long firstTxId, long lastTxId, long completionTime) {
+    private LogSegmentLedgerMetadata(String zkPath, int version, long ledgerId,
+                             long firstTxId, long lastTxId, long completionTime, int recordCount) {
         this.zkPath = zkPath;
         this.ledgerId = ledgerId;
         this.version = version;
@@ -98,6 +102,7 @@ public class LogSegmentLedgerMetadata {
         this.lastTxId = lastTxId;
         this.inprogress = false;
         this.completionTime = completionTime;
+        this.recordCount = recordCount;
     }
 
     String getZkPath() {
@@ -128,15 +133,20 @@ public class LogSegmentLedgerMetadata {
         return version;
     }
 
+    public int getRecordCount() {
+        return recordCount;
+    }
+
     boolean isInProgress() {
         return this.inprogress;
     }
 
-    long finalizeLedger(long newLastTxId) {
+    long finalizeLedger(long newLastTxId, int recordCount) {
         assert this.lastTxId == DistributedLogConstants.INVALID_TXID;
         this.lastTxId = newLastTxId;
         this.inprogress = false;
         this.completionTime = Utils.nowInMillis();
+        this.recordCount = recordCount;
         return this.completionTime;
     }
 
@@ -191,13 +201,20 @@ public class LogSegmentLedgerMetadata {
             long txId = Long.valueOf(parts[2]);
             return new LogSegmentLedgerMetadata(path, version, ledgerId, txId);
         } else if (parts.length == 5) {
-            int version = Integer.valueOf(parts[0]);
+            long versionAndCount = Long.valueOf(parts[0]);
+
+            long version = versionAndCount & METADATA_VERSION_MASK;
+            assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
+
+            long recordCount = (versionAndCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
+            assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
+
             long ledgerId = Long.valueOf(parts[1]);
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
-            return new LogSegmentLedgerMetadata(path, version, ledgerId,
-                firstTxId, lastTxId, completionTime);
+            return new LogSegmentLedgerMetadata(path, (int)version, ledgerId,
+                firstTxId, lastTxId, completionTime, (int)recordCount);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -212,8 +229,9 @@ public class LogSegmentLedgerMetadata {
             finalisedData = String.format("%d;%d;%d",
                 version, ledgerId, firstTxId);
         } else {
+            long versionAndCount = ((long) version) | ((long)recordCount << LOGRECORD_COUNT_SHIFT);
             finalisedData = String.format("%d;%d;%d;%d;%d",
-                version, ledgerId, firstTxId, lastTxId, completionTime);
+                versionAndCount, ledgerId, firstTxId, lastTxId, completionTime);
         }
         try {
             zkc.get().create(path, finalisedData.getBytes(UTF_8),
@@ -233,6 +251,7 @@ public class LogSegmentLedgerMetadata {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Verifying " + this + " against " + other);
             }
+            System.out.println("Verifying " + this + " against " + other);
 
             // All fields may not be comparable so only compare the ones
             // that can be compared
@@ -281,6 +300,7 @@ public class LogSegmentLedgerMetadata {
             ", firstTxId:" + firstTxId +
             ", lastTxId:" + lastTxId +
             ", version:" + version +
-            ", completionTime:" + completionTime + "]";
+            ", completionTime:" + completionTime +
+            ", recordCount" + recordCount + "]";
     }
 }

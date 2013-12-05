@@ -93,11 +93,11 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         return ledgerManager;
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId) throws IOException {
-        return getLedgerWriter(partition.toString(), startTxId);
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId, int numRecordsToBeWritten) throws IOException {
+        return getLedgerWriter(partition.toString(), startTxId, numRecordsToBeWritten);
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId) throws IOException {
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
         long numFlushes = 0;
         boolean shouldCheckForTruncation = false;
@@ -127,7 +127,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
-        if (ledgerManager.shouldStartNewSegment() || forceRolling) {
+        if (ledgerManager.shouldStartNewSegment() || ledgerWriter.shouldStartNewSegment(numRecordsToBeWritten) || forceRolling) {
             ledgerManager.completeAndCloseLogSegment(ledgerWriter);
             numFlushes = ledgerWriter.getNumFlushes();
             ledgerWriter = ledgerManager.startLogSegment(startTxId);

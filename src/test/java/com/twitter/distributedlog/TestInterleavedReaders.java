@@ -236,6 +236,8 @@ public class TestInterleavedReaders {
         }
         reader0.close();
         reader1.close();
+        assertEquals(txid - 1,
+            dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
         dlmreader.close();
         dlmwrite.close();
     }

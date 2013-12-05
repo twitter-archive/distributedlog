@@ -147,6 +147,28 @@ abstract class BKLogPartitionHandler {
         return getLastLogRecord(recover, includeEndOfStream).getTransactionId();
     }
 
+    public long getLogRecordCount() throws IOException {
+        try {
+            checkLogStreamExists();
+        } catch (LogEmptyException exc) {
+            return 0;
+        }
+
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(false);
+        long count = 0;
+        for (LogSegmentLedgerMetadata l : ledgerList) {
+            if (l.isInProgress()) {
+                LogRecord record = recoverLastRecordInLedger(l, false, false, false);
+                if (null != record) {
+                    count += record.getCount();
+                }
+            } else {
+                count += l.getRecordCount();
+            }
+        }
+        return count;
+    }
+
     public long getFirstTxId() throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);

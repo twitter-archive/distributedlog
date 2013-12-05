@@ -27,6 +27,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
@@ -292,8 +294,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      */
      public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
         throws IOException {
-         long lastTxId = writer.closeToFinalize();
-         completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, true);
+         writer.closeToFinalize();
+         completeAndCloseLogSegment(currentLedgerStartTxId, writer.getLastTxId(), writer.getRecordCount(), true);
      }
 
     /**
@@ -305,9 +307,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long firstTxId, long lastTxId)
+    @VisibleForTesting
+    public void completeAndCloseLogSegment(long firstTxId, long lastTxId, int recordCount)
         throws IOException {
-        completeAndCloseLogSegment(firstTxId, lastTxId, true);
+        completeAndCloseLogSegment(firstTxId, lastTxId, recordCount, true);
     }
 
     /**
@@ -319,12 +322,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long firstTxId, long lastTxId, boolean shouldReleaseLock)
+    public void completeAndCloseLogSegment(long firstTxId, long lastTxId,
+                                           int recordCount, boolean shouldReleaseLock)
             throws IOException {
         long start = MathUtils.nowInNano();
         boolean success = false;
         try {
-            doCompleteAndCloseLogSegment(firstTxId, lastTxId, shouldReleaseLock);
+            doCompleteAndCloseLogSegment(firstTxId, lastTxId, recordCount, shouldReleaseLock);
             success = true;
         } finally {
             long elapsed = MathUtils.elapsedMSec(start);
@@ -336,7 +340,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    private void doCompleteAndCloseLogSegment(long firstTxId, long lastTxId, boolean shouldReleaseLock)
+    private void doCompleteAndCloseLogSegment(long firstTxId, long lastTxId,
+                                              int recordCount, boolean shouldReleaseLock)
             throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
@@ -376,7 +381,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + l.getFirstTxId() + " found, " + firstTxId + " expected");
             }
 
-            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId);
+            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, recordCount);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
@@ -439,7 +444,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     if (!l.isInProgress()) {
                         continue;
                     }
-                    long endTxId = recoverLastTxIdInLedger(l, true);
+                    long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+                    int recordCount = 0;
+
+                    LogRecord record = recoverLastRecordInLedger(l, true, true, true);
+
+                    if (null != record) {
+                        endTxId = record.getTransactionId();
+                        recordCount = record.getCount();
+                    }
+
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {
                         LOG.error("Unrecoverable corruption has occurred in segment "
                             + l.toString() + " at path " + l.getZkPath()
@@ -454,7 +468,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     // Make the lock release symmetric by having this function acquire and
                     // release the lock and have complete and close only release the lock
                     // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, false);
+                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recordCount, false);
                     LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
 
                 }

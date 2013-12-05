@@ -307,7 +307,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
-        checkClosedOrInError("getFirstTxIdInternal");
+        checkClosedOrInError("getFirstTxId");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
             return ledgerHandler.getFirstTxId();
@@ -327,10 +327,47 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
-        checkClosedOrInError("getLastTxIdInternal");
+        checkClosedOrInError("getLastTxId");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
             return ledgerHandler.getLastTxId(recover, includeEndOfStream);
+        } finally {
+            ledgerHandler.close();
+        }
+    }
+
+    /**
+     * Get the number of log records in the active portion of the stream for the
+     * given partition
+     * Any log segments that have already been truncated will not be included
+     *
+     * @param partition the partition within the log
+     * @return number of log records
+     * @throws IOException
+     */
+    @Override
+    public long getLogRecordCount(PartitionId partition) throws IOException {
+        return getLogRecordCountInternal(partition.toString());
+    }
+
+    /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return number of log records
+     * @throws IOException
+     */
+    @Override
+    public long getLogRecordCount() throws IOException {
+        return getLogRecordCountInternal(DistributedLogConstants.DEFAULT_STREAM);
+    }
+
+    private long getLogRecordCountInternal(String streamIdentifier) throws IOException {
+        checkClosedOrInError("getLogRecordCount");
+        BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
+        try {
+            return ledgerHandler.getLogRecordCount();
         } finally {
             ledgerHandler.close();
         }

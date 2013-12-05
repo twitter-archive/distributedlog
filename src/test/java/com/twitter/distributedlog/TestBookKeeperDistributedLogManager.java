@@ -199,6 +199,7 @@ public class TestBookKeeperDistributedLogManager {
             record = reader.readNext(false);
         }
         assertEquals((txid - 1), numTrans);
+        assertEquals(txid - 1, dlm.getLogRecordCount());
         reader.close();
         dlm.close();
     }
@@ -670,7 +671,7 @@ public class TestBookKeeperDistributedLogManager {
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
             blplm.startLogSegment(txid - 1);
-            blplm.completeAndCloseLogSegment(txid - 1, txid - 1);
+            blplm.completeAndCloseLogSegment(txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1), false));
             blplm.close();
@@ -699,6 +700,7 @@ public class TestBookKeeperDistributedLogManager {
         }
         assertEquals((txid - 1), numTrans);
         reader.close();
+        assertEquals(txid - 1, dlm.getLogRecordCount());
         dlm.close();
     }
 
@@ -1353,6 +1355,8 @@ public class TestBookKeeperDistributedLogManager {
             record = reader1.readNext(false);
         }
         assertEquals((txid - 9), numTrans);
+        assertEquals(txid - 1,
+            dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
         reader0.close();
         reader1.close();
         dlmreader.close();
@@ -1607,7 +1611,7 @@ public class TestBookKeeperDistributedLogManager {
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
             blplm.startLogSegment(txid - 1);
-            blplm.completeAndCloseLogSegment(txid - 1, txid - 1);
+            blplm.completeAndCloseLogSegment(txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1), false));
             blplm.close();
@@ -1629,6 +1633,7 @@ public class TestBookKeeperDistributedLogManager {
         LogRecord last = dlm.getLastLogRecord();
         assertEquals(txid - 1, last.getTransactionId());
         DLMTestUtil.verifyLogRecord(last);
+        assertEquals(txid - 1, dlm.getLogRecordCount());
 
         dlm.close();
     }
