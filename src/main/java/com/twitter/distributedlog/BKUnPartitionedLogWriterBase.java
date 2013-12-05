@@ -78,8 +78,7 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         if (null != perStreamWriter && null != partitionHander) {
             try {
                 waitForTruncation();
-                long lastTxId = perStreamWriter.closeToFinalize();
-                partitionHander.completeAndCloseLogSegment(lastTxId);
+                partitionHander.completeAndCloseLogSegment(perStreamWriter);
             } finally {
                 // ensure partition handler is closed.
                 partitionHander.close();

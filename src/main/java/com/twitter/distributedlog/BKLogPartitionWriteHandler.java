@@ -290,10 +290,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long lastTxId)
+     public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
         throws IOException {
-        completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, true);
-    }
+         long lastTxId = writer.closeToFinalize();
+         completeAndCloseLogSegment(currentLedgerStartTxId, lastTxId, true);
+     }
 
     /**
      * Finalize a log segment. If the journal manager is currently
@@ -524,12 +525,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
                 if (BKException.Code.OK != rc) {
                     LOG.error("Failed to get ledger list to purge for {} : ", getFullyQualifiedName(),
-                            BKException.create(rc));
+                        BKException.create(rc));
                     callback.operationComplete(rc, null);
                     return;
                 }
                 final List<LogSegmentLedgerMetadata> purgeList =
-                        new ArrayList<LogSegmentLedgerMetadata>(result.size());
+                    new ArrayList<LogSegmentLedgerMetadata>(result.size());
                 boolean logTimestamp = true;
                 for (LogSegmentLedgerMetadata l : result) {
                     if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {

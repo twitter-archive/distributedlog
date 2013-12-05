@@ -3,8 +3,11 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,5 +88,25 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
             numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId()).writeBulk(entry.getValue());
         }
         return numRecords;
+    }
+
+    @VisibleForTesting
+    void closeAndComplete() throws IOException {
+        LinkedList<String> deletedStreams = new LinkedList<String>();
+        for(String streamIdentifier: partitionToWriter.keySet()) {
+            BKPerStreamLogWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
+            BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
+            if (null != perStreamWriter && null != partitionHander) {
+                waitForTruncation();
+                partitionHander.completeAndCloseLogSegment(perStreamWriter);
+                partitionHander.close();
+                deletedStreams.add(streamIdentifier);
+            }
+        }
+        for(String streamIdentifier: deletedStreams) {
+            partitionToWriter.remove(streamIdentifier);
+            partitionToLedger.remove(streamIdentifier);
+        }
+        close();
     }
 }

@@ -128,9 +128,8 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (ledgerManager.shouldStartNewSegment() || forceRolling) {
-            long lastTxId = ledgerWriter.closeToFinalize();
+            ledgerManager.completeAndCloseLogSegment(ledgerWriter);
             numFlushes = ledgerWriter.getNumFlushes();
-            ledgerManager.completeAndCloseLogSegment(lastTxId);
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
