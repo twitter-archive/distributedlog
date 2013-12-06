@@ -69,7 +69,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
-                LOG.debug("Inspecting Ledger: {} for {}", l, fromDLSN);
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Inspecting Ledger: {} for {}", l, fromDLSN);
+                }
                 DLSN lastDLSN = new DLSN(l.getLedgerSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
                 if (l.isInProgress()) {
                     if (!inProgressOk) {
@@ -157,7 +159,9 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
-                LOG.debug("Inspecting Ledger: {}", l);
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Inspecting Ledger: {}", l);
+                }
                 long lastTxId = l.getLastTxId();
                 if (l.isInProgress()) {
                     if (!inProgressOk) {
@@ -446,11 +450,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 } else if (BKException.Code.ZKException == rc) {
                     encounteredException = true;
                     int numExceptions = bkcZkExceptions.incrementAndGet();
-                    LOG.debug("ReadAhead Worker for {} encountered zookeeper exception : total exceptions are {}.",
+                    LOG.info("ReadAhead Worker for {} encountered zookeeper exception : total exceptions are {}.",
                             fullyQualifiedName, numExceptions);
                 } else if (BKException.Code.OK != rc) {
                     encounteredException = true;
-                    LOG.debug("ReadAhead Worker for {} encountered exception : ",
+                    LOG.info("ReadAhead Worker for {} encountered exception : ",
                             fullyQualifiedName, BKException.create(rc));
                 }
                 // schedule next read ahead

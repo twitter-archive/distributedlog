@@ -33,7 +33,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                                   LogSegmentLedgerMetadata metadata,
                                   boolean noBlocking,
                                   long startBkEntry) throws IOException {
-        super(metadata, noBlocking);
+        super(ledgerManager, metadata, noBlocking);
         this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
@@ -68,7 +68,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                 }
             } catch (Exception exc) {
                 watchSet.set(false);
-                LOG.debug("Unable to setup latch", exc);
+                LOG.warn("Unable to setup latch", exc);
             }
         }
 
@@ -80,13 +80,13 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
                 startBkEntry = lin.nextEntryToRead();
                 if(nodeDeleteNotification.compareAndSet(true, false)) {
                     ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
-                    LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry, ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    LOG.debug(ledgerManager.getFullyQualifiedName() + ": {} Reading Last Add Confirmed {} after ledger close", startBkEntry, ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
                     inProgress = false;
                 } else if (isInProgress()) {
                     if (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor)) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
                     }
-                    LOG.debug("Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    LOG.debug(ledgerManager.getFullyQualifiedName() + ": Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
                 }
                 h = ledgerDescriptor;
             }

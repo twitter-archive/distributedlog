@@ -18,4 +18,14 @@ public class LogRecordWithDLSN extends LogRecord {
     public DLSN getDlsn() {
         return dlsn;
     }
+
+    @Override
+    public String toString() {
+        return "LogRecordWithDLSN{" +
+            "dlsn=" + dlsn +
+            ", txid=" + getTransactionId() +
+            ", isControl=" + isControl() +
+            ", isEndOfStream=" + isEndOfStream() +
+            '}';
+    }
 }

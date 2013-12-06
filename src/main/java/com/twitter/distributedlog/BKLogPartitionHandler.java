@@ -206,6 +206,8 @@ abstract class BKLogPartitionHandler implements Watcher  {
             LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
 
             if (null != record) {
+                assert(!record.isControl());
+                LOG.debug("{} getLastLogRecord Returned {}", getFullyQualifiedName(), record);
                 return record;
             }
         }
@@ -257,7 +259,9 @@ abstract class BKLogPartitionHandler implements Watcher  {
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
         List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(true);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
-            LOG.debug("Inspecting Ledger: {}", l);
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Inspecting Ledger: {}", l);
+            }
             if (thresholdTxId < l.getFirstTxId()) {
                 continue;
             }
@@ -278,7 +282,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
             try {
                 LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, !l.isInProgress());
                 BKPerStreamLogReader s
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
+                    = new BKPerStreamLogReader(this, ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
 
                 LogRecord prevRecord = null;
                 LogRecord currRecord = s.readOp();
@@ -376,9 +380,9 @@ abstract class BKLogPartitionHandler implements Watcher  {
             }
 
             if (fence) {
-                LOG.debug("Open With Recovery Last Add Confirmed {}", scanStartPoint);
+                LOG.debug("{} Open With Recovery Last Add Confirmed {}", getFullyQualifiedName(), scanStartPoint);
             } else {
-                LOG.debug("Open No Recovery Last Add Confirmed {}", scanStartPoint);
+                LOG.debug("{} Open No Recovery Last Add Confirmed {}", getFullyQualifiedName(), scanStartPoint);
                 if (scanStartPoint > DistributedLogConstants.SMALL_LEDGER_THRESHOLD) {
                     scanStartPoint -= DistributedLogConstants.SMALL_LEDGER_THRESHOLD;
                     trySmallLedger = false;
@@ -387,14 +391,16 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
             while (true) {
                 BKPerStreamLogReader in
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, includeControl);
+                    = new BKPerStreamLogReader(this, ledgerDescriptor,
+                                        l, scanStartPoint,
+                                        ledgerDataAccessorPriv, includeControl);
 
                 lastRecord = null;
                 try {
                     LogRecordWithDLSN record = in.readOp();
                     while (record != null) {
                         if ((null == lastRecord
-                            || record.getTransactionId() > lastRecord.getTransactionId()) &&
+                            || record.getDlsn().compareTo(lastRecord.getDlsn()) > 0) &&
                             (includeEndOfStream || !record.isEndOfStream())) {
                             lastRecord = record;
                         }
@@ -443,6 +449,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
             throw new IOException("Exception while retrieving last log record");
         }
 
+        assert((null == lastRecord) || includeControl || !lastRecord.isControl());
         return lastRecord;
     }
 
@@ -555,7 +562,9 @@ abstract class BKLogPartitionHandler implements Watcher  {
         synchronized (logSegments) {
             if (!logSegments.containsKey(name)) {
                 logSegments.put(name, metadata);
-                LOG.debug("Added log segment ({} : {}) to cache.", name, metadata);
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Added log segment ({} : {}) to cache.", name, metadata);
+                }
             }
         }
         // update the last ledger rolling time
@@ -573,7 +582,9 @@ abstract class BKLogPartitionHandler implements Watcher  {
     protected void removeLogSegmentToCache(String name) {
         synchronized (logSegments) {
             LogSegmentLedgerMetadata metadata = logSegments.remove(name);
-            LOG.debug("Removed log segment ({} : {}) from cache.", name, metadata);
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Removed log segment ({} : {}) from cache.", name, metadata);
+            }
         }
     }
 

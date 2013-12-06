@@ -33,6 +33,7 @@ import java.io.InputStream;
 class BKPerStreamLogReader implements PerStreamLogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
+    private final String fullyQualifiedName;
     private final long firstTxId;
     private final int logVersion;
     protected boolean inProgress;
@@ -44,10 +45,12 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     private final boolean dontSkipControl;
     protected final boolean noBlocking;
 
+
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata, boolean noBlocking) {
+    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, boolean noBlocking) {
+        this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
@@ -62,9 +65,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
      * to take a shortcut during recovery, as it doesn't have to read
      * every edit log transaction to find out what the last one is.
      */
-    BKPerStreamLogReader(LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
+    BKPerStreamLogReader(BKLogPartitionHandler handler, LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
                          long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl)
         throws IOException {
+        this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
@@ -76,11 +80,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking);
+        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
-                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT + Long.SIZE/8)),
+                DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
             logVersion);
         this.isExhausted = false;
         // Note: The caller of the function (or a derived class is expected to open the
@@ -166,6 +170,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
         private final boolean noBlocking;
+        private final String fullyQualifiedName;
 
         /**
          * Construct ledger input stream
@@ -174,10 +179,12 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
-        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
+        LedgerInputStream(String fullyQualifiedName,
+                          LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
                           long firstBookKeeperEntry, boolean noBlocking)
             throws IOException {
-            LOG.debug("First BookKeeper Entry {}", firstBookKeeperEntry);
+            LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
+            this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
@@ -194,7 +201,9 @@ class BKPerStreamLogReader implements PerStreamLogReader {
             try {
                 long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
                 if (readEntries > maxEntry) {
-                    LOG.debug("Read Entries {} Max Entry {}", readEntries, maxEntry);
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace(fullyQualifiedName + ": Read Entries {} Max Entry {}", readEntries, maxEntry);
+                    }
                     return null;
                 }
 
@@ -203,7 +212,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 if (noBlocking) {
                     e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
                     if (null == e) {
-                        LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
+                        LOG.debug(fullyQualifiedName + ": Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                         return null;
                     }
                 } else {
@@ -211,7 +220,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 }
                 assert (e != null);
                 ledgerDataAccessor.remove(readPosition);
-                LOG.debug("Read Entry {}", readPosition.getEntryId());
+                LOG.debug(fullyQualifiedName + ": Read Entry {}", readPosition.getEntryId());
                 readEntries++;
                 currentSlotId = 0;
                 return e.getEntryInputStream();
@@ -223,7 +232,8 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 }
                 LOG.info("Reached the end of the stream", bke);
             } catch (Exception e) {
-                throw new IOException("Error reading entries from bookkeeper", e);
+                LOG.error(fullyQualifiedName + ": Error reading entries from bookkeeper");
+                throw new IOException(fullyQualifiedName + ": Error reading entries from bookkeeper", e);
             }
             return null;
         }
@@ -299,6 +309,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
             } catch (IOException exc) {
                 return false;
             }
+        }
+
+        @Override
+        public String getName() {
+            return fullyQualifiedName;
         }
     }
 }

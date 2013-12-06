@@ -90,7 +90,7 @@ class DistributedReentrantLock implements Runnable {
     }
 
     void acquire(String reason) throws LockingException {
-        LOG.debug("Lock Acquire {}, {}", lockPath, reason);
+        LOG.trace("Lock Acquire {}, {}", lockPath, reason);
         while (true) {
             if (lockCount.get() == 0) {
                 synchronized (this) {
@@ -118,7 +118,7 @@ class DistributedReentrantLock implements Runnable {
     }
 
     void release(String reason) throws IOException {
-        LOG.debug("Lock Release {}, {}", lockPath, reason);
+        LOG.trace("Lock Release {}, {}", lockPath, reason);
         try {
             if (lockCount.decrementAndGet() <= 0) {
                 if (lockCount.get() < 0) {
@@ -236,7 +236,7 @@ class DistributedReentrantLock implements Runnable {
         private synchronized int prepare()
             throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
-            LOG.debug("Working with locking path: {}", lockPath);
+            LOG.trace("Working with locking path: {}", lockPath);
 
             // Increase the epoch each time acquire the lock
             int curEpoch = epoch.incrementAndGet();
@@ -249,7 +249,7 @@ class DistributedReentrantLock implements Runnable {
             if (currentNode.contains("/")) {
                 currentId = currentNode.substring(currentNode.lastIndexOf("/") + 1);
             }
-            LOG.debug("Received ID from zk: {}", currentId);
+            LOG.trace("Received ID from zk: {}", currentId);
             this.watcher = new LockWatcher(curEpoch);
             return curEpoch;
         }
@@ -299,7 +299,7 @@ class DistributedReentrantLock implements Runnable {
                 aborted.set(true);
                 LOG.info("Not holding lock, aborting acquisition attempt!");
             } else {
-                LOG.debug("Cleaning up this locks ephemeral node. {} {}", currentId, currentNode);
+                LOG.trace("Cleaning up this locks ephemeral node. {} {}", currentId, currentNode);
                 cleanup(true);
             }
         }
@@ -332,7 +332,7 @@ class DistributedReentrantLock implements Runnable {
         }
 
         private void cleanup(boolean sync) {
-            LOG.debug("Cleaning up!");
+            LOG.trace("Cleaning up!");
             String nodeToDelete = currentNode;
             try {
                 if (null != nodeToDelete) {
@@ -410,7 +410,7 @@ class DistributedReentrantLock implements Runnable {
 
                         if (wait) {
                             final String nextLowestNode = sortedMembers.get(memberIndex - 1);
-                            LOG.debug("Current LockWatcher with ephemeral node {}, is waiting for {} to release lock.",
+                            LOG.trace("Current LockWatcher with ephemeral node {}, is waiting for {} to release lock.",
                                       getCurrentId(), nextLowestNode);
 
                             watchedNode = String.format("%s/%s", lockPath, nextLowestNode);

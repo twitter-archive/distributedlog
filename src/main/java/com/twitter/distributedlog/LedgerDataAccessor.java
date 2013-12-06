@@ -78,7 +78,7 @@ public class LedgerDataAccessor {
             }
             return null;
         } else {
-            LOG.debug("Read-ahead cache hit for async read");
+            LOG.trace("Read-ahead cache hit for async read");
             return value.getLedgerEntry();
         }
     }
@@ -167,10 +167,10 @@ public class LedgerDataAccessor {
 
     public void removeLedger(long ledgerId) {
         if (!cachedLedgerIds.contains(ledgerId)) {
-            LOG.debug("Ledger purge skipped");
+            LOG.trace("Ledger purge skipped");
             return;
         }
-        LOG.debug("Ledger purged");
+        LOG.trace("Ledger purged");
 
         cachedLedgerIds = new HashSet<Long>();
 

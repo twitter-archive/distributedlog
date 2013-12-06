@@ -50,7 +50,7 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
                 position = startDLSN;
             }
         }
-        LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
+        LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), position);
         return bkLedgerManager.getInputStream(position, true, false, (lastDLSN != DLSN.InvalidDLSN), noBlocking, readAheadWaitTime);
     }
 

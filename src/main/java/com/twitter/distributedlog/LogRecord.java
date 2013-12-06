@@ -196,6 +196,13 @@ public class LogRecord {
                 recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
+                if (LOG.isTraceEnabled()) {
+                    if (nextRecordInStream.isControl()) {
+                        LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), dlsn);
+                    } else {
+                        LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), dlsn);
+                    }
+                }
                 return nextRecordInStream;
             } catch (EOFException eof) {
                 // Expected
