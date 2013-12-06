@@ -499,7 +499,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         try {
             if (zkc.get().exists(zkPath, false) == null) {
                 LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
-                throw new LogNotFoundException("Log" + name + "was not found");
+                throw new LogNotFoundException("Log " + name + " was not found");
             }
             partitions = zkc.get().getChildren(zkPath, false);
         } catch (InterruptedException ie) {
