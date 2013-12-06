@@ -97,7 +97,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
         return promise;
     }
 
-    public void scheduleBackgroundRead() {
+    public synchronized void scheduleBackgroundRead() {
         long prevCount = scheduleCount.getAndIncrement();
         if (0 == prevCount) {
             executorService.submit(this);
@@ -125,61 +125,67 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
     @Override
     public void run() {
-        int iterations = 0;
-        LOG.debug("Scheduled Background Reader");
-        while(true) {
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Executing Iteration: {}", iterations++);
-            }
-
-            Promise<LogRecordWithDLSN> nextPromise = pendingRequests.peek();
-
-            // Queue is empty, nothing to read, return
-            if (null == nextPromise) {
-                LOG.trace("Queue Empty waiting for Input");
-                return;
-            }
-
-            // If the oldest pending promise is interrupted then we must mark
-            // the reader in error and abort all pending reads since we dont
-            // know the last consumed read
-            if (null == lastException.get()) {
-                if (nextPromise.isInterrupted().isDefined()) {
-                    lastException.set(nextPromise.isInterrupted().get());
-                }
-            }
-
-            if (checkClosedOrInError("readNext")) {
-                LOG.trace("Exception", lastException.get());
-                return;
-            }
-
-            LogRecordWithDLSN record = null;
-            try {
-                record = currentReader.readNextWithSkip();
-            } catch (IOException exc) {
-                lastException.set(exc);
-                LOG.trace("read with skip Exception", lastException.get());
-                return;
-            }
-
-            if (null != record) {
+        synchronized(scheduleCount) {
+            int iterations = 0;
+            long scheduleCountLocal = scheduleCount.get();
+            LOG.debug("Scheduled Background Reader");
+            while(true) {
                 if (LOG.isTraceEnabled()) {
-                    LOG.trace("Satisfied promise with record {}", record.getTransactionId());
+                    LOG.trace("Executing Iteration: {}", iterations++);
                 }
-                Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
-                if (null != promise) {
-                    promise.setValue(record);
+
+                Promise<LogRecordWithDLSN> nextPromise = null;
+                synchronized(this) {
+                    nextPromise = pendingRequests.peek();
+
+                    // Queue is empty, nothing to read, return
+                    if (null == nextPromise) {
+                        LOG.trace("Queue Empty waiting for Input");
+                        scheduleCount.set(0);
+                        return;
+                    }
                 }
-            } else {
-                if (0 >= scheduleCount.get()) {
-                    LOG.trace("Schedule count Exception", lastException.get());
+
+                // If the oldest pending promise is interrupted then we must mark
+                // the reader in error and abort all pending reads since we dont
+                // know the last consumed read
+                if (null == lastException.get()) {
+                    if (nextPromise.isInterrupted().isDefined()) {
+                        lastException.set(nextPromise.isInterrupted().get());
+                    }
+                }
+
+                if (checkClosedOrInError("readNext")) {
+                    LOG.warn("Exception", lastException.get());
                     return;
                 }
-                scheduleCount.decrementAndGet();
+
+                LogRecordWithDLSN record = null;
+                try {
+                    record = currentReader.readNextWithSkip();
+                } catch (IOException exc) {
+                    lastException.set(exc);
+                    LOG.warn("read with skip Exception", lastException.get());
+                    return;
+                }
+
+                if (null != record) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Satisfied promise with record {}", record.getTransactionId());
+                    }
+                    Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
+                    if (null != promise) {
+                        promise.setValue(record);
+                    }
+                } else {
+                    if (0 == scheduleCountLocal) {
+                        LOG.trace("Schedule count Exception", lastException.get());
+                        return;
+                    }
+                    scheduleCountLocal = scheduleCount.decrementAndGet();
+                }
             }
         }
-
     }
 
     /**

@@ -693,9 +693,23 @@ public class TestBookKeeperDistributedLogManager {
 
         dlm = DLMTestUtil.createNewDLM(conf, name);
 
-        LogReader reader = dlm.getInputStream(1);
+        AsyncLogReader asyncreader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
         long numTrans = 0;
-        LogRecord record = reader.readNext(false);
+        LogRecordWithDLSN record = asyncreader.readNext().get();
+        while (null != record) {
+            DLMTestUtil.verifyLogRecord(record);
+            numTrans++;
+            if (numTrans >= (txid - 1)) {
+                break;
+            }
+            record = asyncreader.readNext().get();
+        }
+        assertEquals((txid - 1), numTrans);
+        asyncreader.close();
+
+        LogReader reader = dlm.getInputStream(1);
+        numTrans = 0;
+        record = reader.readNext(false);
         while (null != record) {
             DLMTestUtil.verifyLogRecord(record);
             numTrans++;

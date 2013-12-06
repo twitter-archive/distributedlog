@@ -126,4 +126,12 @@ class DLMTestUtil {
         assertArrayEquals(payloadStatic, payload);
     }
 
+    static LogRecord getEmptyLogRecordInstance(long txId) {
+        return new LogRecord(txId, new byte[0]);
+    }
+
+    static void verifyEmptyLogRecord(LogRecord record) {
+        assert(record.getPayload().length == 0);
+    }
+
 }

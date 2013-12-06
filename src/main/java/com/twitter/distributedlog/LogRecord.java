@@ -191,10 +191,11 @@ public class LogRecord {
             try {
                 LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
                 nextRecordInStream.setFlags(in.readLong());
+                DLSN dlsn = recordStream.getCurrentPosition();
+                nextRecordInStream.setDlsn(dlsn);
+                recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
-                nextRecordInStream.setDlsn(recordStream.getCurrentPosition());
-                recordStream.advanceToNextRecord();
                 return nextRecordInStream;
             } catch (EOFException eof) {
                 // Expected

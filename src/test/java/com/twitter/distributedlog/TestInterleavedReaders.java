@@ -348,7 +348,10 @@ public class TestInterleavedReaders {
         dlm.close();
     }
 
-    private static void readNext(final Thread threadToInterrupt, final CountDownLatch syncLatch, final AsyncLogReader reader) {
+    private static void readNext(final Thread threadToInterrupt,
+                                 final CountDownLatch syncLatch,
+                                 final AsyncLogReader reader,
+                                 final DLSN startPosition) {
         Future<LogRecordWithDLSN> record = null;
         try {
             record = reader.readNext();
@@ -360,15 +363,20 @@ public class TestInterleavedReaders {
             record.addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
                 @Override
                 public void onSuccess(LogRecordWithDLSN value) {
+                    assert(value.getDlsn().compareTo(startPosition) >= 0);
                     try {
+                        LOG.debug("DLSN: " + value.getDlsn());
+                        assert(!value.isControl());
+                        assert(value.getDlsn().getSlotId() == 0);
+                        assert(value.getDlsn().compareTo(startPosition) >= 0);
                         DLMTestUtil.verifyLargeLogRecord(value);
                     } catch (Exception exc) {
-                        LOG.debug("Exception Encountered when verifying log records", exc);
+                        LOG.debug("Exception Encountered when verifying log records" + value.getDlsn(), exc);
                         threadToInterrupt.interrupt();
                     }
                     syncLatch.countDown();
                     LOG.debug("SyncLatch: " + syncLatch.getCount());
-                    TestInterleavedReaders.readNext(threadToInterrupt, syncLatch, reader);
+                    TestInterleavedReaders.readNext(threadToInterrupt, syncLatch, reader, value.getDlsn().getNextDLSN());
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -384,6 +392,7 @@ public class TestInterleavedReaders {
         String name = "distrlog-simpleasyncread";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
@@ -418,7 +427,7 @@ public class TestInterleavedReaders {
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
         final Thread currentThread = Thread.currentThread();
 
-        TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+        TestInterleavedReaders.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -436,10 +445,67 @@ public class TestInterleavedReaders {
     }
 
     @Test
+    public void testAsyncReadEmptyRecords() throws Exception {
+        String name = "distrlog-simpleasyncreadempty";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= 10; j++) {
+                writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
+            }
+            writer.closeAndComplete();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            blplm.close();
+        }
+
+        long start = txid;
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (long j = 1; j <= 5; j++) {
+            writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
+            if (j % 2 == 0) {
+                writer.setReadyToFlush();
+                writer.flushAndSync();
+            }
+        }
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        writer.close();
+
+        AsyncLogReader asyncReader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        long numTrans = 0;
+        DLSN lastDLSN = DLSN.InvalidDLSN;
+        LogRecordWithDLSN record = asyncReader.readNext().get();
+        while (null != record) {
+            DLMTestUtil.verifyEmptyLogRecord(record);
+            assert(record.getDlsn().getSlotId() == 0);
+            assert (record.getDlsn().compareTo(lastDLSN) > 0);
+            lastDLSN = record.getDlsn();
+            numTrans++;
+            if (numTrans >= (txid - 1)) {
+                break;
+            }
+            record = asyncReader.readNext().get();
+        }
+        assertEquals((txid - 1), numTrans);
+        asyncReader.close();
+        dlm.close();
+    }
+
+    @Test
     public void testSimpleAsyncReadPosition() throws Exception {
         String name = "distrlog-simpleasyncreadpos";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
@@ -463,11 +529,11 @@ public class TestInterleavedReaders {
         writer.flushAndSync();
         writer.close();
 
-        final CountDownLatch syncLatch = new CountDownLatch(txid - 11);
-        final AsyncLogReader reader = dlm.getAsyncLogReader(new DLSN(2, -1, 0));
+        final CountDownLatch syncLatch = new CountDownLatch(txid - 14);
+        final AsyncLogReader reader = dlm.getAsyncLogReader(new DLSN(2, 2, 4));
         final Thread currentThread = Thread.currentThread();
 
-        TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+        TestInterleavedReaders.readNext(currentThread, syncLatch, reader, new DLSN(2, 3, 0));
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -526,7 +592,7 @@ public class TestInterleavedReaders {
                     }
                 });
                 if (i == 0 && j == 0) {
-                    TestInterleavedReaders.readNext(currentThread, syncLatch, reader);
+                    TestInterleavedReaders.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
                 }
             }
             writer.closeAndComplete();
