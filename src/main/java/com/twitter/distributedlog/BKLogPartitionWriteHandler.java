@@ -116,7 +116,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         // Ignore everything
                     }
                 } catch (KeeperException.NodeExistsException exc) {
-                    LOG.info("Race on node creation, clean retry");
+                    LOG.info("{}: Race on node creation, clean retry", getFullyQualifiedName());
                 }
             }
 

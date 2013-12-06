@@ -92,7 +92,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                     break;
                 }
             } else {
-                LOG.debug("No reader at specified start point: {}", nextDLSN);
+                LOG.debug("{} No reader at specified start point: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
             }
 
         }
