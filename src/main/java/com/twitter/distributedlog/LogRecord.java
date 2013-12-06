@@ -191,8 +191,14 @@ public class LogRecord {
             try {
                 LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
                 nextRecordInStream.setFlags(in.readLong());
+                // Reading the first 8 bytes positions the record stream on the correct log record
+                // By this time all components of the DLSN are valid so this is where we shoud
+                // retrieve the currentDLSN and advance to the next
+                // Given that there are 20 bytes following the read position of the previous call
+                // to readLong, we should not have moved ahead in the stream.
                 DLSN dlsn = recordStream.getCurrentPosition();
                 nextRecordInStream.setDlsn(dlsn);
+
                 recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
@@ -220,17 +226,18 @@ public class LogRecord {
                 in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
                 try {
                     in.readLong();
-                    long currTxId = in.readLong();
-                    if ((null != txId) && (currTxId >= txId)) {
+                    if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
                         if (LOG.isTraceEnabled()) {
-                            LOG.trace("Found position {} beyond {}", currTxId, txId);
+                            LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
                         }
                         in.reset();
                         found = true;
                         break;
-                    } else if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
+                    }
+                    long currTxId = in.readLong();
+                    if ((null != txId) && (currTxId >= txId)) {
                         if (LOG.isTraceEnabled()) {
-                            LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
+                            LOG.trace("Found position {} beyond {}", currTxId, txId);
                         }
                         in.reset();
                         found = true;
