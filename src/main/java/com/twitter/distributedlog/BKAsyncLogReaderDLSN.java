@@ -52,14 +52,11 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     }
 
     private boolean checkClosedOrInError(String operation) {
-        if (null != lastException.get()) {
+        if (null == lastException.get()) {
             try {
                 currentReader.checkClosedOrInError(operation);
             } catch (IOException exc) {
-                lastException.set(exc);
-                if (!(exc instanceof EndOfStreamException)) {
-                    lastException.set(new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc));
-                }
+                setLastException(exc);
             }
         }
 
@@ -70,6 +67,13 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
         }
 
         return false;
+    }
+
+    private void setLastException(Throwable exc) {
+        lastException.set(exc);
+        if (!(exc instanceof EndOfStreamException)) {
+            lastException.set(new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc));
+        }
     }
 
     /**
@@ -151,7 +155,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                 // know the last consumed read
                 if (null == lastException.get()) {
                     if (nextPromise.isInterrupted().isDefined()) {
-                        lastException.set(nextPromise.isInterrupted().get());
+                        setLastException(nextPromise.isInterrupted().get());
                     }
                 }
 
@@ -164,9 +168,8 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
                 try {
                     record = currentReader.readNextWithSkip();
                 } catch (IOException exc) {
-                    lastException.set(exc);
+                    setLastException(exc);
                     LOG.warn("read with skip Exception", lastException.get());
-                    return;
                 }
 
                 if (null != record) {

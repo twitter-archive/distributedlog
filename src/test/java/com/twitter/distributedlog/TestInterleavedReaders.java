@@ -1,12 +1,15 @@
 package com.twitter.distributedlog;
 
+import com.twitter.conversions.thread;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.bookkeeper.proto.BookieServer;
@@ -387,6 +390,95 @@ public class TestInterleavedReaders {
         }
     }
 
+    private static void readNextWithRetry(final Thread threadToInterrupt,
+                                 final CountDownLatch syncLatch,
+                                 final DistributedLogManager dlm,
+                                 final AsyncLogReader reader,
+                                 final DLSN startPosition,
+                                 final ScheduledThreadPoolExecutor executorService,
+                                 final int delay,
+                                 final AtomicInteger executionCount) {
+        Future<LogRecordWithDLSN> record = null;
+        try {
+            record = reader.readNext();
+        } catch (Exception exc) {
+            LOG.debug("Encountered Exception");
+            threadToInterrupt.interrupt();
+        }
+        if (null != record) {
+            record.addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
+                @Override
+                public void onSuccess(LogRecordWithDLSN value) {
+                    assert(value.getDlsn().compareTo(startPosition) >= 0);
+                    try {
+                        LOG.debug("DLSN: " + value.getDlsn());
+                        assert(!value.isControl());
+                        assert(value.getDlsn().getSlotId() == 0);
+                        assert(value.getDlsn().compareTo(startPosition) >= 0);
+                        DLMTestUtil.verifyLargeLogRecord(value);
+                    } catch (Exception exc) {
+                        LOG.debug("Exception Encountered when verifying log records" + value.getDlsn(), exc);
+                        threadToInterrupt.interrupt();
+                    }
+                    syncLatch.countDown();
+                    LOG.debug("SyncLatch: " + syncLatch.getCount());
+                    if(0 == syncLatch.getCount()) {
+                        try {
+                            reader.close();
+                        } catch (Exception exc) {
+                            //
+                        }
+                    } else {
+                        TestInterleavedReaders.readNextWithRetry(threadToInterrupt, syncLatch,
+                                dlm, reader,
+                                value.getDlsn().getNextDLSN(), executorService, delay, executionCount);
+                    }
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    LOG.debug("Encountered Exception", cause);
+                    try {
+                        reader.close();
+                    } catch (Exception exc) {
+                        //
+                    }
+                    int newDelay = delay * 2;
+                    if (0 == delay) {
+                        newDelay = 100;
+                    }
+                    positionReader(threadToInterrupt, syncLatch, dlm, startPosition, executorService, newDelay, executionCount);
+                }
+            });
+        }
+    }
+
+    private static void positionReader(final Thread threadToInterrupt,
+                                          final CountDownLatch syncLatch,
+                                          final DistributedLogManager dlm,
+                                          final DLSN startPosition,
+                                          final ScheduledThreadPoolExecutor executorService,
+                                          final int delay,
+                                          final AtomicInteger executionCount) {
+        executionCount.incrementAndGet();
+        Runnable runnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    AsyncLogReader reader = dlm.getAsyncLogReader(startPosition);
+                    readNextWithRetry(threadToInterrupt, syncLatch, dlm, reader, startPosition, executorService, delay, executionCount);
+                } catch (IOException exc) {
+                    int newDelay = delay * 2;
+                    if (0 == delay) {
+                        newDelay = 100;
+                    }
+                    positionReader(threadToInterrupt, syncLatch, dlm, startPosition, executorService, newDelay, executionCount);
+                }
+            }
+        };
+        executorService.schedule(runnable, delay, TimeUnit.MILLISECONDS);
+    }
+
+
     @Test
     public void testSimpleAsyncRead() throws Exception {
         String name = "distrlog-simpleasyncread";
@@ -610,6 +702,69 @@ public class TestInterleavedReaders {
         assert(!(Thread.interrupted()));
         assert(success);
         reader.close();
+        dlm.close();
+    }
+
+    @Test
+    public void testSimpleAsyncReadWriteStartEmpty() throws Exception {
+        String name = "distrlog-simpleasyncreadwritestartempty";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        final CountDownLatch syncLatch = new CountDownLatch(30);
+        final Thread currentThread = Thread.currentThread();
+        final AtomicInteger executionCount = new AtomicInteger(0);
+
+        positionReader(currentThread, syncLatch, dlm, DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, executionCount);
+        // Increase the probability of retry
+        Thread.sleep(500);
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            long start = txid;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            for (long j = 0; j < 10; j++) {
+                final long currentEntryId = j;
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsnFuture = writer.write(record);
+                dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
+                            LOG.debug("EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            currentThread.interrupt();
+                        }
+
+                        if(value.getEntryId() != currentEntryId) {
+                            LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
+                            currentThread.interrupt();
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        currentThread.interrupt();
+                    }
+                });
+            }
+            writer.closeAndComplete();
+        }
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(15, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        assertEquals(true, executionCount.get() > 1);
         dlm.close();
     }
 }

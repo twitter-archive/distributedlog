@@ -137,7 +137,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 }
             }
         } else {
-            if (fThrowOnEmpty) {
+            if (fThrowOnEmpty || noBlocking) {
                 throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
             }
         }
