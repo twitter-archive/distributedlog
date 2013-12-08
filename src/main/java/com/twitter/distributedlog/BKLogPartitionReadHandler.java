@@ -65,6 +65,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean fException,
                                                         boolean fThrowOnEmpty,
                                                         boolean noBlocking,
+                                                        boolean simulateErrors,
                                                         int readAheadWaitTime)
         throws IOException {
         if (doesLogExist()) {
@@ -98,7 +99,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
 
                         if (noBlocking) {
-                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), startBKEntry))) {
+                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), startBKEntry), simulateErrors)) {
                                 getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
                             }
                         }
@@ -155,6 +156,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean fException,
                                                         boolean fThrowOnEmpty,
                                                         boolean noBlocking,
+                                                        boolean simulateErrors,
                                                         int readAheadWaitTime)
         throws IOException {
         if (doesLogExist()) {
@@ -183,7 +185,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (fromTxId <= lastTxId) {
                     try {
                         if (noBlocking) {
-                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), 0))) {
+                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), 0), simulateErrors)) {
                                 getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
                             }
                         }
@@ -236,12 +238,13 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
-    public boolean startReadAhead(LedgerReadPosition startPosition) {
+    public boolean startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
                 this,
                 startPosition,
                 ledgerDataAccessor,
+                simulateErrors,
                 conf.getReadAheadBatchSize(),
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
@@ -324,6 +327,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private LedgerDescriptor currentLH;
         private final LedgerDataAccessor ledgerDataAccessor;
         private List<LogSegmentLedgerMetadata> ledgerList;
+        private final boolean simulateErrors;
         private final long readAheadBatchSize;
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
@@ -345,6 +349,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                BKLogPartitionReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
+                               boolean simulateErrors,
                                int readAheadBatchSize,
                                int readAheadMaxEntries,
                                int readAheadWaitTime) {
@@ -352,6 +357,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.fullyQualifiedName = fullyQualifiedName;
             this.nextReadPosition = startPosition;
             this.ledgerDataAccessor = ledgerDataAccessor;
+            this.simulateErrors = simulateErrors;
             this.readAheadBatchSize = readAheadBatchSize;
             this.readAheadMaxEntries = readAheadMaxEntries;
             this.readAheadWaitTime = readAheadWaitTime;
@@ -410,8 +416,11 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
                     return;
                 }
-                if (encounteredException) {
-                    if (bkcZkExceptions.get() > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / readAheadWaitTime)) {
+                boolean simulate = simulateErrors && Utils.randomPercent(2);
+                if (encounteredException || simulate) {
+                    if ((bkcZkExceptions.get() > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / readAheadWaitTime)) ||
+                        simulate) {
+                        LOG.error("ReadAhead Thread has encountered an error");
                         bkLedgerManager.setReadAheadError();
                     }
                     // We must always reinitialize metadata if the last attempt to read failed.

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.conversions.thread;
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -394,6 +395,7 @@ public class TestInterleavedReaders {
                                  final CountDownLatch syncLatch,
                                  final DistributedLogManager dlm,
                                  final AsyncLogReader reader,
+                                 final boolean simulateErrors,
                                  final DLSN startPosition,
                                  final ScheduledThreadPoolExecutor executorService,
                                  final int delay,
@@ -430,7 +432,7 @@ public class TestInterleavedReaders {
                         }
                     } else {
                         TestInterleavedReaders.readNextWithRetry(threadToInterrupt, syncLatch,
-                                dlm, reader,
+                                dlm, reader, simulateErrors,
                                 value.getDlsn().getNextDLSN(), executorService, delay, executionCount);
                     }
                 }
@@ -442,11 +444,14 @@ public class TestInterleavedReaders {
                     } catch (Exception exc) {
                         //
                     }
-                    int newDelay = delay * 2;
-                    if (0 == delay) {
-                        newDelay = 100;
+                    if (cause instanceof RetryableReadException) {
+                        int newDelay = Math.min(delay * 2, 500);
+                        if (0 == delay) {
+                            newDelay = 10;
+                        }
+                        positionReader(threadToInterrupt, syncLatch, dlm, simulateErrors,
+                            startPosition, executorService, newDelay, executionCount);
                     }
-                    positionReader(threadToInterrupt, syncLatch, dlm, startPosition, executorService, newDelay, executionCount);
                 }
             });
         }
@@ -455,6 +460,7 @@ public class TestInterleavedReaders {
     private static void positionReader(final Thread threadToInterrupt,
                                           final CountDownLatch syncLatch,
                                           final DistributedLogManager dlm,
+                                          final boolean simulateErrors,
                                           final DLSN startPosition,
                                           final ScheduledThreadPoolExecutor executorService,
                                           final int delay,
@@ -465,13 +471,18 @@ public class TestInterleavedReaders {
             public void run() {
                 try {
                     AsyncLogReader reader = dlm.getAsyncLogReader(startPosition);
-                    readNextWithRetry(threadToInterrupt, syncLatch, dlm, reader, startPosition, executorService, delay, executionCount);
-                } catch (IOException exc) {
-                    int newDelay = delay * 2;
-                    if (0 == delay) {
-                        newDelay = 100;
+                    if (simulateErrors) {
+                        ((BKAsyncLogReaderDLSN)reader).simulateErrors();
                     }
-                    positionReader(threadToInterrupt, syncLatch, dlm, startPosition, executorService, newDelay, executionCount);
+                    readNextWithRetry(threadToInterrupt, syncLatch, dlm, reader, simulateErrors,
+                        startPosition, executorService, delay, executionCount);
+                } catch (IOException exc) {
+                    int newDelay = Math.min(delay * 2, 500);
+                    if (0 == delay) {
+                        newDelay = 10;
+                    }
+                    positionReader(threadToInterrupt, syncLatch, dlm,
+                        simulateErrors, startPosition, executorService, newDelay, executionCount);
                 }
             }
         };
@@ -719,8 +730,9 @@ public class TestInterleavedReaders {
         final Thread currentThread = Thread.currentThread();
         final AtomicInteger executionCount = new AtomicInteger(0);
 
-        positionReader(currentThread, syncLatch, dlm, DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, executionCount);
-        // Increase the probability of retry
+        positionReader(currentThread, syncLatch, dlm, false, DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, executionCount);
+
+        // Increase the probability of reader failure and retry
         Thread.sleep(500);
         int txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -757,6 +769,68 @@ public class TestInterleavedReaders {
         if (!(Thread.interrupted())) {
             try {
                 success = syncLatch.await(15, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        assertEquals(true, executionCount.get() > 1);
+        dlm.close();
+    }
+
+    @Test
+    public void testSimpleAsyncReadWriteSimulateErrors() throws Exception {
+        String name = "distrlog-simpleasyncreadwritesimulateerrors";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(10);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        final CountDownLatch syncLatch = new CountDownLatch(200);
+        final Thread currentThread = Thread.currentThread();
+        final AtomicInteger executionCount = new AtomicInteger(0);
+
+        positionReader(currentThread, syncLatch, dlm, true, DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, executionCount);
+
+        int txid = 1;
+        for (long i = 0; i < 20; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            long start = txid;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            for (long j = 0; j < 10; j++) {
+                final long currentEntryId = j;
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsnFuture = writer.write(record);
+                dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
+                            LOG.debug("EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            currentThread.interrupt();
+                        }
+
+                        if(value.getEntryId() != currentEntryId) {
+                            LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
+                            currentThread.interrupt();
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        currentThread.interrupt();
+                    }
+                });
+            }
+            writer.closeAndComplete();
+        }
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(60, TimeUnit.SECONDS);
             } catch (InterruptedException exc) {
                 Thread.currentThread().interrupt();
             }

@@ -55,10 +55,11 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
     protected ResumableBKPerStreamLogReader getCurrentReader() throws IOException {
         if (DLSN.InvalidDLSN == nextDLSN) {
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            return bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId), noBlocking, readAheadWaitTime);
+            return bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId),
+                noBlocking, simulateErrors, readAheadWaitTime);
         } else {
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), nextDLSN);
-            return bkLedgerManager.getInputStream(nextDLSN, true, false, true, noBlocking, readAheadWaitTime);
+            return bkLedgerManager.getInputStream(nextDLSN, true, false, true, noBlocking, simulateErrors, readAheadWaitTime);
         }
     }
 }

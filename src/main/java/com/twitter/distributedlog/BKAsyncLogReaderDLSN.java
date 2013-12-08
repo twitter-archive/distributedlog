@@ -18,7 +18,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
 
-public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable, AsyncNotification {
+import com.google.common.annotations.VisibleForTesting;
+
+class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
@@ -30,6 +32,7 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     private ScheduledExecutorService executorService;
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();
     private AtomicLong scheduleCount = new AtomicLong(0);
+    private boolean simulateErrors = false;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -166,6 +169,10 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
 
                 LogRecordWithDLSN record = null;
                 try {
+                    // Fail 10% of the requests when asked to simulate errors
+                    if (simulateErrors && Utils.randomPercent(10)) {
+                        throw new IOException("Reader Simulated Exception");
+                    }
                     record = currentReader.readNextWithSkip();
                 } catch (IOException exc) {
                     setLastException(exc);
@@ -205,6 +212,12 @@ public class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExp
     @Override
     public void notifyOnOperationComplete() {
         scheduleBackgroundRead();
+    }
+
+    @VisibleForTesting
+    void simulateErrors() {
+        simulateErrors = true;
+        currentReader.simulateErrors();
     }
 }
 

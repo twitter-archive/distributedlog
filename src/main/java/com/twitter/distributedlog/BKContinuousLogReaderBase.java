@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private boolean endOfStreamEncountered = false;
     protected final boolean noBlocking;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
+    protected boolean simulateErrors = false;
 
 
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
@@ -112,7 +115,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         if (null == currentReader) {
             currentReader = getCurrentReader();
             if ((null != currentReader) && !noBlocking) {
-                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
+                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors)) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
                 }
                 LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
@@ -189,5 +192,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
     String getFullyQualifiedName() {
         return bkLedgerManager.getFullyQualifiedName();
+    }
+
+    @VisibleForTesting
+    public void simulateErrors() {
+        simulateErrors = true;
     }
 }
