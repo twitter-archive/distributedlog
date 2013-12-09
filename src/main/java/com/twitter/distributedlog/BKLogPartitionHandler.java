@@ -638,6 +638,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                         }
                         Collections.sort(segmentList, comparator);
                         callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
+                        notifyOnOperationComplete();
                         return;
                     }
 
@@ -663,6 +664,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                                     if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
                                         Collections.sort(segmentList, comparator);
                                         callback.operationComplete(BKException.Code.OK, segmentList);
+                                        notifyOnOperationComplete();
                                     }
                                 }
                             });
