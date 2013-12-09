@@ -113,7 +113,8 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             }
         } else if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
             nodeDeleteNotification.set(true);
-            LOG.debug("Node Deleted");
+            LOG.debug("{} Node Deleted", ledgerManager.getFullyQualifiedName());
+            ledgerManager.notifyOnOperationComplete();
         }
     }
 

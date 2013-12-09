@@ -80,7 +80,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                ScheduledExecutorService executorService,
                                StatsLogger statsLogger,
                                String clientId) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, null);
         ensembleSize = conf.getEnsembleSize();
 
         if (ensembleSize < conf.getWriteQuorumSize()) {

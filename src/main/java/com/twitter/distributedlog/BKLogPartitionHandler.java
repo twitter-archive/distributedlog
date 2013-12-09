@@ -96,12 +96,13 @@ abstract class BKLogPartitionHandler implements Watcher  {
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
     private AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
-    private AtomicReference<Watcher> chainedWatcher = new AtomicReference<Watcher>();
 
     // Maintain the list of ledgers
     protected final Map<String, LogSegmentLedgerMetadata> logSegments =
         new HashMap<String, LogSegmentLedgerMetadata>();
     protected volatile GetLedgersTask firstGetLedgersTask = null;
+    protected final AsyncNotification notification;
+
 
     static class GetLedgersTask implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> {
         final String path;
@@ -147,12 +148,14 @@ abstract class BKLogPartitionHandler implements Watcher  {
                           ZooKeeperClientBuilder zkcBuilder,
                           BookKeeperClientBuilder bkcBuilder,
                           ScheduledExecutorService executorService,
-                          StatsLogger statsLogger) throws IOException {
+                          StatsLogger statsLogger,
+                          AsyncNotification notification) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
         this.executorService = executorService;
         this.statsLogger = statsLogger;
+        this.notification = notification;
         partitionRootPath = String.format("%s/%s/%s", uri.getPath(), name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
@@ -590,10 +593,6 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
     protected void asyncGetLedgerList(final Comparator comparator, Watcher watcher,
                                       final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
-        if (null != watcher) {
-            chainedWatcher.set(watcher);
-            watcher = this;
-        }
         asyncGetLedgerListInternal(comparator, watcher, callback);
     }
 
@@ -668,6 +667,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                                 }
                             });
                     }
+                    notifyOnOperationComplete();
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
@@ -679,12 +679,6 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
     @Override
     public void process(WatchedEvent event) {
-        Watcher cw = chainedWatcher.get();
-        if (null != cw) {
-            cw.process(event);
-            chainedWatcher.set(null);
-        }
-
         if (Watcher.Event.EventType.None.equals(event.getType())) {
             if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
                 if (!ledgerListWatchSet.get()) {
@@ -695,6 +689,12 @@ abstract class BKLogPartitionHandler implements Watcher  {
             }
         } else if (Watcher.Event.EventType.NodeChildrenChanged.equals(event.getType())) {
             asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, this, new GetLedgersTask(getFullyQualifiedName(), false));
+        }
+    }
+
+    void notifyOnOperationComplete() {
+        if (null != notification) {
+            notification.notifyOnOperationComplete();
         }
     }
 

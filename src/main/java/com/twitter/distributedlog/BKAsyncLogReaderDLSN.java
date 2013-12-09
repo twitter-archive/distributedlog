@@ -135,10 +135,10 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         synchronized(scheduleCount) {
             int iterations = 0;
             long scheduleCountLocal = scheduleCount.get();
-            LOG.debug("Scheduled Background Reader");
+            LOG.debug("{}: Scheduled Background Reader", currentReader.getFullyQualifiedName());
             while(true) {
                 if (LOG.isTraceEnabled()) {
-                    LOG.trace("Executing Iteration: {}", iterations++);
+                    LOG.trace("{}: Executing Iteration: {}", currentReader.getFullyQualifiedName(), iterations++);
                 }
 
                 Promise<LogRecordWithDLSN> nextPromise = null;
@@ -147,7 +147,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
                     // Queue is empty, nothing to read, return
                     if (null == nextPromise) {
-                        LOG.trace("Queue Empty waiting for Input");
+                        LOG.trace("{}: Queue Empty waiting for Input", currentReader.getFullyQualifiedName());
                         scheduleCount.set(0);
                         return;
                     }
@@ -163,7 +163,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 }
 
                 if (checkClosedOrInError("readNext")) {
-                    LOG.warn("Exception", lastException.get());
+                    if (!(lastException.get().getCause() instanceof LogNotFoundException)) {
+                        LOG.warn("{}: Exception", currentReader.getFullyQualifiedName(), lastException.get());
+                    }
                     return;
                 }
 
@@ -176,12 +178,15 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     record = currentReader.readNextWithSkip();
                 } catch (IOException exc) {
                     setLastException(exc);
-                    LOG.warn("read with skip Exception", lastException.get());
+                    if (!(exc instanceof LogNotFoundException)) {
+                        LOG.warn("{} : read with skip Exception", currentReader.getFullyQualifiedName(), lastException.get());
+                    }
+                    continue;
                 }
 
                 if (null != record) {
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Satisfied promise with record {}", record.getTransactionId());
+                        LOG.trace("{} : Satisfied promise with record {}", currentReader.getFullyQualifiedName(), record.getTransactionId());
                     }
                     Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                     if (null != promise) {
@@ -189,7 +194,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     }
                 } else {
                     if (0 == scheduleCountLocal) {
-                        LOG.trace("Schedule count Exception", lastException.get());
+                        LOG.trace("Schedule count dropping to zero", lastException.get());
                         return;
                     }
                     scheduleCountLocal = scheduleCount.decrementAndGet();
