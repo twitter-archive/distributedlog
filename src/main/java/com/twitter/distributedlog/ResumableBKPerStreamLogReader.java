@@ -46,7 +46,7 @@ public class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implemen
             return;
         }
 
-        if (isInProgress() && !watchSet.compareAndSet(false, true)) {
+        if (isInProgress() && watchSet.compareAndSet(false, true)) {
             try {
                 if (null == zkc.get().exists(zkPath, this)) {
                     nodeDeleteNotification.set(true);

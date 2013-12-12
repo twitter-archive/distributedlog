@@ -53,7 +53,9 @@ public class TestInterleavedReaders {
         zkc.close();
     }
 
-    private int drainStreams(LogReader reader0, LogReader reader1) throws IOException {
+    private int drainStreams(LogReader reader0, LogReader reader1) throws Exception {
+        // Allow time for watches to fire
+        Thread.sleep(5);
         int numTrans = 0;
         LogRecord record = reader0.readNext(false);
         while (null != record) {
