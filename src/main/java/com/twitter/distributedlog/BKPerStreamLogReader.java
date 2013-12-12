@@ -20,6 +20,9 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,11 +30,14 @@ import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Stopwatch;
 
 /**
  * Input stream which reads from a BookKeeper ledger.
  */
-class BKPerStreamLogReader implements PerStreamLogReader {
+class BKPerStreamLogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
     private final long firstTxId;
@@ -42,14 +48,16 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     protected boolean isExhausted;
     private LogRecord currLogRec;
     private final boolean dontSkipControl;
+    protected final StatsLogger statsLogger;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata) {
+    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata, StatsLogger statsLogger) {
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
+        this.statsLogger = statsLogger;
         this.isExhausted = false;
         this.dontSkipControl = false;
     }
@@ -61,19 +69,20 @@ class BKPerStreamLogReader implements PerStreamLogReader {
      * every edit log transaction to find out what the last one is.
      */
     BKPerStreamLogReader(LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
-                         long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl)
+                         long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl, StatsLogger statsLogger)
         throws IOException {
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
+        this.statsLogger = statsLogger;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
+        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger);
         this.reader = new LogRecord.Reader(new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
@@ -94,13 +103,13 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         return this.ledgerDataAccessor;
     }
 
-    @Override
     public long getFirstTxId() {
         return firstTxId;
     }
 
-    @Override
-    public LogRecord readOp() throws IOException {
+    public LogRecord readOp(boolean nonBlocking) throws IOException {
+        boolean oldValue = lin.isNonBlocking();
+        lin.setNonBlocking(nonBlocking);
         LogRecord toRet = null;
         if (!isExhausted) {
             do {
@@ -108,10 +117,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 isExhausted = (toRet == null);
             } while ((toRet != null) && !dontSkipControl && toRet.isControl());
         }
+        lin.setNonBlocking(oldValue);
         return toRet;
     }
 
-    @Override
     public void close() throws IOException {
         try {
             getLedgerDataAccessor().closeLedger(getLedgerDescriptor());
@@ -123,12 +132,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     }
 
 
-    @Override
     public long length() throws IOException {
         return getLedgerDataAccessor().getLength(getLedgerDescriptor());
     }
 
-    @Override
     public boolean isInProgress() {
         return inProgress;
     }
@@ -153,6 +160,11 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         private InputStream entryStream = null;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
+        private boolean nonBlocking;
+        private static Counter getWithNoWaitCount;
+        private static Counter getWithWaitCount;
+        private static OpStatsLogger getWithNoWaitStat;
+        private static OpStatsLogger getWithWaitStat;
 
         /**
          * Construct ledger input stream
@@ -161,11 +173,30 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
-        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor, long firstBookKeeperEntry)
+        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
+                          long firstBookKeeperEntry, StatsLogger statsLogger)
             throws IOException {
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
+
+            StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
+
+            if (null == getWithWaitCount) {
+                getWithWaitCount = getEntryStatsLogger.getCounter("block");
+            }
+
+            if (null == getWithNoWaitCount) {
+                getWithNoWaitCount = getEntryStatsLogger.getCounter("no_block");
+            }
+
+            if (null == getWithNoWaitStat) {
+                getWithNoWaitStat = getEntryStatsLogger.getOpStatsLogger("no_block_latency");
+            }
+
+            if (null == getWithWaitStat) {
+                getWithWaitStat = getEntryStatsLogger.getOpStatsLogger("block_latency");
+            }
         }
 
         /**
@@ -175,30 +206,40 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          * @return input stream, or null if no more entries
          */
         private InputStream nextStream() throws IOException {
-            try {
-                long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
-                if (readEntries > maxEntry) {
-                    LOG.debug("Read Entries {} Max Entry {}", readEntries, maxEntry);
+            long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
+            if (readEntries > maxEntry) {
+                LOG.debug("Read Entries {} Max Entry {}", readEntries, maxEntry);
+                return null;
+            }
+
+            LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
+            LedgerEntry e;
+            Stopwatch stopwatch = new Stopwatch().start();
+            if (nonBlocking) {
+                getWithNoWaitCount.inc();
+                e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
+                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
+                if (null == e) {
+                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                     return null;
                 }
-
-                LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
-                LedgerEntry e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
-                assert (e != null);
-                ledgerDataAccessor.remove(readPosition);
-                readEntries++;
-                return e.getEntryInputStream();
-            } catch (BKException bke) {
-                if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
-                    (ledgerDesc.isFenced() &&
-                        (bke.getCode() == BKException.Code.NoSuchEntryException))) {
-                    throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
+            } else {
+                getWithWaitCount.inc();
+                try {
+                    e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
+                    getWithWaitStat.registerSuccessfulEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
+                    if (null == e) {
+                        return null;
+                    }
+                } catch (IOException ioe) {
+                    getWithWaitStat.registerFailedEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
+                    throw ioe;
                 }
-                LOG.info("Reached the end of the stream", bke);
-            } catch (InterruptedException ie) {
-                throw new DLInterruptedException("Interrupted reading entries from bookkeeper", ie);
             }
-            return null;
+            assert (e != null);
+            ledgerDataAccessor.remove(readPosition);
+            readEntries++;
+            return e.getEntryInputStream();
         }
 
         @Override
@@ -238,6 +279,14 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 throw e;
             }
 
+        }
+
+        public void setNonBlocking(boolean nonBlocking) {
+            this.nonBlocking = nonBlocking;
+        }
+
+        public boolean isNonBlocking() {
+            return nonBlocking;
         }
 
         long nextEntryToRead() {

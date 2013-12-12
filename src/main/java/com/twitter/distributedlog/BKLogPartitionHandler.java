@@ -227,13 +227,14 @@ abstract class BKLogPartitionHandler {
             try {
                 LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), !l.isInProgress());
                 BKPerStreamLogReader s
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0,
+                    ledgerDataAccessorPriv, false, statsLogger);
 
                 LogRecord prevRecord = null;
-                LogRecord currRecord = s.readOp();
+                LogRecord currRecord = s.readOp(false);
                 while ((null != currRecord) && (currRecord.getTransactionId() <= thresholdTxId)) {
                     prevRecord = currRecord;
-                    currRecord = s.readOp();
+                    currRecord = s.readOp(false);
                 }
 
                 if (null != prevRecord) {
@@ -336,18 +337,19 @@ abstract class BKLogPartitionHandler {
 
             while (true) {
                 BKPerStreamLogReader in
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, includeControl);
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint,
+                        ledgerDataAccessorPriv, includeControl, statsLogger);
 
                 lastRecord = null;
                 try {
-                    LogRecord record = in.readOp();
+                    LogRecord record = in.readOp(false);
                     while (record != null) {
                         if ((null == lastRecord
                             || record.getTransactionId() > lastRecord.getTransactionId()) &&
                             (includeEndOfStream || !record.isEndOfStream())) {
                             lastRecord = record;
                         }
-                        record = in.readOp();
+                        record = in.readOp(false);
                     }
                 } catch (DLInterruptedException die) {
                     throw die;
