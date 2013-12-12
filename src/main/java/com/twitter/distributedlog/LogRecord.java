@@ -150,7 +150,7 @@ public class LogRecord {
      */
     int getPersistentSize() {
         // Flags + TxId + Payload-length + payload
-        return 2 * (Long.SIZE) + Integer.SIZE + payload.length;
+        return 2 * (Long.SIZE / 8) + Integer.SIZE / 8 + payload.length;
     }
 
     /**
