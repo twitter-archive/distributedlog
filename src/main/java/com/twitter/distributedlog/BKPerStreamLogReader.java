@@ -17,12 +17,14 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -165,6 +167,7 @@ class BKPerStreamLogReader {
         private static Counter getWithWaitCount;
         private static OpStatsLogger getWithNoWaitStat;
         private static OpStatsLogger getWithWaitStat;
+        private static Counter illegalStateCount;
 
         /**
          * Construct ledger input stream
@@ -196,6 +199,10 @@ class BKPerStreamLogReader {
 
             if (null == getWithWaitStat) {
                 getWithWaitStat = getEntryStatsLogger.getOpStatsLogger("block_latency");
+            }
+
+            if (null == illegalStateCount) {
+                illegalStateCount = statsLogger.getCounter("illegal_state");
             }
         }
 
@@ -254,6 +261,25 @@ class BKPerStreamLogReader {
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
+            try {
+                return doRead(b, off, len);
+            } catch (ArrayIndexOutOfBoundsException e) {
+                illegalStateCount.inc();
+                StringBuilder sb = new StringBuilder();
+                sb.append("read(array=").append(b.length).append(", off=").append(off)
+                  .append(", len=").append(len).append("), remaining bytes in entry ")
+                  .append(readEntries).append(" of ").append(ledgerDesc).append(" is ");
+                if (entryStream instanceof ChannelBufferInputStream) {
+                    ChannelBufferInputStream cbis = (ChannelBufferInputStream) entryStream;
+                    sb.append(cbis.available());
+                } else {
+                    sb.append("null");
+                }
+                throw new DLIllegalStateException("IllegalState on " + sb.toString(), e);
+            }
+        }
+
+        private int doRead(byte[] b, int off, int len) throws IOException {
             try {
                 int read = 0;
                 if (entryStream == null) {
