@@ -71,8 +71,14 @@ public class LedgerHandleCache {
                     RefCountedLedgerHandle oldRefHandle = handlesMap.putIfAbsent(ledgerDesc, newRefHandle);
                     if (null != oldRefHandle) {
                         oldRefHandle.addRef();
-                    } else {
-                        newRefHandle.addRef();
+                        if (newRefHandle.removeRef()) {
+                            newRefHandle.handle.asyncClose(new AsyncCallback.CloseCallback() {
+                                @Override
+                                public void closeComplete(int i, LedgerHandle ledgerHandle, Object o) {
+                                    // No action necessary
+                                }
+                            }, null);
+                        }
                     }
                     callback.operationComplete(BKException.Code.OK, ledgerDesc);
                 }
@@ -115,8 +121,20 @@ public class LedgerHandleCache {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if ((null != refhandle) && (refhandle.removeRef())) {
-            refhandle.handle.close();
-            handlesMap.remove(ledgerDesc);
+            refhandle = handlesMap.remove(ledgerDesc);
+            if (refhandle.getRefCount() > 0) {
+                // In the rare race condition that a ref count was added immediately
+                // after the close de-refed it and the remove was called
+
+                // Try to put the handle back in the map
+                handlesMap.putIfAbsent(ledgerDesc, refhandle);
+
+                // ReadOnlyLedgerHandles don't have much overhead, so lets just leave
+                // the handle open even if it had already been replaced
+
+            } else {
+                refhandle.handle.close();
+            }
         }
     }
 
@@ -205,6 +223,11 @@ public class LedgerHandleCache {
 
         RefCountedLedgerHandle(LedgerHandle lh) {
             this.handle = lh;
+            addRef();
+        }
+
+        long getRefCount() {
+            return refcount.get();
         }
 
         public void addRef() {

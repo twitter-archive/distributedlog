@@ -126,7 +126,8 @@ public class LedgerDataAccessor {
                     (bke.getCode() == BKException.Code.NoSuchEntryException))) {
                 throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
             }
-            LOG.info("Reached the end of the stream", bke);
+            LOG.info("Reached the end of the stream");
+            LOG.debug("Encountered exception at end of stream", bke);
         } catch (InterruptedException ie) {
             throw new DLInterruptedException("Interrupted reading entries from bookkeeper", ie);
         }
