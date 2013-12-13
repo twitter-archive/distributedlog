@@ -203,7 +203,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      * Exceptions Handling Phase: Handle all the exceptions and properly schedule next readahead request.
      * </p>
      */
-    private class ReadAheadWorker implements Runnable, Watcher {
+    class ReadAheadWorker implements Runnable, Watcher {
 
         private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
@@ -218,11 +218,13 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
         private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
+        private static final int BKC_UNEXPECTED_EXCEPTION_THRESHOLD = 3;
 
         // Parameters for the state for this readahead worker.
         volatile boolean running = true;
         volatile boolean encounteredException = false;
         private final AtomicInteger bkcZkExceptions = new AtomicInteger(0);
+        private final AtomicInteger bkcUnExpectedExceptions = new AtomicInteger(0);
         volatile boolean inProgressChanged = false;
 
         // ReadAhead Phases
@@ -257,7 +259,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         }
 
-        private void submit(Runnable runnable) {
+        void submit(Runnable runnable) {
             try {
                 executorService.submit(runnable);
             } catch (RejectedExecutionException ree) {
@@ -302,16 +304,23 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 }
                 if (encounteredException) {
                     if (bkcZkExceptions.get() > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / readAheadWaitTime)) {
+                        LOG.error("BookKeeper Client used by the ReadAhead Thread has encountered zookeeper exception");
+                        running = false;
                         bkLedgerManager.setReadAheadError();
+                    } else if (bkcUnExpectedExceptions.get() > BKC_UNEXPECTED_EXCEPTION_THRESHOLD) {
+                        LOG.error("ReadAhead Thread has encountered an unexpected BK exception");
+                        running = false;
+                        bkLedgerManager.setReadAheadError();
+                    } else {
+                        // We must always reinitialize metadata if the last attempt to read failed.
+                        reInitializeMetadata = true;
+                        encounteredException = false;
+                        // Backoff before resuming
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Scheduling read ahead for {} after {} ms.", fullyQualifiedName, readAheadWaitTime/4);
+                        }
+                        schedule(ReadAheadWorker.this, readAheadWaitTime / 4);
                     }
-                    // We must always reinitialize metadata if the last attempt to read failed.
-                    reInitializeMetadata = true;
-                    encounteredException = false;
-                    // Backoff before resuming
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Scheduling read ahead for {} after {} ms.", fullyQualifiedName, readAheadWaitTime/4);
-                    }
-                    schedule(ReadAheadWorker.this, readAheadWaitTime / 4);
                 } else {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("Scheduling read ahead for {} now.", fullyQualifiedName);
@@ -344,6 +353,14 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             fullyQualifiedName, numExceptions);
                 } else if (BKException.Code.OK != rc) {
                     encounteredException = true;
+                    switch(rc) {
+                        case BKException.Code.NoSuchEntryException:
+                        case BKException.Code.LedgerRecoveryException:
+                        case BKException.Code.NoSuchLedgerExistsException:
+                            break;
+                        default:
+                            bkcUnExpectedExceptions.incrementAndGet();
+                    }
                     LOG.debug("ReadAhead Worker for {} encountered exception : ",
                             fullyQualifiedName, BKException.create(rc));
                 }
@@ -499,6 +516,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         currentLH = result;
                         bkcZkExceptions.set(0);
+                        bkcUnExpectedExceptions.set(0);
                         next.process(rc);
                     }
                 });
@@ -515,6 +533,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return;
                         }
                         bkcZkExceptions.set(0);
+                        bkcUnExpectedExceptions.set(0);
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Advancing Last Add Confirmed of {} for {} : {}",
                                     new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed });
@@ -585,11 +604,12 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         while (seq.hasMoreElements()) {
                             bkcZkExceptions.set(0);
+                            bkcUnExpectedExceptions.set(0);
                             nextReadPosition.advance();
                             LedgerEntry e = seq.nextElement();
                             ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
                         }
-                        if (ledgerDataAccessor.getNumCacheEntries() > readAheadMaxEntries) {
+                        if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
                             cacheFull = true;
                             complete();
                         } else {
@@ -600,13 +620,19 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
 
             private void complete() {
-                if (cacheFull || ((null != currentMetadata) && currentMetadata.isInProgress())) {
+                if ((null != currentMetadata) && currentMetadata.isInProgress()) {
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Cache for {} is full. Backoff reading ahead for {} ms.",
+                        LOG.trace("Reached End of inprogress ledger. Backoff reading ahead for {} ms.",
                                 fullyQualifiedName, readAheadWaitTime);
                     }
                     // Backoff before resuming
                     schedule(ReadAheadWorker.this, readAheadWaitTime);
+                } else if (cacheFull) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Cache for {} is full. Backoff reading ahead for {} ms.",
+                            fullyQualifiedName, readAheadWaitTime);
+                    }
+                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, readAheadMaxEntries);
                 } else {
                     run();
                 }

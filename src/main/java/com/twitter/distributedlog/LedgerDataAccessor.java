@@ -26,13 +26,13 @@ public class LedgerDataAccessor {
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
     private final LedgerHandleCache ledgerHandleCache;
-    private Object notificationObject = null;
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
+    private BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker = null;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
         this(ledgerHandleCache, NullStatsLogger.INSTANCE);
@@ -46,8 +46,11 @@ public class LedgerDataAccessor {
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
     }
 
-    public void setNotificationObject(Object notificationObject) {
-        this.notificationObject = notificationObject;
+    public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker, long maxEntries) {
+        this.readAheadWorker = readAheadWorker;
+        if (getNumCacheEntries() < maxEntries) {
+            invokeReadAheadCallback();
+        }
     }
 
     public void setReadAheadEnabled(boolean enabled, int waitTime) {
@@ -71,11 +74,6 @@ public class LedgerDataAccessor {
     public LedgerEntry getWithNoWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key) {
         ReadAheadCacheValue value = cache.get(key);
         if ((null == value) || (null == value.getLedgerEntry())) {
-            if (null != notificationObject) {
-                synchronized (notificationObject) {
-                    notificationObject.notifyAll();
-                }
-            }
             return null;
         } else {
             LOG.trace("Read-ahead cache hit for non blocking read");
@@ -91,11 +89,6 @@ public class LedgerDataAccessor {
                 ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
                 if (null == value) {
                     value = newValue;
-                }
-                if (null == value.getLedgerEntry() && null != notificationObject) {
-                    synchronized (notificationObject) {
-                        notificationObject.notifyAll();
-                    }
                 }
                 synchronized (value) {
                     if (null == value.getLedgerEntry()) {
@@ -164,10 +157,9 @@ public class LedgerDataAccessor {
     }
 
     public void removeInternal(LedgerReadPosition key) {
-        if ((null != cache.remove(key)) && (null != notificationObject)) {
-            synchronized (notificationObject) {
-                notificationObject.notifyAll();
-            }
+
+        if (null != cache.remove(key)) {
+            invokeReadAheadCallback();
         }
     }
 
@@ -183,12 +175,14 @@ public class LedgerDataAccessor {
         LOG.debug("Ledger purged");
 
         cachedLedgerIds = new HashSet<Long>();
+        boolean removedEntry = false;
 
         Iterator<Map.Entry<LedgerReadPosition, ReadAheadCacheValue>> it = cache.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<LedgerReadPosition, ReadAheadCacheValue> entry = it.next();
             if (entry.getKey().getLedgerId() == ledgerId) {
                 it.remove();
+                removedEntry = true;
             } else {
                 if (!cachedLedgerIds.contains(entry.getKey().getLedgerId())) {
                     cachedLedgerIds.add(entry.getKey().getLedgerId());
@@ -196,10 +190,18 @@ public class LedgerDataAccessor {
             }
         }
 
-        if (null != notificationObject) {
-            synchronized (notificationObject) {
-                notificationObject.notifyAll();
+        if (removedEntry) {
+            invokeReadAheadCallback();
+        }
+    }
+
+    private synchronized void invokeReadAheadCallback() {
+        if (null != readAheadWorker) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Cache has space, schedule the read ahead");
             }
+            readAheadWorker.submit(readAheadWorker);
+            readAheadWorker = null;
         }
     }
 

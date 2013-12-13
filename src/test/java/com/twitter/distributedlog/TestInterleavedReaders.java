@@ -282,7 +282,11 @@ public class TestInterleavedReaders {
     @Test(timeout = 10000)
     public void nonBlockingRead() throws Exception {
         String name = "distrlog-non-blocking-reader";
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         new ScheduledThreadPoolExecutor(1).schedule(

@@ -163,11 +163,11 @@ class BKPerStreamLogReader {
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
         private boolean nonBlocking;
-        private static Counter getWithNoWaitCount;
-        private static Counter getWithWaitCount;
-        private static OpStatsLogger getWithNoWaitStat;
-        private static OpStatsLogger getWithWaitStat;
-        private static Counter illegalStateCount;
+        private static Counter getWithNoWaitCount = null;
+        private static Counter getWithWaitCount = null;
+        private static OpStatsLogger getWithNoWaitStat = null;
+        private static OpStatsLogger getWithWaitStat = null;
+        private static Counter illegalStateCount = null;
 
         /**
          * Construct ledger input stream
@@ -225,7 +225,7 @@ class BKPerStreamLogReader {
             if (nonBlocking) {
                 getWithNoWaitCount.inc();
                 e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
-                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
+                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 if (null == e) {
                     LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                     return null;
