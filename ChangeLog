@@ -1,0 +1,15 @@
+0.2.10
+------
+- Diagnostics and IllegalState Exception
+- Non Blocking Reads
+- Handle Read Ahead cache full
+- Exit Read Ahead after non-retryable error
+- Remove redundant ZK access in resumable reader 
+
+0.2.9
+-----
+- Exclude Control Log Records from getLastTxId
+- Add new method getLastLogRecord
+- Add support to count the number of log records in the stream
+- Propagate InterruptedException to the client
+- ZK Client Fixes
