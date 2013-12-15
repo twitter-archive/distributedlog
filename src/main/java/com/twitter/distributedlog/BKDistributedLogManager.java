@@ -2,9 +2,9 @@ package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
@@ -32,20 +32,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
-        this(name, conf, uri, null, null, NullStatsLogger.INSTANCE);
-    }
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, StatsLogger statsLogger) throws IOException {
-        this(name, conf, uri, null, null, statsLogger);
-    }
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                                   ZooKeeperClientBuilder zkcBuilder,
-                                   BookKeeperClientBuilder bkcBuilder) throws IOException {
-        this(name, conf, uri, zkcBuilder, bkcBuilder, NullStatsLogger.INSTANCE);
-    }
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
@@ -87,7 +73,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             closed = false;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
-            throw new IOException("Error initializing zk", ie);
+            throw new DLInterruptedException("Error initializing zk", ie);
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
@@ -158,7 +144,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
-        long position = 0;
+        long position;
         try {
             position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
@@ -199,9 +185,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized BKUnPartitionedLogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedLogWriter(conf, this);
+        return new BKUnPartitionedSyncLogWriter(conf, this);
     }
 
     /**
@@ -272,7 +258,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecord getLastLogRecord(PartitionId partition) throws IOException {
-        return getLastLogRecordInternal(partition.toString(), false);
+        return getLastLogRecordInternal(partition.toString());
     }
 
     /**
@@ -283,14 +269,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecord getLastLogRecord() throws IOException {
-        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM, false);
+        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM);
     }
 
-    public LogRecord getLastLogRecordInternal(String streamIdentifier, boolean includeEndOfStream) throws IOException {
+    private LogRecord getLastLogRecordInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLastLogRecord");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
-            return ledgerHandler.getLastLogRecord(false, includeEndOfStream);
+            return ledgerHandler.getLastLogRecord(false, false);
         } finally {
             ledgerHandler.close();
         }
@@ -307,7 +293,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
-        checkClosedOrInError("getFirstTxIdInternal");
+        checkClosedOrInError("getFirstTxId");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
             return ledgerHandler.getFirstTxId();
@@ -327,10 +313,47 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
-        checkClosedOrInError("getLastTxIdInternal");
+        checkClosedOrInError("getLastTxId");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
             return ledgerHandler.getLastTxId(recover, includeEndOfStream);
+        } finally {
+            ledgerHandler.close();
+        }
+    }
+
+    /**
+     * Get the number of log records in the active portion of the stream for the
+     * given partition
+     * Any log segments that have already been truncated will not be included
+     *
+     * @param partition the partition within the log
+     * @return number of log records
+     * @throws IOException
+     */
+    @Override
+    public long getLogRecordCount(PartitionId partition) throws IOException {
+        return getLogRecordCountInternal(partition.toString());
+    }
+
+    /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return number of log records
+     * @throws IOException
+     */
+    @Override
+    public long getLogRecordCount() throws IOException {
+        return getLogRecordCountInternal(DistributedLogConstants.DEFAULT_STREAM);
+    }
+
+    private long getLogRecordCountInternal(String streamIdentifier) throws IOException {
+        checkClosedOrInError("getLogRecordCount");
+        BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
+        try {
+            return ledgerHandler.getLogRecordCount();
         } finally {
             ledgerHandler.close();
         }
@@ -423,7 +446,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 ZKUtil.deleteRecursive(zkc.get(), zkPath);
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted while accessing ZK", ie);
-                throw new IOException("Error initializing zk", ie);
+                throw new DLInterruptedException("Error initializing zk", ie);
             } catch (KeeperException ke) {
                 LOG.error("Error accessing entry in zookeeper", ke);
                 throw new IOException("Error initializing zk", ke);
@@ -461,7 +484,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         try {
             if (zkc.get().exists(zkPath, false) == null) {
                 LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
-                throw new LogNotFoundException("Log" + name + "was not found");
+                throw new LogNotFoundException("Log " + name + " was not found");
             }
             partitions = zkc.get().getChildren(zkPath, false);
         } catch (InterruptedException ie) {

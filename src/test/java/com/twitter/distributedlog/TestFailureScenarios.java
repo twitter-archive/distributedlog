@@ -143,7 +143,7 @@ public class TestFailureScenarios {
             FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
-        bkdlm.completeAndCloseLogSegment(1, 100);
+        bkdlm.completeAndCloseLogSegment(1, 100, 100);
 
         FailpointUtils.removeFailpoint(
             FailpointUtils.FailPointName.FP_FinalizeLedgerBeforeDelete);

@@ -35,9 +35,15 @@ import org.slf4j.LoggerFactory;
 public class LogRecord {
     static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);
 
-    private long flags;
+    private long metadata;
     private long txid;
     private byte[] payload;
+
+    static final long LOGRECORD_METADATA_FLAGS_MASK = 0xffff;
+    static final long LOGRECORD_METADATA_COUNT_MASK = 0x0000ffffffff0000L;
+    static final int LOGRECORD_METADATA_COUNT_SHIFT = 16;
+    static final long LOGRECORD_METADATA_UNUSED_MASK = 0xffff000000000000L;
+
 
     // TODO: Replace with EnumSet
     static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
@@ -47,25 +53,40 @@ public class LogRecord {
      */
     private LogRecord() {
         this.txid = 0;
-        this.flags = 0;
+        this.metadata = 0;
     }
 
     public LogRecord(long txid, byte[] payload) {
         this.txid = txid;
         this.payload = payload;
-        this.flags = 0;
+        this.metadata = 0;
     }
 
     public long getTransactionId() {
         return txid;
     }
 
+    void setCount(int count) {
+        assert(count > 0);
+        metadata = metadata | (((long)count) << LOGRECORD_METADATA_COUNT_SHIFT);
+    }
+
+    int getCount() {
+        long ret = (metadata & LOGRECORD_METADATA_COUNT_MASK) >> LOGRECORD_METADATA_COUNT_SHIFT;
+        if (ret < 0 || ret > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException
+                (ret + " count should never exceed max integer value");
+        }
+        return (int) ret;
+    }
+
+
     void setControl() {
-        flags = flags | LOGRECORD_FLAGS_CONTROL_MESSAGE;
+        metadata = metadata | LOGRECORD_FLAGS_CONTROL_MESSAGE;
     }
 
     boolean isControl() {
-        return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
+        return ((metadata & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 
     public static boolean isControl(long flags) {
@@ -73,11 +94,11 @@ public class LogRecord {
     }
 
     void setEndOfStream() {
-        flags = flags | LOGRECORD_FLAGS_END_OF_STREAM;
+        metadata = metadata | LOGRECORD_FLAGS_END_OF_STREAM;
     }
 
     boolean isEndOfStream() {
-        return ((flags & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
+        return ((metadata & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
     }
 
     public static boolean isEndOfStream(long flags) {
@@ -111,12 +132,12 @@ public class LogRecord {
         this.txid = txid;
     }
 
-    private void setFlags(long flags) {
-        this.flags = flags;
+    private void setMetadata(long metadata) {
+        this.metadata = metadata;
     }
 
     private void writeToStream(DataOutputStream out) throws IOException {
-        out.writeLong(flags);
+        out.writeLong(metadata);
         out.writeLong(txid);
         writePayload(out);
     }
@@ -129,7 +150,7 @@ public class LogRecord {
      */
     int getPersistentSize() {
         // Flags + TxId + Payload-length + payload
-        return 2 * (Long.SIZE) + Integer.SIZE + payload.length;
+        return 2 * (Long.SIZE / 8) + Integer.SIZE / 8 + payload.length;
     }
 
     /**
@@ -188,7 +209,7 @@ public class LogRecord {
         public LogRecord readOp() throws IOException {
             try {
                 LogRecord nextRecordInStream = new LogRecord();
-                nextRecordInStream.setFlags(in.readLong());
+                nextRecordInStream.setMetadata(in.readLong());
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
                 return nextRecordInStream;

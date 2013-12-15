@@ -46,6 +46,10 @@ public class ZooKeeperClient {
      * Indicates an error connecting to a zookeeper cluster.
      */
     public static class ZooKeeperConnectionException extends IOException {
+        public ZooKeeperConnectionException(String message) {
+            super(message);
+        }
+
         public ZooKeeperConnectionException(String message, Throwable cause) {
             super(message, cause);
         }
@@ -139,6 +143,11 @@ public class ZooKeeperClient {
     public synchronized ZooKeeper get(int connectionTimeoutMs)
         throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
 
+        // This indicates that the client was explictly closed
+        if (0 == refCount.get()) {
+            throw new ZooKeeperConnectionException("Client has already been closed");
+        }
+
         if (zooKeeper == null) {
             final CountDownLatch connected = new CountDownLatch(1);
             Watcher watcher = new Watcher() {
@@ -151,7 +160,7 @@ public class ZooKeeperClient {
                             switch (event.getState()) {
                                 case Expired:
                                     LOG.info("Zookeeper session expired. Event: " + event);
-                                    close();
+                                    closeInternal();
                                     break;
                                 case SyncConnected:
                                     connected.countDown();
@@ -181,7 +190,7 @@ public class ZooKeeperClient {
 
             if (connectionTimeoutMs > 0) {
                 if (!connected.await(connectionTimeoutMs, TimeUnit.MILLISECONDS)) {
-                    close();
+                    closeInternal();
                     throw new TimeoutException("Timed out waiting for a ZK connection after "
                         + connectionTimeoutMs);
                 }
@@ -190,7 +199,7 @@ public class ZooKeeperClient {
                     connected.await();
                 } catch (InterruptedException ex) {
                     LOG.info("Interrupted while waiting to connect to zooKeeper");
-                    close();
+                    closeInternal();
                     throw ex;
                 }
             }
@@ -251,9 +260,8 @@ public class ZooKeeperClient {
      * Closes the current connection if any expiring the current ZooKeeper session.  Any subsequent
      * calls to this method will no-op until the next successful {@link #get}.
      */
-    public synchronized void close() {
-        int refs = refCount.decrementAndGet();
-        if (zooKeeper != null && refs == 0) {
+    public synchronized void closeInternal() {
+        if (zooKeeper != null) {
             try {
                 zooKeeper.close();
             } catch (InterruptedException e) {
@@ -263,6 +271,17 @@ public class ZooKeeperClient {
                 zooKeeper = null;
                 sessionState = null;
             }
+        }
+    }
+
+    /**
+     * Closes the connection when the reference count drops to zero
+     * Subsequent attempts to {@link #get} will fail
+     */
+    public synchronized void close() {
+        int refs = refCount.decrementAndGet();
+        if (refs == 0) {
+            closeInternal();
         }
     }
 }

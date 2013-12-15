@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
@@ -36,7 +37,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * Utility class for storing the metadata associated
  * with a single edit log segment, stored in a single ledger
  */
-public class LogSegmentLedgerMetadata {
+class LogSegmentLedgerMetadata {
     static final Logger LOG = LoggerFactory.getLogger(LogSegmentLedgerMetadata.class);
 
     private String zkPath;
@@ -45,6 +46,7 @@ public class LogSegmentLedgerMetadata {
     private final long firstTxId;
     private long lastTxId;
     private long completionTime;
+    private int recordCount;
     private long ledgerSequenceNumber = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
     private long lastEntryId = -1;
     private long lastSlotId = -1;
@@ -105,6 +107,9 @@ public class LogSegmentLedgerMetadata {
         }
     };
 
+    static final int LOGRECORD_COUNT_SHIFT = 32;
+    static final long LOGRECORD_COUNT_MASK = 0xffffffff00000000L;
+    static final long METADATA_VERSION_MASK = 0x00000000ffffffffL;
 
     public LogSegmentLedgerMetadata(String zkPath,
                                     int version,
@@ -119,6 +124,7 @@ public class LogSegmentLedgerMetadata {
             DistributedLogConstants.INVALID_TXID,
             0,
             true,
+            0,
             ledgerSequenceNumber,
             -1,
             -1);
@@ -135,24 +141,7 @@ public class LogSegmentLedgerMetadata {
             DistributedLogConstants.INVALID_TXID,
             0,
             true,
-            DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
-            -1,
-            -1);
-    }
-
-    private LogSegmentLedgerMetadata(String zkPath,
-                                     int version,
-                                     long ledgerId,
-                                     long firstTxId,
-                                     long lastTxId,
-                                     long completionTime) {
-        this(zkPath,
-            version,
-            ledgerId,
-            firstTxId,
-            lastTxId,
-            completionTime,
-            false,
+            0,
             DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
             -1,
             -1);
@@ -164,6 +153,27 @@ public class LogSegmentLedgerMetadata {
                                      long firstTxId,
                                      long lastTxId,
                                      long completionTime,
+                                     int recordCount) {
+        this(zkPath,
+            version,
+            ledgerId,
+            firstTxId,
+            lastTxId,
+            completionTime,
+            false,
+            recordCount,
+            DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
+            -1,
+            -1);
+    }
+
+    private LogSegmentLedgerMetadata(String zkPath,
+                                     int version,
+                                     long ledgerId,
+                                     long firstTxId,
+                                     long lastTxId,
+                                     long completionTime,
+                                     int recordCount,
                                      long ledgerSequenceNumber,
                                      long lastEntryId, long lastSlotId) {
         this(zkPath,
@@ -173,6 +183,7 @@ public class LogSegmentLedgerMetadata {
             lastTxId,
             completionTime,
             false,
+            recordCount,
             ledgerSequenceNumber,
             lastEntryId,
             lastSlotId);
@@ -181,7 +192,7 @@ public class LogSegmentLedgerMetadata {
     private LogSegmentLedgerMetadata(String zkPath,
                                      int version,
                                      long ledgerId,
-           long firstTxId, long lastTxId, long completionTime, boolean inprogress,
+           long firstTxId, long lastTxId, long completionTime, boolean inprogress, int recordCount,
            long ledgerSequenceNumber, long lastEntryId, long lastSlotId) {
         this.zkPath = zkPath;
         this.ledgerId = ledgerId;
@@ -190,6 +201,7 @@ public class LogSegmentLedgerMetadata {
         this.lastTxId = lastTxId;
         this.inprogress = inprogress;
         this.completionTime = completionTime;
+        this.recordCount = recordCount;
         this.ledgerSequenceNumber = ledgerSequenceNumber;
         this.lastEntryId = lastEntryId;
         this.lastSlotId = lastSlotId;
@@ -228,17 +240,22 @@ public class LogSegmentLedgerMetadata {
         return version;
     }
 
+    public int getRecordCount() {
+        return recordCount;
+    }
+
     boolean isInProgress() {
         return this.inprogress;
     }
 
-    long finalizeLedger(long newLastTxId, long lastEntryId, long lastSlotId) {
+    long finalizeLedger(long newLastTxId, int recordCount, long lastEntryId, long lastSlotId) {
         assert this.lastTxId == DistributedLogConstants.INVALID_TXID;
         this.lastTxId = newLastTxId;
         this.lastEntryId = lastEntryId;
         this.lastSlotId = lastSlotId;
         this.inprogress = false;
         this.completionTime = Utils.nowInMillis();
+        this.recordCount = recordCount;
         return this.completionTime;
     }
 
@@ -252,8 +269,13 @@ public class LogSegmentLedgerMetadata {
             return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
-        } catch (Exception e) {
-            throw new IOException("Error reading from zookeeper", e);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on reading log segment metadata from " + path, ie);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            throw new IOException("Encountered zookeeper connection issue when reading log segment metadata from "
+                    + path, zce);
+        } catch (KeeperException ke) {
+            throw new IOException("Encountered zookeeper issue when reading log segment metadata from " + path, ke);
         }
     }
 
@@ -294,12 +316,20 @@ public class LogSegmentLedgerMetadata {
             long txId = Long.valueOf(parts[2]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId);
         } else if (parts.length == 5) {
+            long versionAndCount = Long.valueOf(parts[0]);
+
+            long version = versionAndCount & METADATA_VERSION_MASK;
+            assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
+
+            long recordCount = (versionAndCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
+            assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
+
             long ledgerId = Long.valueOf(parts[1]);
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId,
-                firstTxId, lastTxId, completionTime);
+                firstTxId, lastTxId, completionTime, (int)recordCount);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -308,13 +338,20 @@ public class LogSegmentLedgerMetadata {
 
     static LogSegmentLedgerMetadata parseDataLatestVersion(String path, byte[] data, String[] parts, int targetVersion)
         throws IOException {
-        assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == Integer.valueOf(parts[0]));
         if (parts.length == 4) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
             long ledgerSequenceNumber = Long.valueOf(parts[3]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId, ledgerSequenceNumber);
         } else if (parts.length == 8) {
+            long versionAndCount = Long.valueOf(parts[0]);
+
+            long version = versionAndCount & METADATA_VERSION_MASK;
+            assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
+            assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
+
+            long recordCount = (versionAndCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
+            assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
             long ledgerId = Long.valueOf(parts[1]);
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
@@ -323,7 +360,7 @@ public class LogSegmentLedgerMetadata {
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId,
-                firstTxId, lastTxId, completionTime, ledgerSequenceNumber, lastEntryId, lastSlotId);
+                firstTxId, lastTxId, completionTime, (int) recordCount, ledgerSequenceNumber, lastEntryId, lastSlotId);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -333,9 +370,9 @@ public class LogSegmentLedgerMetadata {
 
     static LogSegmentLedgerMetadata parseData(String path, byte[] data, int targetVersion) throws IOException {
         String[] parts = new String(data, UTF_8).split(";");
-        int version;
+        long version;
         try {
-            version = Integer.valueOf(parts[0]);
+            version = Long.valueOf(parts[0]) & METADATA_VERSION_MASK;;
         } catch (Exception exc) {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -355,22 +392,27 @@ public class LogSegmentLedgerMetadata {
         throws IOException, KeeperException.NodeExistsException {
         this.zkPath = path;
         String finalisedData;
+
+        long versionAndCount = ((long) version);
+        if (!inprogress) {
+            versionAndCount |= ((long)recordCount << LOGRECORD_COUNT_SHIFT);
+        }
         if (1 == version) {
             if (inprogress) {
                 finalisedData = String.format("%d;%d;%d",
-                    version, ledgerId, firstTxId);
+                    versionAndCount, ledgerId, firstTxId);
             } else {
                 finalisedData = String.format("%d;%d;%d;%d;%d",
-                    version, ledgerId, firstTxId, lastTxId, completionTime);
+                    versionAndCount, ledgerId, firstTxId, lastTxId, completionTime);
             }
         } else {
             assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
             if (inprogress) {
                 finalisedData = String.format("%d;%d;%d;%d",
-                    version, ledgerId, firstTxId, ledgerSequenceNumber);
+                    versionAndCount, ledgerId, firstTxId, ledgerSequenceNumber);
             } else {
                 finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d",
-                    version, ledgerId, firstTxId, lastTxId, completionTime, ledgerSequenceNumber, lastEntryId, lastSlotId);
+                    versionAndCount, ledgerId, firstTxId, lastTxId, completionTime, ledgerSequenceNumber, lastEntryId, lastSlotId);
             }
         }
         try {
@@ -379,6 +421,8 @@ public class LogSegmentLedgerMetadata {
             zkVersion = 0;
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on creating ledger znode " + path, ie);
         } catch (Exception e) {
             LOG.error("Error creating ledger znode {}", path, e);
             throw new IOException("Error creating ledger znode" + path);
@@ -391,6 +435,7 @@ public class LogSegmentLedgerMetadata {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Verifying " + this + " against " + other);
             }
+            System.out.println("Verifying " + this + " against " + other);
 
             // All fields may not be comparable so only compare the ones
             // that can be compared
@@ -430,7 +475,7 @@ public class LogSegmentLedgerMetadata {
         hash = hash * 31 + (int) ledgerId;
         hash = hash * 31 + (int) firstTxId;
         hash = hash * 31 + (int) lastTxId;
-        hash = hash * 31 + (int) version;
+        hash = hash * 31 + version;
         hash = hash * 31 + (int) completionTime;
         hash = hash * 31 + (int) ledgerSequenceNumber;
         return hash;
@@ -442,6 +487,7 @@ public class LogSegmentLedgerMetadata {
             ", lastTxId:" + lastTxId +
             ", version:" + version +
             ", completionTime:" + completionTime +
+            ", recordCount" + recordCount +
             ", ledgerSequenceNumber:" + ledgerSequenceNumber + "]";
     }
 }

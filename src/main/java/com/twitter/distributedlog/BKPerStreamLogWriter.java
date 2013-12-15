@@ -102,6 +102,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
     private boolean enforceLock = true;
+    private int recordCount = 0;
 
     private final Queue<BKTransmitPacket> transmitPacketQueue
         = new ConcurrentLinkedQueue<BKTransmitPacket>();
@@ -190,11 +191,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitPacketQueue.add(packet);
     }
 
-    public long closeToFinalize() throws IOException {
+    public void closeToFinalize() throws IOException {
         // Its important to enforce the write-lock here as we are going to make
         // metadata changes following this call
         closeInternal(true, true);
-        return lastTxId;
     }
 
     @Override
@@ -253,6 +253,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
 
+        // The count represents the number of user records up to the
+        // current record
+        // Increment the record count only when writing a user log record
+        // Internally generated log records don't increment the count
+        // writeInternal will always set a count regardless of whether it was
+        // incremented or not.
+        recordCount++;
         writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
@@ -278,6 +285,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
             setReadyToFlush();
         }
+
+        // Set the count here. The caller would appropriately increment it
+        // if this log record is to be counted
+        record.setCount(recordCount);
 
         writer.writeOp(record);
         if (record.getTransactionId() < lastTxId) {
@@ -326,17 +337,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     @Override
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
-        if (streamEnded) {
-            throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
-        }
-
         int numRecords = 0;
         for (LogRecord r : records) {
-            writeInternal(r);
+            write(r);
             numRecords++;
-            if (outstandingBytes > transmissionThreshold) {
-                setReadyToFlush();
-            }
         }
         return numRecords;
     }
@@ -418,7 +422,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             syncLatch = new CountDownLatch(outstandingRequests.get());
         }
 
-        boolean waitSuccessful = false;
+        boolean waitSuccessful;
         try {
             waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
@@ -494,7 +498,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
      *  Checks if there is any data to transmit so that the periodic flush
      *  task can determine if there is anything it needs to do
      */
-    synchronized private boolean haveDataToTransmit() throws IOException {
+    synchronized private boolean haveDataToTransmit() {
         if (!transmitResult.compareAndSet(BKException.Code.OK, BKException.Code.OK)) {
             // Even if there is data it cannot be transmitted, so effectively nothing to send
             return false;
@@ -581,5 +585,17 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         } catch (IOException exc) {
             LOG.error("Error encountered by the periodic flush", exc);
         }
+    }
+
+    public boolean shouldStartNewSegment(int numRecords) {
+        return (numRecords > (Integer.MAX_VALUE - recordCount));
+    }
+
+    public long getLastTxId() {
+        return lastTxId;
+    }
+
+    public int getRecordCount() {
+        return recordCount;
     }
 }

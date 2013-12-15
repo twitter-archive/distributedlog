@@ -81,6 +81,19 @@ class DLMTestUtil {
         return numLogRecs;
     }
 
+    static long getNumberofLogRecords(DistributedLogManager bkdlm, long startTxId) throws IOException {
+        long numLogRecs = 0;
+        LogReader reader = bkdlm.getInputStream(startTxId);
+        LogRecord record = reader.readNext(false);
+        while (null != record) {
+            numLogRecs++;
+            verifyLogRecord(record);
+            record = reader.readNext(false);
+        }
+        reader.close();
+        return numLogRecs;
+    }
+
     static LogRecord getLogRecordInstance(long txId) {
         return new LogRecord(txId, generatePayload(txId));
     }

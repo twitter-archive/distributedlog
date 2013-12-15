@@ -50,7 +50,6 @@ public class LocalDLMEmulator {
     private Thread bkthread = null;
     private final String zkEnsemble;
     int numBookies;
-    private int initialBookiePort;
 
     public LocalDLMEmulator(final int numBookies) throws Exception {
         this(numBookies, true, "127.0.0.1", 2181, DEFAULT_BOOKIE_INITIAL_PORT);
@@ -69,7 +68,6 @@ public class LocalDLMEmulator {
     }
 
     private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
-        this.initialBookiePort = initialBookiePort;
         this.numBookies = numBookies;
         this.zkEnsemble = zkHost + ":" + zkPort;
 
@@ -179,7 +177,6 @@ public class LocalDLMEmulator {
     public int checkBookiesUp(int count, int timeout) throws Exception {
         ZooKeeper zkc = connectZooKeeper(zkEnsemble);
         try {
-            boolean up = false;
             int mostRecentSize = 0;
             for (int i = 0; i < timeout; i++) {
                 try {
@@ -197,7 +194,6 @@ public class LocalDLMEmulator {
                         }
                     }
                     if (mostRecentSize == count) {
-                        up = true;
                         break;
                     }
                 } catch (KeeperException e) {

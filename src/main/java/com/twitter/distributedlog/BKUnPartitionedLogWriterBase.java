@@ -3,15 +3,14 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedList;
-import java.util.List;
 
 
-public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWriter {
+abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKPerStreamLogWriter perStreamWriter = null;
     private BKLogPartitionWriteHandler partitionHander = null;
 
 
-    public BKUnPartitionedLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
+    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);
     }
 
@@ -74,71 +73,11 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
         return list;
     }
 
-
-    /**
-     * Write log records to the stream.
-     *
-     * @param record operation
-     */
-    @Override
-    public void write(LogRecord record) throws IOException {
-        if ((record.getTransactionId() < 0) ||
-            (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
-            throw new IOException("Invalid Transaction Id");
-        }
-
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId()).write(record);
-    }
-
-    /**
-     * Write edits logs operation to the stream.
-     *
-     * @param record list of records
-     */
-    @Override
-    public int writeBulk(List<LogRecord> records) throws IOException {
-        if ((records.get(0).getTransactionId() < 0) ||
-            (records.get(0).getTransactionId() == DistributedLogConstants.MAX_TXID)) {
-            throw new IOException("Invalid Transaction Id");
-        }
-
-        return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
-    }
-
-    /**
-     * Flushes all the data up to this point,
-     * adds the end of stream marker and marks the stream
-     * as read-only in the metadata. No appends to the
-     * stream will be allowed after this point
-     */
-    @Override
-    public void markEndOfStream() throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
-            DistributedLogConstants.MAX_TXID).markEndOfStream();
-        closeAndComplete();
-    }
-
-    /**
-     * Close the stream without necessarily flushing immediately.
-     * This may be called if the stream is in error such as after a
-     * previous write or close threw an exception.
-     */
-    @Override
-    public void abort() throws IOException {
-        if (null != perStreamWriter) {
-            perStreamWriter.abort();
-            perStreamWriter = null;
-        }
-
-        close();
-    }
-
     public void closeAndComplete() throws IOException {
         if (null != perStreamWriter && null != partitionHander) {
             try {
                 waitForTruncation();
-                long lastTxId = perStreamWriter.closeToFinalize();
-                partitionHander.completeAndCloseLogSegment(lastTxId);
+                partitionHander.completeAndCloseLogSegment(perStreamWriter);
             } finally {
                 // ensure partition handler is closed.
                 partitionHander.close();
@@ -146,6 +85,20 @@ public class BKUnPartitionedLogWriter extends BKBaseLogWriter implements LogWrit
             perStreamWriter = null;
             partitionHander = null;
         }
+        close();
+    }
+
+    /**
+     * Close the stream without necessarily flushing immediately.
+     * This may be called if the stream is in error such as after a
+     * previous write or close threw an exception.
+     */
+    public void abort() throws IOException {
+        if (null != perStreamWriter) {
+            perStreamWriter.abort();
+            perStreamWriter = null;
+        }
+
         close();
     }
 }

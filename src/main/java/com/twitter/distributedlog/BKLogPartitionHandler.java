@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 
 import org.apache.bookkeeper.client.BKException;
@@ -121,8 +122,10 @@ abstract class BKLogPartitionHandler {
                         .name(String.format("%s:shared", name)).statsLogger(statsLogger);
             }
             this.bookKeeperClient = bkcBuilder.build();
-        } catch (Exception e) {
-            throw new IOException("Error initializing zk", e);
+        } catch (KeeperException e) {
+            throw new IOException("Error initializing bookkeeper client", e);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted initializing bookkeeper client", ie);
         }
     }
 
@@ -147,6 +150,28 @@ abstract class BKLogPartitionHandler {
         return getLastLogRecord(recover, includeEndOfStream).getTransactionId();
     }
 
+    public long getLogRecordCount() throws IOException {
+        try {
+            checkLogStreamExists();
+        } catch (LogEmptyException exc) {
+            return 0;
+        }
+
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(false);
+        long count = 0;
+        for (LogSegmentLedgerMetadata l : ledgerList) {
+            if (l.isInProgress()) {
+                LogRecord record = recoverLastRecordInLedger(l, false, false, false);
+                if (null != record) {
+                    count += record.getCount();
+                }
+            } else {
+                count += l.getRecordCount();
+            }
+        }
+        return count;
+    }
+
     public long getFirstTxId() throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);
@@ -164,7 +189,7 @@ abstract class BKLogPartitionHandler {
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", ledgerPath, ie);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
@@ -177,7 +202,7 @@ abstract class BKLogPartitionHandler {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
-        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             LOG.debug("Inspecting Ledger: {}", l);
             if (thresholdTxId < l.getFirstTxId()) {
@@ -186,13 +211,15 @@ abstract class BKLogPartitionHandler {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = recoverLastTxIdInLedger(l, false);
+                    long lastTxId = readLastTxIdInLedger(l);
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
                         return lastTxId;
                     }
-                } catch (Exception exc) {
+                } catch (DLInterruptedException ie) {
+                    throw ie;
+                } catch (IOException exc) {
                     LOG.info("Optimistic Transaction Id recovery failed.", exc);
                 }
             }
@@ -200,13 +227,14 @@ abstract class BKLogPartitionHandler {
             try {
                 LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), !l.isInProgress());
                 BKPerStreamLogReader s
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0, ledgerDataAccessorPriv, false);
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, 0,
+                    ledgerDataAccessorPriv, false, statsLogger);
 
                 LogRecord prevRecord = null;
-                LogRecord currRecord = s.readOp();
+                LogRecord currRecord = s.readOp(false);
                 while ((null != currRecord) && (currRecord.getTransactionId() <= thresholdTxId)) {
                     prevRecord = currRecord;
-                    currRecord = s.readOp();
+                    currRecord = s.readOp(false);
                 }
 
                 if (null != prevRecord) {
@@ -216,7 +244,7 @@ abstract class BKLogPartitionHandler {
                     return prevRecord.getTransactionId();
                 }
 
-            } catch (Exception e) {
+            } catch (BKException e) {
                 throw new IOException("Could not open ledger for " + thresholdTxId, e);
             }
 
@@ -258,11 +286,11 @@ abstract class BKLogPartitionHandler {
     }
 
     /**
-     * Find the id of the last edit log transaction writen to a edit log
+     * Find the id of the last edit log transaction written to a edit log
      * ledger.
      */
-    protected long recoverLastTxIdInLedger(LogSegmentLedgerMetadata l, boolean fence) throws IOException {
-        LogRecord record = recoverLastRecordInLedger(l, fence, fence, true);
+    protected long readLastTxIdInLedger(LogSegmentLedgerMetadata l) throws IOException {
+        LogRecord record = recoverLastRecordInLedger(l, false, false, true);
 
         if (null == record) {
             return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
@@ -273,7 +301,7 @@ abstract class BKLogPartitionHandler {
     }
 
     /**
-     * Find the id of the last edit log transaction writen to a edit log
+     * Find the id of the last edit log transaction written to a edit log
      * ledger.
      */
     protected LogRecord recoverLastRecordInLedger(LogSegmentLedgerMetadata l,
@@ -281,16 +309,14 @@ abstract class BKLogPartitionHandler {
                                                   boolean includeControl,
                                                   boolean includeEndOfStream)
         throws IOException {
-        LogRecord lastRecord = null;
+        LogRecord lastRecord;
         Throwable exceptionEncountered = null;
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
             LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
             boolean trySmallLedger = true;
-            long scanStartPoint = 0;
-            LedgerDescriptor ledgerDescriptor = null;
-            ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
-            scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
+            LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+            long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
 
             if (scanStartPoint < 0) {
                 // Ledger is empty
@@ -309,20 +335,23 @@ abstract class BKLogPartitionHandler {
 
             while (true) {
                 BKPerStreamLogReader in
-                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint, ledgerDataAccessorPriv, includeControl);
+                    = new BKPerStreamLogReader(ledgerDescriptor, l, scanStartPoint,
+                        ledgerDataAccessorPriv, includeControl, statsLogger);
 
                 lastRecord = null;
                 try {
-                    LogRecord record = in.readOp();
+                    LogRecord record = in.readOp(false);
                     while (record != null) {
                         if ((null == lastRecord
                             || record.getTransactionId() > lastRecord.getTransactionId()) &&
                             (includeEndOfStream || !record.isEndOfStream())) {
                             lastRecord = record;
                         }
-                        record = in.readOp();
+                        record = in.readOp(false);
                     }
-                } catch (Exception exc) {
+                } catch (DLInterruptedException die) {
+                    throw die;
+                } catch (IOException exc) {
                     LOG.info("Reading beyond flush point", exc);
                     exceptionEncountered = exc;
                 } finally {
@@ -350,9 +379,8 @@ abstract class BKLogPartitionHandler {
                     ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
                 }
             }
-        } catch (Exception e) {
-            throw new IOException("Exception retreiving last tx id for ledger " + l,
-                e);
+        } catch (BKException e) {
+            throw new IOException("Exception retrieving last tx id for ledger " + l, e);
         }
 
         // If there was an exception while reading the last record, we cant rely on the value
@@ -380,10 +408,6 @@ abstract class BKLogPartitionHandler {
         return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, false);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
-    }
-
     /**
      * Get a list of all segments in the journal.
      */
@@ -400,8 +424,12 @@ abstract class BKLogPartitionHandler {
                     lastLedgerRollingTimeMillis = l.getCompletionTime();
                 }
             }
-        } catch (Exception e) {
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            throw new IOException("Exception on establishing zookeeper connection : ", zce);
+        } catch (KeeperException e) {
             throw new IOException("Exception reading ledger list from zk", e);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on reading ledger list from zk", e);
         }
 
         if (throwOnEmpty && ledgers.isEmpty()) {

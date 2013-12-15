@@ -3,8 +3,11 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +72,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     @Override
     public synchronized void write(LogRecord record, PartitionId partition) throws IOException {
         checkClosedOrInError("write");
-        getLedgerWriter(partition, record.getTransactionId()).write(record);
+        getLedgerWriter(partition, record.getTransactionId(), 1).write(record);
     }
 
     /**
@@ -82,8 +85,28 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
         checkClosedOrInError("writeBulk");
         int numRecords = 0;
         for (Map.Entry<PartitionId, List<LogRecord>> entry : records.entrySet()) {
-            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId()).writeBulk(entry.getValue());
+            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId(), records.size()).writeBulk(entry.getValue());
         }
         return numRecords;
+    }
+
+    @VisibleForTesting
+    void closeAndComplete() throws IOException {
+        LinkedList<String> deletedStreams = new LinkedList<String>();
+        for(String streamIdentifier: partitionToWriter.keySet()) {
+            BKPerStreamLogWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
+            BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
+            if (null != perStreamWriter && null != partitionHander) {
+                waitForTruncation();
+                partitionHander.completeAndCloseLogSegment(perStreamWriter);
+                partitionHander.close();
+                deletedStreams.add(streamIdentifier);
+            }
+        }
+        for(String streamIdentifier: deletedStreams) {
+            partitionToWriter.remove(streamIdentifier);
+            partitionToLedger.remove(streamIdentifier);
+        }
+        close();
     }
 }

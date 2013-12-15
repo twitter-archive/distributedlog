@@ -111,24 +111,82 @@ public interface DistributedLogManager extends MetadataAccessor {
         throws IOException;
 
 
+    /**
+     * Get the earliest Transaction Id available in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return earliest transaction id
+     * @throws IOException
+     */
     public long getFirstTxId(PartitionId partition) throws IOException;
 
+    /**
+     * Get the earliest Transaction Id available in the non partitioned stream
+     *
+     * @return earliest transaction id
+     * @throws IOException
+     */
     public long getFirstTxId() throws IOException;
 
+    /**
+     * Get Latest Transaction Id in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     * @throws IOException
+     */
     public long getLastTxId(PartitionId partition) throws IOException;
 
+    /**
+     * Get Latest Transaction Id in the non partitioned stream
+     *
+     * @return latest transaction id
+     * @throws IOException
+     */
     public long getLastTxId() throws IOException;
 
+    /**
+     * Get the number of log records in the active portion of the stream for the
+     * given partition
+     * Any log segments that have already been truncated will not be included
+     *
+     * @param partition the partition within the log
+     * @return number of log records
+     * @throws IOException
+     */
+    public long getLogRecordCount(PartitionId partition) throws IOException;
+
+    /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return number of log records
+     * @throws IOException
+     */
+    public long getLogRecordCount() throws IOException;
+
+    /**
+     * Run recovery on the specified partition of the log
+     *
+     * @param partition the partition within the log to recover
+     * @throws IOException
+     */
     public void recover(PartitionId partition) throws IOException;
 
+    /**
+     * Run recovery on the non partitioned log
+     *
+     * @throws IOException
+     */
     public void recover() throws IOException;
 
     /**
      * Check if an end of stream marker was added to the stream for the partition
      * A stream with an end of stream marker cannot be appended to
      *
-     * @param partition
-     * @return
+     * @param partition - the partition within the log
+     * @return true if the end of stream has been marked
      * @throws IOException
      */
     public boolean isEndOfStreamMarked(PartitionId partition) throws IOException;

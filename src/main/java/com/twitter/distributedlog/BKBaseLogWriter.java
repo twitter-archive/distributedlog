@@ -52,7 +52,6 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     /**
      * Close the journal.
      *
-     * @throws java.io.IOException if the log stream can't be closed,
      */
     public void close() {
         closed = true;
@@ -93,11 +92,11 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         return ledgerManager;
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId) throws IOException {
-        return getLedgerWriter(partition.toString(), startTxId);
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId, int numRecordsToBeWritten) throws IOException {
+        return getLedgerWriter(partition.toString(), startTxId, numRecordsToBeWritten);
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId) throws IOException {
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
         long numFlushes = 0;
         boolean shouldCheckForTruncation = false;
@@ -127,10 +126,9 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
 
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
-        if (ledgerManager.shouldStartNewSegment() || forceRolling) {
-            long lastTxId = ledgerWriter.closeToFinalize();
+        if (ledgerManager.shouldStartNewSegment() || ledgerWriter.shouldStartNewSegment(numRecordsToBeWritten) || forceRolling) {
+            ledgerManager.completeAndCloseLogSegment(ledgerWriter);
             numFlushes = ledgerWriter.getNumFlushes();
-            ledgerManager.completeAndCloseLogSegment(lastTxId);
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
@@ -322,7 +320,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             if (null != lastTruncationAttempt) {
                 lastTruncationAttempt.waitForCompletion();
             }
-        } catch (Exception exc) {
+        } catch (InterruptedException exc) {
             LOG.info("Wait For truncation failed", exc);
         }
     }

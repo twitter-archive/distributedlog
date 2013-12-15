@@ -62,13 +62,15 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     /**
      * Read the next log record from the stream
      *
+     * @param nonBlocking should the read make blocking calls to the backend or rely on the
+     * readAhead cache
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public LogRecord readNext(boolean shouldBlock) throws IOException {
-        if (shouldBlock) {
-            throw new NotYetImplementedException("readNext with shouldBlock=true");
+    public LogRecord readNext(boolean nonBlocking) throws IOException {
+        if (nonBlocking && !readAheadEnabled) {
+            throw new IllegalArgumentException("Non blocking semantics require read-ahead");
         }
 
         checkClosedOrInError("LogReader#readNext");
@@ -76,11 +78,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         LogRecord record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
-            advancedOnce = createOrPositionReader(advancedOnce);
+            advancedOnce = createOrPositionReader(nonBlocking);
 
             if (null != currentReader) {
 
-                record = currentReader.readOp();
+                record = currentReader.readOp(nonBlocking);
 
                 if (null == record) {
                     if (handleEndOfCurrentStream()) {
@@ -107,10 +109,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         return record;
     }
 
-    private boolean createOrPositionReader(boolean advancedOnce) throws IOException {
+    private boolean createOrPositionReader(boolean nonBlocking) throws IOException {
+        boolean advancedOnce = false;
         if (null == currentReader) {
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
-            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, true, false, (lastTxId >= startTxId));
+            currentReader = bkLedgerManager.getInputStream(lastTxId + 1, (lastTxId >= startTxId));
             if (null != currentReader) {
                 if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
                     bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
@@ -119,7 +122,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             }
             advancedOnce = (currentReader == null);
         } else {
-            currentReader.resume();
+            currentReader.resume(!nonBlocking);
         }
 
         return advancedOnce;
@@ -144,18 +147,18 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException{
+    public List<LogRecord> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
         LinkedList<LogRecord> retList = new LinkedList<LogRecord>();
 
         int numRead = 0;
-        LogRecord record = readNext(shouldBlock);
+        LogRecord record = readNext(nonBlocking);
         while ((null != record)) {
             retList.add(record);
             numRead++;
             if (numRead >= numLogRecords) {
                 break;
             }
-            record = readNext(shouldBlock);
+            record = readNext(nonBlocking);
         }
 
         return retList;

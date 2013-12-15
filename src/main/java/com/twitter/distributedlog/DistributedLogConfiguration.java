@@ -428,7 +428,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set Periodic Log Flush Frequency in seconds.
      *
-     * @param flushFrequencySeconds periodic flush frequency.
+     * @param flushFrequencyMs periodic flush frequency in milliseconds.
      * @return distributed log configuration
      */
     public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
@@ -598,8 +598,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the ZK Session Timeout used by the BK Client
      *
-     * @param sessionTimeout
-     * @return
+     * @param sessionTimeout session timeout for the ZK Client used by BK Client
+     * @return distributed log configuration
      */
     public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
         setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
