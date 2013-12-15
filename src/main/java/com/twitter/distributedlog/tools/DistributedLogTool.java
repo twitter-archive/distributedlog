@@ -380,7 +380,7 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        private void dumpRecord(LogRecord record) throws Exception {
+        private void dumpRecord(LogRecord record) {
             println("------------------------------------------------");
             println("Record (txn = " + record.getTransactionId() + ", bytes = "
                     + record.getPayload().length + ")");

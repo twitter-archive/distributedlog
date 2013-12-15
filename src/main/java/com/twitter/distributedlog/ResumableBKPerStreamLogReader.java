@@ -160,14 +160,6 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     }
 
     synchronized boolean reachedEndOfLogSegment() {
-        if (null == lin) {
-            return false;
-        }
-
-        if (inProgress) {
-            return false;
-        }
-
-        return lin.reachedEndOfLedger();
+        return ((null != lin) && !inProgress && lin.reachedEndOfLedger());
     }
 }

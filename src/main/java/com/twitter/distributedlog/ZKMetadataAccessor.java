@@ -22,7 +22,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     public ZKMetadataAccessor(String name,
                               URI uri,
                               int zkSessionTimeoutMs,
-                              ZooKeeperClientBuilder zkcBuilder) throws IOException {
+                              ZooKeeperClientBuilder zkcBuilder) {
         this.name = name;
         this.uri = uri;
 
@@ -41,7 +41,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     /**
      * Creates or update the metadata stored at the node associated with the
      * name and URI
-     * @param metadata
+     * @param metadata opaque metadata to be stored for the node
      * @throws IOException
      */
     @Override

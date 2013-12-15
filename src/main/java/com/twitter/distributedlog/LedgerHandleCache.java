@@ -117,7 +117,7 @@ public class LedgerHandleCache {
     }
 
     public synchronized void closeLedger(LedgerDescriptor ledgerDesc)
-        throws InterruptedException, BKException, IOException {
+        throws InterruptedException, BKException {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if ((null != refhandle) && (refhandle.removeRef())) {

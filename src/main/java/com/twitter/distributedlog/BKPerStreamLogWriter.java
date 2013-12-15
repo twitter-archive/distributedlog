@@ -422,7 +422,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             syncLatch = new CountDownLatch(outstandingRequests.get());
         }
 
-        boolean waitSuccessful = false;
+        boolean waitSuccessful;
         try {
             waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
@@ -498,7 +498,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
      *  Checks if there is any data to transmit so that the periodic flush
      *  task can determine if there is anything it needs to do
      */
-    synchronized private boolean haveDataToTransmit() throws IOException {
+    synchronized private boolean haveDataToTransmit() {
         if (!transmitResult.compareAndSet(BKException.Code.OK, BKException.Code.OK)) {
             // Even if there is data it cannot be transmitted, so effectively nothing to send
             return false;

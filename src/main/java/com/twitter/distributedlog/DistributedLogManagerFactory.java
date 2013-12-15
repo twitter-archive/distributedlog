@@ -178,7 +178,7 @@ public class DistributedLogManagerFactory {
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
-        throws IOException, InterruptedException, IllegalArgumentException {
+        throws IOException, IllegalArgumentException {
         return DistributedLogManagerFactory.checkIfLogExists(conf, namespace, nameOfLogStream);
     }
 
@@ -193,7 +193,7 @@ public class DistributedLogManagerFactory {
     }
 
     public Map<String, byte[]> enumerateLogsWithMetadataInNamespace()
-        throws IOException, InterruptedException, IllegalArgumentException {
+        throws IOException, IllegalArgumentException {
         return withZooKeeperClient(new ZooKeeperClientHandler<Map<String, byte[]>>() {
             @Override
             public Map<String, byte[]> handle(ZooKeeperClient zkc) throws IOException {
@@ -375,7 +375,7 @@ public class DistributedLogManagerFactory {
     /**
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
-    public void close() throws IOException {
+    public void close() {
         scheduledExecutorService.shutdown();
         LOG.info("Executor Service Stopped.");
         try {

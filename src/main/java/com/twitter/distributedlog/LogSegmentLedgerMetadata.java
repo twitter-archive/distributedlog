@@ -298,7 +298,7 @@ class LogSegmentLedgerMetadata {
         hash = hash * 31 + (int) ledgerId;
         hash = hash * 31 + (int) firstTxId;
         hash = hash * 31 + (int) lastTxId;
-        hash = hash * 31 + (int) version;
+        hash = hash * 31 + version;
         hash = hash * 31 + (int) completionTime;
         return hash;
     }

@@ -45,8 +45,6 @@ public class ZkMetadataResolver implements MetadataResolver {
             try {
                 return DLMetadata.deserialize(data);
             } catch (IOException ie) {
-                // invalid data
-                continue;
             }
         }
         throw new IOException("No bkdl config bound under dl path : " + dlPath);

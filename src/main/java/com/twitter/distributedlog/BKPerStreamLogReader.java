@@ -177,8 +177,7 @@ class BKPerStreamLogReader {
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
         LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, StatsLogger statsLogger)
-            throws IOException {
+                          long firstBookKeeperEntry, StatsLogger statsLogger) {
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
@@ -280,31 +279,26 @@ class BKPerStreamLogReader {
         }
 
         private int doRead(byte[] b, int off, int len) throws IOException {
-            try {
-                int read = 0;
+            int read = 0;
+            if (entryStream == null) {
+                entryStream = nextStream();
                 if (entryStream == null) {
+                    return read;
+                }
+            }
+
+            while (read < len) {
+                int thisread = entryStream.read(b, off + read, (len - read));
+                if (thisread == -1) {
                     entryStream = nextStream();
                     if (entryStream == null) {
                         return read;
                     }
+                } else {
+                    read += thisread;
                 }
-
-                while (read < len) {
-                    int thisread = entryStream.read(b, off + read, (len - read));
-                    if (thisread == -1) {
-                        entryStream = nextStream();
-                        if (entryStream == null) {
-                            return read;
-                        }
-                    } else {
-                        read += thisread;
-                    }
-                }
-                return read;
-            } catch (IOException e) {
-                throw e;
             }
-
+            return read;
         }
 
         public void setNonBlocking(boolean nonBlocking) {

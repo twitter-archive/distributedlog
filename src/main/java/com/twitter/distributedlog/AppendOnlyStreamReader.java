@@ -1,6 +1,5 @@
 package com.twitter.distributedlog;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -56,32 +55,27 @@ public class AppendOnlyStreamReader extends InputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        try {
-            int read = 0;
+        int read = 0;
+        if (payloadStream == null) {
+            payloadStream = nextStream();
             if (payloadStream == null) {
+                return read;
+            }
+        }
+
+        while (read < len) {
+            int thisread = payloadStream.read(b, off + read, (len - read));
+            if (thisread == -1) {
                 payloadStream = nextStream();
                 if (payloadStream == null) {
                     return read;
                 }
+            } else {
+                currentPosition += thisread;
+                read += thisread;
             }
-
-            while (read < len) {
-                int thisread = payloadStream.read(b, off + read, (len - read));
-                if (thisread == -1) {
-                    payloadStream = nextStream();
-                    if (payloadStream == null) {
-                        return read;
-                    }
-                } else {
-                    currentPosition += thisread;
-                    read += thisread;
-                }
-            }
-            return read;
-        } catch (IOException e) {
-            throw e;
         }
-
+        return read;
     }
 
     public boolean skipTo(long position) throws IOException {

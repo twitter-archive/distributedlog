@@ -209,7 +209,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             else {
                 LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                LOG.error("Last Committed Ledger {}", getLedgerListDesc());
+                LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
                 throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
             }
         }
@@ -679,7 +679,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    private void doDeleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
+    private void doDeleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) {
         final AtomicInteger rcHolder = new AtomicInteger(0);
         final CountDownLatch latch = new CountDownLatch(1);
         deleteLedgerAndMetadata(ledgerMetadata, new BookkeeperInternalCallbacks.GenericCallback<Void>() {

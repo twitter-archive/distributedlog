@@ -5,7 +5,6 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
@@ -33,20 +32,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri) throws IOException {
-        this(name, conf, uri, null, null, NullStatsLogger.INSTANCE);
-    }
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri, StatsLogger statsLogger) throws IOException {
-        this(name, conf, uri, null, null, statsLogger);
-    }
-
-    public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                                   ZooKeeperClientBuilder zkcBuilder,
-                                   BookKeeperClientBuilder bkcBuilder) throws IOException {
-        this(name, conf, uri, zkcBuilder, bkcBuilder, NullStatsLogger.INSTANCE);
-    }
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
@@ -159,7 +144,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
-        long position = 0;
+        long position;
         try {
             position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
@@ -273,7 +258,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecord getLastLogRecord(PartitionId partition) throws IOException {
-        return getLastLogRecordInternal(partition.toString(), false);
+        return getLastLogRecordInternal(partition.toString());
     }
 
     /**
@@ -284,14 +269,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecord getLastLogRecord() throws IOException {
-        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM, false);
+        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM);
     }
 
-    public LogRecord getLastLogRecordInternal(String streamIdentifier, boolean includeEndOfStream) throws IOException {
+    private LogRecord getLastLogRecordInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLastLogRecord");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
-            return ledgerHandler.getLastLogRecord(false, includeEndOfStream);
+            return ledgerHandler.getLastLogRecord(false, false);
         } finally {
             ledgerHandler.close();
         }

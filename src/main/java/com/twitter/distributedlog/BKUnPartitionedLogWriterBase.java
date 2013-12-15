@@ -3,7 +3,6 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedList;
-import java.util.List;
 
 
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
@@ -11,7 +10,7 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKLogPartitionWriteHandler partitionHander = null;
 
 
-    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
+    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);
     }
 

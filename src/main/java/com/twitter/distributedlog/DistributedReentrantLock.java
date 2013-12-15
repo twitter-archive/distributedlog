@@ -57,7 +57,6 @@ class DistributedReentrantLock implements Runnable {
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
     private final ScheduledExecutorService executorService;
-    private final ZooKeeperClient zkc;
     private final String lockPath;
     private Future<?> asyncLockAcquireFuture = null;
     private LockingException asyncLockAcquireException = null;
@@ -77,7 +76,6 @@ class DistributedReentrantLock implements Runnable {
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
 
-        this.zkc = zkc;
         try {
             if (zkc.get().exists(lockPath, false) == null) {
                 zkc.get().create(lockPath, null,
@@ -111,7 +109,6 @@ class DistributedReentrantLock implements Runnable {
                 int ret = lockCount.getAndIncrement();
                 if (ret == 0) {
                     lockCount.decrementAndGet();
-                    continue; // try again;
                 } else {
                     return;
                 }
@@ -236,7 +233,7 @@ class DistributedReentrantLock implements Runnable {
         }
 
         private synchronized int prepare()
-            throws LockingException, InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
+            throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
             LOG.debug("Working with locking path: {}", lockPath);
 
@@ -419,9 +416,9 @@ class DistributedReentrantLock implements Runnable {
                                       getCurrentId(), nextLowestNode);
 
                             watchedNode = String.format("%s/%s", lockPath, nextLowestNode);
-                            Stat stat = zkClient.get().exists(watchedNode, wait);
+                            Stat stat = zkClient.get().exists(watchedNode, true);
                             if (stat == null) {
-                                checkForLock(wait);
+                                checkForLock(true);
                             }
                         }
                     }

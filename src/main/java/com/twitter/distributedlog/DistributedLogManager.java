@@ -185,7 +185,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * Check if an end of stream marker was added to the stream for the partition
      * A stream with an end of stream marker cannot be appended to
      *
-     * @param partition
+     * @param partition - the partition within the log
      * @return true if the end of stream has been marked
      * @throws IOException
      */

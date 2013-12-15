@@ -202,7 +202,7 @@ abstract class BKLogPartitionHandler {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
-        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc();
+        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             LOG.debug("Inspecting Ledger: {}", l);
             if (thresholdTxId < l.getFirstTxId()) {
@@ -211,7 +211,7 @@ abstract class BKLogPartitionHandler {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = recoverLastTxIdInLedger(l, false);
+                    long lastTxId = readLastTxIdInLedger(l);
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
@@ -286,11 +286,11 @@ abstract class BKLogPartitionHandler {
     }
 
     /**
-     * Find the id of the last edit log transaction writen to a edit log
+     * Find the id of the last edit log transaction written to a edit log
      * ledger.
      */
-    protected long recoverLastTxIdInLedger(LogSegmentLedgerMetadata l, boolean fence) throws IOException {
-        LogRecord record = recoverLastRecordInLedger(l, fence, fence, true);
+    protected long readLastTxIdInLedger(LogSegmentLedgerMetadata l) throws IOException {
+        LogRecord record = recoverLastRecordInLedger(l, false, false, true);
 
         if (null == record) {
             return DistributedLogConstants.EMPTY_LEDGER_TX_ID;
@@ -301,7 +301,7 @@ abstract class BKLogPartitionHandler {
     }
 
     /**
-     * Find the id of the last edit log transaction writen to a edit log
+     * Find the id of the last edit log transaction written to a edit log
      * ledger.
      */
     protected LogRecord recoverLastRecordInLedger(LogSegmentLedgerMetadata l,
@@ -309,16 +309,14 @@ abstract class BKLogPartitionHandler {
                                                   boolean includeControl,
                                                   boolean includeEndOfStream)
         throws IOException {
-        LogRecord lastRecord = null;
+        LogRecord lastRecord;
         Throwable exceptionEncountered = null;
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
             LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
             boolean trySmallLedger = true;
-            long scanStartPoint = 0;
-            LedgerDescriptor ledgerDescriptor = null;
-            ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
-            scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
+            LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+            long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
 
             if (scanStartPoint < 0) {
                 // Ledger is empty
@@ -382,7 +380,7 @@ abstract class BKLogPartitionHandler {
                 }
             }
         } catch (BKException e) {
-            throw new IOException("Exception retreiving last tx id for ledger " + l, e);
+            throw new IOException("Exception retrieving last tx id for ledger " + l, e);
         }
 
         // If there was an exception while reading the last record, we cant rely on the value
@@ -408,10 +406,6 @@ abstract class BKLogPartitionHandler {
 
     public List<LogSegmentLedgerMetadata> getLedgerList() throws IOException {
         return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, false);
-    }
-
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc() throws IOException {
-        return getLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
     }
 
     /**

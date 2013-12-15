@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
-public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
+class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -58,10 +58,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
     }
 
-    public ResumableBKPerStreamLogReader getInputStream(long fromTxId,
-                                                        boolean inProgressOk,
-                                                        boolean fException,
-                                                        boolean fThrowOnEmpty)
+    ResumableBKPerStreamLogReader getInputStream(long fromTxId, boolean fThrowOnEmpty)
         throws IOException {
         boolean logExists = false;
         try {
@@ -81,12 +78,8 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 LOG.debug("Inspecting Ledger: {}", l);
                 long lastTxId = l.getLastTxId();
                 if (l.isInProgress()) {
-                    if (!inProgressOk) {
-                        continue;
-                    }
-
                     try {
-                        lastTxId = recoverLastTxIdInLedger(l, false);
+                        lastTxId = readLastTxIdInLedger(l);
                     } catch (DLInterruptedException die) {
                         throw die;
                     } catch (IOException exc) {
@@ -123,11 +116,7 @@ public class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
         }
 
-        if (fException) {
-            throw new IOException("No ledger for fromTxnId " + fromTxId + " found.");
-        } else {
-            return null;
-        }
+        return null;
     }
 
 
