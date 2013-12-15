@@ -22,7 +22,7 @@ public class PartitionId {
 
     @Override
     public int hashCode() {
-        return (int) (partition * 13 ^ partition * 17);
+        return (partition * 13 ^ partition * 17);
     }
 
     @Override

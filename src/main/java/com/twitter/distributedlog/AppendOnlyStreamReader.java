@@ -1,6 +1,5 @@
 package com.twitter.distributedlog;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -31,20 +30,16 @@ public class AppendOnlyStreamReader extends InputStream {
      * @return input stream, or null if no more entries
      */
     private InputStream nextStream() throws IOException {
-        try {
-            LogRecord record = reader.readNext(false);
+        LogRecord record = reader.readNext(false);
+        if (null != record) {
+            return record.getPayLoadInputStream();
+        } else {
+            record = reader.readNext(false);
             if (null != record) {
                 return record.getPayLoadInputStream();
             } else {
-                record = reader.readNext(false);
-                if (null != record) {
-                    return record.getPayLoadInputStream();
-                } else {
-                    return null;
-                }
+                return null;
             }
-        } catch (Exception e) {
-            throw new IOException("Error reading entries from bookkeeper", e);
         }
     }
 
@@ -60,32 +55,27 @@ public class AppendOnlyStreamReader extends InputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        try {
-            int read = 0;
+        int read = 0;
+        if (payloadStream == null) {
+            payloadStream = nextStream();
             if (payloadStream == null) {
+                return read;
+            }
+        }
+
+        while (read < len) {
+            int thisread = payloadStream.read(b, off + read, (len - read));
+            if (thisread == -1) {
                 payloadStream = nextStream();
                 if (payloadStream == null) {
                     return read;
                 }
+            } else {
+                currentPosition += thisread;
+                read += thisread;
             }
-
-            while (read < len) {
-                int thisread = payloadStream.read(b, off + read, (len - read));
-                if (thisread == -1) {
-                    payloadStream = nextStream();
-                    if (payloadStream == null) {
-                        return read;
-                    }
-                } else {
-                    currentPosition += thisread;
-                    read += thisread;
-                }
-            }
-            return read;
-        } catch (IOException e) {
-            throw e;
         }
-
+        return read;
     }
 
     public boolean skipTo(long position) throws IOException {

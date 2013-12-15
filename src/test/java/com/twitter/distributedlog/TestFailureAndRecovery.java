@@ -255,7 +255,7 @@ public class TestFailureAndRecovery {
         out.setReadyToFlush();
         out.flushAndSync();
         out.close();
-        bkdlm.completeAndCloseLogSegment(1, 100);
+        bkdlm.completeAndCloseLogSegment(1, 100, 100);
         assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
         LogWriter outEmpty = bkdlm.startLogSegment(101);
         outEmpty.abort();
@@ -298,6 +298,7 @@ public class TestFailureAndRecovery {
         assertNotNull(zkc.exists(blplm1.completedLedgerZNode(1, 100), false));
         assertNull(zkc.exists(blplm1.inprogressZNode(1), false));
         blplm1.close();
+        assertEquals(100, dlm.getLogRecordCount());
         dlm.close();
     }
 

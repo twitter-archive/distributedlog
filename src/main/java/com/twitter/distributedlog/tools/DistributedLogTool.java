@@ -251,8 +251,10 @@ public class DistributedLogTool extends Tool {
         private void printMetadata(DistributedLogManager dlm, PartitionId pid) throws Exception {
             long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
             long lastTxnId = null == pid ? dlm.getLastTxId() : dlm.getLastTxId(pid);
+            long recordCount = null == pid ? dlm.getLogRecordCount() : dlm.getLogRecordCount(pid);
             println("Stream " + (null == pid ? "<default>" : "partition " + pid)
-                    + " : (first = " + firstTxnId + ", last = " + lastTxnId + ")");
+                    + " : (first = " + firstTxnId + ", last = " + lastTxnId
+                    + ", recordCount = " + recordCount + ")");
         }
 
         @Override
@@ -378,7 +380,7 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        private void dumpRecord(LogRecord record) throws Exception {
+        private void dumpRecord(LogRecord record) {
             println("------------------------------------------------");
             println("Record (txn = " + record.getTransactionId() + ", bytes = "
                     + record.getPayload().length + ")");

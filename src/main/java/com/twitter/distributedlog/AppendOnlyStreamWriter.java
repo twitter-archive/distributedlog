@@ -4,22 +4,22 @@ import java.io.Closeable;
 import java.io.IOException;
 
 public class AppendOnlyStreamWriter implements Closeable {
-    private BKUnPartitionedSyncLogWriter logwriter;
+    private BKUnPartitionedSyncLogWriter logWriter;
     private long currentPos;
 
     public AppendOnlyStreamWriter(BKUnPartitionedSyncLogWriter logWriter, long position) {
-        this.logwriter = logWriter;
+        this.logWriter = logWriter;
         this.currentPos = position;
     }
 
     public void write(byte[] data) throws IOException {
         currentPos += data.length;
-        logwriter.write(new LogRecord(currentPos, data));
+        logWriter.write(new LogRecord(currentPos, data));
     }
 
     public void force(boolean metadata) throws IOException {
-        logwriter.setReadyToFlush();
-        logwriter.flushAndSync();
+        logWriter.setReadyToFlush();
+        logWriter.flushAndSync();
     }
 
     public long position() {
@@ -28,6 +28,6 @@ public class AppendOnlyStreamWriter implements Closeable {
 
     @Override
     public void close() throws IOException {
-        logwriter.closeAndComplete();
+        logWriter.closeAndComplete();
     }
 }

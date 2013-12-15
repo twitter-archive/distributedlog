@@ -33,7 +33,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     public Future<DLSN> write(final LogRecord record) {
         return futurePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
             public BKPerStreamLogWriter applyE() throws IOException {
-                return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId());
+                return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId(), 1);
             }
         }).flatMap(new ExceptionalFunction<BKPerStreamLogWriter, Future<DLSN>>() {
             public Future<DLSN> applyE(BKPerStreamLogWriter w) throws IOException {

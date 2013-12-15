@@ -58,7 +58,7 @@ public class TestBKLogPartitionReadHandler {
                 ++txid;
             }
             out.close();
-            writer.completeAndCloseLogSegment(1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment);
+            writer.completeAndCloseLogSegment(1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
         }
         writer.close();
     }

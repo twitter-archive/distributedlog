@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import org.apache.zookeeper.AsyncCallback;
@@ -57,7 +58,6 @@ class DistributedReentrantLock implements Runnable {
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
     private final ScheduledExecutorService executorService;
-    private final ZooKeeperClient zkc;
     private final String lockPath;
     private Future<?> asyncLockAcquireFuture = null;
     private LockingException asyncLockAcquireException = null;
@@ -77,15 +77,16 @@ class DistributedReentrantLock implements Runnable {
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
 
-        this.zkc = zkc;
         try {
             if (zkc.get().exists(lockPath, false) == null) {
                 zkc.get().create(lockPath, null,
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             }
             internalLock = new DistributedLock(zkc, lockPath, clientId);
-        } catch (Exception e) {
-            throw new IOException("Exception accessing Zookeeper", e);
+        } catch (KeeperException ke) {
+            throw new IOException("Exception when creating zookeeper lock " + lockPath, ke);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on creating zookeeper lock " + lockPath, e);
         }
     }
 
@@ -109,7 +110,6 @@ class DistributedReentrantLock implements Runnable {
                 int ret = lockCount.getAndIncrement();
                 if (ret == 0) {
                     lockCount.decrementAndGet();
-                    continue; // try again;
                 } else {
                     return;
                 }
@@ -267,7 +267,9 @@ class DistributedReentrantLock implements Runnable {
                         syncPoint.await();
                     }
                     else {
-                        syncPoint.await(timeout, unit);
+                        if (!syncPoint.await(timeout, unit)) {
+                            LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
+                        }
                     }
                 }
                 if (!holdsLock) {
@@ -414,9 +416,9 @@ class DistributedReentrantLock implements Runnable {
                                       getCurrentId(), nextLowestNode);
 
                             watchedNode = String.format("%s/%s", lockPath, nextLowestNode);
-                            Stat stat = zkClient.get().exists(watchedNode, wait);
+                            Stat stat = zkClient.get().exists(watchedNode, true);
                             if (stat == null) {
-                                checkForLock(wait);
+                                checkForLock(true);
                             }
                         }
                     }

@@ -4,6 +4,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
 
@@ -23,7 +26,6 @@ public class LedgerDataAccessor {
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
     private final LedgerHandleCache ledgerHandleCache;
-    private Object notificationObject = null;
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
@@ -31,6 +33,7 @@ public class LedgerDataAccessor {
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private final AsyncNotification notification;
+    private BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker = null;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger) {
         this(ledgerHandleCache, statsLogger, null);
@@ -45,8 +48,11 @@ public class LedgerDataAccessor {
         this.notification = notification;
     }
 
-    public void setNotificationObject(Object notificationObject) {
-        this.notificationObject = notificationObject;
+    public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker, long maxEntries) {
+        this.readAheadWorker = readAheadWorker;
+        if (getNumCacheEntries() < maxEntries) {
+            invokeReadAheadCallback();
+        }
     }
 
     public void setReadAheadEnabled(boolean enabled, int waitTime) {
@@ -67,58 +73,61 @@ public class LedgerDataAccessor {
         ledgerHandleCache.closeLedger(ledgerDesc);
     }
 
-    public LedgerEntry getWithNoWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
-        throws InterruptedException, BKException, IOException {
+    public LedgerEntry getWithNoWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key) {
         ReadAheadCacheValue value = cache.get(key);
         if ((null == value) || (null == value.getLedgerEntry())) {
-            if (null != notificationObject) {
-                synchronized (notificationObject) {
-                    notificationObject.notifyAll();
-                }
-            }
             return null;
         } else {
-            LOG.trace("Read-ahead cache hit for async read");
+            LOG.trace("Read-ahead cache hit for non blocking read");
             return value.getLedgerEntry();
         }
     }
 
     public LedgerEntry getWithWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
-        throws InterruptedException, BKException, IOException {
-        if (readAheadEnabled) {
-            ReadAheadCacheValue newValue = new ReadAheadCacheValue();
-            ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
-            if (null == value) {
-                value = newValue;
-            }
-            if (null == value.getLedgerEntry() && null != notificationObject) {
-                synchronized (notificationObject) {
-                    notificationObject.notifyAll();
+        throws IOException {
+        try {
+            if (readAheadEnabled) {
+                ReadAheadCacheValue newValue = new ReadAheadCacheValue();
+                ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
+                if (null == value) {
+                    value = newValue;
                 }
-            }
-            synchronized (value) {
-                if (null == value.getLedgerEntry()) {
-                    value.wait(readAheadWaitTime);
-                    readAheadWaits.inc();
+                synchronized (value) {
+                    if (null == value.getLedgerEntry()) {
+                        value.wait(readAheadWaitTime);
+                        readAheadWaits.inc();
+                    }
                 }
-            }
-            if (null != value.getLedgerEntry()) {
-                readAheadHits.inc();
-                return value.getLedgerEntry();
+                if (null != value.getLedgerEntry()) {
+                    readAheadHits.inc();
+                    return value.getLedgerEntry();
+                }
+
+                readAheadMisses.inc();
+                if ((readAheadMisses.get() % 1000) == 0) {
+                    LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
+                }
             }
 
-            readAheadMisses.inc();
-            if ((readAheadMisses.get() % 1000) == 0) {
-                LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
+            Enumeration<LedgerEntry> entries
+                = ledgerHandleCache.readEntries(ledgerDesc, key.getEntryId(), key.getEntryId());
+            assert (entries.hasMoreElements());
+            LedgerEntry e = entries.nextElement();
+            assert !entries.hasMoreElements();
+            return e;
+        } catch (BKException bke) {
+            if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
+                (ledgerDesc.isFenced() &&
+                    (bke.getCode() == BKException.Code.NoSuchEntryException))) {
+                throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
             }
+            LOG.info("Reached the end of the stream");
+            LOG.debug("Encountered exception at end of stream", bke);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted reading entries from bookkeeper", ie);
         }
 
-        Enumeration<LedgerEntry> entries
-            = ledgerHandleCache.readEntries(ledgerDesc, key.getEntryId(), key.getEntryId());
-        assert (entries.hasMoreElements());
-        LedgerEntry e = entries.nextElement();
-        assert !entries.hasMoreElements();
-        return e;
+        return null;
     }
 
     public void set(LedgerReadPosition key, LedgerEntry entry) {
@@ -154,10 +163,9 @@ public class LedgerDataAccessor {
     }
 
     public void removeInternal(LedgerReadPosition key) {
-        if ((null != cache.remove(key)) && (null != notificationObject)) {
-            synchronized (notificationObject) {
-                notificationObject.notifyAll();
-            }
+
+        if (null != cache.remove(key)) {
+            invokeReadAheadCallback();
         }
     }
 
@@ -173,12 +181,14 @@ public class LedgerDataAccessor {
         LOG.trace("Ledger purged");
 
         cachedLedgerIds = new HashSet<Long>();
+        boolean removedEntry = false;
 
         Iterator<Map.Entry<LedgerReadPosition, ReadAheadCacheValue>> it = cache.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<LedgerReadPosition, ReadAheadCacheValue> entry = it.next();
             if (entry.getKey().getLedgerId() == ledgerId) {
                 it.remove();
+                removedEntry = true;
             } else {
                 if (!cachedLedgerIds.contains(entry.getKey().getLedgerId())) {
                     cachedLedgerIds.add(entry.getKey().getLedgerId());
@@ -186,10 +196,18 @@ public class LedgerDataAccessor {
             }
         }
 
-        if (null != notificationObject) {
-            synchronized (notificationObject) {
-                notificationObject.notifyAll();
+        if (removedEntry) {
+            invokeReadAheadCallback();
+        }
+    }
+
+    private synchronized void invokeReadAheadCallback() {
+        if (null != readAheadWorker) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Cache has space, schedule the read ahead");
             }
+            readAheadWorker.submit(readAheadWorker);
+            readAheadWorker = null;
         }
     }
 

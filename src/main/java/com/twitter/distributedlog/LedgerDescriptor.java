@@ -44,4 +44,11 @@ public class LedgerDescriptor {
     public int hashCode() {
         return (int) (ledgerId * 13 ^ (fenced ? 0xFFFF : 0xF0F0) * 17);
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(lid=").append(ledgerId).append(", fenced=").append(fenced).append(")");
+        return sb.toString();
+    }
 }

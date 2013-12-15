@@ -1,19 +1,16 @@
 package com.twitter.distributedlog;
 
-import com.twitter.conversions.thread;
 import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
-import com.twitter.util.Promise;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -25,9 +22,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import static org.junit.Assert.*;
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 public class TestInterleavedReaders {
     static final Log LOG = LogFactory.getLog(TestBookKeeperDistributedLogManager.class);
@@ -64,7 +60,9 @@ public class TestInterleavedReaders {
         zkc.close();
     }
 
-    private int drainStreams(LogReader reader0, LogReader reader1) throws IOException {
+    private int drainStreams(LogReader reader0, LogReader reader1) throws Exception {
+        // Allow time for watches to fire
+        Thread.sleep(5);
         int numTrans = 0;
         LogRecord record = reader0.readNext(false);
         while (null != record) {
@@ -247,6 +245,8 @@ public class TestInterleavedReaders {
         }
         reader0.close();
         reader1.close();
+        assertEquals(txid - 1,
+            dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
         dlmreader.close();
         dlmwrite.close();
     }
@@ -281,6 +281,67 @@ public class TestInterleavedReaders {
         reader0.close();
         reader1.close();
         dlmreader.close();
+    }
+
+    @Test(timeout = 10000)
+    public void nonBlockingRead() throws Exception {
+        String name = "distrlog-non-blocking-reader";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+
+        new ScheduledThreadPoolExecutor(1).schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        long txid = 1;
+                        for (long i = 0; i < 3; i++) {
+                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+                            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+                            }
+                            writer.closeAndComplete();
+                        }
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+
+                }
+            }, 100, TimeUnit.MILLISECONDS);
+
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 0;
+        long lastTxId = -1;
+
+        boolean exceptionEncountered = false;
+        try {
+            while (true) {
+                LogRecord record = reader.readNext(true);
+                if (null != record) {
+                    DLMTestUtil.verifyLogRecord(record);
+                    assert (lastTxId < record.getTransactionId());
+                    lastTxId = record.getTransactionId();
+                    numTrans++;
+                } else {
+                    Thread.sleep(2);
+                }
+
+                if (numTrans >= (3 * DEFAULT_SEGMENT_SIZE)) {
+                    break;
+                }
+            }
+        } catch (LogReadException readexc) {
+            exceptionEncountered = true;
+        } catch (LogNotFoundException exc) {
+            exceptionEncountered = true;
+        }
+        assert(!exceptionEncountered);
+        assert(!currentThread.isInterrupted());
+        reader.close();
     }
 
     @Test

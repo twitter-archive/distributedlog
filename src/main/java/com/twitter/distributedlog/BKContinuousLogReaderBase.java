@@ -68,12 +68,14 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     /**
      * Read the next log record from the stream
      *
+     * @param nonBlocking should the read make blocking calls to the backend or rely on the
+     * readAhead cache
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public LogRecordWithDLSN readNext(boolean shouldBlock) throws IOException {
-        if (shouldBlock) {
-            throw new NotYetImplementedException("readNext with shouldBlock=true");
+    public LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException {
+        if (nonBlocking && !readAheadEnabled) {
+            throw new IllegalArgumentException("Non blocking semantics require read-ahead");
         }
 
         checkClosedOrInError("LogReader#readNext");
@@ -81,11 +83,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
-            advancedOnce = createOrPositionReader(advancedOnce);
+            advancedOnce = createOrPositionReader(nonBlocking);
 
             if (null != currentReader) {
 
-                record = currentReader.readOp();
+                record = currentReader.readOp(nonBlocking);
 
                 if (null == record) {
                     if (handleEndOfCurrentStream()) {
@@ -110,8 +112,8 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         return record;
     }
 
-
-    protected boolean createOrPositionReader(boolean advancedOnce) throws IOException {
+    protected boolean createOrPositionReader(boolean nonBlocking) throws IOException {
+        boolean advancedOnce = false;
         if (null == currentReader) {
             currentReader = getCurrentReader();
             if ((null != currentReader) && !noBlocking) {
@@ -122,7 +124,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             }
             advancedOnce = (currentReader == null);
         } else {
-            currentReader.resume();
+            currentReader.resume(!nonBlocking);
         }
 
         return advancedOnce;
@@ -151,18 +153,18 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException{
-        LinkedList<LogRecord> retList = new LinkedList<LogRecord>();
+    public List<LogRecordWithDLSN> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
+        LinkedList<LogRecordWithDLSN> retList = new LinkedList<LogRecordWithDLSN>();
 
         int numRead = 0;
-        LogRecord record = readNext(shouldBlock);
+        LogRecordWithDLSN record = readNext(nonBlocking);
         while ((null != record)) {
             retList.add(record);
             numRead++;
             if (numRead >= numLogRecords) {
                 break;
             }
-            record = readNext(shouldBlock);
+            record = readNext(nonBlocking);
         }
 
         return retList;

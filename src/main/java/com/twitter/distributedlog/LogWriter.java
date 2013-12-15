@@ -21,9 +21,10 @@ public interface LogWriter extends Closeable {
     /**
      * Write a list of log records to the stream.
      *
-     * @param record list of records
+     * @param records list of log records
      * @throws IOException
      */
+    @Deprecated
     public int writeBulk(List<LogRecord> records) throws IOException;
 
     /**

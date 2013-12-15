@@ -47,7 +47,7 @@ class MaxTxId {
      * can enforce the monotonically non-decreasing property
      * This is best effort as this enforcement is only done
      *
-     * @param maxTxId
+     * @param maxTxId - the maximum transaction id seen so far
      * @throws IOException
      */
     synchronized void store(long maxTxId) throws IOException {

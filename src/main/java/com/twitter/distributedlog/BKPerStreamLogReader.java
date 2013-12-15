@@ -17,8 +17,14 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,11 +32,14 @@ import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Stopwatch;
 
 /**
  * Input stream which reads from a BookKeeper ledger.
  */
-class BKPerStreamLogReader implements PerStreamLogReader {
+class BKPerStreamLogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
     private final String fullyQualifiedName;
@@ -43,17 +52,18 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     private LogRecord currLogRec;
     private DLSN startDLSN = null;
     private final boolean dontSkipControl;
+    protected final StatsLogger statsLogger;
     protected final boolean noBlocking;
-
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, boolean noBlocking) {
+    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, boolean noBlocking, StatsLogger statsLogger) {
         this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
+        this.statsLogger = statsLogger;
         this.isExhausted = false;
         this.dontSkipControl = false;
         this.noBlocking = noBlocking;
@@ -66,7 +76,7 @@ class BKPerStreamLogReader implements PerStreamLogReader {
      * every edit log transaction to find out what the last one is.
      */
     BKPerStreamLogReader(BKLogPartitionHandler handler, LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
-                         long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl)
+                         long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl, StatsLogger statsLogger)
         throws IOException {
         this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
@@ -74,13 +84,14 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
         this.noBlocking = false;
+        this.statsLogger = statsLogger;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking);
+        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking, statsLogger);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
@@ -101,13 +112,13 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         return this.ledgerDataAccessor;
     }
 
-    @Override
     public long getFirstTxId() {
         return firstTxId;
     }
 
-    @Override
-    public LogRecordWithDLSN readOp() throws IOException {
+    public LogRecordWithDLSN readOp(boolean nonBlocking) throws IOException {
+        boolean oldValue = lin.isNonBlocking();
+        lin.setNonBlocking(nonBlocking);
         LogRecordWithDLSN toRet = null;
         if (!isExhausted) {
             do {
@@ -115,10 +126,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
                 isExhausted = (toRet == null);
             } while ((toRet != null) && !dontSkipControl && toRet.isControl());
         }
+        lin.setNonBlocking(oldValue);
         return toRet;
     }
 
-    @Override
     public void close() throws IOException {
         try {
             getLedgerDataAccessor().closeLedger(getLedgerDescriptor());
@@ -130,12 +141,10 @@ class BKPerStreamLogReader implements PerStreamLogReader {
     }
 
 
-    @Override
     public long length() throws IOException {
         return getLedgerDataAccessor().getLength(getLedgerDescriptor());
     }
 
-    @Override
     public boolean isInProgress() {
         return inProgress;
     }
@@ -169,8 +178,13 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         private long currentSlotId = 0;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
-        private final boolean noBlocking;
         private final String fullyQualifiedName;
+        private boolean nonBlocking;
+        private static Counter getWithNoWaitCount = null;
+        private static Counter getWithWaitCount = null;
+        private static OpStatsLogger getWithNoWaitStat = null;
+        private static OpStatsLogger getWithWaitStat = null;
+        private static Counter illegalStateCount = null;
 
         /**
          * Construct ledger input stream
@@ -181,14 +195,36 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          */
         LedgerInputStream(String fullyQualifiedName,
                           LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, boolean noBlocking)
+                          long firstBookKeeperEntry, boolean nonBlocking, StatsLogger statsLogger)
             throws IOException {
             LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
             this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
-            this.noBlocking = noBlocking;
+            this.nonBlocking = nonBlocking;
+
+            StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
+
+            if (null == getWithWaitCount) {
+                getWithWaitCount = getEntryStatsLogger.getCounter("block");
+            }
+
+            if (null == getWithNoWaitCount) {
+                getWithNoWaitCount = getEntryStatsLogger.getCounter("no_block");
+            }
+
+            if (null == getWithNoWaitStat) {
+                getWithNoWaitStat = getEntryStatsLogger.getOpStatsLogger("no_block_latency");
+            }
+
+            if (null == getWithWaitStat) {
+                getWithWaitStat = getEntryStatsLogger.getOpStatsLogger("block_latency");
+            }
+
+            if (null == illegalStateCount) {
+                illegalStateCount = statsLogger.getCounter("illegal_state");
+            }
         }
 
         /**
@@ -198,44 +234,41 @@ class BKPerStreamLogReader implements PerStreamLogReader {
          * @return input stream, or null if no more entries
          */
         private InputStream nextStream() throws IOException {
-            try {
-                long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
-                if (readEntries > maxEntry) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace(fullyQualifiedName + ": Read Entries {} Max Entry {}", readEntries, maxEntry);
-                    }
+            long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
+            if (readEntries > maxEntry) {
+                LOG.debug("Read Entries {} Max Entry {}", readEntries, maxEntry);
+                return null;
+            }
+
+            readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
+            LedgerEntry e;
+            Stopwatch stopwatch = new Stopwatch().start();
+            if (nonBlocking) {
+                getWithNoWaitCount.inc();
+                e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
+                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                if (null == e) {
+                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                     return null;
                 }
-
-                readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
-                LedgerEntry e;
-                if (noBlocking) {
-                    e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
+            } else {
+                getWithWaitCount.inc();
+                try {
+                    e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
+                    getWithWaitStat.registerSuccessfulEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
                     if (null == e) {
-                        LOG.debug(fullyQualifiedName + ": Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                         return null;
                     }
-                } else {
-                    e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
+                } catch (IOException ioe) {
+                    getWithWaitStat.registerFailedEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
+                    throw ioe;
                 }
-                assert (e != null);
-                ledgerDataAccessor.remove(readPosition);
-                LOG.debug(fullyQualifiedName + ": Read Entry {}", readPosition.getEntryId());
-                readEntries++;
-                currentSlotId = 0;
-                return e.getEntryInputStream();
-            } catch (BKException bke) {
-                if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
-                    (ledgerDesc.isFenced() &&
-                        (bke.getCode() == BKException.Code.NoSuchEntryException))) {
-                    throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
-                }
-                LOG.info("Reached the end of the stream", bke);
-            } catch (Exception e) {
-                LOG.error(fullyQualifiedName + ": Error reading entries from bookkeeper");
-                throw new IOException(fullyQualifiedName + ": Error reading entries from bookkeeper", e);
             }
-            return null;
+            assert (e != null);
+            ledgerDataAccessor.remove(readPosition);
+            readEntries++;
+            currentSlotId = 0;
+            return e.getEntryInputStream();
         }
 
         @Override
@@ -251,30 +284,52 @@ class BKPerStreamLogReader implements PerStreamLogReader {
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
             try {
-                int read = 0;
+                return doRead(b, off, len);
+            } catch (ArrayIndexOutOfBoundsException e) {
+                illegalStateCount.inc();
+                StringBuilder sb = new StringBuilder();
+                sb.append("read(array=").append(b.length).append(", off=").append(off)
+                  .append(", len=").append(len).append("), remaining bytes in entry ")
+                  .append(readEntries).append(" of ").append(ledgerDesc).append(" is ");
+                if (entryStream instanceof ChannelBufferInputStream) {
+                    ChannelBufferInputStream cbis = (ChannelBufferInputStream) entryStream;
+                    sb.append(cbis.available());
+                } else {
+                    sb.append("null");
+                }
+                throw new DLIllegalStateException("IllegalState on " + sb.toString(), e);
+            }
+        }
+
+        private int doRead(byte[] b, int off, int len) throws IOException {
+            int read = 0;
+            if (entryStream == null) {
+                entryStream = nextStream();
                 if (entryStream == null) {
+                    return read;
+                }
+            }
+
+            while (read < len) {
+                int thisread = entryStream.read(b, off + read, (len - read));
+                if (thisread == -1) {
                     entryStream = nextStream();
                     if (entryStream == null) {
                         return read;
                     }
+                } else {
+                    read += thisread;
                 }
-
-                while (read < len) {
-                    int thisread = entryStream.read(b, off + read, (len - read));
-                    if (thisread == -1) {
-                        entryStream = nextStream();
-                        if (entryStream == null) {
-                            return read;
-                        }
-                    } else {
-                        read += thisread;
-                    }
-                }
-                return read;
-            } catch (IOException e) {
-                throw e;
             }
+            return read;
+        }
 
+        public void setNonBlocking(boolean nonBlocking) {
+            this.nonBlocking = nonBlocking;
+        }
+
+        public boolean isNonBlocking() {
+            return nonBlocking;
         }
 
         long nextEntryToRead() {

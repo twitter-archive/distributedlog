@@ -1,8 +1,6 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
-import java.util.Collection;
-import java.util.LinkedList;
 import java.util.List;
 
 
@@ -18,17 +16,18 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public void write(LogRecord record) throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId()).write(record);
+        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId(), 1).write(record);
     }
 
     /**
      * Write edits logs operation to the stream.
      *
-     * @param record list of records
+     * @param records list of records
      */
     @Override
     public int writeBulk(List<LogRecord> records) throws IOException {
-        return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, records.get(0).getTransactionId()).writeBulk(records);
+        return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
+                records.get(0).getTransactionId(), records.size()).writeBulk(records);
     }
 
     /**
@@ -40,7 +39,7 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
     @Override
     public void markEndOfStream() throws IOException {
         getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
-            DistributedLogConstants.MAX_TXID).markEndOfStream();
+            DistributedLogConstants.MAX_TXID, 0).markEndOfStream();
         closeAndComplete();
     }
 

@@ -74,7 +74,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     @Override
     public synchronized void write(LogRecord record, PartitionId partition) throws IOException {
         checkClosedOrInError("write");
-        getLedgerWriter(partition, record.getTransactionId()).write(record);
+        getLedgerWriter(partition, record.getTransactionId(), 1).write(record);
     }
 
     /**
@@ -87,7 +87,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
         checkClosedOrInError("writeBulk");
         int numRecords = 0;
         for (Map.Entry<PartitionId, List<LogRecord>> entry : records.entrySet()) {
-            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId()).writeBulk(entry.getValue());
+            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId(), records.size()).writeBulk(entry.getValue());
         }
         return numRecords;
     }
@@ -100,8 +100,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
             BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
             if (null != perStreamWriter && null != partitionHander) {
                 waitForTruncation();
-                Pair<Long, DLSN> lastPoint = perStreamWriter.closeToFinalize();
-                partitionHander.completeAndCloseLogSegment(lastPoint.getFirst(), lastPoint.getLast().getEntryId(), lastPoint.getLast().getSlotId());
+                partitionHander.completeAndCloseLogSegment(perStreamWriter);
                 partitionHander.close();
                 deletedStreams.add(streamIdentifier);
             }
