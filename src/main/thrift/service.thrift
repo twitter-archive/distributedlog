@@ -8,7 +8,8 @@ enum StatusCode {
     SUCCESS = 200,
 
     // 3xx: client must take additional action to complete the request.
-
+    // client closed.
+    CLIENT_CLOSED = 301,
     // found the stream in a different server, a redirection is required by client.
     FOUND = 302,
 
@@ -47,6 +48,13 @@ struct WriteResponse {
     2: optional string dlsn;
 }
 
+// Write Context
+struct WriteContext {
+    1: optional set<string> triedHosts;
+}
+
 service DistributedLogService {
-    WriteResponse write(string stream, binary data)
+    WriteResponse write(string stream, binary data);
+
+    WriteResponse writeWithContext(string stream, binary data, WriteContext ctx);
 }
