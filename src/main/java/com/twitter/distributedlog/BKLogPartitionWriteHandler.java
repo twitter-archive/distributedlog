@@ -598,8 +598,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     void purgeLogsOlderThanDLSN(final DLSN dlsn, BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
-        LOG.debug("Purging logs older than {} from {}", dlsn, logSegments);
-        List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size() - 1);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Purging logs older than {} from {} for {}",
+                    new Object[] { dlsn, logSegments, getFullyQualifiedName() });
+        }
+        List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
         if (DLSN.InvalidDLSN == dlsn) {
             callback.operationComplete(BKException.Code.OK, null);
             return;
@@ -618,8 +621,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                      final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         assert (minTimestampToKeep < Utils.nowInMillis());
         List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
-        final List<LogSegmentLedgerMetadata> purgeList =
-                new ArrayList<LogSegmentLedgerMetadata>(logSegments.size() - 1);
+        final List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
         boolean logTimestamp = true;
         for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
             LogSegmentLedgerMetadata l = logSegments.get(iterator);

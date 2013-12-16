@@ -218,8 +218,9 @@ public class TestDistributedLogServer {
                         ByteBuffer.wrap(("" + curTxId).getBytes())).get();
                 txid2DLSN.put(curTxId, dlsn);
             }
-            dlClient.release(name).get();
-            Thread.sleep(1000);
+            if (s == 1) {
+                dlClient.release(name).get();
+            }
         }
 
         DLSN dlsnToDelete = txid2DLSN.get(11L);
