@@ -68,4 +68,10 @@ service DistributedLogService {
     WriteResponse write(string stream, binary data);
 
     WriteResponse writeWithContext(string stream, binary data, WriteContext ctx);
+
+    WriteResponse truncate(string stream, string dlsn, WriteContext ctx);
+
+    WriteResponse release(string stream, WriteContext ctx);
+
+    WriteResponse delete(string stream, WriteContext ctx);
 }

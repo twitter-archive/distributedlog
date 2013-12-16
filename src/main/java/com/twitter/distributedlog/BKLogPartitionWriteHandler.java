@@ -598,6 +598,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     void purgeLogsOlderThanDLSN(final DLSN dlsn, BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        LOG.debug("Purging logs older than {} from {}", dlsn, logSegments);
         List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size() - 1);
         if (DLSN.InvalidDLSN == dlsn) {
             callback.operationComplete(BKException.Code.OK, null);

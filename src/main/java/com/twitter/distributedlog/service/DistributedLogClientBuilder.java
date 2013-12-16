@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.DLSN;
@@ -35,6 +36,7 @@ import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
+import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.net.SocketAddress;
@@ -107,6 +109,18 @@ public class DistributedLogClientBuilder {
     }
 
     /**
+     * Routing Service to access proxy services.
+     *
+     * @param routingService
+     *          routing service
+     * @return client builder.
+     */
+    DistributedLogClientBuilder routingService(RoutingService routingService) {
+        this._routingService = routingService;
+        return this;
+    }
+
+    /**
      * Stats receiver to expose client stats.
      *
      * @param statsReceiver
@@ -147,6 +161,31 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    /**
+     * Max redirects that is allowed per request. If <i>redirects</i> are
+     * exhausted, fail the request immediately.
+     *
+     * @param redirects
+     *          max redirects allowed before failing a request.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder maxRedirects(int redirects) {
+        this._clientConfig.setMaxRedirects(redirects);
+        return this;
+    }
+
+    /**
+     * Timeout per request in millis.
+     *
+     * @param timeoutMs
+     *          timeout per request in millis.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder requestTimeoutMs(int timeoutMs) {
+        this._clientConfig.setRequestTimeoutMs(timeoutMs);
+        return this;
+    }
+
     public DistributedLogClient build() {
         Preconditions.checkNotNull(_name, "No name provided.");
         Preconditions.checkNotNull(_clientId, "No client id provided.");
@@ -163,6 +202,26 @@ public class DistributedLogClientBuilder {
     static class ClientConfig {
         int redirectBackoffStartMs = 25;
         int redirectBackoffMaxMs = 100;
+        int maxRedirects = -1;
+        int requestTimeoutMs = -1;
+
+        ClientConfig setMaxRedirects(int maxRedirects) {
+            this.maxRedirects = maxRedirects;
+            return this;
+        }
+
+        int getMaxRedirects() {
+            return this.maxRedirects;
+        }
+
+        ClientConfig setRequestTimeoutMs(int timeoutInMillis) {
+            this.requestTimeoutMs = timeoutInMillis;
+            return this;
+        }
+
+        int getRequestTimeoutMs() {
+            return this.requestTimeoutMs;
+        }
 
         ClientConfig setRedirectBackoffStartMs(int ms) {
             this.redirectBackoffStartMs = ms;
@@ -198,7 +257,7 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        private final String name;
+        private final String clientName;
         private final ClientId clientId;
         private final ClientConfig clientConfig;
         private final RoutingService routingService;
@@ -299,31 +358,49 @@ public class DistributedLogClientBuilder {
             return stat;
         }
 
-        class WriteOp implements TimerTask {
+        abstract class StreamOp implements TimerTask {
             final String stream;
-            final ByteBuffer data;
-            final Promise<DLSN> result = new Promise<DLSN>();
+
+            final Promise<WriteResponse> result = new Promise<WriteResponse>();
             final AtomicInteger tries = new AtomicInteger(0);
             final WriteContext ctx = new WriteContext();
+            final Stopwatch stopwatch;
             SocketAddress nextAddressToSend;
 
-            WriteOp(final String stream, final ByteBuffer data) {
+            StreamOp(final String stream) {
                 this.stream = stream;
-                this.data = data;
+                this.stopwatch = new Stopwatch().start();
             }
 
-            synchronized void send(SocketAddress address) {
-                String addrStr = address.toString();
-                if (ctx.isSetTriedHosts() && ctx.getTriedHosts().contains(addrStr)) {
-                    nextAddressToSend = address;
-                    dlTimer.newTimeout(this,
-                            Math.min(clientConfig.getRedirectBackoffMaxMs(),
-                                    tries.get() * clientConfig.getRedirectBackoffStartMs()),
-                            TimeUnit.MILLISECONDS);
-                } else {
-                    doSend(address);
+            void send(SocketAddress address) {
+                long elapsedMs = stopwatch.elapsedMillis();
+                if (clientConfig.getMaxRedirects() > 0 &&
+                        tries.get() >= clientConfig.getMaxRedirects()) {
+                    fail(new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
+                            "Exhausted max redirects in " + elapsedMs + " ms"));
+                    return;
+                } else if (clientConfig.getRequestTimeoutMs() > 0 &&
+                        elapsedMs >= clientConfig.getRequestTimeoutMs()) {
+                    fail(new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
+                            "Exhausted max request timeout " + clientConfig.getRequestTimeoutMs()
+                                    + " in " + elapsedMs + " ms"));
+                    return;
+                }
+                synchronized (this) {
+                    String addrStr = address.toString();
+                    if (ctx.isSetTriedHosts() && ctx.getTriedHosts().contains(addrStr)) {
+                        nextAddressToSend = address;
+                        dlTimer.newTimeout(this,
+                                Math.min(clientConfig.getRedirectBackoffMaxMs(),
+                                        tries.get() * clientConfig.getRedirectBackoffStartMs()),
+                                TimeUnit.MILLISECONDS);
+                    } else {
+                        doSend(address);
+                    }
                 }
             }
+
+            abstract Future<WriteResponse> sendRequest(ServiceWithClient sc);
 
             void doSend(SocketAddress address) {
                 ctx.addToTriedHosts(address.toString());
@@ -331,12 +408,14 @@ public class DistributedLogClientBuilder {
                 sendWriteRequest(address, this);
             }
 
-            void complete(DLSN dlsn) {
+            void complete(WriteResponse response) {
+                stopwatch.stop();
                 redirectStat.add(tries.get());
-                result.setValue(dlsn);
+                result.setValue(response);
             }
 
             void fail(Throwable t) {
+                stopwatch.stop();
                 redirectStat.add(tries.get());
                 result.setException(t);
             }
@@ -351,13 +430,102 @@ public class DistributedLogClientBuilder {
             }
         }
 
+        class WriteOp extends StreamOp {
+
+            final ByteBuffer data;
+
+            WriteOp(final String name, final ByteBuffer data) {
+                super(name);
+                this.data = data;
+            }
+
+            @Override
+            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+                return sc.service.writeWithContext(stream, data, ctx);
+            }
+
+            Future<DLSN> result() {
+                return result.map(new AbstractFunction1<WriteResponse, DLSN>() {
+                    @Override
+                    public DLSN apply(WriteResponse response) {
+                        return DLSN.deserialize(response.getDlsn());
+                    }
+                });
+            }
+        }
+
+        class TruncateOp extends StreamOp {
+            final DLSN dlsn;
+
+            TruncateOp(String name, DLSN dlsn) {
+                super(name);
+                this.dlsn = dlsn;
+            }
+
+            @Override
+            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+                return sc.service.truncate(stream, dlsn.serialize(), ctx);
+            }
+
+            Future<Boolean> result() {
+                return result.map(new AbstractFunction1<WriteResponse, Boolean>() {
+                    @Override
+                    public Boolean apply(WriteResponse response) {
+                        return true;
+                    }
+                });
+            }
+        }
+
+        class ReleaseOp extends StreamOp {
+
+            ReleaseOp(String name) {
+                super(name);
+            }
+
+            @Override
+            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+                return sc.service.release(stream, ctx);
+            }
+
+            Future<Void> result() {
+                return result.map(new AbstractFunction1<WriteResponse, Void>() {
+                    @Override
+                    public Void apply(WriteResponse response) {
+                        return null;
+                    }
+                });
+            }
+        }
+
+        class DeleteOp extends StreamOp {
+
+            DeleteOp(String name) {
+                super(name);
+            }
+
+            @Override
+            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+                return sc.service.delete(stream, ctx);
+            }
+
+            Future<Void> result() {
+                return result.map(new AbstractFunction1<WriteResponse, Void>() {
+                    @Override
+                    public Void apply(WriteResponse v1) {
+                        return null;
+                    }
+                });
+            }
+        }
+
         private DistributedLogClientImpl(String name,
                                          ClientId clientId,
                                          RoutingService routingService,
                                          ClientBuilder clientBuilder,
                                          ClientConfig clientConfig,
                                          StatsReceiver statsReceiver) {
-            this.name = name;
+            this.clientName = name;
             this.clientId = clientId;
             this.routingService = routingService;
             this.clientConfig = clientConfig;
@@ -415,7 +583,7 @@ public class DistributedLogClientBuilder {
 
         private ClientBuilder getDefaultClientBuilder() {
             return ClientBuilder.get()
-                .name(name)
+                .name(clientName)
                 .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                 .hostConnectionLimit(10)
                 .connectionTimeout(Duration.fromSeconds(600))
@@ -424,7 +592,7 @@ public class DistributedLogClientBuilder {
         }
 
         private ClientBuilder setDefaultSettings(ClientBuilder builder) {
-            return builder.name(name)
+            return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                    .reportTo(statsReceiver);
         }
@@ -495,20 +663,45 @@ public class DistributedLogClientBuilder {
         @Override
         public Future<DLSN> write(String stream, ByteBuffer data) {
             final WriteOp op = new WriteOp(stream, data);
+            sendRequest(op);
+            return op.result();
+        }
+
+        @Override
+        public Future<Boolean> truncate(String stream, DLSN dlsn) {
+            final TruncateOp op = new TruncateOp(stream, dlsn);
+            sendRequest(op);
+            return op.result();
+        }
+
+        @Override
+        public Future<Void> delete(String stream) {
+            final DeleteOp op = new DeleteOp(stream);
+            sendRequest(op);
+            return op.result();
+        }
+
+        @Override
+        public Future<Void> release(String stream) {
+            final ReleaseOp op = new ReleaseOp(stream);
+            sendRequest(op);
+            return op.result();
+        }
+
+        private void sendRequest(final StreamOp op) {
             closeLock.readLock().lock();
             try {
                 if (closed) {
-                    op.fail(new DLClientClosedException("Client " + name + " is closed."));
+                    op.fail(new DLClientClosedException("Client " + clientName + " is closed."));
                 } else {
-                    doWrite(op, null);
+                    doSend(op, null);
                 }
             } finally {
                 closeLock.readLock().unlock();
             }
-            return op.result;
         }
 
-        private void doWrite(final WriteOp op, SocketAddress previousAddr) {
+        private void doSend(final StreamOp op, SocketAddress previousAddr) {
             // Get host first
             SocketAddress address = stream2Addresses.get(op.stream);
             if (null == address || address.equals(previousAddr)) {
@@ -528,96 +721,97 @@ public class DistributedLogClientBuilder {
             op.send(address);
         }
 
-        private void sendWriteRequest(final SocketAddress addr, final WriteOp op) {
+        private void sendWriteRequest(final SocketAddress addr, final StreamOp op) {
             // Get corresponding finagle client
             final ServiceWithClient sc = buildClient(addr);
             // write the request to that host.
-            sc.service.writeWithContext(op.stream, op.data, op.ctx).addEventListener(new FutureEventListener<WriteResponse>() {
+            op.sendRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
                 @Override
                 public void onSuccess(WriteResponse response) {
                     getResponseCounter(response.getHeader().getCode()).incr();
                     switch (response.getHeader().getCode()) {
-                    case SUCCESS:
-                        // update ownership
-                        SocketAddress oldAddr = stream2Addresses.putIfAbsent(op.stream, addr);
-                        if (null == oldAddr) {
-                            ownershipStat.onAdd();
-                            getOwnershipStat(op.stream).onAdd();
-                        } else if (!oldAddr.equals(addr)) {
-                            if (stream2Addresses.replace(op.stream, oldAddr, addr)) {
-                                // ownership changed
-                                ownershipStat.onRemove();
+                        case SUCCESS:
+                            // update ownership
+                            SocketAddress oldAddr = stream2Addresses.putIfAbsent(op.stream, addr);
+                            if (null == oldAddr) {
                                 ownershipStat.onAdd();
-                                getOwnershipStat(op.stream).onRemove();
                                 getOwnershipStat(op.stream).onAdd();
+                            } else if (!oldAddr.equals(addr)) {
+                                if (stream2Addresses.replace(op.stream, oldAddr, addr)) {
+                                    // ownership changed
+                                    ownershipStat.onRemove();
+                                    ownershipStat.onAdd();
+                                    getOwnershipStat(op.stream).onRemove();
+                                    getOwnershipStat(op.stream).onAdd();
+                                }
                             }
-                        }
-                        op.complete(DLSN.deserialize(response.getDlsn()));
-                        break;
-                    case FOUND:
-                        if (response.getHeader().isSetLocation()) {
-                            String owner = response.getHeader().getLocation();
-                            SocketAddress ownerAddr;
-                            try {
-                                ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
-                            } catch (IOException e) {
-                                // invalid owner
+                            op.complete(response);
+                            break;
+                        case FOUND:
+                            if (response.getHeader().isSetLocation()) {
+                                String owner = response.getHeader().getLocation();
+                                SocketAddress ownerAddr;
+                                try {
+                                    ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
+                                } catch (IOException e) {
+                                    // invalid owner
+                                    ownershipStat.onRedirect();
+                                    getOwnershipStat(op.stream).onRedirect();
+                                    doSend(op, addr);
+                                    return;
+                                }
+                                if (addr.equals(ownerAddr)) {
+                                    // throw the exception to the client
+                                    op.fail(new ServiceUnavailableException(
+                                            String.format("Request to stream %s is redirected to same server %s!",
+                                                    op.stream, addr)));
+                                    return;
+                                }
                                 ownershipStat.onRedirect();
                                 getOwnershipStat(op.stream).onRedirect();
-                                doWrite(op, addr);
-                                return;
+                                // redirect the request.
+                                if (!stream2Addresses.replace(op.stream, addr, ownerAddr)) {
+                                    // ownership already changed
+                                    SocketAddress newOwner = stream2Addresses.get(op.stream);
+                                    if (null == newOwner) {
+                                        SocketAddress newOwner2 = stream2Addresses.putIfAbsent(op.stream, ownerAddr);
+                                        if (null != newOwner2) {
+                                            ownerAddr = newOwner2;
+                                        }
+                                    } else {
+                                        ownerAddr = newOwner;
+                                    }
+                                }
+
+                                logger.debug("Redirect the request to new owner {}.", ownerAddr);
+                                op.send(ownerAddr);
+                            } else {
+                                // no owner found
+                                doSend(op, addr);
                             }
-                            if (addr.equals(ownerAddr)) {
-                                // throw the exception to the client
-                                op.fail(new ServiceUnavailableException(
-                                        String.format("Request to stream %s is redirected to same server %s!", op.stream, addr)));
-                                return;
+                            break;
+                        case SERVICE_UNAVAILABLE:
+                            // we are receiving SERVICE_UNAVAILABLE exception from proxy, it means proxy or the stream is closed
+                            // redirect the request.
+                            if (stream2Addresses.remove(op.stream, addr)) {
+                                ownershipStat.onRemove();
+                                getOwnershipStat(op.stream).onRemove();
                             }
                             ownershipStat.onRedirect();
                             getOwnershipStat(op.stream).onRedirect();
-                            // redirect the request.
-                            if (!stream2Addresses.replace(op.stream, addr, ownerAddr)) {
-                                // ownership already changed
-                                SocketAddress newOwner = stream2Addresses.get(op.stream);
-                                if (null == newOwner) {
-                                    SocketAddress newOwner2 = stream2Addresses.putIfAbsent(op.stream, ownerAddr);
-                                    if (null != newOwner2) {
-                                        ownerAddr = newOwner2;
-                                    }
-                                } else {
-                                    ownerAddr = newOwner;
-                                }
+                            doSend(op, addr);
+                            break;
+                        default:
+                            logger.error("Failed to write request to {} : {}", op.stream, response);
+                            // server side exceptions, throw to the client.
+                            // remove ownership to that host
+                            if (stream2Addresses.remove(op.stream, addr)) {
+                                ownershipStat.onRemove();
+                                getOwnershipStat(op.stream).onRemove();
                             }
-
-                            logger.debug("Redirect the request to new owner {}.", ownerAddr);
-                            op.send(ownerAddr);
-                        } else {
-                            // no owner found
-                            doWrite(op, addr);
-                        }
-                        break;
-                    case SERVICE_UNAVAILABLE:
-                        // we are receiving SERVICE_UNAVAILABLE exception from proxy, it means proxy or the stream is closed
-                        // redirect the request.
-                        if (stream2Addresses.remove(op.stream, addr)) {
-                            ownershipStat.onRemove();
-                            getOwnershipStat(op.stream).onRemove();
-                        }
-                        ownershipStat.onRedirect();
-                        getOwnershipStat(op.stream).onRedirect();
-                        doWrite(op, addr);
-                        break;
-                    default:
-                        logger.error("Failed to write request to {} : {}", op.stream, response);
-                        // server side exceptions, throw to the client.
-                        // remove ownership to that host
-                        if (stream2Addresses.remove(op.stream, addr)) {
-                            ownershipStat.onRemove();
-                            getOwnershipStat(op.stream).onRemove();
-                        }
-                        // throw the exception to the client
-                        op.fail(DLException.of(response.getHeader()));
-                        break;
+                            // throw the exception to the client
+                            op.fail(DLException.of(response.getHeader()));
+                            break;
                     }
                 }
 
@@ -628,7 +822,7 @@ public class DistributedLogClientBuilder {
                         op.fail(cause);
                     } else {
                         logger.error("Failed to write request to {} @ {} : {}",
-                                new Object[] { op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass() });
+                                new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
                         /** NOTE: we don't need to change ownership here. since it might be due to transient issue.
                          *        we don't need to remove the client, as retry will exclude this. if this is an transient issue,
                          *        it would retry the client again. if it is due to server is down, serverset will remove the client.
@@ -642,7 +836,7 @@ public class DistributedLogClientBuilder {
                         // remove this client
                         removeClient(addr, sc);
                         // do a retry
-                        doWrite(op, addr);
+                        doSend(op, addr);
                     }
                 }
             });

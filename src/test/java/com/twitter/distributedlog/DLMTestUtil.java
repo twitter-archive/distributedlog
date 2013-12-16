@@ -32,7 +32,7 @@ import static org.junit.Assert.assertEquals;
  * Utility class for setting up bookkeeper ensembles
  * and bringing individual bookies up and down
  */
-class DLMTestUtil {
+public class DLMTestUtil {
     protected static final Log LOG = LogFactory.getLog(DLMTestUtil.class);
     private final static byte[] payloadStatic = repeatString("abc", 512).getBytes();
 
@@ -56,6 +56,11 @@ class DLMTestUtil {
     static DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name) throws Exception {
         return DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
+    }
+
+    public static DistributedLogManager createNewDLM(String name, DistributedLogConfiguration conf,
+                                                     URI uri) throws Exception {
+        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri);
     }
 
     static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,

@@ -60,8 +60,7 @@ public class DistributedLogManagerProxyBuilder {
 
         @Override
         public Future<Boolean> truncate(DLSN dlsn) {
-            // TODO:
-            return Future.value(false);
+            return client.truncate(name, dlsn);
         }
 
         @Override

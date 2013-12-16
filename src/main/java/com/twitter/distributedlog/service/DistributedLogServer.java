@@ -2,8 +2,10 @@ package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.util.Pair;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
+import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientIdRequiredFilter;
@@ -94,17 +96,30 @@ public class DistributedLogServer implements Runnable {
             String providerClass = cmdline.getOptionValue("s");
             provider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
         }
-        runServer(dlConf, uri, provider,
-                  Integer.parseInt(cmdline.getOptionValue("p", "0")));
+        Pair<DistributedLogServiceImpl, Server>
+            serverPair = runServer(dlConf, uri, provider,
+                  Integer.parseInt(cmdline.getOptionValue("p", "0")),
+                  keepAliveLatch, statsReceiver);
+        this.dlService = serverPair.getFirst();
+        this.server = serverPair.getLast();
     }
 
-    void runServer(DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
+    static Pair<DistributedLogServiceImpl, Server> runServer(
+            DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
+        return runServer(dlConf, dlUri, provider, port,
+                         new CountDownLatch(0), new NullStatsReceiver());
+    }
+
+    static Pair<DistributedLogServiceImpl, Server> runServer(
+            DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port,
+            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
         // dl service
-        dlService = new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
+        DistributedLogServiceImpl dlService =
+                new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
         // starts dl server
-        server = ServerBuilder.safeBuild(
+        Server server = ServerBuilder.safeBuild(
                 new ClientIdRequiredFilter<byte[], byte[]>(statsReceiver.scope("service")).andThen(
                     new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory())),
                 ServerBuilder.get()
@@ -113,20 +128,25 @@ public class DistributedLogServer implements Runnable {
                         .reportTo(statsReceiver)
                         .bindTo(new InetSocketAddress(port)));
         logger.info("Started DistributedLog Server.");
+        return Pair.of(dlService, server);
+    }
+
+    static void closeServer(Pair<DistributedLogServiceImpl, Server> pair) {
+        if (null != pair.getFirst()) {
+            pair.getFirst().shutdown();
+        }
+        if (null != pair.getLast()) {
+            logger.info("Closing dl thrift server.");
+            pair.getLast().close();
+            logger.info("Closed dl thrift server.");
+        }
     }
 
     /**
      * Close the server.
      */
     public void close() {
-        if (null != dlService) {
-            dlService.shutdown();
-        }
-        if (null != server) {
-            logger.info("Closing dl thrift server.");
-            server.close();
-            logger.info("Closed dl thrift server.");
-        }
+        closeServer(Pair.of(dlService, server));
     }
 
     public void join() throws InterruptedException {
