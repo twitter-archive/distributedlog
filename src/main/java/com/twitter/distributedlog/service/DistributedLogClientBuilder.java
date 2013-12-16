@@ -8,6 +8,7 @@ import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -38,10 +39,14 @@ import scala.Option;
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DistributedLogClientBuilder {
@@ -49,6 +54,7 @@ public class DistributedLogClientBuilder {
     private String _name = null;
     private ClientId _clientId = null;
     private RoutingService _routingService = null;
+    private ClientBuilder _clientBuilder = null;
     private StatsReceiver _statsReceiver = new NullStatsReceiver();
     private final ClientConfig _clientConfig = new ClientConfig();
 
@@ -112,6 +118,11 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    public DistributedLogClientBuilder clientBuilder(ClientBuilder builder) {
+        this._clientBuilder = builder;
+        return this;
+    }
+
     /**
      * Backoff time when redirecting to an already retried host.
      *
@@ -143,8 +154,9 @@ public class DistributedLogClientBuilder {
         Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided.");
 
         DistributedLogClientImpl clientImpl =
-                new DistributedLogClientImpl(_name, _clientId, _routingService, _clientConfig, _statsReceiver);
+                new DistributedLogClientImpl(_name, _clientId, _routingService, _clientBuilder, _clientConfig, _statsReceiver);
         _routingService.startService();
+        clientImpl.handshake();
         return clientImpl;
     }
 
@@ -190,6 +202,7 @@ public class DistributedLogClientBuilder {
         private final ClientId clientId;
         private final ClientConfig clientConfig;
         private final RoutingService routingService;
+        private final ClientBuilder clientBuilder;
 
         // Timer
         private final HashedWheelTimer dlTimer;
@@ -341,6 +354,7 @@ public class DistributedLogClientBuilder {
         private DistributedLogClientImpl(String name,
                                          ClientId clientId,
                                          RoutingService routingService,
+                                         ClientBuilder clientBuilder,
                                          ClientConfig clientConfig,
                                          StatsReceiver statsReceiver) {
             this.name = name;
@@ -362,6 +376,57 @@ public class DistributedLogClientBuilder {
             redirectStat = redirectStatReceiver.stat0("times");
             responseStatsReceiver = statsReceiver.scope("responses");
             exceptionStatsReceiver = statsReceiver.scope("exceptions");
+
+            // client builder
+            if (null == clientBuilder) {
+                this.clientBuilder = getDefaultClientBuilder();
+            } else {
+                this.clientBuilder = setDefaultSettings(clientBuilder);
+            }
+        }
+
+        private ServerInfo handshake() {
+            Map<SocketAddress, ServiceWithClient> snapshot =
+                    new HashMap<SocketAddress, ServiceWithClient>(address2Services);
+            final CountDownLatch latch = new CountDownLatch(snapshot.size());
+            final AtomicReference<ServerInfo> result = new AtomicReference<ServerInfo>(null);
+            FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
+                @Override
+                public void onSuccess(ServerInfo value) {
+                    result.compareAndSet(null, value);
+                    latch.countDown();
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    latch.countDown();
+                }
+            };
+            for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
+                logger.info("Handshaking with {}", entry.getKey());
+                entry.getValue().service.handshake().addEventListener(listener);
+            }
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted on handshaking with servers : ", e);
+            }
+            return result.get();
+        }
+
+        private ClientBuilder getDefaultClientBuilder() {
+            return ClientBuilder.get()
+                .name(name)
+                .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
+                .hostConnectionLimit(10)
+                .connectionTimeout(Duration.fromSeconds(600))
+                .requestTimeout(Duration.fromSeconds(600))
+                .reportTo(statsReceiver);
+        }
+
+        private ClientBuilder setDefaultSettings(ClientBuilder builder) {
+            return builder.name(name)
+                   .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
+                   .reportTo(statsReceiver);
         }
 
         @Override
@@ -379,14 +444,7 @@ public class DistributedLogClientBuilder {
             if (null != sc) {
                 return sc;
             }
-            Service<ThriftClientRequest, byte[]> client = ClientBuilder.safeBuild(ClientBuilder.get()
-                    .name(name)
-                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
-                    .hosts(address)
-                    .hostConnectionLimit(10)
-                    .connectionTimeout(Duration.fromSeconds(600))
-                    .requestTimeout(Duration.fromSeconds(600))
-                    .reportTo(statsReceiver));
+            Service<ThriftClientRequest, byte[]> client = ClientBuilder.safeBuild(clientBuilder.hosts(address));
             DistributedLogService.ServiceIface service =
                     new DistributedLogService.ServiceToClient(client, new TBinaryProtocol.Factory());
             sc = new ServiceWithClient(client, service);
@@ -395,7 +453,8 @@ public class DistributedLogClientBuilder {
                 sc.client.close();
                 return oldSC;
             } else {
-                address2Services.put(address, sc);
+                // send a ping messaging after creating connections.
+                sc.service.handshake();
                 return sc;
             }
         }
@@ -579,9 +638,9 @@ public class DistributedLogClientBuilder {
                         if (stream2Addresses.remove(op.stream, addr)) {
                             ownershipRemoves.incr();
                         }
+                        **/
                         // remove this client
                         removeClient(addr, sc);
-                        **/
                         // do a retry
                         doWrite(op, addr);
                     }

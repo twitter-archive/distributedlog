@@ -53,7 +53,14 @@ struct WriteContext {
     1: optional set<string> triedHosts;
 }
 
+// Server Info
+struct ServerInfo {
+}
+
 service DistributedLogService {
+
+    ServerInfo handshake();
+
     WriteResponse write(string stream, binary data);
 
     WriteResponse writeWithContext(string stream, binary data, WriteContext ctx);

@@ -14,6 +14,7 @@ import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
+import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -649,6 +650,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         }
         counter.inc();
+    }
+
+    @Override
+    public Future<ServerInfo> handshake() {
+        return Future.value(new ServerInfo());
     }
 
     Stream getLogWriter(String stream) {
