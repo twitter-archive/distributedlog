@@ -147,6 +147,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     getFullyQualifiedName(), ie);
         }
 
+        // Schedule fetching ledgers list in background before we access it.
+        // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
+        scheduleGetLedgersTask(false, true);
+
         if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
             try {
                 clientId = InetAddress.getLocalHost().toString();
@@ -235,6 +239,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             currentLedger = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
+            String inprogressZnodeName = inprogressZNodeName(txId);
             String znodePath = inprogressZNode(txId);
 
             // For any active stream we will always make sure that there is at least one
@@ -272,6 +277,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             maxTxId.store(txId);
             currentLedgerStartTxId = txId;
+            addLogSegmentToCache(inprogressZnodeName, l);
             return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, ledgerSeqNo, executorService, statsLogger);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
@@ -395,6 +401,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(firstTxId);
+        String inprogressZnodeName = inprogressZNodeName(firstTxId);
         boolean acquiredLocally = false;
         try {
             Stat inprogressStat = zooKeeperClient.get().exists(inprogressPath, false);
@@ -432,6 +439,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
 
             lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId);
+            String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
@@ -449,6 +457,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
 
             zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
+            removeLogSegmentToCache(inprogressZnodeName);
+            addLogSegmentToCache(nameForCompletedLedger, l);
         } catch (InterruptedException e) {
             throw new IOException("Interrupted when finalising stream " + partitionRootPath, e);
         } catch (KeeperException.NoNodeException e) {
@@ -586,43 +596,49 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         purgeLogsOlderThanInternal(minTxIdToKeep);
     }
 
+    void purgeLogsOlderThanDLSN(final DLSN dlsn, BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
+        List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size() - 1);
+        if (DLSN.InvalidDLSN == dlsn) {
+            callback.operationComplete(BKException.Code.OK, null);
+            return;
+        }
+        for (int i = 0; i < logSegments.size() - 1; i++) {
+            LogSegmentLedgerMetadata l = logSegments.get(i);
+            if (!l.isInProgress() && l.getLastDLSN().compareTo(dlsn) < 0) {
+                LOG.info("Deleting log segment {} older than {}.", l, dlsn);
+                purgeList.add(l);
+            }
+        }
+        purgeLogs(purgeList, callback);
+    }
+
     void purgeLogsOlderThanTimestamp(final long minTimestampToKeep, final long sanityCheckThreshold,
                                      final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         assert (minTimestampToKeep < Utils.nowInMillis());
-        asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
-            @Override
-            public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
-                if (BKException.Code.OK != rc) {
-                    LOG.error("Failed to get ledger list to purge for {} : ", getFullyQualifiedName(),
-                        BKException.create(rc));
-                    callback.operationComplete(rc, null);
-                    return;
+        List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        final List<LogSegmentLedgerMetadata> purgeList =
+                new ArrayList<LogSegmentLedgerMetadata>(logSegments.size() - 1);
+        boolean logTimestamp = true;
+        for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
+            LogSegmentLedgerMetadata l = logSegments.get(iterator);
+            if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
+                if (logTimestamp) {
+                    LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
+                    logTimestamp = false;
                 }
 
-                final List<LogSegmentLedgerMetadata> purgeList =
-                        new ArrayList<LogSegmentLedgerMetadata>(result.size() - 1);
-                boolean logTimestamp = true;
-                for (int iterator = 0; iterator < (result.size() - 1); iterator++) {
-                    LogSegmentLedgerMetadata l = result.get(iterator);
-                    if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
-                        if (logTimestamp) {
-                            LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
-                            logTimestamp = false;
-                        }
-
-                        // Something went wrong - leave the ledger around for debugging
-                        //
-                        if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                            LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
-                        } else {
-                            purgeList.add(l);
-                        }
-                    }
+                // Something went wrong - leave the ledger around for debugging
+                //
+                if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
+                    LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
+                } else {
+                    purgeList.add(l);
                 }
-                // purge logs
-                purgeLogs(purgeList, callback);
             }
-        });
+        }
+        // purge logs
+        purgeLogs(purgeList, callback);
     }
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
@@ -702,6 +718,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                         callback.operationComplete(BKException.Code.ZKException, null);
                                         return;
                                     }
+                                    // purge log segment
+                                    removeLogSegmentToCache(completedLedgerZNodeName(ledgerMetadata.getFirstTxId(),
+                                            ledgerMetadata.getLastTxId()));
                                     callback.operationComplete(BKException.Code.OK, null);
                                 }
                             }, null);
@@ -778,6 +797,24 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                 long endTxId) {
         return String.format("%s/logrecs_%018d_%018d",
             ledgerPath, startTxId, endTxId);
+    }
+
+    /**
+     * Get the znode name for a finalize ledger
+     */
+    String completedLedgerZNodeName(long startTxId, long endTxId) {
+        return String.format("logrecs_%018d_%018d", startTxId, endTxId);
+    }
+
+    /**
+     * Get the name of the inprogress znode.
+     *
+     * @param startTxid
+     *          start txn id.
+     * @return name of the inprogress znode.
+     */
+    String inprogressZNodeName(long startTxid) {
+        return "inprogress_" + Long.toString(startTxid, 16);
     }
 
     /**

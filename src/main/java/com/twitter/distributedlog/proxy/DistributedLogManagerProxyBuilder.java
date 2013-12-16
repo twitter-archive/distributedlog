@@ -59,6 +59,12 @@ public class DistributedLogManagerProxyBuilder {
         }
 
         @Override
+        public Future<Boolean> truncate(DLSN dlsn) {
+            // TODO:
+            return Future.value(false);
+        }
+
+        @Override
         public Future<DLSN> write(LogRecord record) {
             return client.write(name, ByteBuffer.wrap(record.getPayload()));
         }

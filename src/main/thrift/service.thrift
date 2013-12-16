@@ -30,6 +30,10 @@ enum StatusCode {
     SERVICE_UNAVAILABLE = 503,
     // Locking exception
     LOCKING_EXCEPTION = 504,
+    // ZooKeeper Errors
+    ZOOKEEPER_ERROR = 505,
+    // Metadata exception
+    METADATA_EXCEPTION = 506,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

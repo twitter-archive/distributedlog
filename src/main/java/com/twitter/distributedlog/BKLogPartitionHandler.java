@@ -488,6 +488,19 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
     // Ledgers Related Functions
 
+    protected List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator) {
+        List<LogSegmentLedgerMetadata> segmentsToReturn;
+        synchronized (logSegments) {
+            segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+            segmentsToReturn.addAll(logSegments.values());
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Cached log segments : {}", segmentsToReturn);
+            }
+        }
+        Collections.sort(segmentsToReturn, comparator);
+        return segmentsToReturn;
+    }
+
     protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean throwOnEmpty) throws IOException {
         return getLedgerList(forceFetch, LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
     }
@@ -513,16 +526,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                 scheduleGetLedgersTask(true, true);
             }
             waitFirstGetLedgersTaskToFinish();
-            List<LogSegmentLedgerMetadata> segmentsToReturn;
-            synchronized (logSegments) {
-                segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-                segmentsToReturn.addAll(logSegments.values());
-                if (LOG.isTraceEnabled()) {
-                    LOG.trace("Cached log segments : {}", segmentsToReturn);
-                }
-            }
-            Collections.sort(segmentsToReturn, comparator);
-            return segmentsToReturn;
+            return getCachedLedgerList(comparator);
         }
     }
 

@@ -14,4 +14,14 @@ public interface AsyncLogWriter extends Closeable {
      * or an exception if the write fails
      */
     public Future<DLSN> write(LogRecord record);
+
+    /**
+     * Truncate the log until <i>dlsn</i>.
+     *
+     * @param dlsn
+     *          dlsn to truncate until.
+     * @return A Future indicates whether the operation succeeds or not, or an exception
+     * if the truncation fails.
+     */
+    public Future<Boolean> truncate(DLSN dlsn);
 }
