@@ -142,16 +142,22 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     }
 
     public void process(WatchedEvent event) {
-        if (event.getType() == Watcher.Event.EventType.None) {
+        if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
+            nodeDeleteNotification.set(true);
+            LOG.debug("Node Deleted");
+            return;
+        } else if (event.getType() == Watcher.Event.EventType.None) {
             if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
                 LOG.debug("Reconnected ...");
             } else if (event.getState() == Watcher.Event.KeeperState.Expired) {
-                watchSet.set(false);
+                LOG.info("ZK Session Expired");
             }
-        } else if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
-            nodeDeleteNotification.set(true);
-            LOG.debug("Node Deleted");
+        } else {
+            LOG.warn("Unexpected Watch {} Received for node {}", event, zkPath);
         }
+        // Except when the node has been deleted, require the next resume call to
+        // reset the watch as it may have been cleared by this invocation
+        watchSet.set(false);
     }
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
