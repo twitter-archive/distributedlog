@@ -10,23 +10,32 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import com.google.common.util.concurrent.RateLimiter;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.ZooKeeper;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 public class TestInterleavedReaders {
-    static final Log LOG = LogFactory.getLog(TestBookKeeperDistributedLogManager.class);
+    static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
@@ -342,6 +351,122 @@ public class TestInterleavedReaders {
         assert(!exceptionEncountered);
         assert(!currentThread.isInterrupted());
         reader.close();
+    }
+
+    static class ReaderThread extends Thread {
+
+        final LogReader reader;
+        final boolean nonBlockReading;
+        volatile boolean running = true;
+        final AtomicInteger readCount = new AtomicInteger(0);
+
+        ReaderThread(String name, LogReader reader, boolean nonBlockReading) {
+            super(name);
+            this.reader = reader;
+            this.nonBlockReading = nonBlockReading;
+        }
+
+        @Override
+        public void run() {
+            while (running) {
+                try {
+                    LogRecord r = reader.readNext(nonBlockReading);
+                    if (r != null) {
+                        readCount.incrementAndGet();
+                        if (readCount.get() % 1000 == 0) {
+                            LOG.info("{} reading {}", getName(), r.getTransactionId());
+                        }
+                    }
+                } catch (DLInterruptedException die) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException e) {
+                    break;
+                }
+            }
+        }
+
+        void stopReading() {
+            LOG.info("Stopping reader {}.");
+            running = false;
+            interrupt();
+            try {
+                join();
+            } catch (InterruptedException e) {
+                LOG.error("Interrupted on waiting reader thread {} exiting : ", getName(), e);
+            }
+        }
+
+        int getReadCount() {
+            return readCount.get();
+        }
+
+    }
+
+    @Test
+    public void testMultiReaders() throws Exception {
+        String name = "distrlog-multireaders";
+        final RateLimiter limiter = RateLimiter.create(1000);
+        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+
+        final LogWriter writer = dlmwrite.startLogSegmentNonPartitioned();
+        writer.write(DLMTestUtil.getLogRecordInstance(0));
+        final AtomicInteger writeCount = new AtomicInteger(1);
+
+        DistributedLogManager dlmread = DLMTestUtil.createNewDLM(conf, name);
+
+        LogReader reader0 = dlmread.getInputStream(0);
+
+        ReaderThread[] readerThreads = new ReaderThread[2];
+        readerThreads[0] = new ReaderThread("reader0-non-blocking", reader0, false);
+        readerThreads[1] = new ReaderThread("reader1-non-blocking", reader0, false);
+
+        final AtomicBoolean running = new AtomicBoolean(true);
+        Thread writerThread = new Thread("WriteThread") {
+            @Override
+            public void run() {
+                long txid = 1;
+                while (running.get()) {
+                    limiter.acquire();
+                    try {
+                        long curTxId = txid++;
+                        writer.write(DLMTestUtil.getLogRecordInstance(curTxId));
+                        writeCount.incrementAndGet();
+                        if (curTxId % 1000 == 0) {
+                            LOG.info("writer write {}", curTxId);
+                        }
+                    } catch (DLInterruptedException die) {
+                        Thread.currentThread().interrupt();
+                    } catch (IOException e) {
+                        break;
+                    }
+                }
+            }
+        };
+
+        for (ReaderThread rt : readerThreads) {
+            rt.start();
+        }
+
+        writerThread.start();
+
+        TimeUnit.SECONDS.sleep(20);
+
+        LOG.info("Stopping writer");
+
+        running.set(false);
+        writerThread.join();
+
+        writer.flushAndSync();
+
+        TimeUnit.SECONDS.sleep(10);
+
+        assertEquals(writeCount.get() / 1000,
+            (readerThreads[0].getReadCount() + readerThreads[1].getReadCount()) / 1000);
+
+        writer.close();
+        dlmwrite.close();
+        reader0.close();
+        dlmread.close();
     }
 
     @Test

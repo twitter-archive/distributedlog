@@ -37,5 +37,6 @@ public interface LogReader extends Closeable {
      * Read the last transaction id
      * @return the last transaction Id that was successfully returned or consumed by the reader
      */
+    //@Deprecated
     //public long getLastTxId();
 }

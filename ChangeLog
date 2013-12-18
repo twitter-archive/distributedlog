@@ -1,3 +1,10 @@
+0.2.11
+------
+- Allow specifying the number of threads used by BookKeeper Client
+- Share Channel Socket Factory
+- Fix the handling of the watch on resume
+- Require calls in the Reader to be synchronized
+
 0.2.10
 ------
 - Diagnostics and IllegalState Exception

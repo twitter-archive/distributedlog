@@ -52,7 +52,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      * @throws IOException if an error occurred while closing
      */
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
         try {
             if (null != currentReader) {
                 currentReader.close();
@@ -73,7 +73,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException {
+    public synchronized LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException {
         if (nonBlocking && !readAheadEnabled) {
             throw new IllegalArgumentException("Non blocking semantics require read-ahead");
         }
@@ -153,7 +153,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public List<LogRecordWithDLSN> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
+    public synchronized List<LogRecordWithDLSN> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
         LinkedList<LogRecordWithDLSN> retList = new LinkedList<LogRecordWithDLSN>();
 
         int numRead = 0;

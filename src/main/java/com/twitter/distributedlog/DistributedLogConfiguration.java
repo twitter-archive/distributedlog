@@ -109,6 +109,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BKCLIENT_WRITE_TIMEOUT = "bkcWriteTimeoutSeconds";
     public static final int BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT = 10;
 
+    public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
+    public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -583,6 +586,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setBKClientReadTimeout(int readTimeout) {
         setProperty(BKDL_BKCLIENT_READ_TIMEOUT, readTimeout);
+        return this;
+    }
+
+    /**
+     * Get BK client number of worker threads.
+     *
+     * @return number of bookkeeper client worker threads.
+     */
+    public int getBKClientNumberWorkerThreads() {
+        return this.getInt(BKDL_BKCLIENT_NUM_WORKER_THREADS, BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT);
+    }
+
+    /**
+     * Set BK client number of worker threads.
+     *
+     * @param numThreads
+     *          number worker threads.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setBKClientNumberWorkerThreads(int numThreads) {
+        setProperty(BKDL_BKCLIENT_NUM_WORKER_THREADS, numThreads);
         return this;
     }
 

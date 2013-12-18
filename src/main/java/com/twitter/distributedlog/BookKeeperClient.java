@@ -7,6 +7,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
+import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,37 +25,43 @@ class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier
     private Watcher sessionExpireWatcher = null;
     private AtomicBoolean zkSessionExpired = new AtomicBoolean(false);
 
-    private synchronized void commonInitialization(DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
-                                      StatsLogger statsLogger)
+    private synchronized void commonInitialization(
+            DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
+            ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         ClientConfiguration bkConfig = new ClientConfiguration();
         bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
         bkConfig.setReadTimeout(conf.getBKClientReadTimeout());
         bkConfig.setZkLedgersRootPath(bkdlConfig.getBkLedgersPath());
         bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
-        this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
+        bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
+        if (null == channelFactory) {
+            this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
+        } else {
+            this.bkc = new BookKeeper(bkConfig, zkc.get(), channelFactory, statsLogger);
+        }
         refCount = 1;
         sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, String name,
-                     StatsLogger statsLogger)
+                     ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
         this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers());
         this.ownZK = true;
         this.name = name;
-        commonInitialization(conf, bkdlConfig, statsLogger);
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger);
         LOG.info("BookKeeper Client created {} with its own ZK Client", name);
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,
-                     String name, StatsLogger statsLogger)
+                     String name, ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         this.zkc = zkc;
         this.ownZK = false;
         this.name = name;
-        commonInitialization(conf, bkdlConfig, statsLogger);
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger);
         LOG.info("BookKeeper Client created {} with shared zookeeper client", name);
     }
 

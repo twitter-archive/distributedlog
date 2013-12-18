@@ -10,6 +10,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
+import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,8 +40,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
         this(name, conf, uri, zkcBuilder, bkcBuilder,
-                Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-                statsLogger);
+            Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+            null, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -48,6 +49,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   ClientSocketChannelFactory channelFactory,
                                    StatsLogger statsLogger) throws IOException {
         super(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
         this.conf = conf;
@@ -66,7 +68,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
-                        .statsLogger(statsLogger);
+                        .channelFactory(channelFactory).statsLogger(statsLogger);
             } else {
                 this.bookKeeperClientBuilder = bkcBuilder;
             }
