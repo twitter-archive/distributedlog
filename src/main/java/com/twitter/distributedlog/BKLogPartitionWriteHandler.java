@@ -480,7 +480,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     // release the lock and have complete and close only release the lock
                     // that's acquired in start log segment
                     completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recordCount, false);
-                    LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
+                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}", new Object[]{getFullyQualifiedName(), l.getFirstTxId(), endTxId});
 
                 }
                 if (lastLedgerRollingTimeMillis < 0) {

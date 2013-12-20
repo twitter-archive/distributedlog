@@ -32,7 +32,7 @@ public class LedgerDataAccessor {
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
-    private BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker = null;
+    private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
         this(ledgerHandleCache, NullStatsLogger.INSTANCE);
@@ -46,8 +46,8 @@ public class LedgerDataAccessor {
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
     }
 
-    public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadWorker, long maxEntries) {
-        this.readAheadWorker = readAheadWorker;
+    public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
+        this.readAheadCallback = readAheadCallback;
         if (getNumCacheEntries() < maxEntries) {
             invokeReadAheadCallback();
         }
@@ -84,7 +84,17 @@ public class LedgerDataAccessor {
     public LedgerEntry getWithWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
         throws IOException {
         try {
-            if (readAheadEnabled) {
+            boolean shouldWait = readAheadEnabled;
+
+            // Read Ahead is completing the read after the foreground reader
+            // Don't add the entry to the cache
+            LedgerReadPosition removeKey = lastRemovedKey.get();
+            if ((null != removeKey) && (removeKey.getLedgerId() == key.getLedgerId()) &&
+                (removeKey.getEntryId() >= key.getEntryId())) {
+                shouldWait = false;
+            }
+
+            if (shouldWait) {
                 ReadAheadCacheValue newValue = new ReadAheadCacheValue();
                 ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
                 if (null == value) {
@@ -152,7 +162,14 @@ public class LedgerDataAccessor {
     }
 
     public void remove(LedgerReadPosition key) {
-        lastRemovedKey.set(key);
+        // Only the foreground reader should call this method and repositioning should never happen
+        // in the previous ledger as once the ledger has been advanced at least one entry from the
+        // new ledger has already been read
+        LedgerReadPosition removeKey = lastRemovedKey.get();
+        if ((null == removeKey) || (removeKey.getLedgerId() != key.getLedgerId()) ||
+            (removeKey.getEntryId() < key.getEntryId())) {
+            lastRemovedKey.set(key);
+        }
         removeInternal(key);
     }
 
@@ -196,12 +213,12 @@ public class LedgerDataAccessor {
     }
 
     private synchronized void invokeReadAheadCallback() {
-        if (null != readAheadWorker) {
+        if (null != readAheadCallback) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Cache has space, schedule the read ahead");
             }
-            readAheadWorker.submit(readAheadWorker);
-            readAheadWorker = null;
+            readAheadCallback.resumeReadAhead();
+            readAheadCallback = null;
         }
     }
 

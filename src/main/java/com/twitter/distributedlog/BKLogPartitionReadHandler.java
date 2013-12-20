@@ -168,6 +168,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    static interface ReadAheadCallback {
+        void resumeReadAhead();
+    }
+
     /**
      * ReadAhead Worker process readahead in asynchronous way. The whole readahead process are chained into
      * different phases:
@@ -192,7 +196,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      * Exceptions Handling Phase: Handle all the exceptions and properly schedule next readahead request.
      * </p>
      */
-    class ReadAheadWorker implements Runnable, Watcher {
+    class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
         private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
@@ -246,6 +250,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         public void stop() {
             running = false;
 
+        }
+
+        @Override
+        public void resumeReadAhead() {
+            submit(this);
         }
 
         void submit(Runnable runnable) {

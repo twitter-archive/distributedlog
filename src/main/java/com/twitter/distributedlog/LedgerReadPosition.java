@@ -7,15 +7,6 @@ public class LedgerReadPosition {
     long ledgerId;
     long entryId;
 
-    public LedgerReadPosition() {
-        this(0, 0);
-    }
-
-    public LedgerReadPosition(LedgerReadPosition that) {
-        this.ledgerId = that.ledgerId;
-        this.entryId = that.entryId;
-    }
-
     public LedgerReadPosition(long ledgerId, long entryId) {
         this.ledgerId = ledgerId;
         this.entryId = entryId;

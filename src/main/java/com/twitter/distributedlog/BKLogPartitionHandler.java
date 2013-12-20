@@ -319,6 +319,7 @@ abstract class BKLogPartitionHandler {
             long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
 
             if (scanStartPoint < 0) {
+                LOG.debug("Ledger is empty {}", l.getLedgerId());
                 // Ledger is empty
                 return null;
             }
