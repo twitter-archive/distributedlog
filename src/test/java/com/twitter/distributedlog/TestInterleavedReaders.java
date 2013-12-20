@@ -300,11 +300,10 @@ public class TestInterleavedReaders {
                 @Override
                 public void run() {
                     try {
-                        long txid = 1;
                         for (long i = 0; i < 3; i++) {
                             BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
                             for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
-                                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+                                writer.write(DLMTestUtil.getLogRecordInstance(System.nanoTime()));
                             }
                             writer.closeAndComplete();
                         }
@@ -417,21 +416,23 @@ public class TestInterleavedReaders {
         Thread writerThread = new Thread("WriteThread") {
             @Override
             public void run() {
-                long txid = 1;
-                while (running.get()) {
-                    limiter.acquire();
-                    try {
-                        long curTxId = txid++;
-                        writer.write(DLMTestUtil.getLogRecordInstance(curTxId));
-                        writeCount.incrementAndGet();
-                        if (curTxId % 1000 == 0) {
-                            LOG.info("writer write {}", curTxId);
-                        }
-                    } catch (DLInterruptedException die) {
-                        Thread.currentThread().interrupt();
-                    } catch (IOException e) {
-                        break;
+                try {
+                    long txid = 1;
+                    while (running.get()) {
+                        limiter.acquire();
+                            long curTxId = txid++;
+                            writer.write(DLMTestUtil.getLogRecordInstance(curTxId));
+                            writeCount.incrementAndGet();
+                            if (curTxId % 1000 == 0) {
+                                LOG.info("writer write {}", curTxId);
+                            }
                     }
+                    writer.setReadyToFlush();
+                    writer.flushAndSync();
+                } catch (DLInterruptedException die) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException e) {
+
                 }
             }
         };
@@ -449,12 +450,10 @@ public class TestInterleavedReaders {
         running.set(false);
         writerThread.join();
 
-        writer.flushAndSync();
-
         TimeUnit.SECONDS.sleep(10);
 
-        assertEquals(writeCount.get() / 1000,
-            (readerThreads[0].getReadCount() + readerThreads[1].getReadCount()) / 1000);
+        assertEquals(writeCount.get(),
+            (readerThreads[0].getReadCount() + readerThreads[1].getReadCount()));
 
         writer.close();
         dlmwrite.close();
