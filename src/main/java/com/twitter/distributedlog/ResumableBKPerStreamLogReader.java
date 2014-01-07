@@ -109,6 +109,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             LedgerDescriptor h = ledgerDescriptor;
             if (null == ledgerDescriptor){
                 h = ledgerManager.getHandleCache().openLedger(ledgerId, !isInProgress());
+                positionInputStream(h, ledgerDataAccessor, startBkEntry);
             }  else {
                 startBkEntry = lin.nextEntryToRead();
                 if(nodeDeleteNotification.compareAndSet(true, false)) {
@@ -119,6 +120,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                     LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry,
                         ledgerManager.getHandleCache().getLastAddConfirmed(h));
                     inProgress = false;
+                    positionInputStream(h, ledgerDataAccessor, startBkEntry);
                 } else if (isInProgress()) {
                     if (shouldReadLAC && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor))) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
@@ -127,7 +129,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                 }
             }
 
-            positionInputStream(h, ledgerDataAccessor, startBkEntry);
+            resetExhausted();
             shouldResume = false;
         } catch (IOException e) {
             LOG.error("Could not open ledger {}", ledgerId, e);

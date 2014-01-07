@@ -78,6 +78,7 @@ class BKPerStreamLogReader {
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
         this.statsLogger = statsLogger;
+        this.isExhausted = false;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
@@ -90,11 +91,14 @@ class BKPerStreamLogReader {
                 // Size the buffer only as much look ahead we need for skipping
                 DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
             logVersion);
-        this.isExhausted = false;
         // Note: The caller of the function (or a derived class is expected to open the
         // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
+    }
+
+    protected synchronized void resetExhausted() {
+        this.isExhausted = false;
     }
 
     protected synchronized LedgerDescriptor getLedgerDescriptor() {
