@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -15,6 +16,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -32,6 +34,7 @@ public class LedgerDataAccessor {
     private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
     private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
+    private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
@@ -44,6 +47,29 @@ public class LedgerDataAccessor {
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
+        //Number of entries in the cache
+        readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return getNumCacheEntries();
+            }
+        });
+        readAheadStatsLogger.registerGauge("num_cache_bytes", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return cacheBytes.get();
+            }
+        });
     }
 
     public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
@@ -155,7 +181,12 @@ public class LedgerDataAccessor {
         if (null == value) {
             value = newValue;
         }
+
         synchronized (value) {
+            if (null == value.getLedgerEntry()) {
+                cacheBytes.addAndGet(entry.getLength());
+            }
+
             value.setLedgerEntry(entry);
             value.notifyAll();
         }
@@ -174,8 +205,13 @@ public class LedgerDataAccessor {
     }
 
     public void removeInternal(LedgerReadPosition key) {
-
-        if (null != cache.remove(key)) {
+        ReadAheadCacheValue value = cache.remove(key);
+        if (null != value) {
+            // If this is a synchronization place holder that was added by
+            // getWithWait then the entry may be null
+            if (null != value.getLedgerEntry()) {
+                cacheBytes.addAndGet(-value.getLedgerEntry().getLength());
+            }
             invokeReadAheadCallback();
         }
     }
