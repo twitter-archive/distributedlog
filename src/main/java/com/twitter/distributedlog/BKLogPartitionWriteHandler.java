@@ -392,7 +392,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + l.getFirstTxId() + " found, " + firstTxId + " expected");
             }
 
-            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, recordCount);
+            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId,
+                    conf.getEnableRecordCounts() ? recordCount : 0);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
