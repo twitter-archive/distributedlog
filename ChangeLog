@@ -20,3 +20,7 @@
 - Add support to count the number of log records in the stream
 - Propagate InterruptedException to the client
 - ZK Client Fixes
+
+0.3.6
+-----
+- Expose DistributedLog Client Builder in Proxy Builder
