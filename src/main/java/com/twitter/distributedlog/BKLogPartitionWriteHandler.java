@@ -108,13 +108,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     Utils.zkCreateFullPathOptimistic(zooKeeperClient, partitionRootPath, new byte[]{'0'},
                         ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-
-                    // HACK: Temporary for the test configuration used by test
-                    try {
-                        Thread.sleep(150);
-                    } catch (Exception exc) {
-                        // Ignore everything
-                    }
                 } catch (KeeperException.NodeExistsException exc) {
                     LOG.debug("Race on node creation, clean retry");
                 }
