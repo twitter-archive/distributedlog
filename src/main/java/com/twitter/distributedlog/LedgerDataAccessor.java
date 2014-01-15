@@ -10,11 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,12 +26,12 @@ public class LedgerDataAccessor {
     //
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
+    private int readAheadBatchSize = 1;
     private final LedgerHandleCache ledgerHandleCache;
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
-    private final ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue> cache = new ConcurrentHashMap<LedgerReadPosition, ReadAheadCacheValue>();
-    private HashSet<Long> cachedLedgerIds = new HashSet<Long>();
+    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
@@ -46,7 +46,7 @@ public class LedgerDataAccessor {
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
-        //Number of entries in the cache
+        //Number of entries in the readAheadCache
         readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
             @Override
             public Number getDefaultValue() {
@@ -78,9 +78,10 @@ public class LedgerDataAccessor {
         }
     }
 
-    public void setReadAheadEnabled(boolean enabled, int waitTime) {
+    public void setReadAheadEnabled(boolean enabled, int waitTime, int batchSize) {
         readAheadEnabled = enabled;
         readAheadWaitTime = waitTime;
+        readAheadBatchSize = batchSize;
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
@@ -102,7 +103,7 @@ public class LedgerDataAccessor {
             boolean shouldWaitForReadAhead = readAheadEnabled;
 
             // Read Ahead is completing the read after the foreground reader
-            // Don't add the entry to the cache
+            // Don't add the entry to the readAheadCache
             if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
                 shouldWaitForReadAhead = false;
             }
@@ -111,19 +112,27 @@ public class LedgerDataAccessor {
                 if (nonBlocking) {
                     // If its a non blocking call then we simply return if the read ahead hasn't read
                     // up to this point, we will read the data on subsequent calls
-                    ReadAheadCacheValue value = cache.get(key);
+                    ReadAheadCacheValue value;
+                    synchronized(readAheadCache) {
+                        value = readAheadCache.get(key);
+                    }
                     if ((null == value) || (null == value.getLedgerEntry())) {
                         return null;
                     } else {
-                        LOG.trace("Read-ahead cache hit for non blocking read");
+                        LOG.trace("Read-ahead readAheadCache hit for non blocking read");
                         return value.getLedgerEntry();
                     }
                 } else {
                     ReadAheadCacheValue newValue = new ReadAheadCacheValue();
-                    ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
-                    if (null == value) {
-                        value = newValue;
+                    ReadAheadCacheValue value;
+                    synchronized(readAheadCache) {
+                        value = readAheadCache.get(key);
+                        if (null == value) {
+                            readAheadCache.put(key, newValue);
+                            value = newValue;
+                        }
                     }
+
                     synchronized (value) {
                         if (null == value.getLedgerEntry()) {
                             value.wait(readAheadWaitTime);
@@ -137,7 +146,7 @@ public class LedgerDataAccessor {
 
                     readAheadMisses.inc();
                     if ((readAheadMisses.get() % 1000) == 0) {
-                        LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
+                        LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
                     }
                 }
             }
@@ -165,18 +174,20 @@ public class LedgerDataAccessor {
 
     public void set(LedgerReadPosition key, LedgerEntry entry) {
         // Read Ahead is completing the read after the foreground reader
-        // Don't add the entry to the cache
+        // Don't add the entry to the readAheadCache
         if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
             return;
         }
 
         ReadAheadCacheValue newValue = new ReadAheadCacheValue();
-        ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
-        if (!cachedLedgerIds.contains(key.getLedgerId())) {
-            cachedLedgerIds.add(key.getLedgerId());
-        }
-        if (null == value) {
-            value = newValue;
+
+        ReadAheadCacheValue value;
+        synchronized(readAheadCache) {
+            value = readAheadCache.get(key);
+            if (null == value) {
+                readAheadCache.put(key, newValue);
+                value = newValue;
+            }
         }
 
         synchronized (value) {
@@ -199,12 +210,16 @@ public class LedgerDataAccessor {
         // we have been positioned on the next ledger.
         if (!key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
             lastRemovedKey.set(key);
+            purgeReadAheadCache(lastRemovedKey.get());
         }
         removeInternal(key);
     }
 
     public void removeInternal(LedgerReadPosition key) {
-        ReadAheadCacheValue value = cache.remove(key);
+        ReadAheadCacheValue value;
+        synchronized(readAheadCache) {
+            value = readAheadCache.remove(key);
+        }
         if (null != value) {
             // If this is a synchronization place holder that was added by
             // getWithWait then the entry may be null
@@ -216,29 +231,29 @@ public class LedgerDataAccessor {
     }
 
     public int getNumCacheEntries() {
-        return cache.size();
+        synchronized(readAheadCache) {
+            return readAheadCache.size();
+        }
     }
 
-    public void removeLedger(long ledgerId) {
-        if (!cachedLedgerIds.contains(ledgerId)) {
-            LOG.debug("Ledger purge skipped");
-            return;
-        }
-        LOG.debug("Ledger purged");
-
-        cachedLedgerIds = new HashSet<Long>();
+    public void purgeReadAheadCache(LedgerReadPosition threshold) {
         boolean removedEntry = false;
 
-        Iterator<Map.Entry<LedgerReadPosition, ReadAheadCacheValue>> it = cache.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<LedgerReadPosition, ReadAheadCacheValue> entry = it.next();
-            if (entry.getKey().getLedgerId() == ledgerId) {
-                it.remove();
-                removedEntry = true;
-            } else {
-                if (!cachedLedgerIds.contains(entry.getKey().getLedgerId())) {
-                    cachedLedgerIds.add(entry.getKey().getLedgerId());
+        // Limit the traversal to batch size so that an individual call is
+        // not stalled for long
+        int count = Math.max(readAheadBatchSize, 1);
+
+        synchronized(readAheadCache) {
+            Iterator<Map.Entry<LedgerReadPosition, ReadAheadCacheValue>> it = readAheadCache.entrySet().iterator();
+            while (it.hasNext() && (count > 0)) {
+                Map.Entry<LedgerReadPosition, ReadAheadCacheValue> entry = it.next();
+                if (entry.getKey().definitelyLessThanOrEqualTo(threshold)) {
+                    it.remove();
+                    removedEntry = true;
+                } else {
+                    break;
                 }
+                count--;
             }
         }
 
@@ -258,7 +273,9 @@ public class LedgerDataAccessor {
     }
 
     public void clear() {
-        cache.clear();
+        synchronized(readAheadCache) {
+            readAheadCache.clear();
+        }
     }
 
     static private class ReadAheadCacheValue {

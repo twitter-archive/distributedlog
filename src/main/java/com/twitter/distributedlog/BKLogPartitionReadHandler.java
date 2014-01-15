@@ -107,7 +107,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         throw e;
                     }
                 } else {
-                    ledgerDataAccessor.removeLedger(l.getLedgerId());
+                    ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
                 }
             }
         } else {
@@ -134,7 +134,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
-    public boolean startReadAhead(LedgerReadPosition startPosition) {
+    public void startReadAhead(LedgerReadPosition startPosition) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
                 this,
@@ -144,14 +144,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
             readAheadWorker.start();
-            return true;
-        } else {
-            return false;
+            ledgerDataAccessor.setReadAheadEnabled(true, conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
         }
-    }
-
-    public LedgerDataAccessor getLedgerDataAccessor() {
-        return ledgerDataAccessor;
     }
 
     public LedgerHandleCache getHandleCache() {

@@ -20,7 +20,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private final BKLogPartitionReadHandler bkLedgerManager;
     private ResumableBKPerStreamLogReader currentReader = null;
     private final boolean readAheadEnabled;
-    private final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
@@ -29,14 +28,12 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     public BKContinuousLogReader (BKDistributedLogManager bkdlm,
                                   String streamIdentifier,
                                   long startTxId,
-                                  boolean readAheadEnabled,
-                                  int readAheadWaitTime) throws IOException {
+                                  boolean readAheadEnabled) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
         this.readAheadEnabled = readAheadEnabled;
-        this.readAheadWaitTime = readAheadWaitTime;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -115,8 +112,8 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             currentReader = bkLedgerManager.getInputStream(lastTxId + 1, (lastTxId >= startTxId));
             if (null != currentReader) {
-                if(readAheadEnabled && bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead())) {
-                    bkLedgerManager.getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
+                if (readAheadEnabled) {
+                    bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead());
                 }
                 LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             }
