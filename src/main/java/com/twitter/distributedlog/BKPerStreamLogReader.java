@@ -222,13 +222,17 @@ class BKPerStreamLogReader {
                 return null;
             }
 
-            LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
+            LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(),
+                                                    ledgerDesc.getLedgerSequenceNo(),
+                                                    readEntries);
             LedgerEntry e;
             Stopwatch stopwatch = new Stopwatch().start();
             if (nonBlocking) {
                 getWithNoWaitCount.inc();
                 e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
-                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                getWithNoWaitStat.registerSuccessfulEvent(
+                        stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+
                 if (null == e) {
                     LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
                     return null;

@@ -225,7 +225,7 @@ abstract class BKLogPartitionHandler {
             }
 
             try {
-                LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), !l.isInProgress());
+                LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, !l.isInProgress());
                 BKPerStreamLogReader s
                     = new BKPerStreamLogReader(ledgerDescriptor, l, 0,
                     ledgerDataAccessorPriv, false, statsLogger);
@@ -315,7 +315,7 @@ abstract class BKLogPartitionHandler {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
             LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
             boolean trySmallLedger = true;
-            LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+            LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, fence);
             long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
 
             if (scanStartPoint < 0) {
@@ -377,7 +377,7 @@ abstract class BKLogPartitionHandler {
                     }
                     // We should try to open a fresh handle for the next attempt to find the
                     // position in the ledger
-                    ledgerDescriptor = handleCachePriv.openLedger(l.getLedgerId(), fence);
+                    ledgerDescriptor = handleCachePriv.openLedger(l, fence);
                 }
             }
         } catch (BKException e) {

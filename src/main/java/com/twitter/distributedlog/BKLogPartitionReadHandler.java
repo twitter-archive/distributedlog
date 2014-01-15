@@ -442,7 +442,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         }
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), false, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false, this);
                     } else {
                         long lastAddConfirmed;
                         try {
@@ -478,7 +478,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         LOG.trace("Moving read position to a new ledger {} for {}.",
                                                 currentMetadata, fullyQualifiedName);
                                     }
-                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId());
+                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
                                 }
                             }
                             next.process(BKException.Code.OK);
@@ -493,7 +493,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Opening ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         }
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata.getLedgerId(), true, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, true, this);
                     }
                 }
 
@@ -605,7 +605,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             bkcUnExpectedExceptions.set(0);
                             nextReadPosition.advance();
                             LedgerEntry e = seq.nextElement();
-                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
+                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), currentLH.getLedgerSequenceNo(), e.getEntryId()), e);
                         }
                         if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
                             cacheFull = true;

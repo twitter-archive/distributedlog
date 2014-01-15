@@ -130,6 +130,10 @@ class LogSegmentLedgerMetadata {
         return ledgerId;
     }
 
+    long getLedgerSequenceNumber() {
+        return firstTxId;
+    }
+
     int getVersion() {
         return version;
     }

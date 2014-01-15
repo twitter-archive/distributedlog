@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(ResumableBKPerStreamLogReader.class);
 
-    private final long ledgerId;
+    private final LogSegmentLedgerMetadata metadata;
     private String zkPath;
     private final BKLogPartitionReadHandler ledgerManager;
     private final ZooKeeperClient zkc;
@@ -41,7 +41,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                                   LogSegmentLedgerMetadata metadata,
                                   StatsLogger statsLogger) throws IOException {
         super(metadata, statsLogger);
-        this.ledgerId = metadata.getLedgerId();
+        this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
         this.zkPath = metadata.getZkPath();
@@ -108,14 +108,14 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             long startBkEntry = 0;
             LedgerDescriptor h = ledgerDescriptor;
             if (null == ledgerDescriptor){
-                h = ledgerManager.getHandleCache().openLedger(ledgerId, !isInProgress());
+                h = ledgerManager.getHandleCache().openLedger(metadata, !isInProgress());
                 positionInputStream(h, ledgerDataAccessor, startBkEntry);
             }  else {
                 startBkEntry = lin.nextEntryToRead();
                 if(nodeDeleteNotification.compareAndSet(true, false)) {
                     if (!ledgerDescriptor.isFenced()) {
                         ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
-                        h = ledgerManager.getHandleCache().openLedger(ledgerId, true);
+                        h = ledgerManager.getHandleCache().openLedger(metadata, true);
                     }
                     LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry,
                         ledgerManager.getHandleCache().getLastAddConfirmed(h));
@@ -132,13 +132,13 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             resetExhausted();
             shouldResume = false;
         } catch (IOException e) {
-            LOG.error("Could not open ledger {}", ledgerId, e);
+            LOG.error("Could not open ledger {}", metadata.getLedgerId(), e);
             throw e;
         } catch (BKException e) {
-            LOG.error("Could not open ledger {}", ledgerId, e);
-            throw new IOException("Could not open ledger " + ledgerId, e);
+            LOG.error("Could not open ledger {}", metadata.getLedgerId(), e);
+            throw new IOException("Could not open ledger " + metadata.getLedgerId(), e);
         } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted on opening ledger " + ledgerId, ie);
+            throw new DLInterruptedException("Interrupted on opening ledger " + metadata.getLedgerId(), ie);
         }
     }
 
@@ -167,7 +167,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(ledgerId, lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
     }
 
     synchronized boolean reachedEndOfLogSegment() {

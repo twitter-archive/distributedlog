@@ -5,10 +5,12 @@ import java.util.Comparator;
 
 public class LedgerReadPosition {
     long ledgerId;
+    long ledgerSequenceNo;
     long entryId;
 
-    public LedgerReadPosition(long ledgerId, long entryId) {
+    public LedgerReadPosition(long ledgerId, long ledgerSequenceNo, long entryId) {
         this.ledgerId = ledgerId;
+        this.ledgerSequenceNo = ledgerSequenceNo;
         this.entryId = entryId;
     }
 
@@ -24,14 +26,31 @@ public class LedgerReadPosition {
         entryId++;
     }
 
-    public void positionOnNewLedger(long ledgerId) {
+    public void positionOnNewLedger(long ledgerId, long ledgerSequenceNo) {
         this.ledgerId = ledgerId;
+        this.ledgerSequenceNo = ledgerSequenceNo;
         this.entryId = 0;
     }
 
     @Override
     public String toString() {
         return String.format("(lid=%d, eid=%d)", ledgerId, entryId);
+    }
+
+    public boolean definitelyLessThanOrEqualTo(LedgerReadPosition threshold) {
+        // If no threshold is passed we cannot make a definitive comparison
+        if (null == threshold) {
+            return false;
+        }
+
+        if (this.ledgerSequenceNo != threshold.ledgerSequenceNo) {
+            return this.ledgerSequenceNo < threshold.ledgerSequenceNo;
+        }
+
+        // When ledgerSequenceNo is equal we cannot definitely say that this
+        // position is less than the threshold unless ledgerIds are equal
+        return (this.getLedgerId() == threshold.getLedgerId()) &&
+            (this.getEntryId() <= threshold.getEntryId());
     }
 
     /**

@@ -5,7 +5,6 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -114,9 +113,7 @@ public class LedgerDataAccessor {
 
             // Read Ahead is completing the read after the foreground reader
             // Don't add the entry to the cache
-            LedgerReadPosition removeKey = lastRemovedKey.get();
-            if ((null != removeKey) && (removeKey.getLedgerId() == key.getLedgerId()) &&
-                (removeKey.getEntryId() >= key.getEntryId())) {
+            if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
                 shouldWait = false;
             }
 
@@ -167,9 +164,7 @@ public class LedgerDataAccessor {
     public void set(LedgerReadPosition key, LedgerEntry entry) {
         // Read Ahead is completing the read after the foreground reader
         // Don't add the entry to the cache
-        LedgerReadPosition removeKey = lastRemovedKey.get();
-        if ((null != removeKey) && (removeKey.getLedgerId() == key.getLedgerId()) &&
-            (removeKey.getEntryId() >= key.getEntryId())) {
+        if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
             return;
         }
 
@@ -193,12 +188,14 @@ public class LedgerDataAccessor {
     }
 
     public void remove(LedgerReadPosition key) {
+        // As long as the lastRemovedKey value is not definitely greater than the key, advance the
+        // lastRemovedKey
+        // **Note**
         // Only the foreground reader should call this method and repositioning should never happen
         // in the previous ledger as once the ledger has been advanced at least one entry from the
-        // new ledger has already been read
-        LedgerReadPosition removeKey = lastRemovedKey.get();
-        if ((null == removeKey) || (removeKey.getLedgerId() != key.getLedgerId()) ||
-            (removeKey.getEntryId() < key.getEntryId())) {
+        // new ledger has already been read. So if ledger ids are different its safe to assume that
+        // we have been positioned on the next ledger.
+        if (!key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
             lastRemovedKey.set(key);
         }
         removeInternal(key);
