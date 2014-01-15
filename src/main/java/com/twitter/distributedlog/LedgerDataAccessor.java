@@ -96,47 +96,49 @@ public class LedgerDataAccessor {
         ledgerHandleCache.closeLedger(ledgerDesc);
     }
 
-    public LedgerEntry getWithNoWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key) {
-        ReadAheadCacheValue value = cache.get(key);
-        if ((null == value) || (null == value.getLedgerEntry())) {
-            return null;
-        } else {
-            LOG.trace("Read-ahead cache hit for non blocking read");
-            return value.getLedgerEntry();
-        }
-    }
-
-    public LedgerEntry getWithWait(LedgerDescriptor ledgerDesc, LedgerReadPosition key)
+    public LedgerEntry getEntry(LedgerDescriptor ledgerDesc, LedgerReadPosition key, boolean nonBlocking)
         throws IOException {
         try {
-            boolean shouldWait = readAheadEnabled;
+            boolean shouldWaitForReadAhead = readAheadEnabled;
 
             // Read Ahead is completing the read after the foreground reader
             // Don't add the entry to the cache
             if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
-                shouldWait = false;
+                shouldWaitForReadAhead = false;
             }
 
-            if (shouldWait) {
-                ReadAheadCacheValue newValue = new ReadAheadCacheValue();
-                ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
-                if (null == value) {
-                    value = newValue;
-                }
-                synchronized (value) {
-                    if (null == value.getLedgerEntry()) {
-                        value.wait(readAheadWaitTime);
-                        readAheadWaits.inc();
+            if (shouldWaitForReadAhead) {
+                if (nonBlocking) {
+                    // If its a non blocking call then we simply return if the read ahead hasn't read
+                    // up to this point, we will read the data on subsequent calls
+                    ReadAheadCacheValue value = cache.get(key);
+                    if ((null == value) || (null == value.getLedgerEntry())) {
+                        return null;
+                    } else {
+                        LOG.trace("Read-ahead cache hit for non blocking read");
+                        return value.getLedgerEntry();
                     }
-                }
-                if (null != value.getLedgerEntry()) {
-                    readAheadHits.inc();
-                    return value.getLedgerEntry();
-                }
+                } else {
+                    ReadAheadCacheValue newValue = new ReadAheadCacheValue();
+                    ReadAheadCacheValue value = cache.putIfAbsent(key, newValue);
+                    if (null == value) {
+                        value = newValue;
+                    }
+                    synchronized (value) {
+                        if (null == value.getLedgerEntry()) {
+                            value.wait(readAheadWaitTime);
+                            readAheadWaits.inc();
+                        }
+                    }
+                    if (null != value.getLedgerEntry()) {
+                        readAheadHits.inc();
+                        return value.getLedgerEntry();
+                    }
 
-                readAheadMisses.inc();
-                if ((readAheadMisses.get() % 1000) == 0) {
-                    LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
+                    readAheadMisses.inc();
+                    if ((readAheadMisses.get() % 1000) == 0) {
+                        LOG.debug("Read ahead cache miss {}", readAheadMisses.get());
+                    }
                 }
             }
 
