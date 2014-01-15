@@ -124,26 +124,30 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         }
 
         try {
-            LedgerDescriptor h;
+            LedgerDescriptor h = ledgerDescriptor;
             if (null == ledgerDescriptor){
                 h = ledgerManager.getHandleCache().openLedger(metadata, !isInProgress());
+                positionInputStream(h, ledgerDataAccessor, startBkEntry);
             }  else {
                 startBkEntry = lin.nextEntryToRead();
                 if(nodeDeleteNotification.compareAndSet(true, false)) {
-                    ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
-                    LOG.debug("{}: Reading Last Add Confirmed {} after ledger close", ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    if (!ledgerDescriptor.isFenced()) {
+                        ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
+                        h = ledgerManager.getHandleCache().openLedger(metadata, true);
+                    }
+                    LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry,
+                        ledgerManager.getHandleCache().getLastAddConfirmed(h));
                     inProgress = false;
+                    positionInputStream(h, ledgerDataAccessor, startBkEntry);
                 } else if (isInProgress()) {
                     if (shouldReadLAC && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor))) {
                         ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
                     }
                     LOG.debug("{} : Advancing Last Add Confirmed {}", ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
                 }
-                h = ledgerDescriptor;
             }
 
-            positionInputStream(h, ledgerDataAccessor, startBkEntry);
-            startBkEntry = 0;
+            resetExhausted();
             shouldResume = false;
         } catch (IOException e) {
             LOG.error("Could not open ledger {}", metadata.getLedgerId(), e);
@@ -182,7 +186,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(metadata.getLedgerId(), lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
     }
 
     synchronized boolean reachedEndOfLogSegment() {

@@ -85,6 +85,7 @@ class BKPerStreamLogReader {
         this.dontSkipControl = dontSkipControl;
         this.noBlocking = false;
         this.statsLogger = statsLogger;
+        this.isExhausted = false;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
@@ -97,11 +98,14 @@ class BKPerStreamLogReader {
                 // Size the buffer only as much look ahead we need for skipping
                 DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
             logVersion);
-        this.isExhausted = false;
         // Note: The caller of the function (or a derived class is expected to open the
         // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
         this.ledgerDescriptor = desc;
         this.ledgerDataAccessor = ledgerDataAccessor;
+    }
+
+    protected synchronized void resetExhausted() {
+        this.isExhausted = false;
     }
 
     protected synchronized LedgerDescriptor getLedgerDescriptor() {
@@ -227,6 +231,22 @@ class BKPerStreamLogReader {
             }
         }
 
+        private Counter getEntryCounter(boolean nonBlocking) {
+            if (nonBlocking) {
+                return getWithNoWaitCount;
+            } else {
+                return getWithWaitCount;
+            }
+        }
+
+        private OpStatsLogger getEntryLatencyStat(boolean nonBlocking) {
+            if (nonBlocking) {
+                return getWithNoWaitStat;
+            } else {
+                return getWithWaitStat;
+            }
+        }
+
         /**
          * Get input stream representing next entry in the
          * ledger.
@@ -240,31 +260,29 @@ class BKPerStreamLogReader {
                 return null;
             }
 
-            readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(), readEntries);
+            readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(),
+                                                    ledgerDesc.getLedgerSequenceNo(),
+                                                    readEntries);
             LedgerEntry e;
             Stopwatch stopwatch = new Stopwatch().start();
-            if (nonBlocking) {
-                getWithNoWaitCount.inc();
-                e = ledgerDataAccessor.getWithNoWait(ledgerDesc, readPosition);
-                getWithNoWaitStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
-                if (null == e) {
-                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
-                    return null;
-                }
-            } else {
-                getWithWaitCount.inc();
-                try {
-                    e = ledgerDataAccessor.getWithWait(ledgerDesc, readPosition);
-                    getWithWaitStat.registerSuccessfulEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
-                    if (null == e) {
-                        return null;
-                    }
-                } catch (IOException ioe) {
-                    getWithWaitStat.registerFailedEvent(stopwatch.elapsedTime(TimeUnit.MICROSECONDS));
-                    throw ioe;
-                }
+            try {
+                getEntryCounter(nonBlocking).inc();
+                e = ledgerDataAccessor.getEntry(ledgerDesc, readPosition, nonBlocking);
+                getEntryLatencyStat(nonBlocking).registerSuccessfulEvent(
+                    stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            } catch (IOException ioe) {
+                getEntryLatencyStat(nonBlocking).registerFailedEvent(
+                    stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                throw ioe;
             }
-            assert (e != null);
+
+            if (null == e) {
+                if (nonBlocking) {
+                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
+                }
+                return null;
+            }
+
             ledgerDataAccessor.remove(readPosition);
             readEntries++;
             currentSlotId = 0;

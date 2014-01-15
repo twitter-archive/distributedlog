@@ -1,3 +1,10 @@
+0.2.12
+------
+- Eliminate redundant repositioning at the legder boundary
+- getWithWait should fetch entries without wait if they are before the read ahead point
+- Optimize resume and eliminate redundant object creation
+- Add an option to disable record counts
+
 0.2.11
 ------
 - Allow specifying the number of threads used by BookKeeper Client

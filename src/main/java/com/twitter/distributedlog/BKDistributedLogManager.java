@@ -253,7 +253,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
-        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN, conf.getReadAheadWaitTime());
+        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN);
     }
 
     /**
@@ -267,7 +267,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), conf.getReadAheadWaitTime(), false, null);
+        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), false, null);
     }
 
     /**

@@ -162,6 +162,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
     private boolean enforceLock = true;
+    private final boolean enableRecordCounts;
     private int recordCount = 0;
     private final long ledgerSequenceNumber;
 
@@ -232,6 +233,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
         this.lastTxIdAcknowledged = startTxId;
+        this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
         if (periodicFlushFrequency > 0 && executorService != null) {
@@ -369,9 +371,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         Promise<DLSN> dlsn = new Promise<DLSN>();
 
-        // Set the count here. The caller would appropriately increment it
-        // if this log record is to be counted
-        record.setCount(recordCount);
+        if (enableRecordCounts) {
+            // Set the count here. The caller would appropriately increment it
+            // if this log record is to be counted
+            record.setCount(recordCount);
+        }
+
         writer.writeOp(record);
         packetCurrent.addToPromiseList(dlsn);
 

@@ -210,8 +210,9 @@ public class LogRecord {
          */
         public LogRecordWithDLSN readOp() throws IOException {
             try {
+                long metadata = in.readLong();
                 LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
-                nextRecordInStream.setMetadata(in.readLong());
+                nextRecordInStream.setMetadata(metadata);
                 // Reading the first 8 bytes positions the record stream on the correct log record
                 // By this time all components of the DLSN are valid so this is where we shoud
                 // retrieve the currentDLSN and advance to the next

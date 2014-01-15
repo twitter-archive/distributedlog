@@ -93,6 +93,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SANITYCHECK_BEFORE_DELETE = "sanityCheckDelete";
     public static final boolean BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT = true;
 
+    public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
+    public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
+
     // Various timeouts - names are self explanatory
     public static final String BKDL_LOG_FLUSH_TIMEOUT = "logFlushTimeoutSeconds";
     public static final int BKDL_LOG_FLUSH_TIMEOUT_DEFAULT = 30;
@@ -668,6 +671,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public boolean getSanityCheckDeletes() {
         return getBoolean(BKDL_SANITYCHECK_BEFORE_DELETE, BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT);
+    }
+
+    /**
+    * Whether we should publish record counts in the log records and metadata
+    *
+    * @return if record counts should be persisted
+    */
+    public boolean getEnableRecordCounts() {
+        return getBoolean(BKDL_ENABLE_RECORD_COUNTS, BKDL_ENABLE_RECORD_COUNTS_DEFAULT);
+    }
+
+    /**
+     * Set if we should publish record counts in the log records and metadata
+     *
+     * @param enableRecordCounts enable record counts
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setEnableRecordCounts(boolean enableRecordCounts) {
+        setProperty(BKDL_ENABLE_RECORD_COUNTS, enableRecordCounts);
+        return this;
     }
 
     /**

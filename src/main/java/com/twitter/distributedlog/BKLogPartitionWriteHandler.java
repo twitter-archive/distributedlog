@@ -111,13 +111,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 try {
                     Utils.zkCreateFullPathOptimistic(zooKeeperClient, partitionRootPath, new byte[]{'0'},
                         ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-
-                    // HACK: Temporary for the test configuration used by test
-                    try {
-                        Thread.sleep(150);
-                    } catch (Exception exc) {
-                        // Ignore everything
-                    }
                 } catch (KeeperException.NodeExistsException exc) {
                     LOG.info("{}: Race on node creation, clean retry", getFullyQualifiedName());
                 }
@@ -438,8 +431,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + l.getFirstTxId() + " found, " + firstTxId + " expected");
             }
 
-            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId);
+            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, conf.getEnableRecordCounts() ? recordCount : 0, lastEntryId, lastSlotId);
             String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId);
+
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
@@ -534,7 +528,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     // that's acquired in start log segment
                     completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recordCount, lastEntryId,
                         lastSlotId, false);
-                    LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), endTxId);
+                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}", new Object[]{getFullyQualifiedName(), l.getFirstTxId(), endTxId});
                 }
                 if (lastLedgerRollingTimeMillis < 0) {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();

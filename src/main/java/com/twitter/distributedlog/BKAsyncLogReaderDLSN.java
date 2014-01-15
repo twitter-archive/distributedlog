@@ -25,7 +25,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     protected final BKDistributedLogManager bkDistributedLogManager;
     protected final BKContinuousLogReaderDLSN currentReader;
-    protected final int readAheadWaitTime;
     private Watcher sessionExpireWatcher = null;
     private boolean endOfStreamEncountered = false;
     private AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
@@ -37,13 +36,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
                                      String streamIdentifier,
-                                     DLSN startDLSN,
-                                     int readAheadWaitTime) throws IOException {
+                                     DLSN startDLSN) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.readAheadWaitTime = readAheadWaitTime;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
-        this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, readAheadWaitTime, true, this);
+        this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, true, this);
     }
 
     @Override

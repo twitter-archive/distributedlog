@@ -55,6 +55,7 @@ public class DistributedLogExample {
         }
         unpartitionedReader2.close();
         System.out.println("Read unpartitioned stream done.");
+        unpartitionedDLM.delete();
         unpartitionedDLM.close();
 
         // Create partitioned dlm
@@ -82,6 +83,7 @@ public class DistributedLogExample {
             partitionedReader.close();
             System.out.println("Read partitioned stream : partitioned-example, partition (" + i + ") done.");
         }
+        partitionedDLM.delete();
         partitionedDLM.close();
     }
 }

@@ -73,7 +73,7 @@ public class DistributedLogManagerFactory {
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
                                         StatsLogger statsLogger, String clientId) throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateConfAndURI(conf, uri);
         this.conf = conf;
         this.namespace = uri;
         this.statsLogger = statsLogger;
@@ -153,6 +153,7 @@ public class DistributedLogManagerFactory {
      * @throws IllegalArgumentException
      */
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
+        DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             null, null, scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
@@ -171,6 +172,7 @@ public class DistributedLogManagerFactory {
      */
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
+        DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
@@ -178,6 +180,7 @@ public class DistributedLogManagerFactory {
     }
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
+        DistributedLogManagerFactory.validateName(nameOfMetadataNode);
         return new ZKMetadataAccessor(nameOfMetadataNode, namespace, conf.getZKSessionTimeoutMilliseconds(), zooKeeperClientBuilder);
     }
 
@@ -210,7 +213,13 @@ public class DistributedLogManagerFactory {
         return createDistributedLogManager(name, new DistributedLogConfiguration(), uri);
     }
 
-    private static void validateInput(DistributedLogConfiguration conf, URI uri)
+    private static void validateInput(DistributedLogConfiguration conf, URI uri, String nameOfStream)
+        throws IllegalArgumentException {
+        validateConfAndURI(conf, uri);
+        validateName(nameOfStream);
+    }
+
+    private static void validateConfAndURI(DistributedLogConfiguration conf, URI uri)
         throws IllegalArgumentException {
         // input validation
         //
@@ -220,6 +229,12 @@ public class DistributedLogManagerFactory {
 
         if ((null == uri) || (null == uri.getAuthority()) || (null == uri.getPath())) {
             throw new IllegalArgumentException("Incorrect ZK URI");
+        }
+    }
+
+    private static void validateName(String nameOfStream) {
+        if (nameOfStream.contains("/")) {
+            throw new IllegalArgumentException("Stream Name contains invalid characters");
         }
     }
 
@@ -253,7 +268,7 @@ public class DistributedLogManagerFactory {
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                 ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateInput(conf, uri, name);
         return new BKDistributedLogManager(name, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
     }
 
@@ -280,14 +295,14 @@ public class DistributedLogManagerFactory {
             DistributedLogConfiguration conf,
             ZooKeeperClientBuilder zkcBuilder)
         throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateInput(conf, uri, name);
         return new ZKMetadataAccessor(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
     }
 
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateInput(conf, uri, name);
         final String logRootPath = uri.getPath() + String.format("/%s", name);
         return withZooKeeperClient(new ZooKeeperClientHandler<Boolean>() {
             @Override
@@ -318,7 +333,7 @@ public class DistributedLogManagerFactory {
 
     private static Collection<String> enumerateAllLogsInternal(ZooKeeperClient zkc, DistributedLogConfiguration conf, URI uri)
         throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateConfAndURI(conf, uri);
         String namespaceRootPath = uri.getPath();
         try {
             Stat currentStat = zkc.get().exists(namespaceRootPath, false);
@@ -348,7 +363,7 @@ public class DistributedLogManagerFactory {
     private static Map<String, byte[]> enumerateLogsWithMetadataInternal(ZooKeeperClient zkc,
                                                                          DistributedLogConfiguration conf, URI uri)
         throws IOException, IllegalArgumentException {
-        validateInput(conf, uri);
+        validateConfAndURI(conf, uri);
         String namespaceRootPath = uri.getPath();
         HashMap<String, byte[]> result = new HashMap<String, byte[]>();
         try {

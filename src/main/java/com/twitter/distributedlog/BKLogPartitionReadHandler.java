@@ -62,8 +62,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
                                                         boolean fThrowOnEmpty,
                                                         boolean noBlocking,
-                                                        boolean simulateErrors,
-                                                        int readAheadWaitTime)
+                                                        boolean simulateErrors)
         throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
@@ -92,10 +91,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
 
                         if (noBlocking) {
-                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), startBKEntry), simulateErrors)) {
-                                getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
-                            }
+                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry), simulateErrors);
                         }
+
                         ResumableBKPerStreamLogReader s = new ResumableBKPerStreamLogReader(this,
                                                                     zooKeeperClient,
                                                                     ledgerDataAccessor,
@@ -127,7 +125,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }
 
                     if (!noBlocking) {
-                        ledgerDataAccessor.removeLedger(l.getLedgerId());
+                        ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
                     }
                 }
             }
@@ -143,8 +141,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public ResumableBKPerStreamLogReader getInputStream(long fromTxId,
                                                         boolean fThrowOnEmpty,
                                                         boolean noBlocking,
-                                                        boolean simulateErrors,
-                                                        int readAheadWaitTime)
+                                                        boolean simulateErrors)
         throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
@@ -170,9 +167,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (fromTxId <= lastTxId) {
                     try {
                         if (noBlocking) {
-                            if (startReadAhead(new LedgerReadPosition(l.getLedgerId(), 0), simulateErrors)) {
-                                getLedgerDataAccessor().setReadAheadEnabled(true, readAheadWaitTime);
-                            }
+                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), 0), simulateErrors);
                         }
                         ResumableBKPerStreamLogReader s
                             = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking, statsLogger);
@@ -192,7 +187,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         throw e;
                     }
                 } else {
-                    ledgerDataAccessor.removeLedger(l.getLedgerId());
+                    if (!noBlocking) {
+                        ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
+                    }
                 }
             }
         } else {
@@ -219,7 +216,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
-    public boolean startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
+    public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
                 this,
@@ -230,14 +227,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
             readAheadWorker.start();
-            return true;
-        } else {
-            return false;
+            ledgerDataAccessor.setReadAheadEnabled(true, conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
         }
-    }
-
-    public LedgerDataAccessor getLedgerDataAccessor() {
-        return ledgerDataAccessor;
     }
 
     public LedgerHandleCache getHandleCache() {
@@ -273,6 +264,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    static interface ReadAheadCallback {
+        void resumeReadAhead();
+    }
+
     /**
      * ReadAhead Worker process readahead in asynchronous way. The whole readahead process are chained into
      * different phases:
@@ -297,7 +292,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      * Exceptions Handling Phase: Handle all the exceptions and properly schedule next readahead request.
      * </p>
      */
-    class ReadAheadWorker implements Runnable, Watcher {
+    class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
         private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
@@ -354,6 +349,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         public void stop() {
             running = false;
 
+        }
+
+        @Override
+        public void resumeReadAhead() {
+            submit(this);
         }
 
         void submit(Runnable runnable) {
@@ -586,7 +586,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         LOG.trace("Moving read position to a new ledger {} for {}.",
                                                 currentMetadata, fullyQualifiedName);
                                     }
-                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId());
+                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
                                 }
                             }
                             next.process(BKException.Code.OK);
@@ -713,7 +713,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             bkcUnExpectedExceptions.set(0);
                             nextReadPosition.advance();
                             LedgerEntry e = seq.nextElement();
-                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), e.getEntryId()), e);
+                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), currentLH.getLedgerSequenceNo(), e.getEntryId()), e);
                         }
                         if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
                             cacheFull = true;
