@@ -208,8 +208,9 @@ public class LogRecord {
          */
         public LogRecord readOp() throws IOException {
             try {
+                long metadata = in.readLong();
                 LogRecord nextRecordInStream = new LogRecord();
-                nextRecordInStream.setMetadata(in.readLong());
+                nextRecordInStream.setMetadata(metadata);
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
                 return nextRecordInStream;
