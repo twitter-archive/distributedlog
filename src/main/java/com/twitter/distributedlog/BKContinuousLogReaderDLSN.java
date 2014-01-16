@@ -25,12 +25,14 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
     /**
      * Read the next log record from the stream
      *
+     * @param nonBlockingReadOperation should the read make blocking calls to the backend or rely on the
+     * readAhead cache
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public LogRecordWithDLSN readNext(boolean shouldBlock) throws IOException {
-        LogRecordWithDLSN record = super.readNext(shouldBlock);
+    public LogRecordWithDLSN readNext(boolean nonBlockingReadOperation) throws IOException {
+        LogRecordWithDLSN record = super.readNext(nonBlockingReadOperation);
 
         if (null != record) {
             lastDLSN = record.getDlsn();
@@ -51,7 +53,7 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
         }
         LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), position);
         return bkLedgerManager.getInputStream(position, (lastDLSN != DLSN.InvalidDLSN),
-                    noBlocking, simulateErrors);
+            nonBlockingReader, simulateErrors);
     }
 
     @Override

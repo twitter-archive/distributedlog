@@ -53,12 +53,11 @@ class BKPerStreamLogReader {
     private DLSN startDLSN = null;
     private final boolean dontSkipControl;
     protected final StatsLogger statsLogger;
-    protected final boolean noBlocking;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, boolean noBlocking, StatsLogger statsLogger) {
+    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, StatsLogger statsLogger) {
         this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
@@ -66,7 +65,6 @@ class BKPerStreamLogReader {
         this.statsLogger = statsLogger;
         this.isExhausted = false;
         this.dontSkipControl = false;
-        this.noBlocking = noBlocking;
     }
 
     /**
@@ -83,7 +81,6 @@ class BKPerStreamLogReader {
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
-        this.noBlocking = false;
         this.statsLogger = statsLogger;
         this.isExhausted = false;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
@@ -92,7 +89,7 @@ class BKPerStreamLogReader {
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, noBlocking, statsLogger);
+        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
@@ -183,7 +180,7 @@ class BKPerStreamLogReader {
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
         private final String fullyQualifiedName;
-        private boolean nonBlocking;
+        private boolean nonBlocking = false;
         private static Counter getWithNoWaitCount = null;
         private static Counter getWithWaitCount = null;
         private static OpStatsLogger getWithNoWaitStat = null;
@@ -199,14 +196,13 @@ class BKPerStreamLogReader {
          */
         LedgerInputStream(String fullyQualifiedName,
                           LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, boolean nonBlocking, StatsLogger statsLogger)
+                          long firstBookKeeperEntry, StatsLogger statsLogger)
             throws IOException {
             LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
             this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
-            this.nonBlocking = nonBlocking;
 
             StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
 

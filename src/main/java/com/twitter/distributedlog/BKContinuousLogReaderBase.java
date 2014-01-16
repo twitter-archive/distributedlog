@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -24,7 +23,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
-    protected final boolean noBlocking;
+    protected final boolean nonBlockingReader;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
     protected boolean simulateErrors = false;
 
@@ -32,14 +31,14 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      boolean readAheadEnabled,
-                                     boolean noBlocking,
+                                     boolean nonBlockingReader,
                                      AsyncNotification notification) throws IOException {
-        // noBlocking => readAheadEnabled
-        assert(!noBlocking || readAheadEnabled);
+        // nonBlockingReader => readAheadEnabled
+        assert(!nonBlockingReader || readAheadEnabled);
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
         this.readAheadEnabled = readAheadEnabled;
-        this.noBlocking = noBlocking;
+        this.nonBlockingReader = nonBlockingReader;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -65,13 +64,13 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     /**
      * Read the next log record from the stream
      *
-     * @param nonBlocking should the read make blocking calls to the backend or rely on the
+     * @param nonBlockingReadOperation should the read make blocking calls to the backend or rely on the
      * readAhead cache
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public synchronized LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException {
-        if (nonBlocking && !readAheadEnabled) {
+    public synchronized LogRecordWithDLSN readNext(boolean nonBlockingReadOperation) throws IOException {
+        if (nonBlockingReadOperation && !readAheadEnabled) {
             throw new IllegalArgumentException("Non blocking semantics require read-ahead");
         }
 
@@ -80,11 +79,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
-            advancedOnce = createOrPositionReader(nonBlocking);
+            advancedOnce = createOrPositionReader(nonBlockingReadOperation || nonBlockingReader);
 
             if (null != currentReader) {
 
-                record = currentReader.readOp(nonBlocking);
+                record = currentReader.readOp(nonBlockingReadOperation || nonBlockingReader);
 
                 if (null == record) {
                     if (handleEndOfCurrentStream()) {
@@ -113,7 +112,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         boolean advancedOnce = false;
         if (null == currentReader) {
             currentReader = getCurrentReader();
-            if ((null != currentReader) && !noBlocking) {
+            if ((null != currentReader) && !nonBlockingReader) {
                 if(readAheadEnabled) {
                     bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors);
                 }

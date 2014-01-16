@@ -33,7 +33,6 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     private AtomicBoolean watchSet = new AtomicBoolean(false);
     private AtomicBoolean nodeDeleteNotification = new AtomicBoolean(false);
     private long startBkEntry;
-    protected final boolean noBlocking;
     private boolean openedWithNoRecovery = true;
 
     /**
@@ -46,7 +45,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                                   boolean noBlocking,
                                   long startBkEntry,
                                   StatsLogger statsLogger) throws IOException {
-        super(ledgerManager, metadata, noBlocking, statsLogger);
+        super(ledgerManager, metadata, statsLogger);
         this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
@@ -54,7 +53,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         this.ledgerDataAccessor = ledgerDataAccessor;
         ledgerDescriptor = null;
         this.startBkEntry = startBkEntry;
-        this.noBlocking = noBlocking;
+
         // Stats
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
         if (null == resumeMisses) {
