@@ -38,7 +38,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
-    private ExecutorServiceFuturePool futurePool = null;
+    private ExecutorServiceFuturePool orderedFuturePool = null;
+    private ExecutorServiceFuturePool readerFuturePool = null;
+
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
@@ -211,8 +213,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        initializeFuturePool();
-        return new BKUnPartitionedAsyncLogWriter(conf, this, futurePool);
+        initializeFuturePool(true);
+        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool);
     }
 
     /**
@@ -407,8 +409,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
-        initializeFuturePool();
-        return futurePool.apply(new ExceptionalFunction0<Long>() {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<Long>() {
             public Long applyE() throws IOException {
                 return getLastTxIdInternal(streamIdentifier, false, false);
             }
@@ -438,8 +440,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
-        initializeFuturePool();
-        return futurePool.apply(new ExceptionalFunction0<DLSN>() {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<DLSN>() {
             public DLSN applyE() throws IOException {
                 return getLastDLSNInternal(streamIdentifier, false, false);
             }
@@ -687,14 +689,25 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return zooKeeperClient.unregister(watcher);
     }
 
-    private void initializeFuturePool() {
-        if (null == futurePool) {
-            if (ownExecutor) {
-                futurePool = new ExecutorServiceFuturePool(executorService);
-            } else {
-                futurePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
-                    new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+    private void initializeFuturePool(boolean ordered) {
+        // Note for orderedFuturePool:
+        // Single Threaded Future Pool inherently preserves order by tasks one by one
+        //
+        if (ownExecutor) {
+            // ownExecutor is a single threaded thread pool
+            if (null == orderedFuturePool) {
+                // Readers share the same future pool as the orderedFuturePool
+                orderedFuturePool = new ExecutorServiceFuturePool(executorService);
+                readerFuturePool = orderedFuturePool;
             }
+        } else if (ordered && (null == orderedFuturePool)) {
+            // When we are using a thread pool that was passed from the factory, we can use
+            // the executor service
+            orderedFuturePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+        } else if (!ordered && (null == readerFuturePool)) {
+            // readerFuturePool can just use the executor service that was configured with the DLM
+            readerFuturePool = new ExecutorServiceFuturePool(executorService);
         }
     }
 }
