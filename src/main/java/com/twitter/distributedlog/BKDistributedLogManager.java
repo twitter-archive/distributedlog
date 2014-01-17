@@ -1,11 +1,15 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
+import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.util.Future;
+
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
@@ -207,15 +211,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        if (null == futurePool) {
-            if (ownExecutor) {
-                futurePool = new ExecutorServiceFuturePool(executorService);
-            } else {
-                futurePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
-                    new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
-            }
-        }
-
+        initializeFuturePool();
         return new BKUnPartitionedAsyncLogWriter(conf, this, futurePool);
     }
 
@@ -387,6 +383,67 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } finally {
             ledgerHandler.close();
         }
+    }
+
+    /**
+     * Get Latest Transaction Id in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    @Override
+    public Future<Long> getLastTxIdAsync(PartitionId partition) {
+        return getLastTxIdAsyncInternal(partition.toString());
+    }
+
+    /**
+     * Get Latest Transaction Id in the non partitioned stream
+     *
+     * @return latest transaction id
+     */
+    @Override
+    public Future<Long> getLastTxIdAsync() {
+        return getLastTxIdAsyncInternal(DistributedLogConstants.DEFAULT_STREAM);
+    }
+
+    private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
+        initializeFuturePool();
+        return futurePool.apply(new ExceptionalFunction0<Long>() {
+            public Long applyE() throws IOException {
+                return getLastTxIdInternal(streamIdentifier, false, false);
+            }
+        });
+    }
+
+
+    /**
+     * Get Latest DLSN in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    @Override
+    public Future<DLSN> getLastDLSNAsync(PartitionId partition) {
+        return getLastDLSNAsyncInternal(partition.toString());
+    }
+
+    /**
+     * Get Latest DLSN in the non partitioned stream
+     *
+     * @return latest transaction id
+     */
+    @Override
+    public Future<DLSN> getLastDLSNAsync() {
+        return getLastDLSNAsyncInternal(DistributedLogConstants.DEFAULT_STREAM);
+    }
+
+    private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
+        initializeFuturePool();
+        return futurePool.apply(new ExceptionalFunction0<DLSN>() {
+            public DLSN applyE() throws IOException {
+                return getLastDLSNInternal(streamIdentifier, false, false);
+            }
+        });
     }
 
     /**
@@ -630,4 +687,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return zooKeeperClient.unregister(watcher);
     }
 
+    private void initializeFuturePool() {
+        if (null == futurePool) {
+            if (ownExecutor) {
+                futurePool = new ExecutorServiceFuturePool(executorService);
+            } else {
+                futurePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
+                    new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+            }
+        }
+    }
 }

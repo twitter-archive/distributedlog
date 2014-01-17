@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
 import java.io.IOException;
 
 
@@ -156,9 +157,54 @@ public interface DistributedLogManager extends MetadataAccessor {
      */
     public long getLastTxId() throws IOException;
 
+    /**
+     * Get Latest DLSN in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     * @throws IOException
+     */
     public DLSN getLastDLSN(PartitionId partition) throws IOException;
 
+    /**
+     * Get Latest DLSN in the non partitioned stream
+     *
+     * @return latest transaction id
+     * @throws IOException
+     */
     public DLSN getLastDLSN() throws IOException;
+
+    /**
+     * Get Latest Transaction Id in the specified partition of the log - async
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    public Future<Long> getLastTxIdAsync(PartitionId partition);
+
+    /**
+     * Get Latest Transaction Id in the non partitioned stream - async
+     *
+     * @return latest transaction id
+     */
+    public Future<Long> getLastTxIdAsync();
+
+
+    /**
+     * Get Latest DLSN in the specified partition of the log - async
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    public Future<DLSN> getLastDLSNAsync(PartitionId partition);
+
+    /**
+     * Get Latest DLSN in the non partitioned stream - async
+     *
+     * @return latest transaction id
+     */
+    public Future<DLSN> getLastDLSNAsync();
+
 
     /**
      * Get the number of log records in the active portion of the stream for the
