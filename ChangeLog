@@ -1,3 +1,14 @@
+0.3.7
+-----
+- New bookkeeper release
+- Async getLastDLSN
+- Fix for non blocking readers
+- Changes from master upto 0.2.12 
+
+0.3.6
+-----
+- Expose DistributedLog Client Builder in Proxy Builder                                                      
+
 0.2.12
 ------
 - Eliminate redundant repositioning at the legder boundary
@@ -28,6 +39,3 @@
 - Propagate InterruptedException to the client
 - ZK Client Fixes
 
-0.3.6
------
-- Expose DistributedLog Client Builder in Proxy Builder
