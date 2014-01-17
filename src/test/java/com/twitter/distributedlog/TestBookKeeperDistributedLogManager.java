@@ -358,8 +358,10 @@ public class TestBookKeeperDistributedLogManager {
 
         assertEquals(2, dlm.getFirstTxId(new PartitionId(0)));
         assertEquals(txid - 1, dlm.getLastTxId(new PartitionId(0)));
+        assertEquals(txid - 1, dlm.getLastTxIdAsync(new PartitionId(0)).get().longValue());
         assertEquals(1, dlm.getFirstTxId(new PartitionId(1)));
         assertEquals(txid - 2, dlm.getLastTxId(new PartitionId(1)));
+        assertEquals(txid - 2, dlm.getLastTxIdAsync(new PartitionId(1)).get().longValue());
 
         LogReader reader = dlm.getInputStream(new PartitionId(0), 2);
         long numTrans = 0;

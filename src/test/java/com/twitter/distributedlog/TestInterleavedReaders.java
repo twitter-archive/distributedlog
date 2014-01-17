@@ -609,6 +609,8 @@ public class TestInterleavedReaders {
 
         LogRecordWithDLSN last = dlm.getLastLogRecord();
         assertEquals(last.getDlsn(), maxDLSN.get());
+        assertEquals(last.getDlsn(), dlm.getLastDLSN());
+        assertEquals(last.getDlsn(), dlm.getLastDLSNAsync().get());
         DLMTestUtil.verifyLargeLogRecord(last);
 
         dlm.close();
