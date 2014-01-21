@@ -117,7 +117,7 @@ class BKPerStreamLogReader {
         return firstTxId;
     }
 
-    public LogRecordWithDLSN readOp(boolean nonBlocking) throws IOException {
+    public synchronized LogRecordWithDLSN readOp(boolean nonBlocking) throws IOException {
         boolean oldValue = lin.isNonBlocking();
         lin.setNonBlocking(nonBlocking);
         LogRecordWithDLSN toRet = null;
@@ -156,12 +156,12 @@ class BKPerStreamLogReader {
      * If this proves to be too expensive, this can be reimplemented
      * with a binary search over bk entries
      */
-    public boolean skipTo(long txId) throws IOException {
+    public synchronized boolean skipTo(long txId) throws IOException {
         isExhausted = !reader.skipTo(txId);
         return !isExhausted;
     }
 
-    public boolean skipTo(DLSN dlsn) throws IOException {
+    public synchronized boolean skipTo(DLSN dlsn) throws IOException {
         LOG.info("Skip To {}", dlsn);
         isExhausted = !reader.skipTo(dlsn);
         return !isExhausted;

@@ -22,7 +22,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     protected final boolean readAheadEnabled;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
-    private boolean endOfStreamEncountered = false;
+    private volatile boolean endOfStreamEncountered = false;
     protected final boolean nonBlockingReader;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
     protected boolean simulateErrors = false;
