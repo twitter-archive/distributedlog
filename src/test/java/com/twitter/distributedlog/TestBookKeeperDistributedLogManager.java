@@ -22,6 +22,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -38,9 +39,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -154,6 +152,61 @@ public class TestBookKeeperDistributedLogManager {
         long numTrans = DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(conf, name), 1);
         assertEquals(100, numTrans);
         dlm.close();
+    }
+
+    @Test
+    public void testSanityCheckTxnID() throws Exception {
+        String name = "distrlog-sanity-check-txnid";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+        long txid = 1;
+        for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+            LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+            out.write(op);
+        }
+        out.closeAndComplete();
+
+        BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+        LogRecord op1 = DLMTestUtil.getLogRecordInstance(1);
+        try {
+            out1.write(op1);
+            fail("Should fail writing lower txn id if sanityCheckTxnID is enabled.");
+        } catch (TransactionIdOutOfOrderException tioooe) {
+            // expected
+        }
+        out1.closeAndComplete();
+        dlm.close();
+
+        DLMTestUtil.updateBKDLConfig(bkutil.getUri(), bkutil.getZkServers(), bkutil.getBkLedgerPath(), false);
+        LOG.info("Disable sanity check txn id.");
+        BKDLConfig.clearCachedDLConfigs();
+
+        DistributedLogConfiguration newConf = new DistributedLogConfiguration();
+        newConf.addConfiguration(conf);
+        DistributedLogManager newDLM = DLMTestUtil.createNewDLM(newConf, name);
+        BKUnPartitionedSyncLogWriter out2 = (BKUnPartitionedSyncLogWriter) newDLM.startLogSegmentNonPartitioned();
+        LogRecord op2 = DLMTestUtil.getLogRecordInstance(1);
+        out2.write(op2);
+        out2.closeAndComplete();
+        newDLM.close();
+
+        DLMTestUtil.updateBKDLConfig(bkutil.getUri(), bkutil.getZkServers(), bkutil.getBkLedgerPath(), true);
+        LOG.info("Enable sanity check txn id.");
+        BKDLConfig.clearCachedDLConfigs();
+
+        DistributedLogConfiguration conf3 = new DistributedLogConfiguration();
+        conf3.addConfiguration(conf);
+        DistributedLogManager dlm3 = DLMTestUtil.createNewDLM(newConf, name);
+        BKUnPartitionedSyncLogWriter out3 = (BKUnPartitionedSyncLogWriter)dlm3.startLogSegmentNonPartitioned();
+        LogRecord op3 = DLMTestUtil.getLogRecordInstance(1);
+        try {
+            out3.write(op3);
+            fail("Should fail writing lower txn id if sanityCheckTxnID is enabled.");
+        } catch (TransactionIdOutOfOrderException tioooe) {
+            // expected
+        }
+        out3.closeAndComplete();
+        dlm3.close();
     }
 
     @Test

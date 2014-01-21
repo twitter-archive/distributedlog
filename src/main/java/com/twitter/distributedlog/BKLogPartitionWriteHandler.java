@@ -115,6 +115,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     // stub for allocation path. (used by zk34)
     protected final String allocationPath;
     protected final DataWithStat allocationData;
+    protected final boolean sanityCheckTxnId;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -219,6 +220,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } else {
             ackQuorumSize = conf.getAckQuorumSize();
         }
+
+        this.sanityCheckTxnId = conf.getSanityCheckTxnID();
 
         this.maxTxIdPath = partitionRootPath + "/maxtxid";
         final String lockPath = partitionRootPath + "/lock";
@@ -379,7 +382,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
                             conf.getLockTimeoutMilliSeconds(), clientId);
         // Construct the max txn id.
-        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, maxTxIdData);
+        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 
         // Initialize other parameters.
         setLastLedgerRollingTimeMillis(Utils.nowInMillis());
@@ -456,16 +459,19 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         lock.acquire("StartLogSegment");
         lockAcquired = true;
 
-        long highestTxIdWritten = maxTxId.get();
-        if (txId < highestTxIdWritten) {
-            if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
-                LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
-                throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
-            }
-            else {
-                LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
-                throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
+        // sanity check txn id.
+        if (this.sanityCheckTxnId) {
+            long highestTxIdWritten = maxTxId.get();
+            if (txId < highestTxIdWritten) {
+                if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
+                    LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
+                    throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
+                }
+                else {
+                    LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
+                    LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
+                    throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
+                }
             }
         }
         boolean writeInprogressZnode = false;

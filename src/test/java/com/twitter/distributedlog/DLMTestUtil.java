@@ -17,6 +17,9 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.tools.Tool;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -42,6 +45,11 @@ public class DLMTestUtil {
             ret += s;
         }
         return ret;
+    }
+
+    static void updateBKDLConfig(URI uri, String zkServers, String ledgersPath, boolean sanityCheckTxnID) throws Exception {
+        BKDLConfig bkdlConfig = new BKDLConfig(zkServers, ledgersPath).setSanityCheckTxnID(sanityCheckTxnID);
+        DLMetadata.create(bkdlConfig).update(uri);
     }
 
     static URI createDLMURI(String path) throws Exception {

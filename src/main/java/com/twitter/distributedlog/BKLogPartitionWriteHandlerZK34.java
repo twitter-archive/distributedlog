@@ -93,16 +93,19 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         lock.acquire("StartLogSegment");
         lockAcquired = true;
 
-        long highestTxIdWritten = maxTxId.get();
-        if (txId < highestTxIdWritten) {
-            if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
-                LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
-                throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
-            }
-            else {
-                LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
-                throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
+        // sanity check txn id.
+        if (this.sanityCheckTxnId) {
+            long highestTxIdWritten = maxTxId.get();
+            if (txId < highestTxIdWritten) {
+                if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
+                    LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
+                    throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
+                }
+                else {
+                    LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
+                    LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
+                    throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
+                }
             }
         }
         ledgerAllocator.allocate();

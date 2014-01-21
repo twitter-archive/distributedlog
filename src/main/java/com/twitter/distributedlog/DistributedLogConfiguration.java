@@ -115,6 +115,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
     public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
 
+    public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
+    public static final boolean BKDL_MAXID_SANITYCHECK_DEFAULT = true;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -718,4 +721,24 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Whether sanity check txn id.
+     *
+     * @return true if should check txn id with max txn id.
+     */
+    public boolean getSanityCheckTxnID() {
+        return getBoolean(BKDL_MAXID_SANITYCHECK, BKDL_MAXID_SANITYCHECK_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable sanity check txn id.
+     *
+     * @param enabled
+     *          enable/disable sanity check txn id.
+     * @return configuration.
+     */
+    public DistributedLogConfiguration setSanityCheckTxnID(boolean enabled) {
+        setProperty(BKDL_MAXID_SANITYCHECK, enabled);
+        return this;
+    }
 }

@@ -171,6 +171,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (null == bkcBuilder) {
                 // resolve uri
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
+                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
                 bkcBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig)
                         .name(String.format("%s:shared", name)).statsLogger(statsLogger);

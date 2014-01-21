@@ -36,17 +36,24 @@ class MaxTxId {
 
     private final ZooKeeperClient zkc;
     private final String path;
+    private final boolean enabled;
 
     private long currentMax;
 
-    MaxTxId(ZooKeeperClient zkc, String path, DataWithStat dataWithStat) {
+    MaxTxId(ZooKeeperClient zkc, String path, boolean enabled,
+            DataWithStat dataWithStat) {
         this.zkc = zkc;
         this.path = path;
-        try {
-            this.currentMax = toTxId(dataWithStat.getData());
-        } catch (UnsupportedEncodingException e) {
-            LOG.warn("Invalid txn id stored in {} : e", path, e);
-            this.currentMax = 0L;
+        this.enabled = enabled;
+        if (enabled) {
+            try {
+                this.currentMax = toTxId(dataWithStat.getData());
+            } catch (UnsupportedEncodingException e) {
+                LOG.warn("Invalid txn id stored in {} : e", path, e);
+                this.currentMax = 0L;
+            }
+        } else {
+            this.currentMax = -1L;
         }
     }
 
@@ -55,7 +62,7 @@ class MaxTxId {
     }
 
     synchronized void setMaxTxId(long txId) {
-        if (this.currentMax < txId) {
+        if (enabled && this.currentMax < txId) {
             this.currentMax = txId;
         }
     }
@@ -71,7 +78,7 @@ class MaxTxId {
     }
 
     synchronized byte[] couldStore(long maxTxId) {
-        if (currentMax < maxTxId) {
+        if (enabled && currentMax < maxTxId) {
             return toBytes(maxTxId);
         } else {
             return null;
@@ -87,7 +94,7 @@ class MaxTxId {
      * @throws IOException
      */
     synchronized void store(long maxTxId) throws IOException {
-        if (currentMax < maxTxId) {
+        if (enabled && currentMax < maxTxId) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Setting maxTxId to " + maxTxId);
             }

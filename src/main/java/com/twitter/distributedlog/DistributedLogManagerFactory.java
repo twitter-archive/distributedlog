@@ -94,6 +94,8 @@ public class DistributedLogManagerFactory {
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).statsLogger(statsLogger);
+        // propagate bkdlConfig to configuration
+        BKDLConfig.propagateConfiguration(bkdlConfig, conf);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {

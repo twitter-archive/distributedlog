@@ -2,6 +2,7 @@
 -----
 - Ledger Allocation
 - BKLogPartitionWriteHandler optimizations
+- Flag to enable/disable sanity checking txn id
 
 0.3.7
 -----

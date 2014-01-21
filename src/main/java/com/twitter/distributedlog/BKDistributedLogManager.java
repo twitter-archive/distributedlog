@@ -72,6 +72,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             if (null == bkcBuilder) {
                 // resolve uri
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
+                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
                         .channelFactory(channelFactory).statsLogger(statsLogger);
