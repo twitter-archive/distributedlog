@@ -3,6 +3,8 @@
 - Ledger Allocation
 - BKLogPartitionWriteHandler optimizations
 - Flag to enable/disable sanity checking txn id
+- Flag to check and create stream if not exists
+- Throttling ledger rolling speed in DL
 
 0.3.7
 -----

@@ -130,6 +130,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_CREATE_STREAM_IF_NOT_EXISTS = "createStreamIfNotExists";
     public static final boolean BKDL_CREATE_STREAM_IF_NOT_EXISTS_DEFAULT = true;
 
+    public static final String BKDL_LOGSEGMENT_ROLLING_CONCURRENCY = "logSegmentRollingConcurrency";
+    public static final int BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT = 1;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -837,4 +840,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_CREATE_STREAM_IF_NOT_EXISTS, enabled);
         return this;
     }
+
+    /**
+     * Get log segment rolling concurrency.
+     *
+     * @return log segment rolling concurrency.
+     */
+    public int getLogSegmentRollingConcurrency() {
+        return getInt(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT);
+    }
+
+    /**
+     * Set log segment rolling concurrency. <i>0</i> means disable rolling concurrency.
+     * <i>larger than 0</i> means how many log segment could be rolled at the same time.
+     * <i>less than 0</i> means unlimited concurrency on rolling log segments.
+     *
+     * @param concurrency
+     *          log segment rolling concurrency.
+     * @return distributed log configuration.
+     */
+    public DistributedLogConfiguration setLogSegmentRollingConcurrency(int concurrency) {
+        setProperty(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, concurrency);
+        return this;
+    }
+
 }

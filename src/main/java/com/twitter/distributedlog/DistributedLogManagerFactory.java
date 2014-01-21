@@ -5,6 +5,8 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.LimitedPermitManager;
+import com.twitter.distributedlog.util.PermitManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class DistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
@@ -71,6 +74,8 @@ public class DistributedLogManagerFactory {
     private BookKeeperClient bookKeeperClient = null;
     // ledger allocator
     private final LedgerAllocator allocator;
+    // log segment rolling permit manager
+    private final PermitManager logSegmentRollingPermitManager;
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -104,6 +109,8 @@ public class DistributedLogManagerFactory {
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).statsLogger(statsLogger);
+        this.logSegmentRollingPermitManager = new LimitedPermitManager(
+                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledExecutorService);
 
         // propagate bkdlConfig to configuration
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);
@@ -187,6 +194,7 @@ public class DistributedLogManagerFactory {
             null, null, scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setLedgerAllocator(allocator);
+        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;
     }
 
@@ -207,6 +215,7 @@ public class DistributedLogManagerFactory {
             zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setLedgerAllocator(allocator);
+        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;
     }
 

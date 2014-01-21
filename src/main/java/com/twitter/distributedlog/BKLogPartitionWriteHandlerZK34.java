@@ -5,6 +5,7 @@ import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -178,7 +179,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 OpResult result = resultList.get(2);
                 confirmStore(result, maxTxId, txId);
             }
-        } catch (Exception ke) {
+        } catch (InterruptedException ie) {
             // abort ledger allocate
             ledgerAllocator.abortObtain(currentLedger);
             currentLedger = null;
@@ -186,7 +187,16 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             abortWrite(l, inprogressZnodePath);
             // abort setting max tx id
             abortStore(maxTxId, txId);
-            throw new IOException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
+            throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " + getFullyQualifiedName(), ie);
+        } catch (KeeperException ke) {
+            // abort ledger allocate
+            ledgerAllocator.abortObtain(currentLedger);
+            currentLedger = null;
+            // abort writing inprogress znode
+            abortWrite(l, inprogressZnodePath);
+            // abort setting max tx id
+            abortStore(maxTxId, txId);
+            throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
         }
         currentLedgerStartTxId = txId;
         return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, ledgerSeqNo, executorService, statsLogger);

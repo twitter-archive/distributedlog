@@ -5,6 +5,7 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
@@ -49,6 +50,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
     private LedgerAllocator ledgerAllocator = null;
+    // Log Segment Rolling Manager to control rolling speed
+    private PermitManager logSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
 
@@ -130,8 +133,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
+        BKLogPartitionWriteHandler writeHandler =
+            BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId);
+        PermitManager manager = getLogSegmentRollingPermitManager();
+        if (manager instanceof Watcher) {
+            writeHandler.register((Watcher) manager);
+        }
+        return writeHandler;
     }
 
     public String getClientId() {
@@ -144,6 +153,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public synchronized void setLedgerAllocator(LedgerAllocator allocator) {
         this.ledgerAllocator = allocator;
+    }
+
+    PermitManager getLogSegmentRollingPermitManager() {
+        return logSegmentRollingPermitManager;
+    }
+
+    void setLogSegmentRollingPermitManager(PermitManager manager) {
+        this.logSegmentRollingPermitManager = manager;
     }
 
     /**

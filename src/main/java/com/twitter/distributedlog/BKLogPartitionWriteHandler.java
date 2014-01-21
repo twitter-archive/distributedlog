@@ -21,6 +21,7 @@ import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
@@ -158,17 +159,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         final AtomicInteger numFailures;
         final org.apache.zookeeper.AsyncCallback.VoidCallback finalCb;
         final Object finalCtx;
-        final int successRc;
-        final int failureRc;
 
-        MultiGetCallback(int numRequests, org.apache.zookeeper.AsyncCallback.VoidCallback finalCb, Object ctx,
-                         int successRc, int failureRc) {
+        MultiGetCallback(int numRequests, org.apache.zookeeper.AsyncCallback.VoidCallback finalCb, Object ctx) {
             this.numPendings = new AtomicInteger(numRequests);
             this.numFailures = new AtomicInteger(0);
             this.finalCb = finalCb;
             this.finalCtx = ctx;
-            this.successRc = successRc;
-            this.failureRc = failureRc;
         }
 
         @Override
@@ -185,10 +181,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
                 LOG.error("Failed to get data from path {} : ", path, ke);
                 numFailures.incrementAndGet();
-                finalCb.processResult(failureRc, path, finalCtx);
+                finalCb.processResult(rc, path, finalCtx);
             }
             if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
-                finalCb.processResult(successRc, path, finalCtx);
+                finalCb.processResult(KeeperException.Code.OK.intValue(), path, finalCtx);
             }
         }
     }
@@ -369,7 +365,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         class GetDataCallback implements org.apache.zookeeper.AsyncCallback.VoidCallback {
             @Override
             public void processResult(int rc, String path, Object ctx) {
-                if (BKException.Code.OK == rc) {
+                if (KeeperException.Code.OK.intValue() == rc) {
                     if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
                         lockData.notExists() || ledgersData.notExists()) {
                         ZkUtils.createFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
@@ -379,14 +375,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     }
                 } else {
                     LOG.error("Failed to get partition data from {}.", partitionRootPath);
-                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + partitionRootPath));
+                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + partitionRootPath,
+                            KeeperException.Code.get(rc)));
                     initializeLatch.countDown();
                 }
             }
         }
 
         MultiGetCallback getCallback = new MultiGetCallback(ownAllocator ? 5 : 4,
-                new GetDataCallback(), null, BKException.Code.OK, BKException.Code.ZKException);
+                new GetDataCallback(), null);
         zk.getData(maxTxIdPath, false, getCallback, maxTxIdData);
         zk.getData(versionPath, false, getCallback, versionData);
         if (ownAllocator) {
@@ -423,6 +420,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (IllegalArgumentException iae) {
             throw new UnexpectedException("Invalid partition " + partitionRootPath, iae);
         }
+    }
+
+    void register(Watcher watcher) {
+        this.zooKeeperClient.register(watcher);
     }
 
     @Override
@@ -578,7 +579,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     LOG.error("Error closing ledger", e2);
                 }
             }
-            if (e instanceof IOException) {
+            if (e instanceof InterruptedException) {
+                throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " +
+                    getFullyQualifiedName(), e);
+            } else if (e instanceof KeeperException) {
+                throw new ZKException("Encountered zookeeper exception on starting log segment for " +
+                    getFullyQualifiedName(), (KeeperException) e);
+            } else if (e instanceof IOException) {
                 throw (IOException) e;
             } else {
                 throw new IOException("Error creating ledger", e);
@@ -753,7 +760,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (KeeperException.NoNodeException e) {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } catch (KeeperException e) {
-            throw new IOException("Error when finalising stream " + partitionRootPath, e);
+            throw new ZKException("Error when finalising stream " + partitionRootPath, e);
         } finally {
             if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
                 lock.release("CompleteAndClose");

@@ -1,16 +1,18 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.Pair;
+import com.twitter.distributedlog.util.PermitManager;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 public abstract class BKBaseLogWriter {
@@ -117,19 +119,34 @@ public abstract class BKBaseLogWriter {
             }
         }
 
+        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
+        if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment() || forceRolling)) {
+            PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
+            try {
+                if (switchPermit.isAllowed()) {
+                    try {
+                        ledgerManager.completeAndCloseLogSegment(ledgerWriter);
+                        numFlushes = ledgerWriter.getNumFlushes();
+                        ledgerWriter = null;
+                    } catch (ZKException zke) {
+                        KeeperException.Code code = zke.getKeeperExceptionCode();
+                        if (KeeperException.Code.CONNECTIONLOSS == code ||
+                            KeeperException.Code.OPERATIONTIMEOUT == code ||
+                            KeeperException.Code.SESSIONEXPIRED == code ||
+                            KeeperException.Code.SESSIONMOVED == code) {
+                            bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
+                        } else {
+                            throw zke;
+                        }
+                    }
+                }
+            } finally {
+                bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
+            }
+        }
 
         if (null == ledgerWriter) {
             ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
-            ledgerWriter.setNumFlushes(numFlushes);
-            cacheLogWriter(streamIdentifier, ledgerWriter);
-            shouldCheckForTruncation = true;
-        }
-
-        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
-        if (ledgerManager.shouldStartNewSegment() || ledgerWriter.shouldStartNewSegment(numRecordsToBeWritten) || forceRolling) {
-            ledgerManager.completeAndCloseLogSegment(ledgerWriter);
-            numFlushes = ledgerWriter.getNumFlushes();
-            ledgerWriter = ledgerManager.startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
