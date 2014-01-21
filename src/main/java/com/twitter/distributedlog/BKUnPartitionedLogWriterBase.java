@@ -8,8 +8,8 @@ import com.twitter.distributedlog.util.Pair;
 
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKPerStreamLogWriter perStreamWriter = null;
+    private BKPerStreamLogWriter allocatedPerStreamWriter = null;
     private BKLogPartitionWriteHandler partitionHander = null;
-
 
     public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);
@@ -70,6 +70,37 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         LinkedList<BKPerStreamLogWriter> list = new LinkedList<BKPerStreamLogWriter>();
         if (null != perStreamWriter) {
             list.add(perStreamWriter);
+        }
+        return list;
+    }
+
+    @Override
+    protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier) {
+        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        return allocatedPerStreamWriter;
+    }
+
+    @Override
+    protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
+        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        allocatedPerStreamWriter = logWriter;
+    }
+
+    @Override
+    protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier) {
+        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        try {
+            return allocatedPerStreamWriter;
+        } finally {
+            allocatedPerStreamWriter = null;
+        }
+    }
+
+    @Override
+    protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters() {
+        LinkedList<BKPerStreamLogWriter> list = new LinkedList<BKPerStreamLogWriter>();
+        if (null != allocatedPerStreamWriter) {
+            list.add(allocatedPerStreamWriter);
         }
         return list;
     }

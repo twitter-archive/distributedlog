@@ -16,12 +16,14 @@ import com.twitter.distributedlog.util.Pair;
 
 class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwareLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKPartitionAwareLogWriter.class);
-    private HashMap<String, BKPerStreamLogWriter> partitionToWriter;
-    private HashMap<String, BKLogPartitionWriteHandler> partitionToLedger;
+    private final HashMap<String, BKPerStreamLogWriter> partitionToWriter;
+    private final HashMap<String, BKPerStreamLogWriter> partitionToAllocatedWriter;
+    private final HashMap<String, BKLogPartitionWriteHandler> partitionToLedger;
 
     public BKPartitionAwareLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);
         this.partitionToWriter = new HashMap<String, BKPerStreamLogWriter>();
+        this.partitionToAllocatedWriter = new HashMap<String, BKPerStreamLogWriter>();
         this.partitionToLedger = new HashMap<String, BKLogPartitionWriteHandler>();
     }
 
@@ -63,6 +65,26 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     @Override
     protected Collection<BKPerStreamLogWriter> getCachedLogWriters() {
         return partitionToWriter.values();
+    }
+
+    @Override
+    protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier) {
+        return partitionToAllocatedWriter.get(streamIdentifier);
+    }
+
+    @Override
+    protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
+        partitionToAllocatedWriter.put(streamIdentifier, logWriter);
+    }
+
+    @Override
+    protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier) {
+        return partitionToAllocatedWriter.remove(streamIdentifier);
+    }
+
+    @Override
+    protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters() {
+        return partitionToAllocatedWriter.values();
     }
 
     /**

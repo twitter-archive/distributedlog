@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -40,8 +41,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.google.common.annotations.VisibleForTesting;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
@@ -109,8 +108,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final String maxTxIdPath;
     protected final MaxTxId maxTxId;
     protected boolean lockAcquired;
-    protected LedgerHandle currentLedger = null;
-    protected long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     protected volatile boolean recovered = false;
     protected final int ensembleSize;
     protected final int writeQuorumSize;
@@ -505,16 +502,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
         }
         boolean writeInprogressZnode = false;
+        LedgerHandle lh = null;
         try {
-            if (currentLedger != null) {
-                try {
-                    // bookkeeper errored on last stream, clean up ledger
-                    currentLedger.close();
-                } catch (BKException.BKLedgerClosedException lce) {
-                    LOG.debug("Ledger already closed {}", lce);
-                }
-            }
-            currentLedger = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
+            lh = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
             String inprogressZnodeName = inprogressZNodeName(txId);
@@ -535,7 +525,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
             }
 
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, conf.getDLLedgerMetadataLayoutVersion(), currentLedger.getId(), txId, ledgerSeqNo);
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 
@@ -554,15 +544,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
 
             maxTxId.store(txId);
-            currentLedgerStartTxId = txId;
             addLogSegmentToCache(inprogressZnodeName, l);
-            return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, ledgerSeqNo, executorService, statsLogger);
+            return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, statsLogger);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
-            if (currentLedger != null) {
+            if (lh != null) {
                 try {
-                    long id = currentLedger.getId();
-                    currentLedger.close();
+                    long id = lh.getId();
+                    lh.close();
                     // If we already wrote inprogress znode, we should not delete the ledger.
                     // There are cases where if the thread was interrupted on the client
                     // while the ZNode was being written, it still may have been written while we
@@ -617,25 +606,19 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-     public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
+    public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
         throws IOException {
-         writer.closeToFinalize();
-         completeAndCloseLogSegment(currentLedgerStartTxId, writer.getLastTxId(), writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
-     }
+        writer.closeToFinalize();
+        completeAndCloseLogSegment(
+            writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+            writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+    }
 
-    /**
-     * Finalize a log segment. If the journal manager is currently
-     * writing to a ledger, ensure that this is the ledger of the log segment
-     * being finalized.
-     * <p/>
-     * Otherwise this is the recovery case. In the recovery case, ensure that
-     * the firstTxId of the ledger matches firstTxId for the segment we are
-     * trying to finalize.
-     */
+
     @VisibleForTesting
-    public void completeAndCloseLogSegment(long firstTxId, long lastTxId, int recordCount)
+    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount)
         throws IOException {
-        completeAndCloseLogSegment(firstTxId, lastTxId, recordCount, true);
+        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, true);
     }
 
     /**
@@ -647,11 +630,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long firstTxId, long lastTxId,
-                                           int recordCount, boolean shouldReleaseLock)
+    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId,
+                                    int recordCount, boolean shouldReleaseLock)
         throws IOException {
-        completeAndCloseLogSegment(firstTxId, lastTxId, recordCount, -1, -1, shouldReleaseLock);
+        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, -1, -1, shouldReleaseLock);
     }
+
     /**
      * Finalize a log segment. If the journal manager is currently
      * writing to a ledger, ensure that this is the ledger of the log segment
@@ -661,13 +645,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(long firstTxId, long lastTxId,
-                                           int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
+    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId,
+                                    int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         long start = MathUtils.nowInNano();
         boolean success = false;
         try {
-            doCompleteAndCloseLogSegment(firstTxId, lastTxId, recordCount, lastEntryId, lastSlotId, shouldReleaseLock);
+            doCompleteAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount,
+                                         lastEntryId, lastSlotId, shouldReleaseLock);
             success = true;
         } finally {
             long elapsed = MathUtils.elapsedMSec(start);
@@ -690,8 +675,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * @param shouldReleaseLock
      * @throws IOException
      */
-    protected void doCompleteAndCloseLogSegment(long firstTxId, long lastTxId,
-                                                int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
+    protected void doCompleteAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount,
+                                                long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
@@ -710,22 +695,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
 
-            if (currentLedger != null) { // normal, non-recovery case
-                if (l.getLedgerId() == currentLedger.getId()) {
-                    try {
-                        currentLedger.close();
-                    } catch (BKException.BKLedgerClosedException lce) {
-                        LOG.debug("Ledger already closed", lce);
-                    } catch (BKException bke) {
-                        LOG.error("Error closing current ledger", bke);
-                    }
-                    currentLedger = null;
-                } else {
-                    throw new IOException(
-                        "Active ledger has different ID to inprogress. "
-                            + l.getLedgerId() + " found, "
-                            + currentLedger.getId() + " expected");
-                }
+            if (l.getLedgerId() != ledgerId) {
+                throw new IOException("Active ledger has different ID to inprogress. "
+                        + l.getLedgerId() + " found, " + ledgerId + " expected");
             }
 
             if (l.getFirstTxId() != firstTxId) {
@@ -828,9 +800,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     // Make the lock release symmetric by having this function acquire and
                     // release the lock and have complete and close only release the lock
                     // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getFirstTxId(), endTxId, recordCount, lastEntryId,
-                        lastSlotId, false);
-                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}", new Object[]{getFullyQualifiedName(), l.getFirstTxId(), endTxId});
+                    completeAndCloseLogSegment(l.getLedgerId(), l.getFirstTxId(), endTxId,
+                            recordCount, lastEntryId, lastSlotId, false);
+                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}",
+                             new Object[] { getFullyQualifiedName(), l.getFirstTxId(), endTxId });
                 }
                 if (lastLedgerRollingTimeMillis < 0) {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();

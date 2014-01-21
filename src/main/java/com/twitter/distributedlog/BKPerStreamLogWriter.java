@@ -20,10 +20,10 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.util.Pair;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
+import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.Counter;
@@ -34,10 +34,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.AbstractMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -56,7 +54,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
+class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCallback {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
     private static class BKTransmitPacket {
@@ -148,6 +146,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final DistributedReentrantLock lock;
     private LogRecord.Writer writer;
     private DLSN lastDLSN = DLSN.InvalidDLSN;
+    private final long startTxId;
     private long lastTxId = DistributedLogConstants.INVALID_TXID;
     private long lastTxIdFlushed = DistributedLogConstants.INVALID_TXID;
     private long lastTxIdAcknowledged = DistributedLogConstants.INVALID_TXID;
@@ -165,6 +164,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final boolean enableRecordCounts;
     private int recordCount = 0;
     private final long ledgerSequenceNumber;
+    private final DistributedLogConfiguration conf;
+    private final ScheduledExecutorService executorService;
 
     private final Queue<BKTransmitPacket> transmitPacketQueue
         = new ConcurrentLinkedQueue<BKTransmitPacket>();
@@ -230,6 +231,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         this.ledgerSequenceNumber = ledgerSequenceNumber;
         this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, Math.max(transmissionThreshold, 1024));
         this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
+        this.startTxId = startTxId;
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
         this.lastTxIdAcknowledged = startTxId;
@@ -240,6 +242,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
                     periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
         }
+        this.conf = conf;
+        this.executorService = executorService;
+    }
+
+    protected final LedgerHandle getLedgerHandle() {
+        return this.lh;
+    }
+
+    protected final long getStartTxId() {
+        return startTxId;
     }
 
     private BKTransmitPacket getTransmitPacket() {
@@ -299,19 +311,53 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         try {
-            lh.close();
-        } catch (InterruptedException ie) {
-            LOG.warn("Interrupted waiting on close", ie);
-        } catch (BKException.BKLedgerClosedException lce) {
-            LOG.debug("Ledger already closed");
-        } catch (BKException bke) {
-            LOG.warn("BookKeeper error during close", bke);
+            closeLedgerHandle(0);
         } finally {
             lock.release("PerStreamLogWriterClose");
         }
 
         if (attemptFlush && (null != throwExc)) {
             throw throwExc;
+        }
+    }
+
+    private void closeLedgerHandle(long delayInMs) {
+        if (null != executorService && delayInMs > 0) {
+            LOG.debug("Scheduling closing ledger handle {} in {} ms.",
+                    lh.getId(), delayInMs);
+            executorService.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    LOG.debug("Closing ledger handle {}.", lh.getId());
+                    lh.asyncClose(BKPerStreamLogWriter.this, null);
+                }
+            }, delayInMs, TimeUnit.MILLISECONDS);
+        } else {
+            LOG.debug("Closing ledger handle {}.", lh.getId());
+            lh.asyncClose(this, null);
+        }
+    }
+
+    /**
+     * Close ledger handle callback.
+     *
+     * @param rc
+     *          return code.
+     * @param ledgerHandle
+     *          ledger handle.
+     * @param ctx
+     *          callback ctx
+     */
+    @Override
+    public void closeComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
+        if (BKException.Code.OK == rc ||
+            BKException.Code.NoSuchLedgerExistsException == rc ||
+            BKException.Code.LedgerClosedException == rc) {
+            LOG.debug("Closed ledger handle {} successfully: {}", lh.getId(), rc);
+        } else {
+            LOG.warn("Failed to close ledger handle {}, backoff and retry in {} ms.",
+                    lh.getId(), conf.getBKClientZKSessionTimeoutMilliSeconds());
+            closeLedgerHandle(conf.getBKClientZKSessionTimeoutMilliSeconds());
         }
     }
 

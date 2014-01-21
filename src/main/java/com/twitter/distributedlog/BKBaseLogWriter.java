@@ -2,7 +2,6 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.util.Pair;
 import com.twitter.distributedlog.util.PermitManager;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -50,6 +49,13 @@ public abstract class BKBaseLogWriter {
 
     abstract protected Collection<BKPerStreamLogWriter> getCachedLogWriters();
 
+    abstract protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier);
+
+    abstract protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter);
+
+    abstract protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier);
+
+    abstract protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters();
 
     /**
      * Close the journal.
@@ -64,6 +70,13 @@ public abstract class BKBaseLogWriter {
                     writer.close();
                 } catch (IOException ioe) {
                     LOG.error("Failed to close per stream writer : ", ioe);
+                }
+            }
+            for (BKPerStreamLogWriter writer : getAllocatedLogWriters()) {
+                try {
+                    writer.close();
+                } catch (IOException ioe) {
+                    LOG.error("Failed to close allocated per stream writer : ", ioe);
                 }
             }
             for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
@@ -125,15 +138,41 @@ public abstract class BKBaseLogWriter {
             try {
                 if (switchPermit.isAllowed()) {
                     try {
+                        // we switch only when we could allocate a new log segment.
+                        BKPerStreamLogWriter newLedgerWriter = getAllocatedLogWriter(streamIdentifier);
+                        if (null == newLedgerWriter) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
+                                        ledgerManager.getFullyQualifiedName());
+                            }
+                            newLedgerWriter = ledgerManager.startLogSegment(startTxId);
+                            cacheAllocatedLogWriter(streamIdentifier, newLedgerWriter);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
+                                        ledgerManager.getFullyQualifiedName());
+                            }
+                        }
+
+                        // complete the log segment
                         ledgerManager.completeAndCloseLogSegment(ledgerWriter);
                         numFlushes = ledgerWriter.getNumFlushes();
-                        ledgerWriter = null;
+                        ledgerWriter = newLedgerWriter;
+                        ledgerWriter.setNumFlushes(numFlushes);
+                        cacheLogWriter(streamIdentifier, ledgerWriter);
+                        removeAllocatedLogWriter(streamIdentifier);
+                        shouldCheckForTruncation = true;
+                    } catch (LockingException le) {
+                        LOG.warn("We lost lock during completeAndClose log segment for {}. Disable ledger rolling until it is recovered : ",
+                                ledgerManager.getFullyQualifiedName(), le);
+                        bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                     } catch (ZKException zke) {
                         KeeperException.Code code = zke.getKeeperExceptionCode();
                         if (KeeperException.Code.CONNECTIONLOSS == code ||
                             KeeperException.Code.OPERATIONTIMEOUT == code ||
                             KeeperException.Code.SESSIONEXPIRED == code ||
                             KeeperException.Code.SESSIONMOVED == code) {
+                            LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
+                                    " Disable ledger rolling until it is recovered : {}", ledgerManager.getFullyQualifiedName(), code);
                             bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                         } else {
                             throw zke;
@@ -143,9 +182,8 @@ public abstract class BKBaseLogWriter {
             } finally {
                 bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
             }
-        }
-
-        if (null == ledgerWriter) {
+        } else if (null == ledgerWriter) {
+            // if exceptions thrown during initialize we should not catch it.
             ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
             ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);

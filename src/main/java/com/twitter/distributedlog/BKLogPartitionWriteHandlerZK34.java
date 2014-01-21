@@ -6,6 +6,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -126,13 +127,9 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             throw new DLInterruptedException("Interrupted on obtaining a zookeeper transaction for starting log segment on "
                     + getFullyQualifiedName(), e);
         }
-        // closing previous opened ledger.
-        if (currentLedger != null) {
-            closeLedger(currentLedger);
-        }
 
         // Try obtaining an new ledger
-        currentLedger = ledgerAllocator.tryObtain(txn);
+        LedgerHandle lh = ledgerAllocator.tryObtain(txn);
 
         // For any active stream we will always make sure that there is at least one
         // active ledger (except when the stream first starts out). Therefore when we
@@ -152,7 +149,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         String inprogressZnodeName = inprogressZNodeName(txId);
         String inprogressZnodePath = inprogressZNode(txId);
         LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
-                conf.getDLLedgerMetadataLayoutVersion(), currentLedger.getId(), txId, ledgerSeqNo);
+                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo);
         tryWrite(txn, l, inprogressZnodePath);
 
         // Try storing max tx id.
@@ -165,7 +162,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             // Allocator handover completed
             {
                 OpResult result = resultList.get(0);
-                ledgerAllocator.confirmObtain(currentLedger, result);
+                ledgerAllocator.confirmObtain(lh, result);
             }
             // Created inprogress log segment completed
             {
@@ -181,8 +178,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             }
         } catch (InterruptedException ie) {
             // abort ledger allocate
-            ledgerAllocator.abortObtain(currentLedger);
-            currentLedger = null;
+            ledgerAllocator.abortObtain(lh);
             // abort writing inprogress znode
             abortWrite(l, inprogressZnodePath);
             // abort setting max tx id
@@ -190,21 +186,19 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " + getFullyQualifiedName(), ie);
         } catch (KeeperException ke) {
             // abort ledger allocate
-            ledgerAllocator.abortObtain(currentLedger);
-            currentLedger = null;
+            ledgerAllocator.abortObtain(lh);
             // abort writing inprogress znode
             abortWrite(l, inprogressZnodePath);
             // abort setting max tx id
             abortStore(maxTxId, txId);
             throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
         }
-        currentLedgerStartTxId = txId;
-        return new BKPerStreamLogWriter(conf, currentLedger, lock, txId, ledgerSeqNo, executorService, statsLogger);
+        return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, statsLogger);
     }
 
     @Override
-    protected void doCompleteAndCloseLogSegment(long firstTxId, long lastTxId,
-                                                int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
+    protected void doCompleteAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount,
+                                                long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
@@ -217,16 +211,11 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             // from zookeeper.
             LogSegmentLedgerMetadata logSegment = readLogSegmentFromCache(inprogressZnodeName);
 
-            if (currentLedger != null) { // normal, non-recovery case
-                if (logSegment.getLedgerId() == currentLedger.getId()) {
-                    closeLedger(currentLedger);
-                    currentLedger = null;
-                } else {
-                    throw new IOException(
-                        "Active ledger has different ID to inprogress. "
-                            + logSegment.getLedgerId() + " found, "
-                            + currentLedger.getId() + " expected");
-                }
+            if (logSegment.getLedgerId() != ledgerId) {
+                throw new IOException(
+                    "Active ledger has different ID to inprogress. "
+                        + logSegment.getLedgerId() + " found, "
+                        + ledgerId + " expected");
             }
 
             if (logSegment.getFirstTxId() != firstTxId) {

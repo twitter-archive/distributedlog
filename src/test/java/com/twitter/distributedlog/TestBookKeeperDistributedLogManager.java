@@ -713,8 +713,8 @@ public class TestBookKeeperDistributedLogManager {
 
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
-            blplm.startLogSegment(txid - 1);
-            blplm.completeAndCloseLogSegment(txid - 1, txid - 1, 0);
+            BKPerStreamLogWriter perStreamLogWriter = blplm.startLogSegment(txid - 1);
+            blplm.completeAndCloseLogSegment(perStreamLogWriter.getLedgerHandle().getId(), txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1), false));
             blplm.close();
@@ -1546,7 +1546,7 @@ public class TestBookKeeperDistributedLogManager {
     public void testMaxLogRecSize() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
-        LogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         try {
             LogRecord op = new LogRecord(txid, DLMTestUtil.repeatString(
@@ -1568,7 +1568,7 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.setOutputBufferSize(1024 * 1024);
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
         long txid = 1;
-        LogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
         boolean exceptionEncountered = false;
         byte[] largePayload = DLMTestUtil.repeatString(DLMTestUtil.repeatString("abcdefgh", 256), 256).getBytes();
         try {
@@ -1659,8 +1659,8 @@ public class TestBookKeeperDistributedLogManager {
 
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
-            blplm.startLogSegment(txid - 1);
-            blplm.completeAndCloseLogSegment(txid - 1, txid - 1, 0);
+            BKPerStreamLogWriter writer = blplm.startLogSegment(txid - 1);
+            blplm.completeAndCloseLogSegment(writer.getLedgerHandle().getId(), txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1), false));
             blplm.close();

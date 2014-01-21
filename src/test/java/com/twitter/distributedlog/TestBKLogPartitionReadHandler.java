@@ -55,14 +55,15 @@ public class TestBKLogPartitionReadHandler {
         BKLogPartitionWriteHandler writer = DLMTestUtil.createNewBKDLM(conf, name);
         long txid = 1;
         for (int sid = 0; sid < numSegments; ++sid) {
-            LogWriter out = writer.startLogSegment(txid);
+            BKPerStreamLogWriter out = writer.startLogSegment(txid);
             for (int eid = 0; eid < numEntriesPerSegment; ++eid) {
                 LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
                 out.write(record);
                 ++txid;
             }
             out.close();
-            writer.completeAndCloseLogSegment(1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
+            writer.completeAndCloseLogSegment(out.getLedgerHandle().getId(),
+                    1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
         }
         writer.close();
     }

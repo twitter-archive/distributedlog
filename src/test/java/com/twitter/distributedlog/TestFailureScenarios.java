@@ -123,7 +123,7 @@ public class TestFailureScenarios {
     @Test
     public void testFailureInComplete() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-failure-complete-ledger");
-        LogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -143,7 +143,7 @@ public class TestFailureScenarios {
             FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
-        bkdlm.completeAndCloseLogSegment(1, 100, 100);
+        bkdlm.completeAndCloseLogSegment(out.getLedgerHandle().getId(), 1, 100, 100);
 
         FailpointUtils.removeFailpoint(
             FailpointUtils.FailPointName.FP_FinalizeLedgerBeforeDelete);
