@@ -102,7 +102,7 @@ public class ZooKeeperClient {
      *
      * @return reference count.
      */
-    int addRef() {
+    public int addRef() {
         return refCount.incrementAndGet();
     }
 

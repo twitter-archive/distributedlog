@@ -169,6 +169,17 @@
                 </configuration>
             </plugin>
             <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/bk/**Allocator**</exclude>
+                    </excludes>
+                    <testExcludes>
+                        <exclude>**/bk/**Allocator**</exclude>
+                    </testExcludes>
+                </configuration>
+            </plugin>
+            <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <version>2.2.1</version>
                 <configuration>

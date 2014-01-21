@@ -14,8 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-
-class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
+public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BookKeeperClient.class);
     private int refCount;
     private BookKeeper bkc = null;

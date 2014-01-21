@@ -32,6 +32,18 @@
     <Bug pattern="EI_EXPOSE_REP" />
   </Match>
   <Match>
+    <!-- it is safe to store external bytes reference here. //-->
+    <Class name="com.twitter.distributedlog.zk.DataWithStat" />
+    <Method name="setDataWithStat" />
+    <Bug pattern="EI_EXPOSE_REP2" />
+  </Match>
+  <Match>
+    <!-- it is safe to store external bytes reference here. //-->
+    <Class name="com.twitter.distributedlog.zk.DataWithStat" />
+    <Method name="getData" />
+    <Bug pattern="EI_EXPOSE_REP" />
+  </Match>
+  <Match>
     <Class name="com.twitter.distributedlog.BKAsyncLogReaderDLSN" />
     <Method name="run" />
     <Bug pattern="JLM_JSR166_UTILCONCURRENT_MONITORENTER" />

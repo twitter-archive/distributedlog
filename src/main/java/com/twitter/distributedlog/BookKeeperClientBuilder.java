@@ -12,7 +12,7 @@ import java.io.IOException;
 /**
  * Builder to build bookkeeper client.
  */
-class BookKeeperClientBuilder {
+public class BookKeeperClientBuilder {
 
     /**
      * Create a bookkeeper client builder to build bookkeeper clients.
