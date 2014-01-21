@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
@@ -42,16 +43,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.annotations.VisibleForTesting;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncCallback.CloseCallback {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
-    static final Version ZK_VERSION = new Version("zk");
     static Class<? extends BKLogPartitionWriteHandler> WRITER_HANDLER_CLASS = null;
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, StatsLogger.class, String.class
+        ScheduledExecutorService.class, LedgerAllocator.class, StatsLogger.class, String.class
     };
 
     static BKLogPartitionWriteHandler createBKLogPartitionWriteHandler(String name,
@@ -61,11 +62,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        ZooKeeperClientBuilder zkcBuilder,
                                                                        BookKeeperClientBuilder bkcBuilder,
                                                                        ScheduledExecutorService executorService,
+                                                                       LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
                                                                        String clientId) throws IOException {
         if (ZK_VERSION.getVersion().equals("3.3")) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, statsLogger, clientId);
+                    executorService, ledgerAllocator, false, statsLogger, clientId);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -85,12 +87,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new IOException("No constructor found for writer handler class " + WRITER_HANDLER_CLASS + " : ", e);
             }
             Object[] arguments = {
-                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, clientId
+                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, ledgerAllocator, statsLogger, clientId
             };
             try {
                 return constructor.newInstance(arguments);
             } catch (InstantiationException e) {
-                throw new IOException("Faile to instantiate writer handler : ", e);
+                throw new IOException("Failed to instantiate writer handler : ", e);
             } catch (IllegalAccessException e) {
                 throw new IOException("Encountered illegal access when instantiating writer handler : ", e);
             } catch (InvocationTargetException e) {
@@ -201,6 +203,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
                                ScheduledExecutorService executorService,
+                               LedgerAllocator allocator,
+                               boolean useAllocator,
                                StatsLogger statsLogger,
                                String clientId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, null);
@@ -222,6 +226,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
 
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
+
+        final boolean ownAllocator = useAllocator && (null == allocator);
 
         this.maxTxIdPath = partitionRootPath + "/maxtxid";
         final String lockPath = partitionRootPath + "/lock";
@@ -283,13 +289,17 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 zk.create(lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // allocation path
-                zk.create(allocationPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
+                if (ownAllocator) {
+                    zk.create(allocationPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                            CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
+                }
                 // send get requests to maxTxId, version, allocation
-                numPendings.set(3);
+                numPendings.set(ownAllocator ? 3 : 2);
                 zk.getData(maxTxIdPath, false, this, maxTxIdData);
                 zk.getData(versionPath, false, this, versionData);
-                zk.getData(allocationPath, false, this, allocationData);
+                if (ownAllocator) {
+                    zk.getData(allocationPath, false, this, allocationData);
+                }
             }
 
             @Override
@@ -313,7 +323,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             @Override
             public void processResult(int rc, String path, Object ctx) {
                 if (BKException.Code.OK == rc) {
-                    if (allocationData.notExists() || versionData.notExists() || maxTxIdData.notExists() ||
+                    if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
                         lockData.notExists() || ledgersData.notExists()) {
                         ZkUtils.createFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
                                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
@@ -328,11 +338,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
         }
 
-        MultiGetCallback getCallback = new MultiGetCallback(5, new GetDataCallback(), null,
-                BKException.Code.OK, BKException.Code.ZKException);
+        MultiGetCallback getCallback = new MultiGetCallback(ownAllocator ? 5 : 4,
+                new GetDataCallback(), null, BKException.Code.OK, BKException.Code.ZKException);
         zk.getData(maxTxIdPath, false, getCallback, maxTxIdData);
         zk.getData(versionPath, false, getCallback, versionData);
-        zk.getData(allocationPath, false, getCallback, allocationData);
+        if (ownAllocator) {
+            zk.getData(allocationPath, false, getCallback, allocationData);
+        }
         zk.getData(lockPath, false, getCallback, lockData);
         zk.getData(ledgerPath, false, getCallback, ledgersData);
 
@@ -357,8 +369,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             Preconditions.checkNotNull(maxTxIdData.getStat());
             Preconditions.checkNotNull(maxTxIdData.getData());
             // Verify Allocation
-            Preconditions.checkNotNull(allocationData.getStat());
-            Preconditions.checkNotNull(allocationData.getData());
+            if (ownAllocator) {
+                Preconditions.checkNotNull(allocationData.getStat());
+                Preconditions.checkNotNull(allocationData.getData());
+            }
         } catch (IllegalArgumentException iae) {
             throw new UnexpectedException("Invalid partition " + partitionRootPath, iae);
         }

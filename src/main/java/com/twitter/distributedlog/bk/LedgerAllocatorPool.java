@@ -11,8 +11,6 @@ import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.OpResult;
-import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -206,7 +204,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public LedgerHandle tryObtain(Transaction txn) throws IOException {
+    public LedgerHandle tryObtain(Object txn) throws IOException {
         LedgerAllocator allocator;
         synchronized (this) {
             if (allocatingList.isEmpty()) {
@@ -223,7 +221,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public void confirmObtain(LedgerHandle ledger, OpResult result) {
+    public void confirmObtain(LedgerHandle ledger, Object result) {
         LedgerAllocator allocator;
         synchronized (this) {
             allocator = obtainMap.remove(ledger);

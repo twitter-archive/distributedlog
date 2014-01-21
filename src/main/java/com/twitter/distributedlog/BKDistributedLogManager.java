@@ -1,13 +1,12 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
-import com.twitter.util.ExceptionalFunction0;
-import com.twitter.util.ExecutorServiceFuturePool;
-
+import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Future;
 
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -38,6 +37,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
+    private LedgerAllocator ledgerAllocator = null;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
 
@@ -121,7 +121,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, clientId);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId);
     }
 
     public String getClientId() {
@@ -130,6 +130,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public void setClientId(String clientId) {
         this.clientId = clientId;
+    }
+
+    public synchronized void setLedgerAllocator(LedgerAllocator allocator) {
+        this.ledgerAllocator = allocator;
     }
 
     /**

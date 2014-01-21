@@ -171,7 +171,9 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      * Try obtaining ledger in given <i>txn</i>.
      */
     @Override
-    public synchronized LedgerHandle tryObtain(Transaction txn) throws IOException {
+    public synchronized LedgerHandle tryObtain(Object t) throws IOException {
+        assert (t instanceof Transaction);
+        Transaction txn = (Transaction) t;
         tryObtainLedgerHandle();
         txn.setData(allocatePath, new byte[0], zkVersion);
         setPhase(Phase.HANDING_OVER);
@@ -202,7 +204,9 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      * Confirm obtaining the ledger.
      */
     @Override
-    public void confirmObtain(LedgerHandle ledger, OpResult result) {
+    public void confirmObtain(LedgerHandle ledger, Object r) {
+        assert (r instanceof OpResult);
+        OpResult result = (OpResult) r;
         Preconditions.checkArgument(allocated == ledger);
         Preconditions.checkArgument(result instanceof OpResult.SetDataResult);
         OpResult.SetDataResult setDataResult = (OpResult.SetDataResult) result;

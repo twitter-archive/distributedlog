@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.shims.Version;
+
 public class DistributedLogConstants {
     public static final long INVALID_TXID = -999;
     public static final long EMPTY_LEDGER_TX_ID = -99;
@@ -18,4 +20,9 @@ public class DistributedLogConstants {
     public static final int FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO = 2;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
+    public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
+    // ZK Version
+    public static final Version ZK_VERSION = new Version("zk");
+    public static final String ZK33 = "3.3";
+    public static final String ZK34 = "3.4";
 }

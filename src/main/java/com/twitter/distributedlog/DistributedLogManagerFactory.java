@@ -1,6 +1,9 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -13,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -50,6 +54,10 @@ public class DistributedLogManagerFactory {
         }
     }
 
+    static boolean isReservedStreamName(String name) {
+        return name.startsWith(".");
+    }
+
     private final String clientId;
     private DistributedLogConfiguration conf;
     private URI namespace;
@@ -61,6 +69,8 @@ public class DistributedLogManagerFactory {
     private final ZooKeeperClient zooKeeperClient;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private BookKeeperClient bookKeeperClient = null;
+    // ledger allocator
+    private final LedgerAllocator allocator;
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -94,8 +104,25 @@ public class DistributedLogManagerFactory {
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).statsLogger(statsLogger);
+
         // propagate bkdlConfig to configuration
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+
+        // Build the allocator
+        if (conf.getEnableLedgerAllocatorPool()) {
+            String poolName = conf.getLedgerAllocatorPoolName();
+            if (null == poolName) {
+                LOG.error("No ledger allocator pool name specified when enabling ledger allocator pool.");
+                throw new IOException("No ledger allocator name specified when enabling ledger allocator pool.");
+            }
+            String rootPath = uri.getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE + "/" + poolName;
+            getBookKeeperClientBuilder();
+            allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(rootPath, conf.getLedgerAllocatorPoolCoreSize(), conf,
+                    zooKeeperClient, getBookKeeperClient());
+            LOG.info("Created ledger allocator pool under {} with size {}.", rootPath, conf.getLedgerAllocatorPoolCoreSize());
+        } else {
+            allocator = null;
+        }
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
@@ -159,6 +186,7 @@ public class DistributedLogManagerFactory {
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             null, null, scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setLedgerAllocator(allocator);
         return distLogMgr;
     }
 
@@ -178,6 +206,7 @@ public class DistributedLogManagerFactory {
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setLedgerAllocator(allocator);
         return distLogMgr;
     }
 
@@ -216,7 +245,7 @@ public class DistributedLogManagerFactory {
     }
 
     private static void validateInput(DistributedLogConfiguration conf, URI uri, String nameOfStream)
-        throws IllegalArgumentException {
+        throws IllegalArgumentException, InvalidStreamNameException {
         validateConfAndURI(conf, uri);
         validateName(nameOfStream);
     }
@@ -234,9 +263,12 @@ public class DistributedLogManagerFactory {
         }
     }
 
-    private static void validateName(String nameOfStream) {
+    private static void validateName(String nameOfStream) throws InvalidStreamNameException {
         if (nameOfStream.contains("/")) {
-            throw new IllegalArgumentException("Stream Name contains invalid characters");
+            throw new InvalidStreamNameException(nameOfStream, "Stream Name contains invalid characters");
+        }
+        if (isReservedStreamName(nameOfStream)) {
+            throw new InvalidStreamNameException(nameOfStream, "Stream Name is reserved");
         }
     }
 
@@ -342,7 +374,14 @@ public class DistributedLogManagerFactory {
             if (currentStat == null) {
                 return new LinkedList<String>();
             }
-            return zkc.get().getChildren(namespaceRootPath, false);
+            List<String> children = zkc.get().getChildren(namespaceRootPath, false);
+            List<String> result = new ArrayList<String>(children.size());
+            for (String child : children) {
+                if (!isReservedStreamName(child)) {
+                    result.add(child);
+                }
+            }
+            return result;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + namespaceRootPath, ie);
             throw new IOException("Interrupted while deleting " + namespaceRootPath, ie);
@@ -375,6 +414,9 @@ public class DistributedLogManagerFactory {
             }
             List<String> children = zkc.get().getChildren(namespaceRootPath, false);
             for(String child: children) {
+                if (isReservedStreamName(child)) {
+                    continue;
+                }
                 String zkPath = String.format("%s/%s", namespaceRootPath, child);
                 currentStat = zkc.get().exists(zkPath, false);
                 if (currentStat == null) {
@@ -399,6 +441,10 @@ public class DistributedLogManagerFactory {
     public void close() {
         scheduledExecutorService.shutdown();
         LOG.info("Executor Service Stopped.");
+        if (null != allocator) {
+            allocator.close();
+            LOG.info("Ledger Allocator stopped.");
+        }
         try {
             BookKeeperClient bkc = getBookKeeperClient();
             if (null != bkc) {

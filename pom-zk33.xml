@@ -172,7 +172,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <excludes>
-                        <exclude>**/bk/**Allocator**</exclude>
+                        <exclude>**/bk/LedgerAllocatorPool.java</exclude>
+                        <exclude>**/bk/SimpleLedgerAllocator.java</exclude>
                         <exclude>**/BKLogPartitionWriteHandlerZK34.java</exclude>
                     </excludes>
                     <testExcludes>

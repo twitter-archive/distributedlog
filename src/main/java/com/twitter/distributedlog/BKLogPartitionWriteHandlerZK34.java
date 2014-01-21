@@ -43,11 +43,17 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   LedgerAllocator allocator,
                                    StatsLogger statsLogger,
                                    String clientId) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, clientId);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
+              executorService, allocator, true, statsLogger, clientId);
         // Construct ledger allocator
-        ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
+        if (null == allocator) {
+            ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
+        } else {
+            ledgerAllocator = allocator;
+        }
     }
 
     // Transactional operations for MaxTxId

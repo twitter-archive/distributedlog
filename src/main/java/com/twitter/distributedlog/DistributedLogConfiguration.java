@@ -118,6 +118,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
     public static final boolean BKDL_MAXID_SANITYCHECK_DEFAULT = true;
 
+    public static final String BKDL_ENABLE_LEDGER_ALLOCATOR_POOL = "enableLedgerAllocatorPool";
+    public static final boolean BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT = false;
+
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME = "ledgerAllocatorPoolName";
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT = null;
+
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE = "ledgerAllocatorPoolCoreSize";
+    public static final int BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT = 20;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -739,6 +748,69 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setSanityCheckTxnID(boolean enabled) {
         setProperty(BKDL_MAXID_SANITYCHECK, enabled);
+        return this;
+    }
+
+    /**
+     * Whether to enable ledger allocator pool or not.
+     *
+     * @return whether using ledger allocator pool or not.
+     */
+    public boolean getEnableLedgerAllocatorPool() {
+        return getBoolean(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable ledger allocator pool.
+     *
+     * @param enabled
+     *          enable/disable ledger allocator pool.
+     * @return configuration.
+     */
+    public DistributedLogConfiguration setEnableLedgerAllocatorPool(boolean enabled) {
+        setProperty(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, enabled);
+        return this;
+    }
+
+    /**
+     * The name of ledger allocator pool.
+     *
+     * @return name of ledger allocator pool.
+     */
+    public String getLedgerAllocatorPoolName() {
+        return getString(BKDL_LEDGER_ALLOCATOR_POOL_NAME, BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT);
+    }
+
+    /**
+     * Set name of ledger allocator pool.
+     *
+     * @param name
+     *          name of ledger allocator pool.
+     * @return configuration.
+     */
+    public DistributedLogConfiguration setLedgerAllocatorPoolName(String name) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_NAME, name);
+        return this;
+    }
+
+    /**
+     * Core size of ledger allocator pool.
+     *
+     * @return core size of ledger allocator pool.
+     */
+    public int getLedgerAllocatorPoolCoreSize() {
+        return getInt(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT);
+    }
+
+    /**
+     * Set core size of ledger allocator pool.
+     *
+     * @param poolSize
+     *          core size of ledger allocator pool.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setLedgerAllocatorPoolCoreSize(int poolSize) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, poolSize);
         return this;
     }
 }

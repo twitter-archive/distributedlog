@@ -37,7 +37,8 @@ enum StatusCode {
 
     // 6xx: unexpected
     UNEXPECTED = 600,
-    INTERRUPTED = 601
+    INTERRUPTED = 601,
+    INVALID_STREAM_NAME = 602,
 }
 
 // Response Header
