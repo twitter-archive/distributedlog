@@ -246,6 +246,8 @@
                         <derby.stream.error.file>target/derby.log</derby.stream.error.file>
                         <build.test.dir>target/zk_clientbase_build</build.test.dir>
                     </systemPropertyVariables>
+                    <forkMode>always</forkMode>
+                    <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
                 </configuration>
             </plugin>
             <plugin>
