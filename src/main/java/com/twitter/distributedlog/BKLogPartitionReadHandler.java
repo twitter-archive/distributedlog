@@ -558,7 +558,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
                             }
-                            bkLedgerManager.getHandleCache().asyncReadLastConfirmed(currentLH, this, null);
+                            bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
                         } else {
                             next.process(BKException.Code.OK);
                         }
