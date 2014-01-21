@@ -6,6 +6,8 @@
 - Flag to check and create stream if not exists
 - Throttling ledger rolling speed in DL
 - Resilient to zookeeper exception in writer path
+- TryReadLastAddConfirmed support
+- Retryable ZooKeeper Client
 
 0.3.7
 -----

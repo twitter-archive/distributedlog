@@ -51,6 +51,13 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                                          FuturePool futurePool) throws IOException {
         super(conf, bkdlm);
         this.futurePool = futurePool;
+
+    }
+
+    BKUnPartitionedAsyncLogWriter recover() throws IOException {
+        // obtain the writer ledger handler and recover incomplete logsegments
+        this.getWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM, true);
+        return this;
     }
 
     /**

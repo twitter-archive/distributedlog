@@ -247,7 +247,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         initializeFuturePool(true);
-        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool);
+        // proactively recover incomplete logsegments for async log writer
+        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool).recover();
     }
 
     /**
