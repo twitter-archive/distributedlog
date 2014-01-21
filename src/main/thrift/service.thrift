@@ -37,6 +37,7 @@ enum StatusCode {
 
     // 6xx: unexpected
     UNEXPECTED = 600,
+    INTERRUPTED = 601
 }
 
 // Response Header

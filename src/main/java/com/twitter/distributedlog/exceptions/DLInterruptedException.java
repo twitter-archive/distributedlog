@@ -1,17 +1,17 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
  * An interrupted exception wrapper indicates dl operations are interrupted.
  */
-public class DLInterruptedException extends IOException {
+public class DLInterruptedException extends DLException {
 
     public DLInterruptedException(String msg) {
-        super(msg);
+        super(StatusCode.INTERRUPTED, msg);
     }
 
     public DLInterruptedException(String msg, Throwable t) {
-        super(msg, t);
+        super(StatusCode.INTERRUPTED, msg, t);
     }
 }

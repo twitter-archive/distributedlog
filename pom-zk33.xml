@@ -173,6 +173,7 @@
                 <configuration>
                     <excludes>
                         <exclude>**/bk/**Allocator**</exclude>
+                        <exclude>**/BKLogPartitionWriteHandlerZK34.java</exclude>
                     </excludes>
                     <testExcludes>
                         <exclude>**/bk/**Allocator**</exclude>

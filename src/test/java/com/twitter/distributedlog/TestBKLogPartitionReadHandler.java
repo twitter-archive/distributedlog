@@ -8,6 +8,8 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -20,6 +22,8 @@ import static org.junit.Assert.assertNotNull;
  * Test {@link BKLogPartitionReadHandler}
  */
 public class TestBKLogPartitionReadHandler {
+
+    static final Logger LOG = LoggerFactory.getLogger(TestBKLogPartitionReadHandler.class);
 
     protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
     private static LocalDLMEmulator bkutil;
@@ -63,9 +67,26 @@ public class TestBKLogPartitionReadHandler {
         writer.close();
     }
 
-    @Test(timeout = 6000)
+    @Test(timeout = 60000)
     public void testGetLedgerList() throws Exception {
-        String dlName = "GetLedgerList";
+        String dlName = "TestGetLedgerList";
+        prepareLogSegments(dlName, 3, 3);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
+        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
+        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, LogSegmentLedgerMetadata.COMPARATOR, false);
+        List<LogSegmentLedgerMetadata> ledgerList2 = readHandler.getLedgerList(true);
+        List<LogSegmentLedgerMetadata> ledgerList3 = readHandler.getLedgerList(false, LogSegmentLedgerMetadata.COMPARATOR, false);
+        assertEquals(3, ledgerList.size());
+        assertEquals(3, ledgerList2.size());
+        assertEquals(3, ledgerList3.size());
+        for (int i=0; i<3; i++) {
+            assertEquals(ledgerList3.get(i), ledgerList2.get(i));
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testForceGetLedgerList() throws Exception {
+        String dlName = "TestForceGetLedgerList";
         prepareLogSegments(dlName, 3, 3);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
         BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
@@ -83,6 +104,8 @@ public class TestBKLogPartitionReadHandler {
         latch.await();
         List<LogSegmentLedgerMetadata> newLedgerList = resultHolder.get();
         assertNotNull(newLedgerList);
+        LOG.info("Force sync get list : {}", ledgerList);
+        LOG.info("Async get list : {}", newLedgerList);
         assertEquals(3, ledgerList.size());
         assertEquals(3, newLedgerList.size());
         for (int i=0; i<3; i++) {

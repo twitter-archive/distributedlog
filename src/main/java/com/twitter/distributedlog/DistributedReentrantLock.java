@@ -66,6 +66,20 @@ class DistributedReentrantLock implements Runnable {
     private final DistributedLock internalLock;
     private final long lockTimeout;
 
+    /**
+     * Construct a lock.
+     * NOTE: ensure the lockpath is created before constructing the lock.
+     *
+     * @param zkc
+     *          zookeeper client.
+     * @param lockPath
+     *          lock path.
+     * @param lockTimeout
+     *          lock timeout.
+     * @param clientId
+     *          client id.
+     * @throws IOException
+     */
     DistributedReentrantLock(
         ScheduledExecutorService executorService,
         ZooKeeperClient zkc,
@@ -76,18 +90,7 @@ class DistributedReentrantLock implements Runnable {
         this.executorService = executorService;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
-
-        try {
-            if (zkc.get().exists(lockPath, false) == null) {
-                zkc.get().create(lockPath, null,
-                    Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-            }
-            internalLock = new DistributedLock(zkc, lockPath, clientId);
-        } catch (KeeperException ke) {
-            throw new IOException("Exception when creating zookeeper lock " + lockPath, ke);
-        } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted on creating zookeeper lock " + lockPath, e);
-        }
+        this.internalLock = new DistributedLock(zkc, lockPath, clientId);
     }
 
     void acquire(String reason) throws LockingException {

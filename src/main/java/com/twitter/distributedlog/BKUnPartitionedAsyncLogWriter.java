@@ -1,7 +1,5 @@
 package com.twitter.distributedlog;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
@@ -12,9 +10,6 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 
 import java.io.IOException;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 

@@ -17,12 +17,13 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.collect.Sets;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.Pair;
 
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
@@ -34,7 +35,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -48,8 +48,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.google.common.collect.Sets;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -80,7 +78,7 @@ import com.google.common.collect.Sets;
  * Password to use when creating ledgers. </li>
  * </ul>
  */
-abstract class BKLogPartitionHandler implements Watcher  {
+abstract class BKLogPartitionHandler implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -93,7 +91,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
     protected final String partitionRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
-    protected long lastLedgerRollingTimeMillis = -1;
+    protected volatile long lastLedgerRollingTimeMillis = -1;
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
     private AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
@@ -105,7 +103,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
     protected final AsyncNotification notification;
 
 
-    static class GetLedgersTask implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> {
+    static class GetLedgersTask implements GenericCallback<List<LogSegmentLedgerMetadata>> {
         final String path;
         final boolean allowEmpty;
         final CountDownLatch countDownLatch = new CountDownLatch(1);
@@ -257,7 +255,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
 
     public long getFirstTxId() throws IOException {
         checkLogStreamExists();
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);
+        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true, true);
 
         // The ledger list should at least have one element
         // First TxId is populated even for in progress ledgers
@@ -483,6 +481,12 @@ abstract class BKLogPartitionHandler implements Watcher  {
         return lastRecord;
     }
 
+    protected void setLastLedgerRollingTimeMillis(long rollingTimeMillis) {
+        if (lastLedgerRollingTimeMillis < rollingTimeMillis) {
+            lastLedgerRollingTimeMillis = rollingTimeMillis;
+        }
+    }
+
     public String getFullyQualifiedName() {
         return String.format("%s:%s", name, streamIdentifier);
     }
@@ -543,7 +547,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
         int backOff = conf.getReadAheadWaitTime();
         do {
             ledgers.clear();
-            asyncGetLedgerListInternal(comparator, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+            asyncGetLedgerListInternal(comparator, null, new GenericCallback<List<LogSegmentLedgerMetadata>>() {
                 @Override
                 public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
                     result.set(rc);
@@ -623,12 +627,12 @@ abstract class BKLogPartitionHandler implements Watcher  {
     }
 
     protected void asyncGetLedgerList(final Comparator comparator, Watcher watcher,
-                                      final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
+                                      final GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
         asyncGetLedgerListInternal(comparator, watcher, callback);
     }
 
     private void asyncGetLedgerListInternal(final Comparator comparator, Watcher watcher,
-                                            final BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
+                                            final GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
         try {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Async getting ledger list for {}.", getFullyQualifiedName());
@@ -668,7 +672,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                             LOG.trace("No segments added for {}.", getFullyQualifiedName());
                         }
                         Collections.sort(segmentList, comparator);
-                        callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
+                        callback.operationComplete(BKException.Code.OK, segmentList);
                         notifyOnOperationComplete();
                         return;
                     }
@@ -678,7 +682,7 @@ abstract class BKLogPartitionHandler implements Watcher  {
                     for (final String segment: segmentsAdded) {
                         LogSegmentLedgerMetadata.read(zooKeeperClient,
                             ledgerPath + "/" + segment, conf.getDLLedgerMetadataLayoutVersion(),
-                            new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
+                            new GenericCallback<LogSegmentLedgerMetadata>() {
                                 @Override
                                 public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
                                     if (BKException.Code.OK != rc) {

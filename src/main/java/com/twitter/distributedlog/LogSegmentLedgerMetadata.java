@@ -49,8 +49,6 @@ class LogSegmentLedgerMetadata {
     private int recordCount;
     private DLSN lastDLSN = DLSN.InvalidDLSN;
     private boolean inprogress;
-    // zk version
-    private Integer zkVersion = null;
 
     public static final Comparator COMPARATOR
         = new Comparator<LogSegmentLedgerMetadata>() {
@@ -203,13 +201,8 @@ class LogSegmentLedgerMetadata {
         this.lastDLSN = new DLSN(ledgerSequenceNumber, lastEntryId, lastSlotId);
     }
 
-
     String getZkPath() {
         return zkPath;
-    }
-
-    int getZkVersion() {
-        return null == zkVersion ? -1 : zkVersion;
     }
 
     long getFirstTxId() {
@@ -272,7 +265,6 @@ class LogSegmentLedgerMetadata {
             Stat stat = new Stat();
             byte[] data = zkc.get().getData(path, false, stat);
             LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
-            metadata.zkVersion = stat.getVersion();
             return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
@@ -298,7 +290,6 @@ class LogSegmentLedgerMetadata {
                     }
                     try {
                         LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
-                        metadata.zkVersion = stat.getVersion();
                         callback.operationComplete(BKException.Code.OK, metadata);
                     } catch (IOException ie) {
                         // as we don't have return code for distributedlog. for now, we leveraged bk
@@ -395,9 +386,7 @@ class LogSegmentLedgerMetadata {
         }
     }
 
-    void write(ZooKeeperClient zkc, String path)
-        throws IOException, KeeperException.NodeExistsException {
-        this.zkPath = path;
+    protected String getFinalisedData() {
         String finalisedData;
 
         long versionAndCount = ((long) version);
@@ -423,10 +412,20 @@ class LogSegmentLedgerMetadata {
                     getLedgerSequenceNumber(), getLastEntryId(), getLastSlotId());
             }
         }
+        return finalisedData;
+    }
+
+    void setZkPath(String path) {
+        this.zkPath = path;
+    }
+
+    void write(ZooKeeperClient zkc, String path)
+        throws IOException, KeeperException.NodeExistsException {
+        this.zkPath = path;
+        String finalisedData = getFinalisedData();
         try {
             zkc.get().create(path, finalisedData.getBytes(UTF_8),
                 Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-            zkVersion = 0;
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
         } catch (InterruptedException ie) {
