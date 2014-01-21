@@ -87,6 +87,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
     public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
 
+    public static final String BKDL_ZK_NUM_RETRIES = "zkNumRetries";
+    public static final int BKDL_ZK_NUM_RETRIES_DEFAULT = 3;
+
+    public static final String BKDL_ZK_RETRY_BACKOFF_START_MILLIS = "zkRetryStartBackoffMillis";
+    public static final int BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
+
+    public static final String BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS = "zkRetryMaxBackoffMillis";
+    public static final int BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
+
     public static final String BKDL_ZK_PREFIX = "dlZKPrefix";
     public static final String BKDL_ZK_PREFIX_DEFAULT = "/messaging/distributedlog";
 
@@ -105,6 +114,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
     public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
+
+    public static final String BKDL_BKCLIENT_ZK_NUM_RETRIES = "bkcZKNumRetries";
+    public static final int BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT = 3;
+
+    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS = "bkcZKRetryStartBackoffMillis";
+    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
+
+    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS = "bkcZKRetryMaxBackoffMillis";
+    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
 
     public static final String BKDL_BKCLIENT_READ_TIMEOUT = "bkcReadTimeoutSeconds";
     public static final int BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT = 10;
@@ -421,6 +439,35 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get num of retries for zookeeper client.
+     *
+     * @return num of retries of zookeeper client.
+     */
+    public int getZKNumRetries() {
+        return this.getInt(BKDL_ZK_NUM_RETRIES, BKDL_ZK_NUM_RETRIES_DEFAULT);
+    }
+
+    /**
+     * Get the start backoff time of zookeeper operation retries, in seconds.
+     *
+     * @return start backoff time of zookeeper operation retries.
+     */
+    public int getZKRetryBackoffStartMillis() {
+        return this.getInt(BKDL_ZK_RETRY_BACKOFF_START_MILLIS,
+                           BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Get the max backoff time of zookeeper operation retries, in seconds.
+     *
+     * @return max backoff time of zookeeper operation retries.
+     */
+    public int getZKRetryBackoffMaxMillis() {
+        return this.getInt(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS,
+                           BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
+    }
+
+    /**
      * Get Log Flush timeout
      *
      * @return ensemble size
@@ -649,6 +696,35 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
         setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
         return this;
+    }
+
+    /**
+     * Get num of retries for zookeeper client.
+     *
+     * @return num of retries of zookeeper client.
+     */
+    public int getBKClientZKNumRetries() {
+        return this.getInt(BKDL_BKCLIENT_ZK_NUM_RETRIES, BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT);
+    }
+
+    /**
+     * Get the start backoff time of zookeeper operation retries, in seconds.
+     *
+     * @return start backoff time of zookeeper operation retries.
+     */
+    public int getBKClientZKRetryBackoffStartMillis() {
+        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS,
+                           BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Get the max backoff time of zookeeper operation retries, in seconds.
+     *
+     * @return max backoff time of zookeeper operation retries.
+     */
+    public int getBKClientZKRetryBackoffMaxMillis() {
+        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS,
+                           BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
     }
 
     /**

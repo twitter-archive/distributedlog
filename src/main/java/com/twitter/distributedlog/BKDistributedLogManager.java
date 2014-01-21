@@ -13,6 +13,7 @@ import com.twitter.util.Future;
 
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooKeeper;
@@ -70,7 +71,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ScheduledExecutorService executorService,
                                    ClientSocketChannelFactory channelFactory,
                                    StatsLogger statsLogger) throws IOException {
-        super(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
+        super(name, conf, uri, zkcBuilder);
         this.conf = conf;
         this.executorService = executorService;
         this.statsLogger = statsLogger;
@@ -714,6 +715,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public Watcher registerExpirationHandler(final ZooKeeperClient.ZooKeeperSessionExpireNotifier onExpired) {
+        if (conf.getZKNumRetries() > 0) {
+            return new Watcher() {
+                @Override
+                public void process(WatchedEvent event) {
+                    // nop
+                }
+            };
+        }
         return zooKeeperClient.registerExpirationHandler(onExpired);
     }
 

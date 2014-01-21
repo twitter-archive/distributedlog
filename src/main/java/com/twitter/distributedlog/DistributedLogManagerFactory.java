@@ -9,6 +9,8 @@ import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.PermitManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -99,9 +101,18 @@ public class DistributedLogManagerFactory {
         );
         this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool());
         // Build zookeeper client
+        RetryPolicy retryPolicy = null;
+        if (conf.getZKNumRetries() > 0) {
+            retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                    conf.getZKRetryBackoffStartMillis(),
+                    conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
+        }
         this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri).retryPolicy(retryPolicy)
                 .buildNew(conf.getSeparateZKClients());
+        LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
+                " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),
+                conf.getZKRetryBackoffStartMillis(), conf.getZKRetryBackoffMaxMillis() });
         this.zooKeeperClient = this.zooKeeperClientBuilder.build();
         // Resolve uri to get bk dl config
         BKDLConfig bkdlConfig = resolveBKDLConfig();
@@ -221,7 +232,7 @@ public class DistributedLogManagerFactory {
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);
-        return new ZKMetadataAccessor(nameOfMetadataNode, namespace, conf.getZKSessionTimeoutMilliseconds(), zooKeeperClientBuilder);
+        return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace, zooKeeperClientBuilder);
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -339,7 +350,7 @@ public class DistributedLogManagerFactory {
             ZooKeeperClientBuilder zkcBuilder)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new ZKMetadataAccessor(name, uri, conf.getZKSessionTimeoutMilliseconds(), zkcBuilder);
+        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder);
     }
 
 

@@ -5,6 +5,8 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -26,7 +28,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
 
     private synchronized void commonInitialization(
             DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
-            ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
+            ClientSocketChannelFactory channelFactory, StatsLogger statsLogger,
+            boolean registerExpirationHandler)
         throws IOException, InterruptedException, KeeperException {
         ClientConfiguration bkConfig = new ClientConfiguration();
         bkConfig.setAddEntryTimeout(conf.getBKClientWriteTimeout());
@@ -40,18 +43,29 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             this.bkc = new BookKeeper(bkConfig, zkc.get(), channelFactory, statsLogger);
         }
         refCount = 1;
-        sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
+        if (registerExpirationHandler) {
+            sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
+        }
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, String name,
                      ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
         int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
-        this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers());
+        RetryPolicy retryPolicy = null;
+        if (conf.getBKClientZKNumRetries() > 0) {
+            retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                    conf.getBKClientZKRetryBackoffStartMillis(),
+                    conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
+        }
+        this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers(), retryPolicy);
         this.ownZK = true;
         this.name = name;
-        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger);
-        LOG.info("BookKeeper Client created {} with its own ZK Client", name);
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, conf.getBKClientZKNumRetries() <= 0);
+        LOG.info("BookKeeper Client created {} with its own ZK Client : numRetries = {}, " +
+                " sessionTimeout = {}, backoff = {}, maxBackoff = {}", new Object[] { name,
+                conf.getBKClientZKNumRetries(), zkSessionTimeout, conf.getBKClientZKRetryBackoffStartMillis(),
+                conf.getBKClientZKRetryBackoffMaxMillis() });
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,
@@ -60,7 +74,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         this.zkc = zkc;
         this.ownZK = false;
         this.name = name;
-        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger);
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, true);
         LOG.info("BookKeeper Client created {} with shared zookeeper client", name);
     }
 
@@ -81,7 +95,9 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             LOG.info("BookKeeper Client closed {}", name);
             bkc.close();
             bkc = null;
-            zkc.unregister(sessionExpireWatcher);
+            if (null != sessionExpireWatcher) {
+                zkc.unregister(sessionExpireWatcher);
+            }
             if (ownZK) {
                 zkc.close();
             }

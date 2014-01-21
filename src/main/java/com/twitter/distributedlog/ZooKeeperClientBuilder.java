@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
 
 import java.net.URI;
 
@@ -26,6 +27,8 @@ public class ZooKeeperClientBuilder {
     private int conectionTimeoutMs = -1;
     // zkServers
     private String zkServers = null;
+    // retry policy
+    private RetryPolicy retryPolicy = null;
 
     // Cached ZooKeeper Client
     private ZooKeeperClient cachedClient = null;
@@ -97,6 +100,18 @@ public class ZooKeeperClientBuilder {
     }
 
     /**
+     * Build zookeeper client with given retry policy <i>retryPolicy</i>.
+     *
+     * @param retryPolicy
+     *          retry policy
+     * @return builder
+     */
+    public synchronized ZooKeeperClientBuilder retryPolicy(RetryPolicy retryPolicy) {
+        this.retryPolicy = retryPolicy;
+        return this;
+    }
+
+    /**
      * If <i>buildNew</i> is set to false, the built zookeeper client by {@link #build()}
      * will be cached. Following {@link #build()} always returns this cached zookeeper
      * client. Otherwise, each {@link #build()} will create a new zookeeper client.
@@ -159,7 +174,7 @@ public class ZooKeeperClientBuilder {
 
     private ZooKeeperClient buildClient() {
         validateParameters();
-        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers);
+        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers, retryPolicy);
     }
 
 }
