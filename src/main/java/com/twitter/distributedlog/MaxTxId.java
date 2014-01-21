@@ -44,8 +44,8 @@ class MaxTxId {
             DataWithStat dataWithStat) {
         this.zkc = zkc;
         this.path = path;
-        this.enabled = enabled;
-        if (enabled) {
+        this.enabled = enabled && null != dataWithStat && null != dataWithStat.getStat();
+        if (this.enabled) {
             try {
                 this.currentMax = toTxId(dataWithStat.getData());
             } catch (UnsupportedEncodingException e) {

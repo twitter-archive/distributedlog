@@ -47,7 +47,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -155,7 +154,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         this.executorService = executorService;
         this.statsLogger = statsLogger;
         this.notification = notification;
-        partitionRootPath = String.format("%s/%s/%s", uri.getPath(), name, streamIdentifier);
+        partitionRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();

@@ -231,29 +231,76 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         this.maxTxIdPath = partitionRootPath + "/maxtxid";
         final String lockPath = partitionRootPath + "/lock";
-        final String versionPath = partitionRootPath + "/version";
         allocationPath = partitionRootPath + "/allocation";
 
-        final ZooKeeper zk;
-        try {
-            zk = zooKeeperClient.get();
-        } catch (InterruptedException e) {
-            LOG.error("Failed to initialize zookeeper client : ", e);
-            throw new DLInterruptedException("Failed to initialize zookeeper client", e);
+        // lockData & ledgersData just used for checking whether the path exists or not.
+        final DataWithStat maxTxIdData = new DataWithStat();
+        allocationData = new DataWithStat();
+
+        if (conf.getCreateStreamIfNotExists() || ownAllocator) {
+
+            final ZooKeeper zk;
+            try {
+                zk = zooKeeperClient.get();
+            } catch (InterruptedException e) {
+                LOG.error("Failed to initialize zookeeper client : ", e);
+                throw new DLInterruptedException("Failed to initialize zookeeper client", e);
+            }
+
+            createStreamIfNotExists(partitionRootPath, zk, ownAllocator, allocationData, maxTxIdData);
         }
+
+        // Schedule fetching ledgers list in background before we access it.
+        // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
+        scheduleGetLedgersTask(false, true);
+
+        if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
+            try {
+                clientId = InetAddress.getLocalHost().toString();
+            } catch(Exception exc) {
+                // Best effort
+                clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
+            }
+        }
+
+        // Build the locks
+        lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
+        deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId);
+        // Construct the max txn id.
+        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
+
+        // Initialize other parameters.
+        setLastLedgerRollingTimeMillis(Utils.nowInMillis());
+        lockAcquired = false;
+
+        // Stats
+        StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
+        openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
+        closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
+        recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
+        deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
+    }
+
+    static void createStreamIfNotExists(final String partitionRootPath,
+                                        final ZooKeeper zk, final boolean ownAllocator,
+                                        final DataWithStat allocationData,
+                                        final DataWithStat maxTxIdData) throws IOException {
+        final String ledgerPath = partitionRootPath + "/ledgers";
+        final String maxTxIdPath = partitionRootPath + "/maxtxid";
+        final String lockPath = partitionRootPath + "/lock";
+        final String versionPath = partitionRootPath + "/version";
+        final String allocationPath = partitionRootPath + "/allocation";
 
         // lockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat lockData = new DataWithStat();
         final DataWithStat ledgersData = new DataWithStat();
-        final DataWithStat maxTxIdData = new DataWithStat();
         final DataWithStat versionData = new DataWithStat();
-        allocationData = new DataWithStat();
 
         final CountDownLatch initializeLatch = new CountDownLatch(1);
         final AtomicReference<IOException> exceptionToThrow = new AtomicReference<IOException>(null);
 
-        // TODO: properly we could ensure partition root path to be created by provisioning system
-        //       so we could reduce one more round-trip.
         class CreatePartitionCallback implements org.apache.zookeeper.AsyncCallback.StringCallback,
                 org.apache.zookeeper.AsyncCallback.DataCallback {
 
@@ -331,8 +378,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                         initializeLatch.countDown();
                     }
                 } else {
-                    LOG.error("Failed to get partition data from {}.", getFullyQualifiedName());
-                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + getFullyQualifiedName()));
+                    LOG.error("Failed to get partition data from {}.", partitionRootPath);
+                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + partitionRootPath));
                     initializeLatch.countDown();
                 }
             }
@@ -352,7 +399,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             initializeLatch.await();
         } catch (InterruptedException e) {
             throw new DLInterruptedException("Interrupted when initializing write handler for "
-                    + getFullyQualifiedName(), e);
+                    + partitionRootPath, e);
         }
 
         if (null != exceptionToThrow.get()) {
@@ -376,38 +423,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (IllegalArgumentException iae) {
             throw new UnexpectedException("Invalid partition " + partitionRootPath, iae);
         }
-
-        // Schedule fetching ledgers list in background before we access it.
-        // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
-        scheduleGetLedgersTask(false, true);
-
-        if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
-            try {
-                clientId = InetAddress.getLocalHost().toString();
-            } catch(Exception exc) {
-                // Best effort
-                clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
-            }
-        }
-
-        // Build the locks
-        lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId);
-        deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId);
-        // Construct the max txn id.
-        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
-
-        // Initialize other parameters.
-        setLastLedgerRollingTimeMillis(Utils.nowInMillis());
-        lockAcquired = false;
-
-        // Stats
-        StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
-        openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
-        closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
-        recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
-        deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
     }
 
     @Override

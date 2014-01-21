@@ -5,6 +5,7 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Future;
@@ -13,6 +14,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
+import org.apache.zookeeper.ZooKeeper;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,15 @@ import java.util.concurrent.TimeUnit;
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
+    static String getPartitionPath(URI uri, String streamName, String streamIdentifier) {
+        return String.format("%s/%s/%s", uri.getPath(), streamName, streamIdentifier);
+    }
+
+    static void createUnpartitionedStream(ZooKeeper zk, URI uri, String streamName) throws IOException {
+        BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
+                DistributedLogConstants.DEFAULT_STREAM), zk, true, new DataWithStat(), new DataWithStat());
+    }
+
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
@@ -40,7 +51,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private LedgerAllocator ledgerAllocator = null;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
-
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
