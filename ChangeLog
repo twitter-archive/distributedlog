@@ -12,6 +12,7 @@
 - Namespace & LogSegment Listener
 - Monitor Service
 - LogSegment Filter
+- Recovery in background
 
 0.3.7
 -----

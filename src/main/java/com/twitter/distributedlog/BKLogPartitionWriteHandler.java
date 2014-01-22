@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -36,9 +37,14 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -52,7 +58,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, LedgerAllocator.class, StatsLogger.class, String.class, int.class
+        ScheduledExecutorService.class, ExecutorService.class,
+        LedgerAllocator.class, StatsLogger.class, String.class, int.class
     };
 
     static BKLogPartitionWriteHandler createBKLogPartitionWriteHandler(String name,
@@ -62,13 +69,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        ZooKeeperClientBuilder zkcBuilder,
                                                                        BookKeeperClientBuilder bkcBuilder,
                                                                        ScheduledExecutorService executorService,
+                                                                       ExecutorService metadataExecutor,
                                                                        LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
                                                                        String clientId,
                                                                        int regionId) throws IOException {
         if (ZK_VERSION.getVersion().equals("3.3")) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, ledgerAllocator, false, statsLogger, clientId, regionId);
+                    executorService, metadataExecutor, ledgerAllocator, false, statsLogger, clientId, regionId);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -88,8 +96,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new IOException("No constructor found for writer handler class " + WRITER_HANDLER_CLASS + " : ", e);
             }
             Object[] arguments = {
-                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
-                    ledgerAllocator, statsLogger, clientId, regionId
+                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
+                    executorService, metadataExecutor, ledgerAllocator, statsLogger, clientId, regionId
             };
             try {
                 return constructor.newInstance(arguments);
@@ -109,8 +117,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final DistributedReentrantLock deleteLock;
     protected final String maxTxIdPath;
     protected final MaxTxId maxTxId;
-    protected boolean lockAcquired;
-    protected volatile boolean recovered = false;
+    protected final AtomicInteger startLogSegmentCount = new AtomicInteger(0);
     protected final int ensembleSize;
     protected final int writeQuorumSize;
     protected final int ackQuorumSize;
@@ -119,6 +126,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final DataWithStat allocationData;
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
+    protected final ExecutorService metadataExecutor;
+    protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
+    protected final LinkedHashSet<MetadataOp> pendingMetadataOps = new LinkedHashSet<MetadataOp>();
+    protected volatile boolean closed = false;
+    protected boolean recoverInitiated = false;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -137,6 +149,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     private static OpStatsLogger closeOpStats;
     private static OpStatsLogger openOpStats;
     private static OpStatsLogger recoverOpStats;
+    private static OpStatsLogger recoverLastEntryStats;
     private static OpStatsLogger deleteOpStats;
 
     static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
@@ -215,6 +228,76 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     };
 
+    abstract class MetadataOp implements Runnable {
+
+        Future<?> future = null;
+
+        void process() throws IOException {
+            if (null != metadataException.get()) {
+                throw metadataException.get();
+            }
+            if (null != metadataExecutor) {
+                synchronized (pendingMetadataOps) {
+                    pendingMetadataOps.add(this);
+                }
+                if (!closed) {
+                    future = metadataExecutor.submit(this);
+                }
+            } else {
+                processOp();
+            }
+        }
+
+        private void removeOp() {
+            synchronized (pendingMetadataOps) {
+                pendingMetadataOps.remove(this);
+            }
+        }
+
+        void waitForCompleted() {
+            if (null != future) {
+                try {
+                    future.get();
+                } catch (ExecutionException ee) {
+                    LOG.error("Exception on executing {} : ", this, ee);
+                } catch (InterruptedException e) {
+                    LOG.error("Interrupted on waiting {} to be completed : ", this, e);
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            if (null != metadataException.get()) {
+                removeOp();
+                return;
+            }
+            try {
+                processOp();
+            } catch (ZKException zke) {
+                if (!closed && ZKException.isRetryableZKException(zke) && null != metadataExecutor) {
+                    future = executorService.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            metadataExecutor.submit(MetadataOp.this);
+                        }
+                    }, conf.getZKSessionTimeoutMilliseconds(), TimeUnit.MILLISECONDS);
+                    return;
+                }
+                LOG.error("Error on executing metadata op {} for {} : ",
+                        new Object[] { this, getFullyQualifiedName(), zke });
+                metadataException.set(zke);
+            } catch (IOException ioe) {
+                LOG.error("Error on executing metadata op {} for {} : ",
+                        new Object[] { this, getFullyQualifiedName(), ioe });
+                metadataException.set(ioe);
+            }
+            removeOp();
+        }
+
+        abstract void processOp() throws IOException;
+    }
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -225,6 +308,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
                                ScheduledExecutorService executorService,
+                               ExecutorService metadataExecutor,
                                LedgerAllocator allocator,
                                boolean useAllocator,
                                StatsLogger statsLogger,
@@ -232,6 +316,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, statsLogger, null, WRITE_HANDLE_FILTER);
+        this.metadataExecutor = metadataExecutor;
+
         ensembleSize = conf.getEnsembleSize();
 
         if (ensembleSize < conf.getWriteQuorumSize()) {
@@ -302,7 +388,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // Initialize other parameters.
         setLastLedgerRollingTimeMillis(Utils.nowInMillis());
-        lockAcquired = false;
+
+        // acquire the lock if we enable recover in background
+        if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
+            lock.acquire("WriteHandlerCreate");
+        }
 
         // Stats
         StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
@@ -314,6 +404,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
         if (null == recoverOpStats) {
             recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
+        }
+        if (null == recoverLastEntryStats) {
+            recoverLastEntryStats = segmentsStatsLogger.getOpStatsLogger("recover_last_entry");
         }
         if (null == deleteOpStats) {
             deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
@@ -463,6 +556,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
+    void checkMetadataException() throws IOException {
+        if (null != metadataException.get()) {
+            throw metadataException.get();
+        }
+    }
+
     void register(Watcher watcher) {
         this.zooKeeperClient.register(watcher);
     }
@@ -528,7 +627,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
 
         lock.acquire("StartLogSegment");
-        lockAcquired = true;
+        startLogSegmentCount.incrementAndGet();
 
         // sanity check txn id.
         if (this.sanityCheckTxnId) {
@@ -641,6 +740,68 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         return shouldSwitch;
     }
 
+    class CompleteOp extends MetadataOp {
+
+        final long ledgerId;
+        final long firstTxId;
+        final long lastTxId;
+        final int recordCount;
+        final long lastEntryId;
+        final long lastSlotId;
+
+        CompleteOp(long ledgerId, long firstTxId, long lastTxId,
+                   int recordCount, long lastEntryId, long lastSlotId) {
+            this.ledgerId = ledgerId;
+            this.firstTxId = firstTxId;
+            this.lastTxId = lastTxId;
+            this.recordCount = recordCount;
+            this.lastEntryId = lastEntryId;
+            this.lastSlotId = lastSlotId;
+        }
+
+        @Override
+        void processOp() throws IOException {
+            lock.acquire("CompleteAndCloseLogSegment");
+            try {
+                completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId,
+                        recordCount, lastEntryId, lastSlotId, false);
+                LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
+            } finally {
+                lock.release("CompleteAndCloseLogSegment");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CompleteOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
+                    ledgerId, firstTxId, lastTxId, recordCount, lastEntryId, lastSlotId);
+        }
+    }
+
+    class CompleteWriterOp extends MetadataOp {
+
+        final BKPerStreamLogWriter writer;
+
+        CompleteWriterOp(BKPerStreamLogWriter writer) {
+            this.writer = writer;
+        }
+
+        @Override
+        void processOp() throws IOException {
+            writer.closeToFinalize();
+            completeAndCloseLogSegment(
+                    writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+                    writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CompleteWriterOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
+                    writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+                    writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
+        }
+    }
+
     /**
      * Finalize a log segment. If the journal manager is currently
      * writing to a ledger, ensure that this is the ledger of the log segment
@@ -652,32 +813,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      */
     public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
         throws IOException {
-        writer.closeToFinalize();
-        completeAndCloseLogSegment(
-            writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
-            writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+        new CompleteWriterOp(writer).process();
     }
-
 
     @VisibleForTesting
     void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount)
         throws IOException {
-        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, true);
-    }
-
-    /**
-     * Finalize a log segment. If the journal manager is currently
-     * writing to a ledger, ensure that this is the ledger of the log segment
-     * being finalized.
-     * <p/>
-     * Otherwise this is the recovery case. In the recovery case, ensure that
-     * the firstTxId of the ledger matches firstTxId for the segment we are
-     * trying to finalize.
-     */
-    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId,
-                                    int recordCount, boolean shouldReleaseLock)
-        throws IOException {
-        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, -1, -1, shouldReleaseLock);
+        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
     }
 
     /**
@@ -778,84 +920,127 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (KeeperException e) {
             throw new ZKException("Error when finalising stream " + partitionRootPath, e);
         } finally {
-            if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
+            if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
                 lock.release("CompleteAndClose");
-                lockAcquired = false;
+                startLogSegmentCount.decrementAndGet();
             }
         }
     }
 
     public void recoverIncompleteLogSegments() throws IOException {
-        long start = MathUtils.nowInNano();
-        boolean success = false;
-        try {
-            doRecoverIncompleteLogSegments();
-            success = true;
-        } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
-            if (success) {
-                recoverOpStats.registerSuccessfulEvent(elapsed);
-            } else {
-                recoverOpStats.registerFailedEvent(elapsed);
-            }
-        }
-    }
-
-    private void doRecoverIncompleteLogSegments() throws IOException {
-        if (recovered) {
+        if (recoverInitiated) {
             return;
         }
-        LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
-        lock.acquire("RecoverIncompleteSegments");
-        synchronized (this) {
+        new RecoverOp().process();
+    }
+
+    class RecoverOp extends MetadataOp {
+
+        @Override
+        void processOp() throws IOException {
+            long start = MathUtils.nowInNano();
+            boolean success = false;
             try {
-                if (recovered) {
-                    return;
+                synchronized (BKLogPartitionWriteHandler.this) {
+                    if (recoverInitiated) {
+                        return;
+                    }
+                    doProcessOp();
+                    recoverInitiated = true;
                 }
-                for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
-                    if (!l.isInProgress()) {
-                        continue;
-                    }
-                    long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
-                    int recordCount = 0;
-                    long lastEntryId = -1;
-                    long lastSlotId = -1;
-
-                    LogRecordWithDLSN record = recoverLastRecordInLedger(l, true, true, true);
-
-                    if (null != record) {
-                        endTxId = record.getTransactionId();
-                        recordCount = record.getCount();
-                        lastEntryId = record.getDlsn().getEntryId();
-                        lastSlotId = record.getDlsn().getSlotId();
-                    }
-
-                    if (endTxId == DistributedLogConstants.INVALID_TXID) {
-                        LOG.error("Unrecoverable corruption has occurred in segment "
-                            + l.toString() + " at path " + l.getZkPath()
-                            + ". Unable to continue recovery.");
-                        throw new IOException("Unrecoverable corruption,"
-                            + " please check logs.");
-                    } else if (endTxId == DistributedLogConstants.EMPTY_LEDGER_TX_ID) {
-                        // TODO: Empty ledger - Ideally we should just remove it?
-                        endTxId = l.getFirstTxId();
-                    }
-
-                    // Make the lock release symmetric by having this function acquire and
-                    // release the lock and have complete and close only release the lock
-                    // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getLedgerId(), l.getFirstTxId(), endTxId,
-                            recordCount, lastEntryId, lastSlotId, false);
-                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}",
-                             new Object[] { getFullyQualifiedName(), l.getFirstTxId(), endTxId });
+                success = true;
+            } finally {
+                long elapsed = MathUtils.elapsedMSec(start);
+                if (success) {
+                    recoverOpStats.registerSuccessfulEvent(elapsed);
+                } else {
+                    recoverOpStats.registerFailedEvent(elapsed);
                 }
+            }
+        }
+
+        void doProcessOp() throws IOException {
+            LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
+            List<LogSegmentLedgerMetadata> segmentList = getFilteredLedgerList(false, false);
+            // if lastLedgerRollingTimeMillis is not updated, we set it to now.
+            synchronized (BKLogPartitionWriteHandler.this) {
                 if (lastLedgerRollingTimeMillis < 0) {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();
                 }
-                recovered = true;
-            } finally {
-                lock.release("RecoverIncompleteSegments");
             }
+            for (LogSegmentLedgerMetadata l : segmentList) {
+                if (!l.isInProgress()) {
+                    continue;
+                }
+                new RecoverLogSegmentOp(l).process();
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("RecoverOp(%s)", getFullyQualifiedName());
+        }
+    }
+
+    class RecoverLogSegmentOp extends MetadataOp {
+
+        final LogSegmentLedgerMetadata l;
+
+        RecoverLogSegmentOp(LogSegmentLedgerMetadata l) {
+            this.l = l;
+        }
+
+        @Override
+        void processOp() throws IOException {
+            long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+            int recordCount = 0;
+            long lastEntryId = -1;
+            long lastSlotId = -1;
+
+            Stopwatch stopwatch = new Stopwatch().start();
+            boolean recovered = false;
+            LogRecordWithDLSN record;
+            lock.acquire("RecoverLogSegment");
+            try {
+                LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
+                record = recoverLastRecordInLedger(l, true, true, true);
+                recovered = true;
+                LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
+            } finally {
+                lock.release("RecoverLogSegment");
+                if (recovered) {
+                    recoverLastEntryStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                } else {
+                    recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+                }
+            }
+
+            if (null != record) {
+                endTxId = record.getTransactionId();
+                recordCount = record.getCount();
+                lastEntryId = record.getDlsn().getEntryId();
+                lastSlotId = record.getDlsn().getSlotId();
+            }
+
+            if (endTxId == DistributedLogConstants.INVALID_TXID) {
+                LOG.error("Unrecoverable corruption has occurred in segment "
+                    + l.toString() + " at path " + l.getZkPath()
+                    + ". Unable to continue recovery.");
+                throw new IOException("Unrecoverable corruption,"
+                    + " please check logs.");
+            } else if (endTxId == DistributedLogConstants.EMPTY_LEDGER_TX_ID) {
+                // TODO: Empty ledger - Ideally we should just remove it?
+                endTxId = l.getFirstTxId();
+            }
+
+            CompleteOp completeOp = new CompleteOp(l.getLedgerId(), l.getFirstTxId(), endTxId,
+                                                   recordCount, lastEntryId, lastSlotId);
+            completeOp.process();
+        }
+
+        @Override
+        public String toString() {
+            return String.format("RecoverLogSegmentOp(%s)", l);
         }
     }
 
@@ -1094,13 +1279,26 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     public void close() throws IOException {
-        if (lockAcquired) {
+        closed = true;
+        List<MetadataOp> pendingOps;
+        synchronized (pendingMetadataOps) {
+            pendingOps = new ArrayList<MetadataOp>(pendingMetadataOps.size());
+            pendingOps.addAll(pendingMetadataOps);
+        }
+        for (MetadataOp op : pendingOps) {
+            op.waitForCompleted();
+        }
+        if (startLogSegmentCount.get() > 0) {
             try {
-                lock.release("WriteHandlerClose");
+                while (startLogSegmentCount.decrementAndGet() >= 0) {
+                    lock.release("WriteHandlerClose");
+                }
             } catch (IOException ioe) {
                 LOG.error("Error on releasing WriteHandlerClose {} : ", getFullyQualifiedName(), ioe);
             }
-            lockAcquired = false;
+        }
+        if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
+            lock.release("WriteHandlerClose");
         }
         lock.close();
         deleteLock.close();

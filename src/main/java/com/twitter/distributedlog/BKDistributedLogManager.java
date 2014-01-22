@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
@@ -27,9 +28,12 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
@@ -60,6 +64,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private BKLogPartitionReadHandler readHandlerForListener = null;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
+    private ExecutorService metadataExecutor = null;
 
     private static StatsLogger handlerStatsLogger = null;
     private static OpStatsLogger createWriteHandlerStats = null;
@@ -166,10 +171,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
+        return createWriteLedgerHandler(streamIdentifier, null);
+    }
+
+    BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier, ExecutorService metadataExecutor)
+            throws IOException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier);
+            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, metadataExecutor);
             success = true;
             return handler;
         } finally {
@@ -181,10 +191,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
-    synchronized public BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier) throws IOException {
+    synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier, ExecutorService metadataExecutor)
+            throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId, regionId);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, metadataExecutor,
+                ledgerAllocator, statsLogger, clientId, regionId);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
             writeHandler.register((Watcher) manager);
@@ -218,6 +230,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     void setLogSegmentRollingPermitManager(PermitManager manager) {
         this.logSegmentRollingPermitManager = manager;
+    }
+
+    @VisibleForTesting
+    synchronized void setMetadataExecutor(ExecutorService service) {
+        this.metadataExecutor = service;
     }
 
     /**
@@ -303,8 +320,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         initializeFuturePool(true);
+        ExecutorService executorService = null;
+        if (conf.getRecoverLogSegmentsInBackground()) {
+            if (null == metadataExecutor) {
+                metadataExecutor = new ThreadPoolExecutor(0, 1, 60, TimeUnit.SECONDS,
+                        new LinkedBlockingQueue<Runnable>(),
+                        new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-metadata-executor-%d").build());
+            }
+            executorService = metadataExecutor;
+        }
+
         // proactively recover incomplete logsegments for async log writer
-        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool).recover();
+        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService).recover();
     }
 
     /**
@@ -770,7 +797,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 LOG.warn("Interrupted when shutting down scheduler : ", e);
             }
             executorService.shutdownNow();
-            LOG.info("Stopped BKDL executor service.");
+            LOG.info("Stopped BKDL executor service for {}.", name);
+        } else {
+            if (null != metadataExecutor) {
+                metadataExecutor.shutdown();
+            }
+            LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
         try {
             bookKeeperClient.release();
@@ -786,7 +818,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             executorService.submit(task);
             return true;
         } catch (RejectedExecutionException ree) {
-            LOG.error("Task {} is rejected : ", ree);
+            LOG.error("Task {} is rejected : ", task, ree);
             return false;
         }
     }

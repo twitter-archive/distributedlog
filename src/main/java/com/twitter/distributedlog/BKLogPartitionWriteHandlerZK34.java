@@ -17,6 +17,7 @@ import org.apache.zookeeper.ZooDefs;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -45,12 +46,13 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   ExecutorService metadataExecutor,
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
                                    String clientId,
                                    int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, allocator, true, statsLogger, clientId, regionId);
+              executorService, metadataExecutor, allocator, true, statsLogger, clientId, regionId);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -100,7 +102,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         }
 
         lock.acquire("StartLogSegment");
-        lockAcquired = true;
+        startLogSegmentCount.incrementAndGet();
 
         // sanity check txn id.
         if (this.sanityCheckTxnId) {
@@ -278,9 +280,9 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         } catch (KeeperException e) {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } finally {
-            if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
+            if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
                 lock.release("CompleteAndClose");
-                lockAcquired = false;
+                startLogSegmentCount.decrementAndGet();
             }
         }
     }

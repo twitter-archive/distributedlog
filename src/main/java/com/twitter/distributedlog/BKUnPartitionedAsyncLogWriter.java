@@ -10,6 +10,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
@@ -48,15 +49,17 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
-                                         FuturePool futurePool) throws IOException {
+                                         FuturePool futurePool,
+                                         ExecutorService metadataExecutor) throws IOException {
         super(conf, bkdlm);
         this.futurePool = futurePool;
-
+        this.createAndCacheWriteHandler(DistributedLogConstants.DEFAULT_STREAM, metadataExecutor);
     }
 
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
-        // obtain the writer ledger handler and recover incomplete logsegments
-        this.getWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM, true);
+        BKLogPartitionWriteHandler writeHandler =
+                this.getWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM, false);
+        writeHandler.recoverIncompleteLogSegments();
         return this;
     }
 

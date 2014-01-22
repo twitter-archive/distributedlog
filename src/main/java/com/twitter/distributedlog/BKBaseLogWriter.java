@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 
 public abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
@@ -96,13 +97,20 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier, boolean recover) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
-        if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier);
-            cachePartitionHandler(streamIdentifier, ledgerManager);
-        }
+        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
+        ledgerManager.checkMetadataException();
         if (recover) {
             ledgerManager.recoverIncompleteLogSegments();
+        }
+        return ledgerManager;
+    }
+
+    synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier, ExecutorService metadataExecutor)
+            throws IOException {
+        BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
+        if (null == ledgerManager) {
+            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, metadataExecutor);
+            cachePartitionHandler(streamIdentifier, ledgerManager);
         }
         return ledgerManager;
     }
@@ -113,7 +121,6 @@ public abstract class BKBaseLogWriter {
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
-        long numFlushes = 0;
         boolean shouldCheckForTruncation = false;
 
         // Handle the case where the last call to write actually caused an error in the partition
@@ -163,13 +170,10 @@ public abstract class BKBaseLogWriter {
                                 ledgerManager.getFullyQualifiedName(), le);
                         bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                     } catch (ZKException zke) {
-                        KeeperException.Code code = zke.getKeeperExceptionCode();
-                        if (KeeperException.Code.CONNECTIONLOSS == code ||
-                            KeeperException.Code.OPERATIONTIMEOUT == code ||
-                            KeeperException.Code.SESSIONEXPIRED == code ||
-                            KeeperException.Code.SESSIONMOVED == code) {
+                        if (ZKException.isRetryableZKException(zke)) {
                             LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
-                                    " Disable ledger rolling until it is recovered : {}", ledgerManager.getFullyQualifiedName(), code);
+                                    " Disable ledger rolling until it is recovered : {}", ledgerManager.getFullyQualifiedName(),
+                                    zke.getKeeperExceptionCode());
                             bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                         } else {
                             throw zke;

@@ -21,4 +21,12 @@ public class ZKException extends DLException {
     public Code getKeeperExceptionCode() {
         return this.code;
     }
+
+    public static boolean isRetryableZKException(ZKException zke) {
+        KeeperException.Code code = zke.getKeeperExceptionCode();
+        return KeeperException.Code.CONNECTIONLOSS == code ||
+                KeeperException.Code.OPERATIONTIMEOUT == code ||
+                KeeperException.Code.SESSIONEXPIRED == code ||
+                KeeperException.Code.SESSIONMOVED == code;
+    }
 }
