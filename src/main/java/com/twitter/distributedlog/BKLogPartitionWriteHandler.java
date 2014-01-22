@@ -35,6 +35,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -188,6 +189,32 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
+    static final LogSegmentFilter WRITE_HANDLE_FILTER = new LogSegmentFilter() {
+        @Override
+        public Collection<String> filter(Collection<String> fullList) {
+            List<String> result = new ArrayList<String>(fullList.size());
+            String lastCompletedLogSegmentName = null;
+            for (String s : fullList) {
+                if (s.startsWith(DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX)) {
+                    result.add(s);
+                } else if (s.startsWith(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX)) {
+                    if (lastCompletedLogSegmentName == null || s.compareTo(lastCompletedLogSegmentName) > 0) {
+                        lastCompletedLogSegmentName = s;
+                    }
+                } else {
+                    LOG.error("Unknown log segment name : {}", s);
+                }
+            }
+            if (result.isEmpty() && null != lastCompletedLogSegmentName) {
+                result.add(lastCompletedLogSegmentName);
+            }
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Filtered log segments {} from {}.", result, fullList);
+            }
+            return result;
+        }
+    };
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -203,7 +230,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                StatsLogger statsLogger,
                                String clientId,
                                int regionId) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, null);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
+              executorService, statsLogger, null, WRITE_HANDLE_FILTER);
         ensembleSize = conf.getEnsembleSize();
 
         if (ensembleSize < conf.getWriteQuorumSize()) {
@@ -512,7 +540,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
                 else {
                     LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                    LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
                     throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
                 }
             }
@@ -534,7 +561,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
             if (conf.getDLLedgerMetadataLayoutVersion() >=
                 DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
-                List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
+                List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
                 ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
                 if (!ledgerListDesc.isEmpty()) {
                     ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
@@ -785,7 +812,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 if (recovered) {
                     return;
                 }
-                for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
+                for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
                     if (!l.isInProgress()) {
                         continue;
                     }
@@ -883,7 +910,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     void purgeLogsOlderThanDLSN(final DLSN dlsn, BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
-        List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        scheduleGetAllLedgersTaskIfNeeded();
+        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Purging logs older than {} from {} for {}",
                     new Object[] { dlsn, logSegments, getFullyQualifiedName() });
@@ -906,7 +934,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     void purgeLogsOlderThanTimestamp(final long minTimestampToKeep, final long sanityCheckThreshold,
                                      final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
         assert (minTimestampToKeep < Utils.nowInMillis());
-        List<LogSegmentLedgerMetadata> logSegments = getCachedLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        scheduleGetAllLedgersTaskIfNeeded();
+        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
         final List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
         boolean logTimestamp = true;
         for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
@@ -932,7 +961,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
         throws IOException {
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true);
+        List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerList(true, false);
 
         // If we are deleting the log we can remove the last entry else we must retain
         // at least one ledger for the stream
@@ -1080,7 +1109,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     String completedLedgerZNodeName(long startTxId, long endTxId) {
-        return String.format("logrecs_%018d_%018d", startTxId, endTxId);
+        return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
+                startTxId, endTxId);
     }
 
     /**
@@ -1098,7 +1128,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * @return name of the inprogress znode.
      */
     String inprogressZNodeName(long startTxid) {
-        return "inprogress_" + Long.toString(startTxid, 16);
+        return DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX + "_" + Long.toString(startTxid, 16);
     }
 
     /**

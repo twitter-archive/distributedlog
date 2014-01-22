@@ -112,7 +112,6 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 }
                 else {
                     LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                    LOG.error("Last Committed Ledger {}", getLedgerListDesc(false));
                     throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
                 }
             }
@@ -140,7 +139,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
         if (conf.getDLLedgerMetadataLayoutVersion() >=
                 DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
-            List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
+            List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
             ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
             if (!ledgerListDesc.isEmpty()) {
                 ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;

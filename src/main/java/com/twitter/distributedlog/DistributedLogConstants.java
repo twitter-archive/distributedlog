@@ -22,6 +22,9 @@ public class DistributedLogConstants {
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
+    // log segment prefix
+    public static final String INPROGRESS_LOGSEGMENT_PREFIX = "inprogress";
+    public static final String COMPLETED_LOGSEGMENT_PREFIX = "logrecs";
     // ZK Version
     public static final Version ZK_VERSION = new Version("zk");
     public static final String ZK33 = "3.3";

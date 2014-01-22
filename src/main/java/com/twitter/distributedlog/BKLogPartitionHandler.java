@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -87,6 +88,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 abstract class BKLogPartitionHandler implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
+    static interface LogSegmentFilter {
+
+        static final LogSegmentFilter DEFAULT_FILTER = new LogSegmentFilter() {
+            @Override
+            public Collection<String> filter(Collection<String> fullList) {
+                return fullList;
+            }
+        };
+
+        Collection<String> filter(Collection<String> fullList);
+    }
+
     private static final int LAYOUT_VERSION = -1;
 
     protected final String name;
@@ -100,7 +113,8 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected volatile long lastLedgerRollingTimeMillis = -1;
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
-    private AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
+    private final AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
+    private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
 
     // listener
     protected final CopyOnWriteArraySet<LogSegmentListener> listeners =
@@ -111,8 +125,10 @@ abstract class BKLogPartitionHandler implements Watcher {
         new HashMap<String, LogSegmentLedgerMetadata>();
     protected final ConcurrentMap<Long, LogSegmentLedgerMetadata> lid2LogSegments =
         new ConcurrentHashMap<Long, LogSegmentLedgerMetadata>();
-    protected volatile GetLedgersTask firstGetLedgersTask = null;
+    protected volatile SyncGetLedgersCallback firstGetLedgersTask = null;
     protected final AsyncNotification notification;
+    // log segment filter
+    protected final LogSegmentFilter filter;
 
     // Stats
     private static OpStatsLogger forceGetListStat;
@@ -122,25 +138,24 @@ abstract class BKLogPartitionHandler implements Watcher {
     private static OpStatsLogger negativeGetInprogressSegmentStat;
     private static OpStatsLogger negativeGetCompletedSegmentStat;
 
-    class GetLedgersTask implements GenericCallback<List<LogSegmentLedgerMetadata>>, Runnable {
+    static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
+
         final String path;
         final boolean allowEmpty;
         final CountDownLatch countDownLatch = new CountDownLatch(1);
 
         int rc = BKException.Code.InterruptedException;
 
-        GetLedgersTask(String path, boolean allowEmpty) {
+        SyncGetLedgersCallback(String path, boolean allowEmpty) {
             this.path = path;
             this.allowEmpty = allowEmpty;
         }
 
         @Override
-        public void operationComplete(int rc, List<LogSegmentLedgerMetadata > logSegmentLedgerMetadatas) {
+        public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
             this.rc = rc;
             if (BKException.Code.OK == rc) {
                 LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
-            } else {
-                executorService.schedule(this, conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
             }
             countDownLatch.countDown();
         }
@@ -156,10 +171,44 @@ abstract class BKLogPartitionHandler implements Watcher {
                 throw new IOException("Error getting ledgers list for " + path);
             }
         }
+    }
+
+    static class NOPGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
+
+        final String path;
+
+        NOPGetLedgersCallback(String path) {
+            this.path = path;
+        }
+
+        @Override
+        public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
+            if (BKException.Code.OK == rc) {
+                LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
+            }
+        }
+    }
+
+    class WatcherGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>>, Runnable {
+
+        final String path;
+
+        WatcherGetLedgersCallback(String path) {
+            this.path = path;
+        }
+
+        @Override
+        public void operationComplete(int rc, List<LogSegmentLedgerMetadata > logSegmentLedgerMetadatas) {
+            if (BKException.Code.OK == rc) {
+                LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
+            } else {
+                executorService.schedule(this, conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
+            }
+        }
 
         @Override
         public void run() {
-            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, BKLogPartitionHandler.this, this);
+            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter, BKLogPartitionHandler.this, this);
         }
     }
 
@@ -174,13 +223,15 @@ abstract class BKLogPartitionHandler implements Watcher {
                           BookKeeperClientBuilder bkcBuilder,
                           ScheduledExecutorService executorService,
                           StatsLogger statsLogger,
-                          AsyncNotification notification) throws IOException {
+                          AsyncNotification notification,
+                          LogSegmentFilter filter) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
         this.executorService = executorService;
         this.statsLogger = statsLogger;
         this.notification = notification;
+        this.filter = filter;
         partitionRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
 
         ledgerPath = partitionRootPath + "/ledgers";
@@ -248,18 +299,27 @@ abstract class BKLogPartitionHandler implements Watcher {
         }
     }
 
+    protected void scheduleGetAllLedgersTaskIfNeeded() {
+        if (isFullListFetched.get()) {
+            return;
+        }
+        asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, LogSegmentFilter.DEFAULT_FILTER,
+                null, new NOPGetLedgersCallback(getFullyQualifiedName()));
+    }
+
     protected void scheduleGetLedgersTask(boolean watch, boolean allowEmpty) {
         if (!watch) {
             ledgerListWatchSet.set(true);
         }
         LOG.info("Scheduling get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
-        firstGetLedgersTask = new GetLedgersTask(getFullyQualifiedName(), allowEmpty);
-        asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, watch ? this : null, firstGetLedgersTask);
+        firstGetLedgersTask = new SyncGetLedgersCallback(getFullyQualifiedName(), allowEmpty);
+        asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter,
+                                   watch ? this : null, firstGetLedgersTask);
         LOG.info("Scheduled get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
     }
 
     protected void waitFirstGetLedgersTaskToFinish() throws IOException {
-        GetLedgersTask task = firstGetLedgersTask;
+        SyncGetLedgersCallback task = firstGetLedgersTask;
         if (null != task) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Wait first getting ledgers task to finish for {}.", getFullyQualifiedName());
@@ -270,7 +330,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     public LogRecordWithDLSN getLastLogRecord(boolean recover, boolean includeEndOfStream) throws IOException {
         checkLogStreamExists();
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true, true);
+        List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerListDesc(true, true);
 
         for (LogSegmentLedgerMetadata metadata: ledgerList) {
             LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
@@ -304,7 +364,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             return 0;
         }
 
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(false);
+        List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerList(true, false);
         long count = 0;
         for (LogSegmentLedgerMetadata l : ledgerList) {
             if (l.isInProgress()) {
@@ -321,7 +381,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     public long getFirstTxId() throws IOException {
         checkLogStreamExists();
-        List<LogSegmentLedgerMetadata> ledgerList = getLedgerList(true, true);
+        List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerList(true, true);
 
         // The ledger list should at least have one element
         // First TxId is populated even for in progress ledgers
@@ -349,7 +409,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
-        List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(true, false);
+        List<LogSegmentLedgerMetadata> ledgerListDesc = getFullLedgerListDesc(true, false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Inspecting Ledger: {}", l);
@@ -559,11 +619,14 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     // Ledgers Related Functions
 
-    protected List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator) {
+    private List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator, LogSegmentFilter segmentFilter) {
         List<LogSegmentLedgerMetadata> segmentsToReturn;
         synchronized (logSegments) {
             segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-            segmentsToReturn.addAll(logSegments.values());
+            Collection<String> segmentNamesFiltered = segmentFilter.filter(logSegments.keySet());
+            for (String name : segmentNamesFiltered) {
+                segmentsToReturn.add(logSegments.get(name));
+            }
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Cached log segments : {}", segmentsToReturn);
             }
@@ -572,32 +635,49 @@ abstract class BKLogPartitionHandler implements Watcher {
         return segmentsToReturn;
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean throwOnEmpty) throws IOException {
-        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
+    protected List<LogSegmentLedgerMetadata> getCachedFullLedgerList(Comparator comparator) {
+        return getCachedLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean forceFetch, boolean throwOnEmpty) throws IOException {
-        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
+    protected List<LogSegmentLedgerMetadata> getFullLedgerList(boolean forceFetch, boolean throwOnEmpty)
+            throws IOException {
+        return getLedgerList(forceFetch, true, LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch) throws IOException {
-        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.COMPARATOR, false);
+    protected List<LogSegmentLedgerMetadata> getFullLedgerListDesc(boolean forceFetch, boolean throwOnEmpty)
+            throws IOException {
+        return getLedgerList(forceFetch, true, LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerListDesc(boolean forceFetch) throws IOException {
-        return getLedgerList(forceFetch, LogSegmentLedgerMetadata.DESC_COMPARATOR, false);
+    protected List<LogSegmentLedgerMetadata> getFilteredLedgerList(boolean forceFetch, boolean throwOnEmpty)
+            throws IOException {
+        return getLedgerList(forceFetch, false, LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
     }
 
-    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, Comparator comparator, boolean throwOnEmpty)
+    protected List<LogSegmentLedgerMetadata> getFilteredLedgerListDesc(boolean forceFetch, boolean throwOnEmpty)
+            throws IOException {
+        return getLedgerList(forceFetch, false, LogSegmentLedgerMetadata.DESC_COMPARATOR, throwOnEmpty);
+    }
+
+    protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean fetchFullList,
+                                                           Comparator comparator, boolean throwOnEmpty)
         throws IOException {
-        if (forceFetch) {
-            return forceGetLedgerList(comparator, throwOnEmpty);
-        } else {
-            if(!ledgerListWatchSet.get()) {
-                scheduleGetLedgersTask(true, true);
+        if (fetchFullList) {
+            if (forceFetch || !isFullListFetched.get()) {
+                return forceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
+            } else {
+                return getCachedFullLedgerList(comparator);
             }
-            waitFirstGetLedgersTaskToFinish();
-            return getCachedLedgerList(comparator);
+        } else {
+            if (forceFetch) {
+                return forceGetLedgerList(comparator, filter, throwOnEmpty);
+            } else {
+                if(!ledgerListWatchSet.get()) {
+                    scheduleGetLedgersTask(true, true);
+                }
+                waitFirstGetLedgersTaskToFinish();
+                return getCachedLedgerList(comparator, filter);
+            }
         }
     }
 
@@ -605,6 +685,7 @@ abstract class BKLogPartitionHandler implements Watcher {
      * Get a list of all segments in the journal.
      */
     protected List<LogSegmentLedgerMetadata> forceGetLedgerList(final Comparator comparator,
+                                                                final LogSegmentFilter segmentFilter,
                                                                 boolean throwOnEmpty) throws IOException {
         final List<LogSegmentLedgerMetadata> ledgers = new ArrayList<LogSegmentLedgerMetadata>();
         final AtomicInteger result = new AtomicInteger(-1);
@@ -614,7 +695,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         do {
             ledgers.clear();
             Stopwatch stopwatch = new Stopwatch().start();
-            asyncGetLedgerListInternal(comparator, null, new GenericCallback<List<LogSegmentLedgerMetadata>>() {
+            asyncGetLedgerListInternal(comparator, segmentFilter, null, new GenericCallback<List<LogSegmentLedgerMetadata>>() {
                 @Override
                 public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
                     result.set(rc);
@@ -732,10 +813,12 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     protected void asyncGetLedgerList(final Comparator comparator, Watcher watcher,
                                       final GenericCallback<List<LogSegmentLedgerMetadata>> callback) {
-        asyncGetLedgerListInternal(comparator, watcher, callback);
+        asyncGetLedgerListInternal(comparator, filter, watcher, callback);
     }
 
-    private void asyncGetLedgerListInternal(final Comparator comparator, final Watcher watcher,
+    private void asyncGetLedgerListInternal(final Comparator comparator,
+                                            final LogSegmentFilter segmentFilter,
+                                            final Watcher watcher,
                                             final GenericCallback<List<LogSegmentLedgerMetadata>> finalCallback) {
         final Stopwatch stopwatch = new Stopwatch().start();
         try {
@@ -749,6 +832,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                     if (BKException.Code.OK != rc) {
                         getListStat.registerFailedEvent(elapsedMs);
                     } else {
+                        if (LogSegmentFilter.DEFAULT_FILTER == segmentFilter) {
+                            isFullListFetched.set(true);
+                        }
                         getListStat.registerSuccessfulEvent(elapsedMs);
                     }
                     finalCallback.operationComplete(rc, result);
@@ -768,19 +854,15 @@ abstract class BKLogPartitionHandler implements Watcher {
 
                     ledgerListWatchSet.set(true);
                     Set<String> segmentsReceived = new HashSet<String>();
-                    segmentsReceived.addAll(children);
+                    segmentsReceived.addAll(segmentFilter.filter(children));
                     Set<String> segmentsAdded;
                     Set<String> segmentsRemoved;
-                    final List<LogSegmentLedgerMetadata> segmentListRemoved = new ArrayList<LogSegmentLedgerMetadata>();
                     synchronized (logSegments) {
                         Set<String> segmentsCached = logSegments.keySet();
                         segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
                         segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
                         for (String s : segmentsRemoved) {
                             LogSegmentLedgerMetadata segmentMetadata = removeLogSegmentToCache(s);
-                            if (null != segmentMetadata) {
-                                segmentListRemoved.add(segmentMetadata);
-                            }
                             LOG.debug("Removed log segment {} from cache : {}.", s, segmentMetadata);
                         }
                     }
@@ -790,7 +872,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                             LOG.trace("No segments added for {}.", getFullyQualifiedName());
                         }
 
-                        List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator);
+                        List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator, segmentFilter);
                         callback.operationComplete(BKException.Code.OK, segmentList);
                         notifyUpdatedLogSegments(segmentList);
                         notifyOnOperationComplete();
@@ -816,7 +898,8 @@ abstract class BKLogPartitionHandler implements Watcher {
                                         addLogSegmentToCache(segment, result);
                                     }
                                     if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
-                                        List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator);
+                                        List<LogSegmentLedgerMetadata> segmentList =
+                                                getCachedLedgerList(comparator, segmentFilter);
                                         callback.operationComplete(BKException.Code.OK, segmentList);
                                         notifyUpdatedLogSegments(segmentList);
                                         notifyOnOperationComplete();
@@ -841,14 +924,15 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (Watcher.Event.EventType.None.equals(event.getType())) {
             if (event.getState() == Watcher.Event.KeeperState.Expired) {
                 // if the watcher is expired
-                executorService.schedule(new GetLedgersTask(getFullyQualifiedName(), false),
+                executorService.schedule(new WatcherGetLedgersCallback(getFullyQualifiedName()),
                         conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
             }
         } else if (Watcher.Event.EventType.NodeChildrenChanged.equals(event.getType())) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("LogSegments Changed under {}.", getFullyQualifiedName());
             }
-            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, this, new GetLedgersTask(getFullyQualifiedName(), false));
+            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter,
+                                       this, new WatcherGetLedgersCallback(getFullyQualifiedName()));
         }
     }
 

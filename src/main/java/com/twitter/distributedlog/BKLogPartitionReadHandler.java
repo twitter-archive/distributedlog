@@ -53,7 +53,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      ScheduledExecutorService executorService,
                                      StatsLogger statsLogger,
                                      AsyncNotification notification) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, notification);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
+              statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache, statsLogger, notification);
@@ -94,7 +95,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean noBlocking,
                                                            boolean simulateErrors) throws IOException {
         if (doesLogExist()) {
-            for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
+            for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {} for {}", l, fromDLSN);
                 }
@@ -191,7 +192,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean simulateErrors)
             throws IOException {
         if (doesLogExist()) {
-            for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
+            for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {}", l);
                 }
