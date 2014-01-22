@@ -11,6 +11,7 @@
 - Region ID support for log segment
 - Namespace & LogSegment Listener
 - Monitor Service
+- LogSegment Filter
 
 0.3.7
 -----

@@ -120,7 +120,6 @@ public abstract class BKBaseLogWriter {
         //
         if ((null != ledgerWriter) && (ledgerWriter.isStreamInError() || forceRecovery)) {
             // Close the ledger writer so that we will recover and start a new log segment
-            numFlushes = ledgerWriter.getNumFlushes();
             ledgerWriter.close();
             ledgerWriter = null;
             removeCachedLogWriter(streamIdentifier);
@@ -155,9 +154,7 @@ public abstract class BKBaseLogWriter {
 
                         // complete the log segment
                         ledgerManager.completeAndCloseLogSegment(ledgerWriter);
-                        numFlushes = ledgerWriter.getNumFlushes();
                         ledgerWriter = newLedgerWriter;
-                        ledgerWriter.setNumFlushes(numFlushes);
                         cacheLogWriter(streamIdentifier, ledgerWriter);
                         removeAllocatedLogWriter(streamIdentifier);
                         shouldCheckForTruncation = true;
@@ -185,7 +182,6 @@ public abstract class BKBaseLogWriter {
         } else if (null == ledgerWriter) {
             // if exceptions thrown during initialize we should not catch it.
             ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
-            ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }
@@ -319,7 +315,6 @@ public abstract class BKBaseLogWriter {
         LOG.info("FlushAndSync Started");
 
         long highestTransactionId = 0;
-        long totalFlushes = 0;
         int minTransmitSize = Integer.MAX_VALUE;
         int maxTransmitSize = Integer.MIN_VALUE;
         long totalAddConfirmed = 0;
@@ -340,14 +335,13 @@ public abstract class BKBaseLogWriter {
                     highestTransactionId = Math.max(highestTransactionId, writer.flushAndSync());
                 }
             }
-            totalFlushes += writer.getNumFlushes();
             minTransmitSize = Math.min(minTransmitSize, writer.getAverageTransmitSize());
             maxTransmitSize = Math.max(maxTransmitSize, writer.getAverageTransmitSize());
             totalAddConfirmed += writer.getLastAddConfirmed();
         }
 
         if (writerSet.size() > 0) {
-            LOG.info("FlushAndSync Completed with {} flushes and add Confirmed {}", totalFlushes, totalAddConfirmed);
+            LOG.info("FlushAndSync Completed with add Confirmed {}", totalAddConfirmed);
             LOG.info("Transmission Size Min {} Max {}", minTransmitSize, maxTransmitSize);
         } else {
             LOG.info("FlushAndSync Completed - Nothing to Flush");

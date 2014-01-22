@@ -154,7 +154,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private AtomicInteger shouldFlushControl = new AtomicInteger(0);
     private final int flushTimeoutSeconds;
     private int preFlushCounter;
-    private long numFlushes = 0;
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
     private boolean periodicFlushNeeded = false;
@@ -611,7 +610,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             packetCurrent = getTransmitPacket();
             writer = new LogRecord.Writer(packetCurrent.getBuffer());
             lastTxIdFlushed = lastTxId;
-            numFlushes++;
 
             if (!isControl) {
                 numBytes += packet.getBuffer().getLength();
@@ -679,14 +677,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 l.countDown();
             }
         }
-    }
-
-    public synchronized long getNumFlushes() {
-        return numFlushes;
-    }
-
-    public synchronized void setNumFlushes(long numFlushes) {
-        this.numFlushes = numFlushes;
     }
 
     public synchronized int getAverageTransmitSize() {
