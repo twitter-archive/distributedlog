@@ -1005,7 +1005,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             lock.acquire("RecoverLogSegment");
             try {
                 LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
-                record = recoverLastRecordInLedger(l, true, true, true);
+                record = recoverLastRecordInLedger(l, true, true, true, true);
                 LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
             } finally {
                 lock.release("RecoverLogSegment");

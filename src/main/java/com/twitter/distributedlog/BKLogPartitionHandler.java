@@ -350,7 +350,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerListDesc(true, true);
 
         for (LogSegmentLedgerMetadata metadata: ledgerList) {
-            LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
+            LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, true, recover, false, includeEndOfStream);
 
             if (null != record) {
                 assert(!record.isControl());
@@ -385,7 +385,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         long count = 0;
         for (LogSegmentLedgerMetadata l : ledgerList) {
             if (l.isInProgress()) {
-                LogRecord record = recoverLastRecordInLedger(l, false, false, false);
+                LogRecord record = recoverLastRecordInLedger(l, true, false, false, false);
                 if (null != record) {
                     count += record.getCount();
                 }
@@ -437,7 +437,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = readLastTxIdInLedger(l).getFirst();
+                    long lastTxId = readLastTxIdInLedger(l, true).getFirst();
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
@@ -515,8 +515,8 @@ abstract class BKLogPartitionHandler implements Watcher {
      * Find the id of the last edit log transaction written to a edit log
      * ledger.
      */
-    protected Pair<Long, DLSN> readLastTxIdInLedger(LogSegmentLedgerMetadata l) throws IOException {
-        LogRecordWithDLSN record = recoverLastRecordInLedger(l, false, false, true);
+    protected Pair<Long, DLSN> readLastTxIdInLedger(LogSegmentLedgerMetadata l, boolean forwardReading) throws IOException {
+        LogRecordWithDLSN record = recoverLastRecordInLedger(l, forwardReading, false, false, true);
 
         if (null == record) {
             return Pair.of(DistributedLogConstants.EMPTY_LEDGER_TX_ID, DLSN.InvalidDLSN);
@@ -531,6 +531,7 @@ abstract class BKLogPartitionHandler implements Watcher {
      * ledger.
      */
     protected LogRecordWithDLSN recoverLastRecordInLedger(LogSegmentLedgerMetadata l,
+                                                          boolean forwardReading,
                                                           boolean fence,
                                                           boolean includeControl,
                                                           boolean includeEndOfStream)
@@ -538,7 +539,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         long startTime = MathUtils.nowInNano();
         boolean success = false;
         try {
-            LogRecordWithDLSN record = doRecoverLastRecordInLedger(l, fence, includeControl, includeEndOfStream);
+            LogRecordWithDLSN record = doRecoverLastRecordInLedger(l, forwardReading, fence, includeControl, includeEndOfStream);
             success = true;
             return record;
         } finally {
@@ -551,6 +552,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     protected LogRecordWithDLSN doRecoverLastRecordInLedger(LogSegmentLedgerMetadata l,
+                                                            boolean forwardReading,
                                                             boolean fence,
                                                             boolean includeControl,
                                                             boolean includeEndOfStream)
@@ -563,6 +565,9 @@ abstract class BKLogPartitionHandler implements Watcher {
             boolean trySmallLedger = true;
             LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, fence);
             long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);
+            // since we piggyback last add confirmed, so we should stop reading at lastAddConfirmed position
+            // if forwardReading is disabled.
+            final long lastAddConfirmed = scanStartPoint;
 
             if (scanStartPoint < 0) {
                 LOG.debug("Ledger is empty {}", l.getLedgerId());
@@ -591,6 +596,10 @@ abstract class BKLogPartitionHandler implements Watcher {
                     LogRecordWithDLSN record = in.readOp(false);
                     while (record != null) {
                         ++numRecordsScanned;
+                        if (!forwardReading && record.getDlsn().getEntryId() > lastAddConfirmed) {
+                            // we should stop forward reading at current lastAddConfirmed.
+                            break;
+                        }
                         if ((null == lastRecord
                             || record.getDlsn().compareTo(lastRecord.getDlsn()) > 0) &&
                             (includeEndOfStream || !record.isEndOfStream())) {
