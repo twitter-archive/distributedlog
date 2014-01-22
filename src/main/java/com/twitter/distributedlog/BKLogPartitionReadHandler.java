@@ -10,6 +10,7 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -40,6 +41,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static Counter readAheadWorkerWaits;
     private static OpStatsLogger getInputStreamByTxIdStat;
     private static OpStatsLogger getInputStreamByDLSNStat;
+    private static OpStatsLogger existsStat;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -71,6 +73,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         if (null == getInputStreamByTxIdStat) {
             getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
         }
+        if (null == existsStat) {
+            existsStat = readerStatsLogger.getOpStatsLogger("check_stream_exists");
+        }
     }
 
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
@@ -95,7 +100,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean noBlocking,
                                                            boolean simulateErrors) throws IOException {
         if (doesLogExist()) {
-            for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
+            List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
+            for (LogSegmentLedgerMetadata l : segments) {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {} for {}", l, fromDLSN);
                 }
@@ -192,7 +198,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean simulateErrors)
             throws IOException {
         if (doesLogExist()) {
-            for (LogSegmentLedgerMetadata l : getFilteredLedgerList(false, false)) {
+            List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
+            for (int i = 0; i < segments.size(); i++) {
+                LogSegmentLedgerMetadata l = segments.get(i);
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {}", l);
                 }
@@ -209,6 +217,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                     if (lastTxId == DistributedLogConstants.INVALID_TXID) {
                         lastTxId = l.getFirstTxId();
+                    }
+
+                    // if the inprogress log segment isn't the last one
+                    // we should not move on until it is closed and completed.
+                    if (i != segments.size() - 1 && fromTxId > lastTxId) {
+                        fromTxId = lastTxId;
                     }
                 }
 
@@ -288,16 +302,25 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     private boolean doesLogExist() throws IOException {
         boolean logExists = false;
+        boolean success = false;
+        long startTime = MathUtils.nowInNano();
         try {
             if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
                 logExists = true;
             }
+            success = true;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while checking " + ledgerPath, ie);
             throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
             LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+        } finally {
+            if (success) {
+                existsStat.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+            } else {
+                existsStat.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+            }
         }
         return logExists;
     }

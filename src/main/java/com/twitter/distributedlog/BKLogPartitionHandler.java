@@ -28,6 +28,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -133,10 +134,14 @@ abstract class BKLogPartitionHandler implements Watcher {
     // Stats
     private static OpStatsLogger forceGetListStat;
     private static OpStatsLogger getListStat;
+    private static OpStatsLogger getFilteredListStat;
+    private static OpStatsLogger getFullListStat;
     private static OpStatsLogger getInprogressSegmentStat;
     private static OpStatsLogger getCompletedSegmentStat;
     private static OpStatsLogger negativeGetInprogressSegmentStat;
     private static OpStatsLogger negativeGetCompletedSegmentStat;
+    private static OpStatsLogger recoverLastEntryStats;
+    private static OpStatsLogger recoverScannedEntriesStats;
 
     static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
 
@@ -268,6 +273,12 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (null == getListStat) {
             getListStat = segmentsLogger.getOpStatsLogger("get_list");
         }
+        if (null == getFilteredListStat) {
+            getFilteredListStat = segmentsLogger.getOpStatsLogger("get_filtered_list");
+        }
+        if (null == getFullListStat) {
+            getFullListStat = segmentsLogger.getOpStatsLogger("get_full_list");
+        }
         if (null == getInprogressSegmentStat) {
             getInprogressSegmentStat = segmentsLogger.getOpStatsLogger("get_inprogress_segment");
         }
@@ -279,6 +290,12 @@ abstract class BKLogPartitionHandler implements Watcher {
         }
         if (null == negativeGetCompletedSegmentStat) {
             negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
+        }
+        if (null == recoverLastEntryStats) {
+            recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
+        }
+        if (null == recoverScannedEntriesStats) {
+            recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
         }
     }
 
@@ -514,9 +531,29 @@ abstract class BKLogPartitionHandler implements Watcher {
      * ledger.
      */
     protected LogRecordWithDLSN recoverLastRecordInLedger(LogSegmentLedgerMetadata l,
-                                                  boolean fence,
-                                                  boolean includeControl,
-                                                  boolean includeEndOfStream)
+                                                          boolean fence,
+                                                          boolean includeControl,
+                                                          boolean includeEndOfStream)
+        throws IOException {
+        long startTime = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            LogRecordWithDLSN record = doRecoverLastRecordInLedger(l, fence, includeControl, includeEndOfStream);
+            success = true;
+            return record;
+        } finally {
+            if (success) {
+                recoverLastEntryStats.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+            } else {
+                recoverLastEntryStats.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+            }
+        }
+    }
+
+    protected LogRecordWithDLSN doRecoverLastRecordInLedger(LogSegmentLedgerMetadata l,
+                                                            boolean fence,
+                                                            boolean includeControl,
+                                                            boolean includeEndOfStream)
         throws IOException {
         LogRecordWithDLSN lastRecord;
         Throwable exceptionEncountered = null;
@@ -543,6 +580,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 }
             }
 
+            int numRecordsScanned = 0;
             while (true) {
                 BKPerStreamLogReader in
                     = new BKPerStreamLogReader(this, ledgerDescriptor, l, scanStartPoint,
@@ -552,6 +590,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 try {
                     LogRecordWithDLSN record = in.readOp(false);
                     while (record != null) {
+                        ++numRecordsScanned;
                         if ((null == lastRecord
                             || record.getDlsn().compareTo(lastRecord.getDlsn()) > 0) &&
                             (includeEndOfStream || !record.isEndOfStream())) {
@@ -589,6 +628,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     ledgerDescriptor = handleCachePriv.openLedger(l, fence);
                 }
             }
+            recoverScannedEntriesStats.registerSuccessfulEvent(numRecordsScanned);
         } catch (BKException e) {
             throw new IOException("Exception retrieving last tx id for ledger " + l, e);
         }
@@ -660,6 +700,26 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean fetchFullList,
+                                                           Comparator comparator, boolean throwOnEmpty)
+            throws IOException {
+        long startTime = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            List<LogSegmentLedgerMetadata> segments =
+                    doGetLedgerList(forceFetch, fetchFullList, comparator, throwOnEmpty);
+            success = true;
+            return segments;
+        } finally {
+            OpStatsLogger statsLogger = fetchFullList ? getFullListStat : getFilteredListStat;
+            if (success) {
+                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+            } else {
+                statsLogger.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+            }
+        }
+    }
+
+    private List<LogSegmentLedgerMetadata> doGetLedgerList(boolean forceFetch, boolean fetchFullList,
                                                            Comparator comparator, boolean throwOnEmpty)
         throws IOException {
         if (fetchFullList) {

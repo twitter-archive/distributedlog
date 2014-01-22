@@ -2,7 +2,6 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -149,7 +148,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     private static OpStatsLogger closeOpStats;
     private static OpStatsLogger openOpStats;
     private static OpStatsLogger recoverOpStats;
-    private static OpStatsLogger recoverLastEntryStats;
     private static OpStatsLogger deleteOpStats;
 
     static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
@@ -405,9 +403,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
         if (null == recoverOpStats) {
             recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
-        }
-        if (null == recoverLastEntryStats) {
-            recoverLastEntryStats = segmentsStatsLogger.getOpStatsLogger("recover_last_entry");
         }
         if (null == deleteOpStats) {
             deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
@@ -1006,22 +1001,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             long lastEntryId = -1;
             long lastSlotId = -1;
 
-            Stopwatch stopwatch = new Stopwatch().start();
-            boolean recovered = false;
             LogRecordWithDLSN record;
             lock.acquire("RecoverLogSegment");
             try {
                 LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
                 record = recoverLastRecordInLedger(l, true, true, true);
-                recovered = true;
                 LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
             } finally {
                 lock.release("RecoverLogSegment");
-                if (recovered) {
-                    recoverLastEntryStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
-                } else {
-                    recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
-                }
             }
 
             if (null != record) {

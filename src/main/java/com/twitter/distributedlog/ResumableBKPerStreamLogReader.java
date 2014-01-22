@@ -82,6 +82,10 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         this(ledgerManager, zkc, ledgerDataAccessor, metadata, noBlocking, 0, statsLogger);
     }
 
+    public LogSegmentLedgerMetadata getLogSegmentLedgerMetadata() {
+        return metadata;
+    }
+
     synchronized public void resume(boolean shouldReadLAC) throws IOException {
         if (!shouldResume) {
             resumeMisses.inc();
