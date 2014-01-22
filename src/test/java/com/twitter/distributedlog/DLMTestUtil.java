@@ -19,7 +19,6 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
-import com.twitter.distributedlog.tools.Tool;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -79,7 +78,8 @@ public class DLMTestUtil {
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
         return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
-                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, NullStatsLogger.INSTANCE, "localhost");
+                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null,
+                NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {

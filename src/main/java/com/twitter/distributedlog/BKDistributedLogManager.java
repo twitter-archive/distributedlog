@@ -43,6 +43,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
+    private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
@@ -136,7 +137,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId, regionId);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
             writeHandler.register((Watcher) manager);
@@ -150,6 +151,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public void setClientId(String clientId) {
         this.clientId = clientId;
+    }
+
+    int getRegionId() {
+        return regionId;
+    }
+
+    void setRegionId(int regionId) {
+        this.regionId = regionId;
     }
 
     public synchronized void setLedgerAllocator(LedgerAllocator allocator) {

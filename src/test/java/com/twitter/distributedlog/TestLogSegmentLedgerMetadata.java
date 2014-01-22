@@ -26,6 +26,8 @@ public class TestLogSegmentLedgerMetadata {
 
     static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentLedgerMetadata.class);
 
+    static final int TEST_REGION_ID = 0xf - 1;
+
     private static ZooKeeperServerShim zks;
     private ZooKeeperClient zkc;
 
@@ -52,13 +54,15 @@ public class TestLogSegmentLedgerMetadata {
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
         LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1",
-            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1);
+                DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1,
+                TEST_REGION_ID);
         metadata1.write(zkc, "/metadata1");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
             "/metadata1",
             DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         assertEquals(metadata1, read1);
+        assertEquals(TEST_REGION_ID, read1.getRegionId());
         final AtomicReference<LogSegmentLedgerMetadata> resultHolder =
                 new AtomicReference<LogSegmentLedgerMetadata>(null);
         final CountDownLatch latch = new CountDownLatch(1);
@@ -78,12 +82,13 @@ public class TestLogSegmentLedgerMetadata {
         });
         latch.await();
         assertEquals(metadata1, resultHolder.get());
+        assertEquals(TEST_REGION_ID, resultHolder.get().getRegionId());
     }
 
     @Test(timeout = 60000)
     public void testReadMetadataCrossVersion() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata2",
-            1, 1000, 1);
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata(
+            "/metadata2", 1, 1000, 1, TEST_REGION_ID);
         metadata1.write(zkc, "/metadata2");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
@@ -93,6 +98,7 @@ public class TestLogSegmentLedgerMetadata {
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
         assertEquals(read1.getLedgerSequenceNumber(), metadata1.getLedgerSequenceNumber());
+        assertEquals(DistributedLogConstants.LOCAL_REGION_ID, read1.getRegionId());
     }
 
     @Test(timeout = 60000)

@@ -37,13 +37,14 @@ import static com.google.common.base.Charsets.UTF_8;
  * Utility class for storing the metadata associated
  * with a single edit log segment, stored in a single ledger
  */
-class LogSegmentLedgerMetadata {
+public class LogSegmentLedgerMetadata {
     static final Logger LOG = LoggerFactory.getLogger(LogSegmentLedgerMetadata.class);
 
     private String zkPath;
     private final long ledgerId;
     private final int version;
     private final long firstTxId;
+    private final int regionId;
     private long lastTxId;
     private long completionTime;
     private int recordCount;
@@ -105,13 +106,17 @@ class LogSegmentLedgerMetadata {
 
     static final int LOGRECORD_COUNT_SHIFT = 32;
     static final long LOGRECORD_COUNT_MASK = 0xffffffff00000000L;
-    static final long METADATA_VERSION_MASK = 0x00000000ffffffffL;
+    static final int REGION_SHIFT = 28;
+    static final long MAX_REGION_ID = 0xfL;
+    static final long REGION_MASK = 0x00000000f0000000L;
+    static final long METADATA_VERSION_MASK = 0x000000000fffffffL;
 
-    public LogSegmentLedgerMetadata(String zkPath,
-                                    int version,
-                                    long ledgerId,
-                                    long firstTxId,
-                                    long ledgerSequenceNumber) {
+    LogSegmentLedgerMetadata(String zkPath,
+                             int version,
+                             long ledgerId,
+                             long firstTxId,
+                             long ledgerSequenceNumber,
+                             int regionId) {
 
         this(zkPath,
             version,
@@ -123,13 +128,15 @@ class LogSegmentLedgerMetadata {
             0,
             ledgerSequenceNumber,
             -1,
-            -1);
+            -1,
+            regionId);
     }
 
-    public LogSegmentLedgerMetadata(String zkPath,
-                                     int version,
-                                    long ledgerId,
-                                    long firstTxId) {
+    LogSegmentLedgerMetadata(String zkPath,
+                             int version,
+                             long ledgerId,
+                             long firstTxId,
+                             int regionId) {
         this(zkPath,
             version,
             ledgerId,
@@ -140,7 +147,8 @@ class LogSegmentLedgerMetadata {
             0,
             DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
             -1,
-            -1);
+            -1,
+            regionId);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
@@ -149,7 +157,8 @@ class LogSegmentLedgerMetadata {
                                      long firstTxId,
                                      long lastTxId,
                                      long completionTime,
-                                     int recordCount) {
+                                     int recordCount,
+                                     int regionId) {
         this(zkPath,
             version,
             ledgerId,
@@ -160,7 +169,8 @@ class LogSegmentLedgerMetadata {
             recordCount,
             DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO,
             -1,
-            -1);
+            -1,
+            regionId);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
@@ -171,7 +181,9 @@ class LogSegmentLedgerMetadata {
                                      long completionTime,
                                      int recordCount,
                                      long ledgerSequenceNumber,
-                                     long lastEntryId, long lastSlotId) {
+                                     long lastEntryId,
+                                     long lastSlotId,
+                                     int regionId) {
         this(zkPath,
             version,
             ledgerId,
@@ -182,14 +194,15 @@ class LogSegmentLedgerMetadata {
             recordCount,
             ledgerSequenceNumber,
             lastEntryId,
-            lastSlotId);
+            lastSlotId,
+            regionId);
     }
 
     private LogSegmentLedgerMetadata(String zkPath,
                                      int version,
                                      long ledgerId,
            long firstTxId, long lastTxId, long completionTime, boolean inprogress, int recordCount,
-           long ledgerSequenceNumber, long lastEntryId, long lastSlotId) {
+           long ledgerSequenceNumber, long lastEntryId, long lastSlotId, int regionId) {
         this.zkPath = zkPath;
         this.ledgerId = ledgerId;
         this.version = version;
@@ -199,6 +212,7 @@ class LogSegmentLedgerMetadata {
         this.completionTime = completionTime;
         this.recordCount = recordCount;
         this.lastDLSN = new DLSN(ledgerSequenceNumber, lastEntryId, lastSlotId);
+        this.regionId = regionId;
     }
 
     String getZkPath() {
@@ -243,6 +257,10 @@ class LogSegmentLedgerMetadata {
 
     public int getRecordCount() {
         return recordCount;
+    }
+
+    public int getRegionId() {
+        return regionId;
     }
 
     boolean isInProgress() {
@@ -309,16 +327,19 @@ class LogSegmentLedgerMetadata {
         throws IOException {
         assert (1 == Integer.valueOf(parts[0]));
 
+        long versionAndCount = Long.valueOf(parts[0]);
+
+        long version = versionAndCount & METADATA_VERSION_MASK;
+        assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
+
+        int regionId = (int)(versionAndCount & REGION_MASK) >> REGION_SHIFT;
+        assert (regionId >= 0 && regionId <= 0xf);
+
         if (parts.length == 3) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
-            return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId);
+            return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId, regionId);
         } else if (parts.length == 5) {
-            long versionAndCount = Long.valueOf(parts[0]);
-
-            long version = versionAndCount & METADATA_VERSION_MASK;
-            assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
-
             long recordCount = (versionAndCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
 
@@ -327,7 +348,7 @@ class LogSegmentLedgerMetadata {
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId,
-                firstTxId, lastTxId, completionTime, (int)recordCount);
+                firstTxId, lastTxId, completionTime, (int)recordCount, regionId);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -336,20 +357,24 @@ class LogSegmentLedgerMetadata {
 
     static LogSegmentLedgerMetadata parseDataLatestVersion(String path, byte[] data, String[] parts, int targetVersion)
         throws IOException {
+        long versionAndCount = Long.valueOf(parts[0]);
+
+        long version = versionAndCount & METADATA_VERSION_MASK;
+        assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
+        assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
+
+        int regionId = (int)((versionAndCount & REGION_MASK) >> REGION_SHIFT);
+        assert (regionId >= 0 && regionId <= 0xf);
+
         if (parts.length == 4) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
             long ledgerSequenceNumber = Long.valueOf(parts[3]);
-            return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId, ledgerSequenceNumber);
+            return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId, txId, ledgerSequenceNumber, regionId);
         } else if (parts.length == 8) {
-            long versionAndCount = Long.valueOf(parts[0]);
-
-            long version = versionAndCount & METADATA_VERSION_MASK;
-            assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
-            assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
-
             long recordCount = (versionAndCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
+
             long ledgerId = Long.valueOf(parts[1]);
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
@@ -358,7 +383,7 @@ class LogSegmentLedgerMetadata {
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
             return new LogSegmentLedgerMetadata(path, targetVersion, ledgerId,
-                firstTxId, lastTxId, completionTime, (int) recordCount, ledgerSequenceNumber, lastEntryId, lastSlotId);
+                firstTxId, lastTxId, completionTime, (int) recordCount, ledgerSequenceNumber, lastEntryId, lastSlotId, regionId);
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -390,9 +415,6 @@ class LogSegmentLedgerMetadata {
         String finalisedData;
 
         long versionAndCount = ((long) version);
-        if (!inprogress) {
-            versionAndCount |= ((long)recordCount << LOGRECORD_COUNT_SHIFT);
-        }
         if (1 == version) {
             if (inprogress) {
                 finalisedData = String.format("%d;%d;%d",
@@ -402,6 +424,10 @@ class LogSegmentLedgerMetadata {
                     versionAndCount, ledgerId, firstTxId, lastTxId, completionTime);
             }
         } else {
+            versionAndCount |= (((long) regionId & MAX_REGION_ID) << REGION_SHIFT);
+            if (!inprogress) {
+                versionAndCount |= ((long)recordCount << LOGRECORD_COUNT_SHIFT);
+            }
             assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
             if (inprogress) {
                 finalisedData = String.format("%d;%d;%d;%d",

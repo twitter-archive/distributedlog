@@ -15,7 +15,6 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.bookkeeper.shims.Version;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
@@ -52,7 +51,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, LedgerAllocator.class, StatsLogger.class, String.class
+        ScheduledExecutorService.class, LedgerAllocator.class, StatsLogger.class, String.class, int.class
     };
 
     static BKLogPartitionWriteHandler createBKLogPartitionWriteHandler(String name,
@@ -64,10 +63,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        ScheduledExecutorService executorService,
                                                                        LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
-                                                                       String clientId) throws IOException {
+                                                                       String clientId,
+                                                                       int regionId) throws IOException {
         if (ZK_VERSION.getVersion().equals("3.3")) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, ledgerAllocator, false, statsLogger, clientId);
+                    executorService, ledgerAllocator, false, statsLogger, clientId, regionId);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -87,7 +87,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new IOException("No constructor found for writer handler class " + WRITER_HANDLER_CLASS + " : ", e);
             }
             Object[] arguments = {
-                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, ledgerAllocator, statsLogger, clientId
+                    name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
+                    ledgerAllocator, statsLogger, clientId, regionId
             };
             try {
                 return constructor.newInstance(arguments);
@@ -116,6 +117,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final String allocationPath;
     protected final DataWithStat allocationData;
     protected final boolean sanityCheckTxnId;
+    protected final int regionId;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -199,7 +201,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                LedgerAllocator allocator,
                                boolean useAllocator,
                                StatsLogger statsLogger,
-                               String clientId) throws IOException {
+                               String clientId,
+                               int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, null);
         ensembleSize = conf.getEnsembleSize();
 
@@ -218,6 +221,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             ackQuorumSize = conf.getAckQuorumSize();
         }
 
+        if (conf.getEncodeRegionIDInVersion()) {
+            this.regionId = regionId;
+        } else {
+            this.regionId = DistributedLogConstants.LOCAL_REGION_ID;
+        }
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
 
         final boolean ownAllocator = useAllocator && (null == allocator);
@@ -525,7 +533,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
             }
 
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath, conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo);
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 

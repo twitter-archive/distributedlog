@@ -6,6 +6,7 @@ import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LockingException;
@@ -720,11 +721,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // Configuration.
         this.dlConfig = dlConf;
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.DURABLE.toString()));
+        int serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
         int serverPort = dlConf.getInt("server_port", 0);
         int shard = dlConf.getInt("server_shard", -1);
         int numThreads = dlConf.getInt("server_threads", Runtime.getRuntime().availableProcessors());
         this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
-        this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId);
+        this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
         this.keepAliveLatch = keepAliveLatch;
 
         // Executor Service.

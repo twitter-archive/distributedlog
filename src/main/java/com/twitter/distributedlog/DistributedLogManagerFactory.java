@@ -64,6 +64,7 @@ public class DistributedLogManagerFactory {
     }
 
     private final String clientId;
+    private final int regionId;
     private DistributedLogConfiguration conf;
     private URI namespace;
     private final StatsLogger statsLogger;
@@ -85,16 +86,18 @@ public class DistributedLogManagerFactory {
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
                                         StatsLogger statsLogger) throws IOException, IllegalArgumentException {
-        this(conf, uri, statsLogger, DistributedLogConstants.UNKNOWN_CLIENT_ID);
+        this(conf, uri, statsLogger, DistributedLogConstants.UNKNOWN_CLIENT_ID, DistributedLogConstants.LOCAL_REGION_ID);
     }
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
-                                        StatsLogger statsLogger, String clientId) throws IOException, IllegalArgumentException {
+                                        StatsLogger statsLogger, String clientId, int regionId)
+            throws IOException, IllegalArgumentException {
         validateConfAndURI(conf, uri);
         this.conf = conf;
         this.namespace = uri;
         this.statsLogger = statsLogger;
         this.clientId = clientId;
+        this.regionId = regionId;
         this.scheduledExecutorService = Executors.newScheduledThreadPool(
                 conf.getNumWorkerThreads(),
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
@@ -141,6 +144,8 @@ public class DistributedLogManagerFactory {
         } else {
             allocator = null;
         }
+
+        LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
@@ -204,6 +209,7 @@ public class DistributedLogManagerFactory {
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             null, null, scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
         distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;
@@ -225,6 +231,7 @@ public class DistributedLogManagerFactory {
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
         distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;

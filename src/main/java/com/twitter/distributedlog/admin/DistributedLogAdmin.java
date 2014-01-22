@@ -29,6 +29,7 @@ public class DistributedLogAdmin extends Tool {
             options.addOption("l", "bkLedgers", true, "ZooKeeper ledgers path for bookkeeper instance.");
             options.addOption("s", "bkZkServers", true, "ZooKeeper servers used for bookkeeper instance.");
             options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
+            options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
             options.addOption("f", "force", false, "Force binding without prompt.");
             options.addOption("c", "creation", false, "Whether is it a creation binding.");
             options.addOption("q", "query", false, "Query the bookkeeper bindings");
@@ -64,13 +65,17 @@ public class DistributedLogAdmin extends Tool {
             String bkZkServers = cmdline.getOptionValue("s");
             boolean sanityCheckTxnID =
                     !cmdline.hasOption("i") || Boolean.parseBoolean(cmdline.getOptionValue("i"));
+            boolean encodeRegionID =
+                    cmdline.hasOption("r") && Boolean.parseBoolean(cmdline.getOptionValue("r"));
             URI uri = URI.create(args[0]);
             // resolving the uri to see if there is another bindings in this uri.
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
                     .sessionTimeoutMs(10000).build();
             try {
                 BKDLConfig newBKDLConfig =
-                        new BKDLConfig(bkZkServers, bkLedgersPath).setSanityCheckTxnID(sanityCheckTxnID);
+                        new BKDLConfig(bkZkServers, bkLedgersPath)
+                                .setSanityCheckTxnID(sanityCheckTxnID)
+                                .setEncodeRegionID(encodeRegionID);
                 BKDLConfig bkdlConfig;
                 try {
                     bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);

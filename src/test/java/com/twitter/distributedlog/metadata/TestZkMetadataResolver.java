@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.metadata;
 
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -17,6 +18,8 @@ import java.io.IOException;
 import java.net.URI;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class TestZkMetadataResolver {
@@ -91,6 +94,36 @@ public class TestZkMetadataResolver {
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         assertEquals(dlMetadata2,
                 resolver.resolve(createURI("/messaging/distributedlog/child/child2")));
+    }
+
+    @Test(timeout = 60000)
+    public void testEncodeRegionID() throws Exception {
+        DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
+
+        URI uri = createURI("/messaging/distributedlog/dl1");
+        DLMetadata meta1 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers"));
+        meta1.create(uri);
+        BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read1, dlConf);
+        assertFalse(dlConf.getEncodeRegionIDInVersion());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta2 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers").setEncodeRegionID(true));
+        meta2.update(uri);
+        BKDLConfig read2 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read2, dlConf);
+        assertTrue(dlConf.getEncodeRegionIDInVersion());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta3 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers").setEncodeRegionID(false));
+        meta3.update(uri);
+        BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read3, dlConf);
+        assertFalse(dlConf.getEncodeRegionIDInVersion());
+
+        BKDLConfig.clearCachedDLConfigs();
     }
 
 }

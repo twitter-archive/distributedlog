@@ -107,14 +107,17 @@ public class TestLedgerHandleCache {
             LedgerHandleCache cache = new LedgerHandleCache(newBkc, "zkcClosed");
             // open ledger after zkc closed
             try {
-                cache.openLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId()), false);
+                cache.openLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId(),
+                        DistributedLogConstants.LOCAL_REGION_ID), false);
                 fail("Should throw BKException.ZKException if zookeeper client is closed.");
             } catch (BKException.ZKException ze) {
                 // expected
             }
             final AtomicInteger rcHolder = new AtomicInteger(0);
             final CountDownLatch latch = new CountDownLatch(1);
-            cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId()), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+            cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId(),
+                    DistributedLogConstants.LOCAL_REGION_ID), false,
+                    new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
                 @Override
                 public void operationComplete(int rc, LedgerDescriptor result) {
                     rcHolder.set(rc);

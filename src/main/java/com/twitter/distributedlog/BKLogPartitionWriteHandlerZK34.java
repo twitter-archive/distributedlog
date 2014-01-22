@@ -47,9 +47,10 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    ScheduledExecutorService executorService,
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
-                                   String clientId) throws IOException {
+                                   String clientId,
+                                   int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, allocator, true, statsLogger, clientId);
+              executorService, allocator, true, statsLogger, clientId, regionId);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -149,7 +150,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         String inprogressZnodeName = inprogressZNodeName(txId);
         String inprogressZnodePath = inprogressZNode(txId);
         LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
-                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo);
+                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
         tryWrite(txn, l, inprogressZnodePath);
 
         // Try storing max tx id.

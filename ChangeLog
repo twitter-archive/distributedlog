@@ -8,6 +8,7 @@
 - Resilient to zookeeper exception in writer path
 - TryReadLastAddConfirmed support
 - Retryable ZooKeeper Client
+- Region ID support for log segment
 
 0.3.7
 -----

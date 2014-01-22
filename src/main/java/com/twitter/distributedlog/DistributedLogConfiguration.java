@@ -151,6 +151,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LOGSEGMENT_ROLLING_CONCURRENCY = "logSegmentRollingConcurrency";
     public static final int BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT = 1;
 
+    public static final String BKDL_ENCODE_REGION_ID_IN_VERSION = "encodeRegionIDInVersion";
+    public static final boolean BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT = false;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -937,6 +940,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setLogSegmentRollingConcurrency(int concurrency) {
         setProperty(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, concurrency);
+        return this;
+    }
+
+    /**
+     * Could encode region id in version?
+     *
+     * @return whether to encode region id in version.
+     */
+    public boolean getEncodeRegionIDInVersion() {
+        return getBoolean(BKDL_ENCODE_REGION_ID_IN_VERSION, BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable encoding region id in version.
+     *
+     * @param enabled
+     *          flag to enable/disable encoding region id in version.
+     * @return configuration instance.
+     */
+    public DistributedLogConfiguration setEncodeRegionIDInVersion(boolean enabled) {
+        setProperty(BKDL_ENCODE_REGION_ID_IN_VERSION, enabled);
         return this;
     }
 

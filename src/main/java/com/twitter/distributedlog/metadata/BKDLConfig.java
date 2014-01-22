@@ -32,7 +32,9 @@ public class BKDLConfig implements DLConfig {
 
     public static void propagateConfiguration(BKDLConfig bkdlConfig, DistributedLogConfiguration dlConf) {
         dlConf.setSanityCheckTxnID(bkdlConfig.getSanityCheckTxnID());
-        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}.", dlConf.getSanityCheckTxnID());
+        dlConf.setEncodeRegionIDInVersion(bkdlConfig.getEncodeRegionID());
+        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}.",
+                dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion());
     }
 
     public static BKDLConfig resolveDLConfig(ZooKeeperClient zkc, URI uri) throws IOException {
@@ -56,6 +58,7 @@ public class BKDLConfig implements DLConfig {
     private String zkServers;
     private String bkLedgersPath;
     private boolean sanityCheckTxnID = true;
+    private boolean encodeRegionID = false;
 
     /**
      * Construct a empty config.
@@ -102,6 +105,25 @@ public class BKDLConfig implements DLConfig {
         return sanityCheckTxnID;
     }
 
+    /**
+     * Enable/Disable encode region id.
+     *
+     * @param enabled
+     *          flag to enable/disable encoding region id.
+     * @return bk dl config
+     */
+    public BKDLConfig setEncodeRegionID(boolean enabled) {
+        this.encodeRegionID = enabled;
+        return this;
+    }
+
+    /**
+     * @return flag to encode region id.
+     */
+    public boolean getEncodeRegionID() {
+        return encodeRegionID;
+    }
+
     @Override
     public int hashCode() {
         return (null == zkServers ? 0 : zkServers.hashCode()) * 13 +
@@ -128,7 +150,9 @@ public class BKDLConfig implements DLConfig {
         } else {
             return bkLedgersPath.equals(another.bkLedgersPath);
         }
-        return res && sanityCheckTxnID == another.sanityCheckTxnID;
+        return res
+                && sanityCheckTxnID == another.sanityCheckTxnID
+                && encodeRegionID == another.encodeRegionID;
     }
 
     @Override
@@ -146,6 +170,11 @@ public class BKDLConfig implements DLConfig {
             configFormat.setBkLedgersPath(bkLedgersPath);
         }
         configFormat.setSanityCheckTxnID(sanityCheckTxnID);
+        configFormat.setEncodeRegionID(encodeRegionID);
+        return serialize(configFormat);
+    }
+
+    String serialize(BKDLConfigFormat configFormat) {
         TMemoryBuffer transport = new TMemoryBuffer(BUFFER_SIZE);
         TJSONProtocol protocol = new TJSONProtocol(transport);
         try {
@@ -176,8 +205,7 @@ public class BKDLConfig implements DLConfig {
         if (configFormat.isSetBkLedgersPath()) {
             bkLedgersPath = configFormat.getBkLedgersPath();
         }
-        if (configFormat.isSetSanityCheckTxnID()) {
-            sanityCheckTxnID = configFormat.isSanityCheckTxnID();
-        }
+        sanityCheckTxnID = !configFormat.isSetSanityCheckTxnID() || configFormat.isSanityCheckTxnID();
+        encodeRegionID = configFormat.isSetEncodeRegionID() && configFormat.isEncodeRegionID();
     }
 }
