@@ -1214,8 +1214,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                 @Override
                                 public void processResult(int rc, String path, Object ctx) {
                                     if (KeeperException.Code.OK.intValue() != rc) {
-                                        LOG.error("Couldn't purge {} : ", ledgerMetadata,
-                                                KeeperException.create(KeeperException.Code.get(rc)));
+                                        LOG.error("Couldn't purge {} : with error {}", ledgerMetadata, KeeperException.Code.get(rc));
                                         callback.operationComplete(BKException.Code.ZKException, null);
                                         return;
                                     }

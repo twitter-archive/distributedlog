@@ -771,7 +771,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         ledgers.addAll(logSegmentLedgerMetadatas);
                     } else {
-                        LOG.error("Failed to get ledger list for {} : ", getFullyQualifiedName(), KeeperException.create(rc));
+                        LOG.error("Failed to get ledger list for {} : with error {}", getFullyQualifiedName(), rc);
                     }
                     latch.countDown();
                 }
@@ -792,7 +792,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 (rc != KeeperException.Code.CONNECTIONLOSS) &&
                 (rc != KeeperException.Code.SESSIONMOVED)) {
                 forceGetListStat.registerFailedEvent(elapsedMillis);
-                throw new IOException("Exception reading ledger list for " + getFullyQualifiedName(), KeeperException.create(rc));
+                throw new IOException("ZK Exception "+ rc +" reading ledger list for " + getFullyQualifiedName());
             }
             forceGetListStat.registerFailedEvent(elapsedMillis);
 
@@ -969,7 +969,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                     if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
                                         List<LogSegmentLedgerMetadata> segmentList =
                                                 getCachedLedgerList(comparator, segmentFilter);
-                                        callback.operationComplete(BKException.Code.OK, segmentList);
+                                        callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
                                         notifyUpdatedLogSegments(segmentList);
                                         notifyOnOperationComplete();
                                     }
