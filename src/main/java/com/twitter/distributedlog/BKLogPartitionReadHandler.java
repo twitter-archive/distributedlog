@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -7,6 +8,7 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -35,7 +37,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private boolean readAheadError = false;
 
     // stats
-    private final Counter readAheadWorkerWaits;
+    private static Counter readAheadWorkerWaits;
+    private static OpStatsLogger getInputStreamByTxIdStat;
+    private static OpStatsLogger getInputStreamByDLSNStat;
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -51,12 +55,21 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger, notification);
 
-        handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw);
+        handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache, statsLogger, notification);
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
-        readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
+        if (null == readAheadWorkerWaits) {
+            readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
+        }
+        StatsLogger readerStatsLogger = statsLogger.scope("reader");
+        if (null == getInputStreamByDLSNStat) {
+            getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
+        }
+        if (null == getInputStreamByTxIdStat) {
+            getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
+        }
     }
 
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
@@ -64,6 +77,22 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean noBlocking,
                                                         boolean simulateErrors)
         throws IOException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        try {
+            ResumableBKPerStreamLogReader reader =
+                    doGetInputStream(fromDLSN, fThrowOnEmpty, noBlocking, simulateErrors);
+            getInputStreamByDLSNStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            return reader;
+        } catch (IOException ioe) {
+            getInputStreamByDLSNStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            throw ioe;
+        }
+    }
+
+    private ResumableBKPerStreamLogReader doGetInputStream(DLSN fromDLSN,
+                                                           boolean fThrowOnEmpty,
+                                                           boolean noBlocking,
+                                                           boolean simulateErrors) throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
                 if (LOG.isTraceEnabled()) {
@@ -143,6 +172,24 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean noBlocking,
                                                         boolean simulateErrors)
         throws IOException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        try {
+            ResumableBKPerStreamLogReader reader =
+                    doGetInputStream(fromTxId, fThrowOnEmpty, noBlocking, simulateErrors);
+            getInputStreamByTxIdStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            return reader;
+        } catch (IOException ioe) {
+            getInputStreamByTxIdStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            throw ioe;
+        }
+    }
+
+
+    private ResumableBKPerStreamLogReader doGetInputStream(long fromTxId,
+                                                           boolean fThrowOnEmpty,
+                                                           boolean noBlocking,
+                                                           boolean simulateErrors)
+            throws IOException {
         if (doesLogExist()) {
             for (LogSegmentLedgerMetadata l : getLedgerList(false)) {
                 if (LOG.isTraceEnabled()) {
@@ -210,10 +257,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             ledgerDataAccessor.clear();
         }
         super.close();
-    }
-
-    private void setWatcherOnLedgerRoot(Watcher watcher) throws IOException, KeeperException, InterruptedException {
-        zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
     public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {

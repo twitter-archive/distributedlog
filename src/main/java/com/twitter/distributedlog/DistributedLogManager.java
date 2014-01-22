@@ -103,6 +103,10 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogReader getInputStream(long fromTxnId)
         throws IOException;
 
+    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException;
+
+    public LogReader getInputStream(DLSN fromDLSN) throws IOException;
+
     public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException;
 
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;

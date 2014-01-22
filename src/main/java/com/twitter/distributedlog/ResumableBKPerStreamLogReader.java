@@ -16,10 +16,6 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-
 class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(ResumableBKPerStreamLogReader.class);
 
@@ -88,6 +84,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public void resume(boolean shouldReadLAC) throws IOException {
         if (!shouldResume) {
+            resumeMisses.inc();
             return;
         }
 

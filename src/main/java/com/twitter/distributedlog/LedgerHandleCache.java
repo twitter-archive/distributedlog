@@ -1,11 +1,15 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,10 +28,35 @@ public class LedgerHandleCache {
 
     private final BookKeeperClient bkc;
     private final String digestpw;
+    private static OpStatsLogger openStats = null;
+    private static OpStatsLogger openNoRecoveryStats = null;
+    private static OpStatsLogger tryReadLastConfirmedStats = null;
+    private static OpStatsLogger readLastConfirmedStats = null;
 
     LedgerHandleCache(BookKeeperClient bkc, String digestpw) {
+        this(bkc, digestpw, NullStatsLogger.INSTANCE);
+    }
+
+    LedgerHandleCache(BookKeeperClient bkc, String digestpw, StatsLogger statsLogger) {
         this.bkc = bkc;
         this.digestpw = digestpw;
+        initializeStats(statsLogger);
+    }
+
+    static synchronized void initializeStats(StatsLogger statsLogger) {
+        // Stats
+        if (openStats == null) {
+            openStats = statsLogger.getOpStatsLogger("open_ledger");
+        }
+        if (openNoRecoveryStats == null) {
+            openNoRecoveryStats = statsLogger.getOpStatsLogger("open_ledger_no_recovery");
+        }
+        if (tryReadLastConfirmedStats == null) {
+            tryReadLastConfirmedStats = statsLogger.getOpStatsLogger("try_read_last_confirmed");
+        }
+        if (readLastConfirmedStats == null) {
+            readLastConfirmedStats = statsLogger.getOpStatsLogger("read_last_confirmed");
+        }
     }
 
     /**
@@ -92,6 +121,7 @@ public class LedgerHandleCache {
     public synchronized LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncOpenLedger(metadata, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor ledgerDescriptor) {
@@ -106,8 +136,19 @@ public class LedgerHandleCache {
             LOG.error("Interrupted when opening ledger {} : ", metadata.getLedgerId(), e);
             throw new IOException("Could not open ledger for " + metadata.getLedgerId(), e);
         }
+        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
+            if (fence) {
+                openStats.registerSuccessfulEvent(elapsedMs);
+            } else {
+                openNoRecoveryStats.registerSuccessfulEvent(elapsedMs);
+            }
             return syncObject.getValue();
+        }
+        if (fence) {
+            openStats.registerFailedEvent(elapsedMs);
+        } else {
+            openNoRecoveryStats.registerFailedEvent(elapsedMs);
         }
         throw BKException.create(syncObject.getrc());
     }
@@ -161,6 +202,7 @@ public class LedgerHandleCache {
     public void tryReadLastConfirmed(LedgerDescriptor ledgerDesc) throws BKException, InterruptedException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncTryReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object ctx) {
@@ -170,9 +212,12 @@ public class LedgerHandleCache {
             }
         }, null);
         syncObject.block(0);
+        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
+            tryReadLastConfirmedStats.registerSuccessfulEvent(elapsedMs);
             return;
         }
+        tryReadLastConfirmedStats.registerFailedEvent(elapsedMs);
         throw BKException.create(syncObject.getrc());
     }
 
@@ -190,6 +235,7 @@ public class LedgerHandleCache {
         throws InterruptedException, BKException, IOException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object context) {
@@ -199,9 +245,12 @@ public class LedgerHandleCache {
             }
         }, null);
         syncObject.block(0);
+        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
+            readLastConfirmedStats.registerSuccessfulEvent(elapsedMs);
             return;
         }
+        readLastConfirmedStats.registerFailedEvent(elapsedMs);
         throw BKException.create(syncObject.getrc());
     }
 

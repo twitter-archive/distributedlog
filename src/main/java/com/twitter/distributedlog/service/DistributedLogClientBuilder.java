@@ -7,16 +7,21 @@ import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
-import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.CancelledRequestException;
+import com.twitter.finagle.ChannelException;
+import com.twitter.finagle.FailedFastException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
+import com.twitter.finagle.ServiceException;
+import com.twitter.finagle.ServiceTimeoutException;
+import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -42,7 +47,9 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -277,6 +284,8 @@ public class DistributedLogClientBuilder {
         // Ownership maintenance
         private final ConcurrentHashMap<String, SocketAddress> stream2Addresses =
                 new ConcurrentHashMap<String, SocketAddress>();
+        private final ConcurrentHashMap<SocketAddress, Set<String>> address2Streams =
+                new ConcurrentHashMap<SocketAddress, Set<String>>();
         private final ConcurrentHashMap<SocketAddress, ServiceWithClient> address2Services =
                 new ConcurrentHashMap<SocketAddress, ServiceWithClient>();
 
@@ -628,7 +637,16 @@ public class DistributedLogClientBuilder {
 
         @Override
         public void onServerLeft(SocketAddress address) {
-            removeClient(address);
+            onServerLeft(address, null);
+        }
+
+        private void onServerLeft(SocketAddress address, ServiceWithClient sc) {
+            clearAllStreamsForHost(address);
+            if (null == sc) {
+                removeClient(address);
+            } else {
+                removeClient(address, sc);
+            }
         }
 
         @Override
@@ -767,85 +785,21 @@ public class DistributedLogClientBuilder {
                     getResponseCounter(response.getHeader().getCode()).incr();
                     switch (response.getHeader().getCode()) {
                         case SUCCESS:
-                            // update ownership
-                            SocketAddress oldAddr = stream2Addresses.putIfAbsent(op.stream, addr);
-                            if (null == oldAddr) {
-                                ownershipStat.onAdd();
-                                getOwnershipStat(op.stream).onAdd();
-                            } else if (!oldAddr.equals(addr)) {
-                                if (stream2Addresses.replace(op.stream, oldAddr, addr)) {
-                                    // ownership changed
-                                    ownershipStat.onRemove();
-                                    ownershipStat.onAdd();
-                                    getOwnershipStat(op.stream).onRemove();
-                                    getOwnershipStat(op.stream).onAdd();
-                                }
-                            }
+                            updateOwnership(op.stream, addr);
                             op.complete(response);
                             break;
                         case FOUND:
-                            if (response.getHeader().isSetLocation()) {
-                                String owner = response.getHeader().getLocation();
-                                SocketAddress ownerAddr;
-                                try {
-                                    ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
-                                } catch (IOException e) {
-                                    // invalid owner
-                                    ownershipStat.onRedirect();
-                                    getOwnershipStat(op.stream).onRedirect();
-                                    doSend(op, addr);
-                                    return;
-                                }
-                                if (addr.equals(ownerAddr)) {
-                                    // throw the exception to the client
-                                    op.fail(new ServiceUnavailableException(
-                                            String.format("Request to stream %s is redirected to same server %s!",
-                                                    op.stream, addr)));
-                                    return;
-                                }
-                                ownershipStat.onRedirect();
-                                getOwnershipStat(op.stream).onRedirect();
-                                // redirect the request.
-                                if (!stream2Addresses.replace(op.stream, addr, ownerAddr)) {
-                                    // ownership already changed
-                                    SocketAddress newOwner = stream2Addresses.get(op.stream);
-                                    if (null == newOwner) {
-                                        SocketAddress newOwner2 = stream2Addresses.putIfAbsent(op.stream, ownerAddr);
-                                        if (null != newOwner2) {
-                                            ownerAddr = newOwner2;
-                                        }
-                                    } else {
-                                        ownerAddr = newOwner;
-                                    }
-                                }
-
-                                logger.debug("Redirect the request to new owner {}.", ownerAddr);
-                                op.send(ownerAddr);
-                            } else {
-                                // no owner found
-                                doSend(op, addr);
-                            }
+                            handleRedirectResponse(response, op, addr);
                             break;
                         case SERVICE_UNAVAILABLE:
                             // we are receiving SERVICE_UNAVAILABLE exception from proxy, it means proxy or the stream is closed
                             // redirect the request.
-                            if (stream2Addresses.remove(op.stream, addr)) {
-                                ownershipStat.onRemove();
-                                getOwnershipStat(op.stream).onRemove();
-                            }
-                            ownershipStat.onRedirect();
-                            getOwnershipStat(op.stream).onRedirect();
-                            doSend(op, addr);
+                            clearHostFromStream(op.stream, addr);
+                            redirect(op, addr, null);
                             break;
                         default:
                             logger.error("Failed to write request to {} : {}", op.stream, response);
                             // server side exceptions, throw to the client.
-                            // remove ownership to that host
-                            if (stream2Addresses.remove(op.stream, addr)) {
-                                ownershipStat.onRemove();
-                                getOwnershipStat(op.stream).onRemove();
-                            }
-                            // throw the exception to the client
                             op.fail(DLException.of(response.getHeader()));
                             break;
                     }
@@ -856,6 +810,23 @@ public class DistributedLogClientBuilder {
                     getExceptionCounter(cause.getClass()).incr();
                     if (cause instanceof RequestTimeoutException) {
                         op.fail(cause);
+                    } else if (cause instanceof FailedFastException) {
+                        onServerLeft(addr, sc);
+                        // redirect the request to other host.
+                        doSend(op, addr);
+                    } else if (cause instanceof ChannelException) {
+                        // redirect the request to other host.
+                        doSend(op, addr);
+                    } else if (cause instanceof ServiceTimeoutException) {
+                        // redirect the request to itself again, which will backoff for a while
+                        doSend(op, null);
+                    } else if (cause instanceof WriteException) {
+                        // redirect the request to other host.
+                        doSend(op, addr);
+                    } else if (cause instanceof ServiceException) {
+                        // redirect the request to other host.
+                        removeClient(addr, sc);
+                        doSend(op, addr);
                     } else {
                         logger.error("Failed to write request to {} @ {} : {}",
                                 new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
@@ -869,13 +840,151 @@ public class DistributedLogClientBuilder {
                             ownershipRemoves.incr();
                         }
                         **/
-                        // remove this client
-                        removeClient(addr, sc);
-                        // do a retry
-                        doSend(op, addr);
+                        op.fail(cause);
                     }
                 }
             });
+        }
+
+        // Response Handlers
+
+        void redirect(StreamOp op, SocketAddress oldAddr, SocketAddress newAddr) {
+            ownershipStat.onRedirect();
+            getOwnershipStat(op.stream).onRedirect();
+            if (null != newAddr) {
+                logger.debug("Redirect request {} to new owner {}.", op, newAddr);
+                op.send(newAddr);
+            } else {
+                doSend(op, oldAddr);
+            }
+        }
+
+        void handleRedirectResponse(WriteResponse response, StreamOp op, SocketAddress curAddr) {
+            SocketAddress ownerAddr = null;
+            if (response.getHeader().isSetLocation()) {
+                String owner = response.getHeader().getLocation();
+                try {
+                    ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
+                    // we are receiving a redirect request to same host. this indicates that the proxy
+                    // is in bad state, so fail the request.
+                    if (curAddr.equals(ownerAddr)) {
+                        // throw the exception to the client
+                        op.fail(new UnexpectedException(
+                                String.format("Request to stream %s is redirected to same server %s!",
+                                        op.stream, curAddr)));
+                        return;
+                    }
+                } catch (IOException e) {
+                    ownerAddr = null;
+                }
+            }
+            redirect(op, curAddr, ownerAddr);
+        }
+
+        // Ownership Operations
+
+        /**
+         * Update ownership of <i>stream</i> to <i>addr</i>.
+         *
+         * @param stream
+         *          Stream Name.
+         * @param addr
+         *          Owner Address.
+         */
+        void updateOwnership(String stream, SocketAddress addr) {
+            // update ownership
+            SocketAddress oldAddr = stream2Addresses.putIfAbsent(stream, addr);
+            if (null != oldAddr && oldAddr.equals(addr)) {
+                return;
+            }
+            if (null != oldAddr) {
+                if (stream2Addresses.replace(stream, oldAddr, addr)) {
+                    // Store the relevant mappings for this topic and host combination
+                    logger.info("Storing ownership for stream : {}, old host : {}, new host : {}.",
+                            new Object[] { stream, oldAddr, addr });
+                    clearHostFromStream(stream, oldAddr);
+
+                    // update stats
+                    ownershipStat.onRemove();
+                    ownershipStat.onAdd();
+                    getOwnershipStat(stream).onRemove();
+                    getOwnershipStat(stream).onAdd();
+                } else {
+                    logger.warn("Ownership of stream : {} has been changed from {} to {} when storing host : {}.",
+                            new Object[] { stream, oldAddr, stream2Addresses.get(stream), addr });
+                    return;
+                }
+            } else {
+                logger.info("Storing ownership for stream : {}, host : {}.", stream, addr);
+                // update stats
+                ownershipStat.onAdd();
+                getOwnershipStat(stream).onAdd();
+            }
+
+            Set<String> streamsForHost = address2Streams.get(addr);
+            if (null == streamsForHost) {
+                Set<String> newStreamsForHost = new HashSet<String>();
+                streamsForHost = address2Streams.putIfAbsent(addr, newStreamsForHost);
+                if (null == streamsForHost) {
+                    streamsForHost = newStreamsForHost;
+                }
+            }
+            synchronized (streamsForHost) {
+                // check whether the ownership changed, since it might happend after replace succeed
+                if (addr.equals(stream2Addresses.get(stream))) {
+                    streamsForHost.add(stream);
+                }
+            }
+        }
+
+        /**
+         * If a server host goes down or the channel to it gets disconnected, we need to clear out
+         * all relevant cached information.
+         *
+         * @param addr
+         *          host goes down
+         */
+        void clearAllStreamsForHost(SocketAddress addr) {
+            Set<String> streamsForHost = address2Streams.get(addr);
+            if (null != streamsForHost) {
+                synchronized (streamsForHost) {
+                    for (String s : streamsForHost) {
+                        if (stream2Addresses.remove(s, addr)) {
+                            logger.info("Removing mapping for stream : {} from host : {}", s, addr);
+                            ownershipStat.onRemove();
+                            getOwnershipStat(s).onRemove();
+                        }
+                    }
+                    address2Streams.remove(addr, streamsForHost);
+                }
+            }
+        }
+
+        /**
+         * If a stream moved, we only clear out that stream for the host and not all cached information.
+         *
+         * @param stream
+         *          Stream Name.
+         * @param addr
+         *          Owner Address.
+         */
+        void clearHostFromStream(String stream, SocketAddress addr) {
+            if (stream2Addresses.remove(stream, addr)) {
+                logger.info("Removed stream to host mapping for (stream: {} -> host: {}).", stream, addr);
+            }
+            Set<String> streamsForHost = address2Streams.get(addr);
+            if (null != streamsForHost) {
+                synchronized (streamsForHost) {
+                    if (streamsForHost.remove(stream)) {
+                        logger.info("Removed stream : {} from host {}.", stream, addr);
+                        if (streamsForHost.isEmpty()) {
+                            address2Streams.remove(addr, streamsForHost);
+                        }
+                        ownershipStat.onRemove();
+                        getOwnershipStat(stream).onRemove();
+                    }
+                }
+            }
         }
     }
 }

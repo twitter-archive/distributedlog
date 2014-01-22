@@ -17,9 +17,12 @@
  */
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -66,6 +69,14 @@ class DistributedReentrantLock implements Runnable {
     private final DistributedLock internalLock;
     private final long lockTimeout;
 
+    private static StatsLogger lockStatsLogger = null;
+    private static OpStatsLogger acquireStats = null;
+    private static OpStatsLogger releaseStats = null;
+    private static OpStatsLogger prepareStats = null;
+    private static OpStatsLogger checkLockStats = null;
+    private static OpStatsLogger syncDeleteStats = null;
+    private static OpStatsLogger asyncDeleteStats = null;
+
     /**
      * Construct a lock.
      * NOTE: ensure the lockpath is created before constructing the lock.
@@ -85,15 +96,52 @@ class DistributedReentrantLock implements Runnable {
         ZooKeeperClient zkc,
         String lockPath,
         long lockTimeout,
-        String clientId) throws IOException {
-
+        String clientId,
+        StatsLogger statsLogger) throws IOException {
         this.executorService = executorService;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
         this.internalLock = new DistributedLock(zkc, lockPath, clientId);
+
+        if (null == lockStatsLogger) {
+            lockStatsLogger = statsLogger.scope("lock");
+        }
+        if (null == acquireStats) {
+            acquireStats = lockStatsLogger.getOpStatsLogger("acquire");
+        }
+        if (null == releaseStats) {
+            releaseStats = lockStatsLogger.getOpStatsLogger("release");
+        }
+        if (null == prepareStats) {
+            prepareStats = lockStatsLogger.getOpStatsLogger("prepare");
+        }
+        if (null == checkLockStats) {
+            checkLockStats = lockStatsLogger.getOpStatsLogger("check_lock");
+        }
+        if (null == syncDeleteStats) {
+            syncDeleteStats = lockStatsLogger.getOpStatsLogger("sync_delete");
+        }
+        if (null == asyncDeleteStats) {
+            asyncDeleteStats = lockStatsLogger.getOpStatsLogger("async_delete");
+        }
     }
 
     void acquire(String reason) throws LockingException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        boolean success = false;
+        try {
+            doAcquire(reason);
+            success = true;
+        } finally {
+            if (success) {
+                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            } else {
+                acquireStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            }
+        }
+    }
+
+    void doAcquire(String reason) throws LockingException {
         LOG.trace("Lock Acquire {}, {}", lockPath, reason);
         while (true) {
             if (lockCount.get() == 0) {
@@ -120,7 +168,23 @@ class DistributedReentrantLock implements Runnable {
         }
     }
 
+
     void release(String reason) throws IOException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        boolean success = false;
+        try {
+            doRelease(reason);
+            success = true;
+        } finally {
+            if (success) {
+                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            } else {
+                releaseStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            }
+        }
+    }
+
+    void doRelease(String reason) throws IOException {
         LOG.trace("Lock Release {}, {}", lockPath, reason);
         try {
             if (lockCount.decrementAndGet() <= 0) {
@@ -200,6 +264,27 @@ class DistributedReentrantLock implements Runnable {
         }
     }
 
+    static class DeleteCallback implements AsyncCallback.VoidCallback {
+
+        final long startNS;
+
+        DeleteCallback() {
+            this.startNS = MathUtils.nowInNano();
+        }
+
+        @Override
+        public void processResult(int rc, String path, Object ctx) {
+            long elapsedMS = MathUtils.elapsedMSec(startNS);
+            if (KeeperException.Code.OK.intValue() == rc) {
+                asyncDeleteStats.registerSuccessfulEvent(elapsedMS);
+                LOG.info("Deleted lock znode {} successfully!", path);
+            } else {
+                asyncDeleteStats.registerFailedEvent(elapsedMS);
+                LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
+            }
+        }
+    }
+
     /**
      * Twitter commons version with some modifications.
      * <p/>
@@ -207,7 +292,7 @@ class DistributedReentrantLock implements Runnable {
      * TODO: two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
-    private static class DistributedLock implements AsyncCallback.VoidCallback {
+    private static class DistributedLock {
 
         private final ZooKeeperClient zkClient;
         private final String lockPath;
@@ -236,7 +321,25 @@ class DistributedReentrantLock implements Runnable {
             this.syncPoint = new CountDownLatch(1);
         }
 
-        private synchronized int prepare()
+        private int prepare()
+                throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
+            long startNS = MathUtils.nowInNano();
+            boolean success = false;
+            try {
+                int res = doPrepare();
+                success = true;
+                return res;
+            } finally {
+                long elapsedMs = MathUtils.elapsedMSec(startNS);
+                if (success) {
+                    prepareStats.registerSuccessfulEvent(elapsedMs);
+                } else {
+                    prepareStats.registerFailedEvent(elapsedMs);
+                }
+            }
+        }
+
+        private synchronized int doPrepare()
             throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
 
             LOG.trace("Working with locking path: {}", lockPath);
@@ -317,15 +420,6 @@ class DistributedReentrantLock implements Runnable {
             return holdsLock;
         }
 
-        @Override
-        public void processResult(int rc, String path, Object ctx) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                LOG.info("Deleted lock znode {} successfully!", path);
-            } else {
-                LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
-            }
-        }
-
         private synchronized void cancelAttempt(boolean sync, int epoch) {
             if (this.epoch.getAndIncrement() == epoch) {
                 LOG.info("Cancelling lock attempt!");
@@ -342,14 +436,27 @@ class DistributedReentrantLock implements Runnable {
             try {
                 if (null != nodeToDelete) {
                     if (sync) {
-                        Stat stat = zkClient.get().exists(nodeToDelete, false);
-                        if (stat != null) {
-                            zkClient.get().delete(nodeToDelete, -1);
-                        } else {
-                            LOG.warn("Called cleanup but nothing to cleanup!");
+                        long startNS = MathUtils.nowInNano();
+                        boolean success = false;
+                        try {
+                            Stat stat = zkClient.get().exists(nodeToDelete, false);
+                            if (stat != null) {
+                                zkClient.get().delete(nodeToDelete, -1);
+                            } else {
+                                LOG.warn("Called cleanup but nothing to cleanup!");
+                            }
+                            success = true;
+                        } finally {
+                            long elapsedMS = MathUtils.elapsedMSec(startNS);
+                            if (success) {
+                                syncDeleteStats.registerSuccessfulEvent(elapsedMS);
+                            } else {
+                                syncDeleteStats.registerFailedEvent(elapsedMS);
+                            }
                         }
+
                     } else {
-                        zkClient.get().delete(nodeToDelete, -1, this, null);
+                        zkClient.get().delete(nodeToDelete, -1, new DeleteCallback(), null);
                     }
                 }
             } catch (KeeperException e) {
@@ -376,7 +483,23 @@ class DistributedReentrantLock implements Runnable {
                 this.epoch = epoch;
             }
 
-            public synchronized void checkForLock(boolean wait) {
+            public void checkForLock(boolean wait) {
+                long startNS = MathUtils.nowInNano();
+                boolean success = false;
+                try {
+                    doCheckForLock(wait);
+                    success = true;
+                } finally {
+                    long elapsedMs = MathUtils.elapsedMSec(startNS);
+                    if (success) {
+                        checkLockStats.registerSuccessfulEvent(elapsedMs);
+                    } else {
+                        checkLockStats.registerFailedEvent(elapsedMs);
+                    }
+                }
+            }
+
+            synchronized void doCheckForLock(boolean wait) {
                 try {
                     List<String> sortedMembers = zkClient.get().getChildren(lockPath, null);
 

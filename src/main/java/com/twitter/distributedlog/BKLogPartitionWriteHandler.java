@@ -133,10 +133,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     // Stats
-    private final OpStatsLogger closeOpStats;
-    private final OpStatsLogger openOpStats;
-    private final OpStatsLogger recoverOpStats;
-    private final OpStatsLogger deleteOpStats;
+    private static OpStatsLogger closeOpStats;
+    private static OpStatsLogger openOpStats;
+    private static OpStatsLogger recoverOpStats;
+    private static OpStatsLogger deleteOpStats;
 
     static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
         @Override
@@ -266,9 +266,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // Build the locks
         lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId);
+                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger);
         deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId);
+                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger);
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 
@@ -278,10 +278,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // Stats
         StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
-        openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
-        closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
-        recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
-        deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
+        if (null == openOpStats) {
+            openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
+        }
+        if (null == closeOpStats) {
+            closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
+        }
+        if (null == recoverOpStats) {
+            recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
+        }
+        if (null == deleteOpStats) {
+            deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
+        }
     }
 
     static void createStreamIfNotExists(final String partitionRootPath,

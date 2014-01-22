@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.callback.LogSegmentListener;
@@ -12,6 +13,7 @@ import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Future;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -59,6 +61,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
 
+    private static StatsLogger handlerStatsLogger = null;
+    private static OpStatsLogger createWriteHandlerStats = null;
+
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
@@ -105,6 +110,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
+        }
+
+        // Stats
+        if (null == handlerStatsLogger) {
+            handlerStatsLogger = statsLogger.scope("handlers");
+            createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
         }
     }
 
@@ -154,7 +165,23 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, notification);
     }
 
-    synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
+    public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        boolean success = false;
+        try {
+            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier);
+            success = true;
+            return handler;
+        } finally {
+            if (success) {
+                createWriteHandlerStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            } else {
+                createWriteHandlerStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            }
+        }
+    }
+
+    synchronized public BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, ledgerAllocator, statsLogger, clientId, regionId);
@@ -308,6 +335,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
+    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException {
+        return getInputStreamInternal(partition.toString(), fromDLSN);
+    }
+
+    @Override
+    public LogReader getInputStream(DLSN fromDLSN) throws IOException {
+        return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromDLSN);
+    }
+
+    @Override
     public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
         throw new NotYetImplementedException("getAsyncLogReader");
     }
@@ -329,6 +366,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         throws IOException {
         checkClosedOrInError("getInputStream");
         return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), false, null);
+    }
+
+    LogReader getInputStreamInternal(String streamIdentifier, DLSN dlsn) throws IOException {
+        checkClosedOrInError("getInputStream");
+        return new BKContinuousLogReaderDLSN(this, streamIdentifier, dlsn, conf.getEnableReadAhead(), false, null);
     }
 
     /**
