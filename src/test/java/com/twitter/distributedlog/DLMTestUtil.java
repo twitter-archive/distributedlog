@@ -20,8 +20,8 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -35,7 +35,7 @@ import static org.junit.Assert.assertEquals;
  * and bringing individual bookies up and down
  */
 public class DLMTestUtil {
-    protected static final Log LOG = LogFactory.getLog(DLMTestUtil.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(DLMTestUtil.class);
     private final static byte[] payloadStatic = repeatString("abc", 512).getBytes();
 
     static String repeatString(String s, int n) {

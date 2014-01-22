@@ -9,6 +9,7 @@
 - TryReadLastAddConfirmed support
 - Retryable ZooKeeper Client
 - Region ID support for log segment
+- Namespace & LogSegment Listener
 
 0.3.7
 -----

@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.LimitedPermitManager;
@@ -11,7 +12,10 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
@@ -26,11 +30,14 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class DistributedLogManagerFactory {
+public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Children2Callback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
 
     static interface ZooKeeperClientHandler<T> {
@@ -79,6 +86,10 @@ public class DistributedLogManagerFactory {
     private final LedgerAllocator allocator;
     // log segment rolling permit manager
     private final PermitManager logSegmentRollingPermitManager;
+    // namespace listener
+    private final AtomicBoolean namespaceWatcherSet = new AtomicBoolean(false);
+    private final CopyOnWriteArraySet<NamespaceListener> namespaceListeners =
+            new CopyOnWriteArraySet<NamespaceListener>();
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -187,6 +198,70 @@ public class DistributedLogManagerFactory {
                 return BKDLConfig.resolveDLConfig(zkc, namespace);
             }
         });
+    }
+
+    private void scheduleTask(Runnable r, long ms) {
+        try {
+            scheduledExecutorService.schedule(r, ms, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ree) {
+            LOG.error("Task {} scheduled in {} ms is rejected : ", new Object[] { r, ms, ree });
+        }
+    }
+
+    public DistributedLogManagerFactory registerNamespaceListener(NamespaceListener listener) {
+        if (namespaceListeners.add(listener) && namespaceWatcherSet.compareAndSet(false, true)) {
+            watchNamespaceChanges();
+        }
+        return this;
+    }
+
+    @Override
+    public void run() {
+        watchNamespaceChanges();
+    }
+
+    private void watchNamespaceChanges() {
+        try {
+            zooKeeperClient.get().getChildren(namespace.getPath(), this, this, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        } catch (InterruptedException e) {
+            LOG.warn("Interrupted on watching namespace changes for {} : ", namespace, e);
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        }
+    }
+
+    @Override
+    public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+        if (KeeperException.Code.OK.intValue() == rc) {
+            LOG.info("Received updated streams under {} : {}", namespace, children);
+            List<String> result = new ArrayList<String>(children.size());
+            for (String s : children) {
+                if (isReservedStreamName(s)) {
+                    continue;
+                }
+                result.add(s);
+            }
+            for (NamespaceListener listener : namespaceListeners) {
+                listener.onStreamsChanged(result);
+            }
+        } else {
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        if (event.getType() == Event.EventType.None) {
+            if (event.getState() == Event.KeeperState.Expired) {
+                scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+            }
+            return;
+        }
+        if (event.getType() == Event.EventType.NodeChildrenChanged) {
+            // watch namespace changes again.
+            watchNamespaceChanges();
+        }
     }
 
     /**

@@ -1,8 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -15,6 +18,9 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
@@ -131,6 +137,45 @@ public class TestDistributedLogManagerFactory {
         assertTrue(streamMetadatas.containsKey("test2"));
 
         factory.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testNamespaceListener() throws Exception {
+        URI uri = DLMTestUtil.createDLMURI("/testNamespaceListener");
+        zkc.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        final CountDownLatch[] latches = new CountDownLatch[3];
+        for (int i = 0; i < 3; i++) {
+            latches[i] = new CountDownLatch(1);
+        }
+        final AtomicInteger numUpdates = new AtomicInteger(0);
+        final AtomicInteger numFailures = new AtomicInteger(0);
+        final AtomicReference<Collection<String>> receivedStreams = new AtomicReference<Collection<String>>(null);
+        factory.registerNamespaceListener(new NamespaceListener() {
+            @Override
+            public void onStreamsChanged(Collection<String> streams) {
+                int updates = numUpdates.incrementAndGet();
+                if (streams.size() != updates - 1) {
+                    numFailures.incrementAndGet();
+                }
+
+                receivedStreams.set(streams);
+                latches[updates - 1].countDown();
+            }
+        });
+        latches[0].await();
+        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, "test1");
+        latches[1].await();
+        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, "test2");
+        latches[2].await();
+        assertEquals(0, numFailures.get());
+        assertNotNull(receivedStreams.get());
+        Set<String> streamSet = new HashSet<String>();
+        streamSet.addAll(receivedStreams.get());
+        assertEquals(2, receivedStreams.get().size());
+        assertEquals(2, streamSet.size());
+        assertTrue(streamSet.contains("test1"));
+        assertTrue(streamSet.contains("test2"));
     }
 
 }

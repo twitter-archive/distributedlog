@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -29,7 +30,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
@@ -54,6 +54,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private LedgerAllocator ledgerAllocator = null;
     // Log Segment Rolling Manager to control rolling speed
     private PermitManager logSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
+    // read handler for listener.
+    private BKLogPartitionReadHandler readHandlerForListener = null;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
 
@@ -103,6 +105,24 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
+        }
+    }
+
+    @Override
+    public synchronized void registerListener(LogSegmentListener listener) throws IOException {
+        if (null == readHandlerForListener) {
+            readHandlerForListener = createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            readHandlerForListener.registerListener(listener);
+            readHandlerForListener.scheduleGetLedgersTask(true, true);
+        } else {
+            readHandlerForListener.registerListener(listener);
+        }
+    }
+
+    @Override
+    public synchronized void unregisterListener(LogSegmentListener listener) {
+        if (null != readHandlerForListener) {
+            readHandlerForListener.unregisterListener(listener);
         }
     }
 
@@ -695,6 +715,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public void close() throws IOException {
+        synchronized (this) {
+            if (null != readHandlerForListener) {
+                readHandlerForListener.close();
+            }
+        }
         if (ownExecutor) {
             executorService.shutdown();
             try {

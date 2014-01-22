@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
@@ -25,20 +26,24 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -48,7 +53,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class TestBookKeeperDistributedLogManager {
-    static final Log LOG = LogFactory.getLog(TestBookKeeperDistributedLogManager.class);
+    static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
@@ -1685,4 +1690,69 @@ public class TestBookKeeperDistributedLogManager {
 
         dlm.close();
     }
+
+    @Test(timeout = 60000)
+    public void testLogSegmentListener() throws Exception {
+        String name = "distrlog-logsegment-listener";
+        int numSegments = 3;
+        final CountDownLatch[] latches = new CountDownLatch[numSegments + 1];
+        for (int i = 0; i < numSegments + 1; i++) {
+            latches[i] = new CountDownLatch(1);
+        }
+        final AtomicInteger numFailures = new AtomicInteger(0);
+        final AtomicReference<Collection<LogSegmentLedgerMetadata>> receivedStreams =
+                new AtomicReference<Collection<LogSegmentLedgerMetadata>>();
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager.createUnpartitionedStream(zkc, ((BKDistributedLogManager) dlm).uri, name);
+        dlm.registerListener(new LogSegmentListener() {
+            @Override
+            public void onSegmentsUpdated(List<LogSegmentLedgerMetadata> segments) {
+                int updates = segments.size();
+                boolean hasIncompletedLogSegments = false;
+                for (LogSegmentLedgerMetadata l : segments) {
+                    if (l.isInProgress()) {
+                        hasIncompletedLogSegments = true;
+                        break;
+                    }
+                }
+                if (hasIncompletedLogSegments) {
+                    return;
+                }
+                if (updates >= 1) {
+                    if (segments.get(0).getLedgerSequenceNumber() != updates) {
+                        numFailures.incrementAndGet();
+                    }
+                }
+                receivedStreams.set(segments);
+                latches[updates].countDown();
+            }
+        });
+        LOG.info("Registered listener for stream {}.", name);
+        long txid = 1;
+        for (int i = 0; i < numSegments; i++) {
+            LOG.info("Waiting for creating log segment {}.", i);
+            latches[i].await();
+            LOG.info("Creating log segment {}.", i);
+            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            LOG.info("Created log segment {}.", i);
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+                out.write(op);
+            }
+            out.closeAndComplete();
+            LOG.info("Completed log segment {}.", i);
+        }
+        latches[numSegments].await();
+        assertEquals(0, numFailures.get());
+        assertNotNull(receivedStreams.get());
+        assertEquals(numSegments, receivedStreams.get().size());
+        int seqno = numSegments;
+        for (LogSegmentLedgerMetadata m : receivedStreams.get()) {
+            assertEquals(seqno, m.getLedgerSequenceNumber());
+            assertEquals((seqno - 1) * DEFAULT_SEGMENT_SIZE + 1, m.getFirstTxId());
+            assertEquals(seqno * DEFAULT_SEGMENT_SIZE, m.getLastTxId());
+            --seqno;
+        }
+    }
+
 }
