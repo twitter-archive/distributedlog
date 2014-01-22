@@ -122,7 +122,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                     conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
         }
         this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri).retryPolicy(retryPolicy)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri).retryPolicy(retryPolicy).statsLogger(statsLogger)
                 .buildNew(conf.getSeparateZKClients());
         LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
                 " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),

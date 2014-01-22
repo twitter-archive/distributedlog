@@ -246,7 +246,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (null == zkcBuilder) {
                 zkcBuilder = ZooKeeperClientBuilder.newBuilder()
                         .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                        .uri(uri).buildNew(false);
+                        .uri(uri).statsLogger(statsLogger).buildNew(false);
             }
             this.zooKeeperClient = zkcBuilder.build();
             LOG.debug("Using ZK Path {}", partitionRootPath);

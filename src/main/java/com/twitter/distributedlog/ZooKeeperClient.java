@@ -16,6 +16,8 @@
 
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -78,6 +80,7 @@ public class ZooKeeperClient {
     private SessionState sessionState = null;
     private final AtomicInteger refCount;
     private final RetryPolicy retryPolicy;
+    private final StatsLogger statsLogger;
 
     private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
 
@@ -94,15 +97,17 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null);
+        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE);
     }
 
-    ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers, RetryPolicy retryPolicy) {
+    ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
+                    RetryPolicy retryPolicy, StatsLogger statsLogger) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
         this.refCount = new AtomicInteger(1);
         this.retryPolicy = retryPolicy;
+        this.statsLogger = statsLogger;
     }
 
     /**
@@ -182,7 +187,7 @@ public class ZooKeeperClient {
         ZooKeeper zk;
         try {
             zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.createConnectedZooKeeperClient(
-                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy);
+                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy, statsLogger);
         } catch (KeeperException e) {
             throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
         } catch (IOException e) {
