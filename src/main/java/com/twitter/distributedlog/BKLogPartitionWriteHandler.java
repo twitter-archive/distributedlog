@@ -236,7 +236,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             if (null != metadataException.get()) {
                 throw metadataException.get();
             }
-            if (null != metadataExecutor) {
+            if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
                 synchronized (pendingMetadataOps) {
                     pendingMetadataOps.add(this);
                 }
@@ -275,7 +275,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             try {
                 processOp();
             } catch (ZKException zke) {
-                if (!closed && ZKException.isRetryableZKException(zke) && null != metadataExecutor) {
+                if (!closed && ZKException.isRetryableZKException(zke) && null != metadataExecutor
+                        && conf.getRecoverLogSegmentsInBackground()) {
                     future = executorService.schedule(new Runnable() {
                         @Override
                         public void run() {
@@ -649,8 +650,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             lh = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
-            String inprogressZnodeName = inprogressZNodeName(txId);
-            String znodePath = inprogressZNode(txId);
 
             // For any active stream we will always make sure that there is at least one
             // active ledger (except when the stream first starts out). Therefore when we
@@ -667,6 +666,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
             }
 
+            String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
+            String znodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
 
@@ -742,6 +743,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     class CompleteOp extends MetadataOp {
 
+        final String inprogressZnodeName;
+        final long ledgerSeqNo;
         final long ledgerId;
         final long firstTxId;
         final long lastTxId;
@@ -749,8 +752,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         final long lastEntryId;
         final long lastSlotId;
 
-        CompleteOp(long ledgerId, long firstTxId, long lastTxId,
+        CompleteOp(String inprogressZnodeName, long ledgerSeqNo,
+                   long ledgerId, long firstTxId, long lastTxId,
                    int recordCount, long lastEntryId, long lastSlotId) {
+            this.inprogressZnodeName = inprogressZnodeName;
+            this.ledgerSeqNo = ledgerSeqNo;
             this.ledgerId = ledgerId;
             this.firstTxId = firstTxId;
             this.lastTxId = lastTxId;
@@ -763,7 +769,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         void processOp() throws IOException {
             lock.acquire("CompleteAndCloseLogSegment");
             try {
-                completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId,
+                completeAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo, ledgerId, firstTxId, lastTxId,
                         recordCount, lastEntryId, lastSlotId, false);
                 LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
             } finally {
@@ -790,7 +796,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         void processOp() throws IOException {
             writer.closeToFinalize();
             completeAndCloseLogSegment(
-                    writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+                    inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
+                    writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
                     writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
         }
 
@@ -817,9 +824,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     @VisibleForTesting
-    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount)
+    void completeAndCloseLogSegment(long ledgerSeqNo, long ledgerId, long firstTxId, long lastTxId, int recordCount)
         throws IOException {
-        completeAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
+        completeAndCloseLogSegment(inprogressZNodeName(ledgerId, firstTxId, ledgerSeqNo), ledgerSeqNo,
+                ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
     }
 
     /**
@@ -831,13 +839,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    void completeAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId,
+    void completeAndCloseLogSegment(String inprogressZnodeName, long ledgerSeqNo,
+                                    long ledgerId, long firstTxId, long lastTxId,
                                     int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         long start = MathUtils.nowInNano();
         boolean success = false;
         try {
-            doCompleteAndCloseLogSegment(ledgerId, firstTxId, lastTxId, recordCount,
+            doCompleteAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo,
+                                         ledgerId, firstTxId, lastTxId, recordCount,
                                          lastEntryId, lastSlotId, shouldReleaseLock);
             success = true;
         } finally {
@@ -861,13 +871,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * @param shouldReleaseLock
      * @throws IOException
      */
-    protected void doCompleteAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount,
+    protected void doCompleteAndCloseLogSegment(String inprogressZnodeName, long ledgerSeqNo,
+                                                long ledgerId, long firstTxId, long lastTxId, int recordCount,
                                                 long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
-        String inprogressPath = inprogressZNode(firstTxId);
-        String inprogressZnodeName = inprogressZNodeName(firstTxId);
+        String inprogressPath = inprogressZNode(inprogressZnodeName);
         boolean acquiredLocally = false;
         try {
             Stat inprogressStat = zooKeeperClient.get().exists(inprogressPath, false);
@@ -892,9 +902,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
 
             lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, conf.getEnableRecordCounts() ? recordCount : 0, lastEntryId, lastSlotId);
-            String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId);
-
-            String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
+            String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
+            String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger);
             } catch (KeeperException.NodeExistsException nee) {
@@ -960,8 +969,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
 
         void doProcessOp() throws IOException {
-            LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
             List<LogSegmentLedgerMetadata> segmentList = getFilteredLedgerList(false, false);
+            LOG.info("Initiating Recovery For {} : {}", getFullyQualifiedName(), segmentList);
             // if lastLedgerRollingTimeMillis is not updated, we set it to now.
             synchronized (BKLogPartitionWriteHandler.this) {
                 if (lastLedgerRollingTimeMillis < 0) {
@@ -1033,8 +1042,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 endTxId = l.getFirstTxId();
             }
 
-            CompleteOp completeOp = new CompleteOp(l.getLedgerId(), l.getFirstTxId(), endTxId,
-                                                   recordCount, lastEntryId, lastSlotId);
+            CompleteOp completeOp = new CompleteOp(
+                    l.getZNodeName(), l.getLedgerSequenceNumber(),
+                    l.getLedgerId(), l.getFirstTxId(), endTxId,
+                    recordCount, lastEntryId, lastSlotId);
             completeOp.process();
         }
 
@@ -1222,8 +1233,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                         return;
                                     }
                                     // purge log segment
-                                    removeLogSegmentToCache(completedLedgerZNodeName(ledgerMetadata.getFirstTxId(),
-                                            ledgerMetadata.getLastTxId()));
+                                    removeLogSegmentToCache(ledgerMetadata.getZNodeName());
                                     callback.operationComplete(BKException.Code.OK, null);
                                 }
                             }, null);
@@ -1306,33 +1316,46 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         super.close();
     }
 
-    String completedLedgerZNodeName(long startTxId, long endTxId) {
-        return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
-                startTxId, endTxId);
+    String completedLedgerZNodeName(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
+        if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
+            return String.format("%s_%018d_%018d_%018d_v%dl%d_%04d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
+                    firstTxId, lastTxId, ledgerSeqNo, conf.getLogSegmentNameVersion(), ledgerId, regionId);
+        } else {
+            return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
+                    firstTxId, lastTxId);
+        }
     }
 
     /**
      * Get the znode path for a finalize ledger
      */
-    String completedLedgerZNode(long startTxId, long endTxId) {
-        return String.format("%s/%s", ledgerPath, completedLedgerZNodeName(startTxId, endTxId));
+    String completedLedgerZNode(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
+        return String.format("%s/%s", ledgerPath,
+                completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo));
     }
 
     /**
      * Get the name of the inprogress znode.
      *
-     * @param startTxid
-     *          start txn id.
      * @return name of the inprogress znode.
      */
-    String inprogressZNodeName(long startTxid) {
-        return DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX + "_" + Long.toString(startTxid, 16);
+    String inprogressZNodeName(long ledgerId, long firstTxId, long ledgerSeqNo) {
+        if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
+            return String.format("%s_%s_%018d_v%dl%d_%04d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX,
+                    Long.toString(firstTxId, 16), ledgerSeqNo, conf.getLogSegmentNameVersion(), ledgerId, regionId);
+        } else {
+            return DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX + "_" + Long.toString(firstTxId, 16);
+        }
     }
 
     /**
      * Get the znode path for the inprogressZNode
      */
-    String inprogressZNode(long startTxid) {
-        return ledgerPath + "/" + inprogressZNodeName(startTxid);
+    String inprogressZNode(long ledgerId, long firstTxId, long ledgerSeqNo) {
+        return ledgerPath + "/" + inprogressZNodeName(ledgerId, firstTxId, ledgerSeqNo);
+    }
+
+    String inprogressZNode(String inprogressZNodeName) {
+        return ledgerPath + "/" + inprogressZNodeName;
     }
 }

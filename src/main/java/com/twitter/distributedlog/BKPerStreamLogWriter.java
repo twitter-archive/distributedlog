@@ -249,6 +249,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         return this.lh;
     }
 
+    protected final long getLedgerSequenceNumber() {
+        return ledgerSequenceNumber;
+    }
+
     protected final long getStartTxId() {
         return startTxId;
     }

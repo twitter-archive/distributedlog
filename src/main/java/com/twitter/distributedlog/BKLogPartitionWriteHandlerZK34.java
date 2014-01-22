@@ -148,8 +148,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             }
         }
 
-        String inprogressZnodeName = inprogressZNodeName(txId);
-        String inprogressZnodePath = inprogressZNode(txId);
+        String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
+        String inprogressZnodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
         LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
                 conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
         tryWrite(txn, l, inprogressZnodePath);
@@ -199,13 +199,13 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
     }
 
     @Override
-    protected void doCompleteAndCloseLogSegment(long ledgerId, long firstTxId, long lastTxId, int recordCount,
+    protected void doCompleteAndCloseLogSegment(String inprogressZnodeName, long ledgerSeqNo,
+                                                long ledgerId, long firstTxId, long lastTxId, int recordCount,
                                                 long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
-        String inprogressZnodePath = inprogressZNode(firstTxId);
-        String inprogressZnodeName = inprogressZNodeName(firstTxId);
+        String inprogressZnodePath = inprogressZNode(inprogressZnodeName);
         boolean acquiredLocally = false;
         try {
             acquiredLocally = lock.checkWriteLock(true);
@@ -229,8 +229,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
             // write completed ledger znode
             setLastLedgerRollingTimeMillis(logSegment.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId));
-            String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId);
-            String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId);
+            String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
+            String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
             tryWrite(txn, logSegment, pathForCompletedLedger);
             txn.delete(inprogressZnodePath, -1);
             LOG.debug("Trying storing LastTxId in Finalize Path {} LastTxId {}", pathForCompletedLedger, lastTxId);

@@ -11,14 +11,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.ZooKeeper;
 
 import org.junit.After;
@@ -777,9 +774,11 @@ public class TestInterleavedReaders {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
+            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(DistributedLogConstants.DEFAULT_STREAM);
             writer.closeAndComplete();
             BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
+                    start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
             blplm.close();
         }
 
@@ -834,9 +833,11 @@ public class TestInterleavedReaders {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
             }
+            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(DistributedLogConstants.DEFAULT_STREAM);
             writer.closeAndComplete();
             BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1), false));
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
+                    start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
             blplm.close();
         }
 

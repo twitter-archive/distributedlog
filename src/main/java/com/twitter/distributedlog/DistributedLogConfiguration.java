@@ -157,6 +157,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_RECOVER_IN_BACKGROUND = "recoverLogSegmentsInBackground";
     public static final boolean BKDL_RECOVER_IN_BACKGROUND_DEFAULT = false;
 
+    public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
+    public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -985,6 +988,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEncodeRegionIDInVersion(boolean enabled) {
         setProperty(BKDL_ENCODE_REGION_ID_IN_VERSION, enabled);
+        return this;
+    }
+
+    /**
+     * Get log segment name version.
+     *
+     * @return log segment name verison.
+     */
+    public int getLogSegmentNameVersion() {
+        return getInt(BKDL_LOGSEGMENT_NAME_VERSION, BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT);
+    }
+
+    /**
+     * Set log segment name version.
+     *
+     * @param version
+     *          log segment name version.
+     * @return configuration object.
+     */
+    public DistributedLogConfiguration setLogSegmentNameVersion(int version) {
+        setProperty(BKDL_LOGSEGMENT_NAME_VERSION, version);
         return this;
     }
 

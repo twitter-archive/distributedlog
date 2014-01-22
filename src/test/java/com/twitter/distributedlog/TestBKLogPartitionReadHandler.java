@@ -63,7 +63,7 @@ public class TestBKLogPartitionReadHandler {
                 ++txid;
             }
             out.close();
-            writer.completeAndCloseLogSegment(out.getLedgerHandle().getId(),
+            writer.completeAndCloseLogSegment(out.getLedgerSequenceNumber(), out.getLedgerHandle().getId(),
                     1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
         }
         writer.close();
@@ -118,7 +118,7 @@ public class TestBKLogPartitionReadHandler {
     @Test(timeout = 60000)
     public void testGetFilteredLedgerListInWriteHandler() throws Exception {
         String dlName = "TestGetFilteredLedgerListInWriteHandler";
-        prepareLogSegments(dlName, 3, 3);
+        prepareLogSegments(dlName, 11, 3);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
 
         // Get full list.
@@ -127,7 +127,7 @@ public class TestBKLogPartitionReadHandler {
                 writeHandler0.getCachedFullLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR);
         assertTrue(cachedFullLedgerList.size() <= 1);
         List<LogSegmentLedgerMetadata> fullLedgerList = writeHandler0.getFullLedgerListDesc(false, false);
-        assertEquals(3, fullLedgerList.size());
+        assertEquals(11, fullLedgerList.size());
 
         // Get filtered list.
         BKLogPartitionWriteHandler writeHandler1 = ((BKDistributedLogManager) dlm).createWriteLedgerHandler(new PartitionId(0));

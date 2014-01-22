@@ -28,6 +28,7 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Comparator;
 
@@ -217,6 +218,10 @@ public class LogSegmentLedgerMetadata {
 
     String getZkPath() {
         return zkPath;
+    }
+
+    String getZNodeName() {
+        return new File(zkPath).getName();
     }
 
     long getFirstTxId() {
@@ -412,6 +417,16 @@ public class LogSegmentLedgerMetadata {
     }
 
     protected String getFinalisedData() {
+        return getFinalisedData(version, inprogress, ledgerId, firstTxId, lastTxId,
+                                getLedgerSequenceNumber(), getLastEntryId(), getLastSlotId(),
+                                regionId, recordCount, completionTime);
+    }
+
+    protected static String getFinalisedData(int version, boolean inprogress,
+                                             long ledgerId, long firstTxId, long lastTxId,
+                                             long ledgerSeqNo, long lastEntryId, long lastSlotId,
+                                             int regionId, int recordCount,
+                                             long completionTime) {
         String finalisedData;
 
         long versionAndCount = ((long) version);
@@ -431,11 +446,11 @@ public class LogSegmentLedgerMetadata {
             assert (DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
             if (inprogress) {
                 finalisedData = String.format("%d;%d;%d;%d",
-                    versionAndCount, ledgerId, firstTxId, getLedgerSequenceNumber());
+                    versionAndCount, ledgerId, firstTxId, ledgerSeqNo);
             } else {
                 finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d",
                     versionAndCount, ledgerId, firstTxId, lastTxId, completionTime,
-                    getLedgerSequenceNumber(), getLastEntryId(), getLastSlotId());
+                    ledgerSeqNo, lastEntryId, lastSlotId);
             }
         }
         return finalisedData;
