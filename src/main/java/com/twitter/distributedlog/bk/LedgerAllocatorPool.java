@@ -6,6 +6,7 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.zk.DataWithStat;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback;
@@ -51,7 +52,13 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         this.conf = conf;
         this.zkc = zkc;
         this.bkc = bkc;
+        this.zkc.addRef();
+        this.bkc.addRef();
         initializePool();
+    }
+
+    @Override
+    public void start() throws IOException {
         for (LedgerAllocator allocator : pendingList) {
             // issue allocating requests during initialize
             allocator.allocate();
@@ -149,6 +156,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 LedgerAllocator allocator;
                 try {
                     allocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                    allocator.start();
                 } catch (IOException e) {
                     numFailures.incrementAndGet();
                     latch.countDown();
@@ -180,7 +188,9 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         } catch (InterruptedException e) {
             throw new IOException("Interrupted on creating allocator path under " + poolPath + " : ", e);
         }
-        return new SimpleLedgerAllocator(allocatePath, conf, zkc, bkc);
+        LedgerAllocator allocator = new SimpleLedgerAllocator(allocatePath, conf, zkc, bkc);
+        allocator.start();
+        return allocator;
     }
 
     @Override
@@ -267,5 +277,43 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 allocator.close();
             }
         }
+        try {
+            this.bkc.release();
+        } catch (BKException bke) {
+            logger.error("Failed to release bookkeeper client reference : ", bke);
+        } catch (InterruptedException ie) {
+            logger.error("Interrupted on releasing bookkeeper client reference : ", ie);
+        }
+        this.zkc.close();
+    }
+
+    @Override
+    public void delete() throws IOException {
+        synchronized (this) {
+            for (LedgerAllocator allocator : pendingList) {
+                allocator.delete();
+            }
+            for (LedgerAllocator allocator : allocatingList) {
+                allocator.delete();
+            }
+            for (LedgerAllocator allocator : obtainMap.values()) {
+                allocator.delete();
+            }
+        }
+        try {
+            zkc.get().delete(poolPath, -1);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on deleting allocator pool " + poolPath + " : ", ie);
+        } catch (KeeperException ke) {
+            throw new IOException("Error on deleting allocator pool " + poolPath + " : ", ke);
+        }
+        try {
+            this.bkc.release();
+        } catch (BKException bke) {
+            logger.error("Failed to release bookkeeper client reference : ", bke);
+        } catch (InterruptedException ie) {
+            logger.error("Interrupted on releasing bookkeeper client reference : ", ie);
+        }
+        this.zkc.close();
     }
 }

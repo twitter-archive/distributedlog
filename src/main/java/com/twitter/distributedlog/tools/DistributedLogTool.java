@@ -1,12 +1,21 @@
 package com.twitter.distributedlog.tools;
 
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.PartitionId;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -17,6 +26,7 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -108,6 +118,49 @@ public class DistributedLogTool extends Tool {
 
         protected String getStreamName() {
             return streamName;
+        }
+    }
+
+    class DeleteAllocatorPoolCommand extends PerDLCommand {
+
+        DeleteAllocatorPoolCommand() {
+            super("delete_allocator_pool", "Delete allocator pool for a given distributedlog instance");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            String rootPath = getUri().getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE;
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).buildNew();
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+            BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog_tool").build();
+            try {
+                List<String> pools = zkc.get().getChildren(rootPath, false);
+                if (IOUtils.confirmPrompt("Are u sure to delete allocator pools : " + pools)) {
+                    for (String pool : pools) {
+                        String poolPath = rootPath + "/" + pool;
+                        LedgerAllocator allocator =
+                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc);
+                        if (null == allocator) {
+                            println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
+                        } else {
+                            allocator.delete();
+                            println("Deleted allocator pool : " + poolPath + " .");
+                        }
+                    }
+                }
+            } finally {
+                bkc.release();
+                zkc.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "delete_allocator_pool";
         }
     }
 
@@ -404,6 +457,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new DumpCommand());
         addCommand(new ShowCommand());
         addCommand(new DeleteCommand());
+        addCommand(new DeleteAllocatorPoolCommand());
     }
 
     @Override

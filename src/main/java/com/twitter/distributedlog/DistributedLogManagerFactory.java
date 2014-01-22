@@ -151,6 +151,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             getBookKeeperClientBuilder();
             allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(rootPath, conf.getLedgerAllocatorPoolCoreSize(), conf,
                     zooKeeperClient, getBookKeeperClient());
+            if (null != allocator) {
+                allocator.start();
+            }
             LOG.info("Created ledger allocator pool under {} with size {}.", rootPath, conf.getLedgerAllocatorPoolCoreSize());
         } else {
             allocator = null;

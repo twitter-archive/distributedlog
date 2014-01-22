@@ -4,6 +4,8 @@ import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -373,41 +375,50 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         return closing;
     }
 
+    private void closeInternal() throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException {
+        synchronized (this) {
+            if (closing) {
+                return;
+            }
+            closing = true;
+        }
+        LOG.info("Closing ledger allocator on {}.", allocatePath);
+        // wait for ongoing allocation to be completed
+        Transaction txn = zkc.get().transaction();
+        try {
+            LedgerHandle lh = tryObtain(txn);
+            // if we could obtain the ledger handle, we have the responsibility to close it
+            deleteLedger(lh.getId());
+            // wait for deletion to be completed
+            while (0 != deletions.get()) {
+                Thread.sleep(1000);
+            }
+            try {
+                // commit the obtain
+                List<OpResult> results = txn.commit();
+                confirmObtain(lh, results.get(0));
+            } catch (KeeperException e) {
+                abortObtain(lh);
+            }
+            LOG.info("Closed ledger allocator on {}.", allocatePath);
+        } catch (IOException ie) {
+            LOG.debug("Fail to obtain the allocated ledger handle when closing the allocator : ", ie);
+            // wait for deletion to be completed
+            while (0 != deletions.get()) {
+                Thread.sleep(1000);
+            }
+        }
+    }
+
+    @Override
+    public void start() {
+        // nop
+    }
+
     @Override
     public void close() {
         try {
-            synchronized (this) {
-                if (closing) {
-                    return;
-                }
-                closing = true;
-            }
-            LOG.info("Closing ledger allocator on {}.", allocatePath);
-            // wait for ongoing allocation to be completed
-            Transaction txn = zkc.get().transaction();
-            try {
-                LedgerHandle lh = tryObtain(txn);
-                // if we could obtain the ledger handle, we have the responsibility to close it
-                deleteLedger(lh.getId());
-                // wait for deletion to be completed
-                while (0 != deletions.get()) {
-                    Thread.sleep(1000);
-                }
-                try {
-                    // commit the obtain
-                    List<OpResult> results = txn.commit();
-                    confirmObtain(lh, results.get(0));
-                } catch (KeeperException e) {
-                    abortObtain(lh);
-                }
-                LOG.info("Closed ledger allocator on {}.", allocatePath);
-            } catch (IOException ie) {
-                LOG.debug("Fail to obtain the allocated ledger handle when closing the allocator : ", ie);
-                // wait for deletion to be completed
-                while (0 != deletions.get()) {
-                    Thread.sleep(1000);
-                }
-            }
+            closeInternal();
             this.bkc.release();
         } catch (BKException e) {
             LOG.error("Exception when releasing bookkeeper client for ledger allocator {} : ", allocatePath, e);
@@ -415,6 +426,34 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
             LOG.error("Interrupted releasing bookkeeper client for ledger allocator {} : ", allocatePath, e);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             LOG.error("ZooKeeper connection exception when closing allocator {} : ", allocatePath, e);
+        }
+        this.zkc.close();
+    }
+
+    @Override
+    public void delete() throws IOException {
+        try {
+            closeInternal();
+            try {
+                this.zkc.get().delete(allocatePath, getZkVersion());
+                LOG.info("Deleted allocator {}.", allocatePath);
+            } catch (KeeperException.NoNodeException nne) {
+                LOG.warn("No allocator available in {}.", allocatePath);
+            }
+        } catch (KeeperException ke) {
+            throw new IOException("Exception on deleting allocator " + allocatePath + " : ", ke);
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted deleting allocator " + allocatePath, ie);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+            throw new ZKException("Encountered zookeeper connection issue on deleting allocator " + allocatePath + " : ",
+                    KeeperException.Code.CONNECTIONLOSS);
+        }
+        try {
+            this.bkc.release();
+        } catch (BKException e) {
+            LOG.error("Exception when releasing bookkeeper client for ledger allocator {} : ", allocatePath, e);
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted releasing bookkeeper client for ledger allocator {} : ", allocatePath, e);
         }
         this.zkc.close();
     }
