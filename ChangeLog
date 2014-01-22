@@ -10,6 +10,7 @@
 - Retryable ZooKeeper Client
 - Region ID support for log segment
 - Namespace & LogSegment Listener
+- Monitor Service
 
 0.3.7
 -----

@@ -187,6 +187,10 @@ public class DistributedLogClientBuilder {
     }
 
     public DistributedLogClient build() {
+        return buildClient();
+    }
+
+    DistributedLogClientImpl buildClient() {
         Preconditions.checkNotNull(_name, "No name provided.");
         Preconditions.checkNotNull(_clientId, "No client id provided.");
         Preconditions.checkNotNull(_routingService, "No routing service provided.");
@@ -242,7 +246,7 @@ public class DistributedLogClientBuilder {
         }
     }
 
-    static private class DistributedLogClientImpl implements DistributedLogClient, RoutingService.RoutingListener {
+    static class DistributedLogClientImpl implements DistributedLogClient, MonitorServiceClient, RoutingService.RoutingListener {
 
         static final Logger logger = LoggerFactory.getLogger(DistributedLogClientImpl.class);
 
@@ -519,6 +523,27 @@ public class DistributedLogClientBuilder {
             }
         }
 
+        class HeartbeatOp extends StreamOp {
+
+            HeartbeatOp(String name) {
+                super(name);
+            }
+
+            @Override
+            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+                return sc.service.heartbeat(stream, ctx);
+            }
+
+            Future<Void> result() {
+                return result.map(new AbstractFunction1<WriteResponse, Void>() {
+                    @Override
+                    public Void apply(WriteResponse response) {
+                        return null;
+                    }
+                });
+            }
+        }
+
         private DistributedLogClientImpl(String name,
                                          ClientId clientId,
                                          RoutingService routingService,
@@ -658,6 +683,13 @@ public class DistributedLogClientBuilder {
             routingService.unregisterListener(this);
             routingService.stopService();
             dlTimer.stop();
+        }
+
+        @Override
+        public Future<Void> check(String stream) {
+            final HeartbeatOp op = new HeartbeatOp(stream);
+            sendRequest(op);
+            return op.result();
         }
 
         @Override

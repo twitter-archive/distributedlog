@@ -14,6 +14,7 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
@@ -29,6 +30,7 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.runtime.AbstractFunction1;
@@ -172,6 +174,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         public void onFailure(Throwable cause) {
             // nop, as failure will be handled in {@link Stream.doExecuteOp}.
+        }
+    }
+
+    class HeartbeatOp extends StreamOp {
+
+        HeartbeatOp(String stream, WriteContext context) {
+            super(stream, context);
+        }
+
+        @Override
+        Future<WriteResponse> execute(AsyncLogWriter writer) {
+            return Future.value(writeResponse(successResponseHeader()))
+                    .addEventListener(this);
         }
     }
 
@@ -467,7 +482,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 // session expired, otherwise we end up locking myself.
                 if (cause instanceof LockingException) {
                     initialize(dlConfig.getZKSessionTimeoutMilliseconds());
+                } else if (cause instanceof ZKException) {
+                    KeeperException.Code code = ((ZKException) cause).getKeeperExceptionCode();
+                    if (KeeperException.Code.CONNECTIONLOSS == code ||
+                            KeeperException.Code.OPERATIONTIMEOUT == code ||
+                            KeeperException.Code.SESSIONEXPIRED == code ||
+                            KeeperException.Code.SESSIONMOVED == code) {
+                        initialize(dlConfig.getZKSessionTimeoutMilliseconds());
+                    } else {
+                        logger.error("Failed to write data into stream {} : ", name, cause);
+                        initialize(0);
+                    }
                 } else {
+                    logger.error("Failed to write data into stream {} : ", name, cause);
                     // other issue, kick it immediately.
                     initialize(0);
                 }
@@ -555,7 +582,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     // so it would fail the request during this period immediately
                     // and it would avoid ending up locking a lot of time.
                     removeMyselfAfterAPeriod(ioe);
+                } else if (ioe instanceof ZKException) {
+                    KeeperException.Code code = ((ZKException) ioe).getKeeperExceptionCode();
+                    if (KeeperException.Code.CONNECTIONLOSS == code ||
+                            KeeperException.Code.OPERATIONTIMEOUT == code ||
+                            KeeperException.Code.SESSIONEXPIRED == code ||
+                            KeeperException.Code.SESSIONMOVED == code) {
+                        // we are encountered zookeeper session expired issue
+                        removeMyselfAfterAPeriod(ioe);
+                    } else {
+                        logger.error("Failed to initialize stream {} : ", name, ioe);
+                        removeMySelf(ioe);
+                    }
                 } else {
+                    logger.error("Failed to initialize stream {} : ", name, ioe);
                     // other exceptions: fail immediately.
                     removeMySelf(ioe);
                 }
@@ -846,6 +886,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     private Future<WriteResponse> doWrite(final String name, ByteBuffer data, WriteContext ctx) {
         WriteOp op = new WriteOp(name, data, ctx);
+        return doExecuteStreamOp(op);
+    }
+
+    @Override
+    public Future<WriteResponse> heartbeat(String stream, WriteContext ctx) {
+        HeartbeatOp op = new HeartbeatOp(stream, ctx);
         return doExecuteStreamOp(op);
     }
 

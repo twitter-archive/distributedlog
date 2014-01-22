@@ -67,6 +67,8 @@ service DistributedLogService {
 
     ServerInfo handshake();
 
+    WriteResponse heartbeat(string stream, WriteContext ctx);
+
     WriteResponse write(string stream, binary data);
 
     WriteResponse writeWithContext(string stream, binary data, WriteContext ctx);
