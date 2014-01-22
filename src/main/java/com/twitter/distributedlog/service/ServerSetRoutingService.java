@@ -55,7 +55,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     private final CountDownLatch changeLatch = new CountDownLatch(1);
 
     // Listeners
-    private final CopyOnWriteArraySet<RoutingListener> listeners =
+    protected final CopyOnWriteArraySet<RoutingListener> listeners =
             new CopyOnWriteArraySet<RoutingListener>();
 
     ServerSetRoutingService(ServerSet serverSet) {
@@ -165,7 +165,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         }
     }
 
-    private synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet) {
+    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet) {
         Set<SocketAddress> newSet = new HashSet<SocketAddress>();
         for (ServiceInstance serviceInstance : serverSet) {
             Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");

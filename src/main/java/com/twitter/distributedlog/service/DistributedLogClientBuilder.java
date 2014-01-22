@@ -53,6 +53,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DistributedLogClientBuilder {
 
+    private static final int NUM_CONSISTENT_HASH_REPLICAS = 997;
+
     private String _name = null;
     private ClientId _clientId = null;
     private RoutingService _routingService = null;
@@ -104,7 +106,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
-        this._routingService = new ServerSetRoutingService(serverSet);
+        // this._routingService = new ServerSetRoutingService(serverSet);
+        this._routingService = ConsistentHashRoutingService.of(serverSet,
+                NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
 
