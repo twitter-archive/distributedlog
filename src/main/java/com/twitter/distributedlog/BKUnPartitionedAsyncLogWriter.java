@@ -91,17 +91,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }).flatMap(new TruncationFunction(dlsn));
     }
 
-    private void closeAndCompleteSync() throws IOException {
-        super.closeAndComplete();
-    }
-
     @Override
     public void closeAndComplete() throws IOException {
+        // Insert a request to future pool to wait until all writes are completed.
         futurePool.apply(new ExceptionalFunction0<Integer>() {
             public Integer applyE() throws IOException {
-                closeAndCompleteSync();
                 return 0;
             }
         }).get();
+        super.closeAndComplete();
     }
 }
