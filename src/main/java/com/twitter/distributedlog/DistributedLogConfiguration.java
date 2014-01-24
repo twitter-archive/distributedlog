@@ -160,6 +160,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
     public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
 
+    public static final String BKDL_READLAC_LONGPOLL = "readLACLongPoll";
+    public static final boolean BKDL_READLAC_LONGPOLL_DEFAULT = true;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -1012,4 +1015,25 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+
+    /**
+     * Should read ahead use long polling for read last confirmed
+     *
+     * @return whether read ahead should use long polling for read last confirmed.
+     */
+    public boolean getReadLACLongPollEnabled() {
+        return getBoolean(BKDL_READLAC_LONGPOLL, BKDL_READLAC_LONGPOLL_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable read-ahead's use of long polling for read last confirmed.
+     *
+     * @param enabled
+     *          flag to enable/disable read-ahead's use of long polling for read last confirmed.
+     * @return configuration instance.
+     */
+    public DistributedLogConfiguration setReadLACLongPollEnabled(boolean enabled) {
+        setProperty(BKDL_READLAC_LONGPOLL, enabled);
+        return this;
+    }
 }

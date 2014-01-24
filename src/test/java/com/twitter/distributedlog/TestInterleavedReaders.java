@@ -1200,4 +1200,68 @@ public class TestInterleavedReaders {
         assertEquals(true, executionCount.get() > 1);
         dlm.close();
     }
+
+    @Test
+    public void testSimpleAsyncReadWriteLongPoll() throws Exception {
+        String name = "distrlog-simpleasyncreadwritelongpoll";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setEnableReadAhead(true);
+        confLocal.setReadAheadWaitTime(500);
+        confLocal.setReadAheadBatchSize(10);
+        confLocal.setReadAheadMaxEntries(100);
+        confLocal.setOutputBufferSize(1024);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
+        //confLocal.setReadLACLongPollEnabled(false);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        final CountDownLatch syncLatch = new CountDownLatch(30);
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        final Thread currentThread = Thread.currentThread();
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            long start = txid;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            for (long j = 0; j < 10; j++) {
+                Thread.sleep(250);
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsnFuture = writer.write(record);
+                dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
+                            LOG.debug("Interrupting: EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            currentThread.interrupt();
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        LOG.debug("Interrupting for failure", cause);
+                        currentThread.interrupt();
+                    }
+                });
+                if (i == 0 && j == 0) {
+                    TestInterleavedReaders.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
+                }
+            }
+            writer.closeAndComplete();
+        }
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(15, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                LOG.debug("Interrupting for failure", exc);
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        assert(!(Thread.interrupted()));
+        assert(success);
+        reader.close();
+        dlm.close();
+    }
 }

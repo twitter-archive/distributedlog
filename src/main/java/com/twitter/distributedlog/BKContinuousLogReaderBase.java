@@ -114,7 +114,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             currentReader = getCurrentReader();
             if ((null != currentReader) && !nonBlockingReader) {
                 if(readAheadEnabled) {
-                    bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors);
+                    bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors, false);
                 }
                 LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             }
