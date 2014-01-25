@@ -2,6 +2,7 @@ package com.twitter.distributedlog.tools;
 
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
@@ -9,6 +10,7 @@ import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -345,6 +347,7 @@ public class DistributedLogTool extends Tool {
         PartitionId partitionId = null;
         boolean printHex = false;
         Long fromTxnId = null;
+        DLSN fromDLSN = null;
         int count = 100;
 
         DumpCommand() {
@@ -352,6 +355,9 @@ public class DistributedLogTool extends Tool {
             options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("x", "hex", false, "Print record in hex format");
             options.addOption("o", "offset", true, "Txn ID to start dumping.");
+            options.addOption("n", "seqno", true, "Sequence Number to start dumping");
+            options.addOption("e", "eid", true, "Entry ID to start dumping");
+            options.addOption("t", "slot", true, "Slot to start dumping");
             options.addOption("l", "limit", true, "Number of entries to dump. Default is 100.");
         }
 
@@ -383,6 +389,30 @@ public class DistributedLogTool extends Tool {
                     throw new ParseException("Negative count found : " + count);
                 }
             }
+            if (cmdline.hasOption("n")) {
+                long seqno;
+                try {
+                    seqno = Long.parseLong(cmdline.getOptionValue("n"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid sequence number " + cmdline.getOptionValue("n"));
+                }
+                long eid;
+                if (cmdline.hasOption("e")) {
+                    eid = Long.parseLong(cmdline.getOptionValue("e"));
+                } else {
+                    eid = 0;
+                }
+                long slot;
+                if (cmdline.hasOption("t")) {
+                    slot = Long.parseLong(cmdline.getOptionValue("t"));
+                } else {
+                    slot = 0;
+                }
+                fromDLSN = new DLSN(seqno, eid, slot);
+            }
+            if (null == fromTxnId && null == fromDLSN) {
+                throw new ParseException("No start Txn/DLSN is specified.");
+            }
         }
 
         @Override
@@ -393,9 +423,21 @@ public class DistributedLogTool extends Tool {
                 LogReader reader;
                 try {
                     if (null == partitionId) {
-                        reader = dlm.getInputStream(fromTxnId);
+                        DLSN lastDLSN = dlm.getLastDLSNAsync().get();
+                        println("Last DLSN : " + lastDLSN);
+                        if (null == fromDLSN) {
+                            reader = dlm.getInputStream(fromTxnId);
+                        } else {
+                            reader = dlm.getInputStream(fromDLSN);
+                        }
                     } else {
-                        reader = dlm.getInputStream(partitionId, fromTxnId);
+                        DLSN lastDLSN = dlm.getLastDLSNAsync(partitionId).get();
+                        println("Last DLSN : " + lastDLSN);
+                        if (null == fromDLSN) {
+                            reader = dlm.getInputStream(partitionId, fromTxnId);
+                        } else {
+                            reader = dlm.getInputStream(partitionId, fromDLSN);
+                        }
                     }
                 } catch (LogEmptyException lee) {
                     println("No stream found to dump records.");
@@ -435,8 +477,14 @@ public class DistributedLogTool extends Tool {
 
         private void dumpRecord(LogRecord record) {
             println("------------------------------------------------");
-            println("Record (txn = " + record.getTransactionId() + ", bytes = "
-                    + record.getPayload().length + ")");
+            if (record instanceof LogRecordWithDLSN) {
+                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                        + record.getPayload().length + ", dlsn = "
+                        + ((LogRecordWithDLSN) record).getDlsn() + ")");
+            } else {
+                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                        + record.getPayload().length + ")");
+            }
             println("");
             if (printHex) {
                 println(Hex.encodeHexString(record.getPayload()));
