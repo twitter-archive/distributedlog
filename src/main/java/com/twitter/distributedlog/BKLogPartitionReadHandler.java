@@ -635,7 +635,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             }
                             if (readLACLongPollEnabled) {
                                 LOG.info("Read LAC Long Poll");
-                                bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, this, null);
+                                bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
                             } else {
                                 LOG.info("Read LAC No Long Poll");
                                 bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);

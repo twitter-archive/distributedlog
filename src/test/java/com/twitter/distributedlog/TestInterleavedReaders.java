@@ -1212,7 +1212,7 @@ public class TestInterleavedReaders {
         confLocal.setReadAheadMaxEntries(100);
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
-        //confLocal.setReadLACLongPollEnabled(false);
+        confLocal.setReadLACLongPollEnabled(false);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
