@@ -129,7 +129,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
 
                         if (noBlocking) {
-                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry), simulateErrors, true);
+                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry), simulateErrors);
                         }
 
                         ResumableBKPerStreamLogReader s = new ResumableBKPerStreamLogReader(this,
@@ -233,7 +233,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (fromTxId <= lastTxId) {
                     try {
                         if (noBlocking) {
-                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), 0), simulateErrors, true);
+                            startReadAhead(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), 0), simulateErrors);
                         }
                         ResumableBKPerStreamLogReader s
                             = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, noBlocking, statsLogger);
@@ -278,14 +278,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         super.close();
     }
 
-    public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors, boolean nonBlocking) {
+    public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
                 this,
                 startPosition,
                 ledgerDataAccessor,
                 simulateErrors,
-                nonBlocking && conf.getReadLACLongPollEnabled(),
+                conf.getReadLACLongPollEnabled(),
                 conf.getReadAheadBatchSize(),
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
