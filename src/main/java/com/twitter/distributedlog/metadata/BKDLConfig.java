@@ -148,7 +148,7 @@ public class BKDLConfig implements DLConfig {
         if (bkLedgersPath == null) {
             res = another.bkLedgersPath == null;
         } else {
-            return bkLedgersPath.equals(another.bkLedgersPath);
+            res = bkLedgersPath.equals(another.bkLedgersPath);
         }
         return res
                 && sanityCheckTxnID == another.sanityCheckTxnID
