@@ -156,7 +156,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private int preFlushCounter;
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
-    private boolean periodicFlushNeeded = false;
+
+    // Indicates whether there are writes that have been successfully transmitted that would need
+    // a control record to be transmitted to make them visible to the readers by updating the last
+    // add confirmed
+    private boolean controlFlushNeeded = false;
+    private boolean immediateFlushEnabled = false;
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
     private boolean enforceLock = true;
@@ -236,13 +241,20 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         this.lastTxIdAcknowledged = startTxId;
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
-        int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
-        if (periodicFlushFrequency > 0 && executorService != null) {
-            periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
-                    periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
+        this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
+
+        // If we are transmitting immediately (threshold == 0) and if immediate
+        // flush is enabled, we don't need the periodic flush task
+        if (!immediateFlushEnabled || (0 != this.transmissionThreshold)) {
+            int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
+            if (periodicFlushFrequency > 0 && executorService != null) {
+                periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
+                        periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
+            }
         }
         this.conf = conf;
         this.executorService = executorService;
+        assert(!this.immediateFlushEnabled || (null != this.executorService));
     }
 
     protected final LedgerHandle getLedgerHandle() {
@@ -624,7 +636,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 this, packet);
             transmitSuccesses.inc();
             outstandingRequests.incrementAndGet();
-            periodicFlushNeeded = false;
+            controlFlushNeeded = false;
             return true;
         } else {
             transmitMisses.inc();
@@ -662,8 +674,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 // If we had data that we flushed then we need it to make sure that
                 // background flush in the next pass will make the previous writes
                 // visible by advancing the lastAck
-                periodicFlushNeeded |= !transmitPacket.isControl();
                 transmitPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
+                if (!transmitPacket.isControl()) {
+                    controlFlushNeeded = true;
+                    if (immediateFlushEnabled) {
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                immediateFlush(true);
+                            }
+                        });
+                    }
+                }
             }
         }
 
@@ -703,10 +725,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     @Override
     synchronized public void run()  {
+        immediateFlush(false);
+    }
+
+    synchronized private void immediateFlush(boolean controlFlushOnly)  {
         try {
             boolean newData = haveDataToTransmit();
 
-            if (periodicFlushNeeded || newData) {
+            if (controlFlushNeeded || (!controlFlushOnly && newData)) {
                 // If we need this periodic transmit to persist previously written data but
                 // there is no new data (which would cause the transmit to be skipped) generate
                 // a control record
@@ -723,6 +749,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             LOG.error("Error encountered by the periodic flush", exc);
         }
     }
+
+
 
     public boolean shouldStartNewSegment(int numRecords) {
         return (numRecords > (Integer.MAX_VALUE - recordCount));

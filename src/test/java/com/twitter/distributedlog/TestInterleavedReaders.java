@@ -926,12 +926,21 @@ public class TestInterleavedReaders {
 
     @Test
     public void testSimpleAsyncReadWrite() throws Exception {
-        String name = "distrlog-simpleasyncreadwrite";
+        testSimpleAsyncReadWriteInternal("distrlog-simpleasyncreadwrite", false);
+    }
+
+    @Test
+    public void testSimpleAsyncReadWriteImmediateFlush() throws Exception {
+        testSimpleAsyncReadWriteInternal("distrlog-simpleasyncreadwrite-imm-flush", true);
+    }
+
+    public void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
+        confLocal.setImmediateFlushEnabled(immediateFlush);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);

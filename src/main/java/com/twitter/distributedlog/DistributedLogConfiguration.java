@@ -33,6 +33,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS = "periodicFlushFrequencyMilliSeconds";
     public static final int BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT = 0;
 
+    public static final String BKDL_ENABLE_IMMEDIATE_FLUSH = "enableImmediateFlush";
+    public static final boolean BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT = false;
+
     // Controls the retention period after which old ledgers are deleted
     public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
     public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
@@ -513,6 +516,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
         setProperty(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, flushFrequencyMs);
+        return this;
+    }
+
+    /**
+     * Is immediate flush enabled
+     *
+     * @return whether immediate flush is enabled
+     */
+    public boolean getImmediateFlushEnabled() {
+        return getBoolean(BKDL_ENABLE_IMMEDIATE_FLUSH, BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable immediate flush
+     *
+     * @param enabled
+     *          flag to enable/disable immediate flush.
+     * @return configuration instance.
+     */
+    public DistributedLogConfiguration setImmediateFlushEnabled(boolean enabled) {
+        setProperty(BKDL_ENABLE_IMMEDIATE_FLUSH, enabled);
         return this;
     }
 
