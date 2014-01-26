@@ -1202,8 +1202,21 @@ public class TestInterleavedReaders {
     }
 
     @Test
+    public void testSimpleAsyncReadWritePolling() throws Exception {
+        testSimpleAsyncReadWriteLACOptions("distrlog-simpleasyncreadwritepolling", 0);
+    }
+
+    @Test
     public void testSimpleAsyncReadWriteLongPoll() throws Exception {
-        String name = "distrlog-simpleasyncreadwritelongpoll";
+        testSimpleAsyncReadWriteLACOptions("distrlog-simpleasyncreadwritelongpoll", 1);
+    }
+
+    @Test
+    public void testSimpleAsyncReadWritePiggyBack() throws Exception {
+        testSimpleAsyncReadWriteLACOptions("distrlog-simpleasyncreadwritepiggyback", 2);
+    }
+
+    private void testSimpleAsyncReadWriteLACOptions(String name, int lacOption) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setEnableReadAhead(true);
@@ -1212,7 +1225,7 @@ public class TestInterleavedReaders {
         confLocal.setReadAheadMaxEntries(100);
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
-        confLocal.setReadLACLongPollEnabled(false);
+        confLocal.setReadLACLongPollEnabled(lacOption);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);

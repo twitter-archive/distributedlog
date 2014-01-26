@@ -209,6 +209,16 @@ public class LedgerHandleCache {
         refHandle.handle.asyncReadLastConfirmedLongPoll(timeOutInMillis, callback, ctx);
     }
 
+    public void asyncReadLastConfirmedAndEntry(LedgerDescriptor ledgerDesc, long timeOutInMillis,
+                                               AsyncCallback.ReadLastConfirmedAndEntryCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readLastConfirmedAndEntryComplete(BKException.Code.NoSuchLedgerExistsException, -1, null, ctx);
+            return;
+        }
+        refHandle.handle.asyncReadLastConfirmedAndEntry(timeOutInMillis, callback, ctx);
+    }
+
     public void tryReadLastConfirmed(LedgerDescriptor ledgerDesc) throws BKException, InterruptedException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
