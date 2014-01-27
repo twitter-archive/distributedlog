@@ -536,7 +536,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                                           boolean includeControl,
                                                           boolean includeEndOfStream)
         throws IOException {
-        long startTime = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             LogRecordWithDLSN record = doRecoverLastRecordInLedger(l, forwardReading, fence, includeControl, includeEndOfStream);
@@ -544,9 +544,9 @@ abstract class BKLogPartitionHandler implements Watcher {
             return record;
         } finally {
             if (success) {
-                recoverLastEntryStats.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                recoverLastEntryStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                recoverLastEntryStats.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -711,7 +711,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean fetchFullList,
                                                            Comparator comparator, boolean throwOnEmpty)
             throws IOException {
-        long startTime = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             List<LogSegmentLedgerMetadata> segments =
@@ -721,9 +721,9 @@ abstract class BKLogPartitionHandler implements Watcher {
         } finally {
             OpStatsLogger statsLogger = fetchFullList ? getFullListStat : getFilteredListStat;
             if (success) {
-                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                statsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                statsLogger.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                statsLogger.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -779,22 +779,22 @@ abstract class BKLogPartitionHandler implements Watcher {
             try {
                 latch.await();
             } catch (InterruptedException e) {
-                forceGetListStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+                forceGetListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 throw new DLInterruptedException("Interrupted on reading ledger list from zkfor " + getFullyQualifiedName(), e);
             }
-            long elapsedMillis = stopwatch.stop().elapsedMillis();
+            long elapsedMicros = stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS);
 
             KeeperException.Code rc = KeeperException.Code.get(result.get());
             if (rc == KeeperException.Code.OK) {
-                forceGetListStat.registerSuccessfulEvent(elapsedMillis);
+                forceGetListStat.registerSuccessfulEvent(elapsedMicros);
                 break;
             } else if((rc != KeeperException.Code.SESSIONEXPIRED) &&
                 (rc != KeeperException.Code.CONNECTIONLOSS) &&
                 (rc != KeeperException.Code.SESSIONMOVED)) {
-                forceGetListStat.registerFailedEvent(elapsedMillis);
+                forceGetListStat.registerFailedEvent(elapsedMicros);
                 throw new IOException("ZK Exception "+ rc +" reading ledger list for " + getFullyQualifiedName());
             }
-            forceGetListStat.registerFailedEvent(elapsedMillis);
+            forceGetListStat.registerFailedEvent(elapsedMicros);
 
             retryCount--;
             try {
@@ -847,18 +847,18 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (metadata.isInProgress()) {
             // as we used timestamp as start tx id we could take it as start time
             // NOTE: it is a hack here.
-            long elapsedMs = ts - metadata.getFirstTxId();
-            if (elapsedMs > 0) {
-                getInprogressSegmentStat.registerSuccessfulEvent(elapsedMs);
+            long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getFirstTxId());
+            if (elapsedMicroSec > 0) {
+                getInprogressSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
             } else {
-                negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMs);
+                negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
             }
         } else {
-            long elapsedMs = ts - metadata.getCompletionTime();
-            if (elapsedMs > 0) {
-                getCompletedSegmentStat.registerSuccessfulEvent(elapsedMs);
+            long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getCompletionTime());
+            if (elapsedMicroSec > 0) {
+                getCompletedSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
             } else {
-                negativeGetCompletedSegmentStat.registerSuccessfulEvent(-elapsedMs);
+                negativeGetCompletedSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
             }
         }
     }
@@ -897,14 +897,14 @@ abstract class BKLogPartitionHandler implements Watcher {
             final GenericCallback<List<LogSegmentLedgerMetadata>> callback = new GenericCallback<List<LogSegmentLedgerMetadata>>() {
                 @Override
                 public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
-                    long elapsedMs = stopwatch.stop().elapsedMillis();
+                    long elapsedMicros = stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS);
                     if (BKException.Code.OK != rc) {
-                        getListStat.registerFailedEvent(elapsedMs);
+                        getListStat.registerFailedEvent(elapsedMicros);
                     } else {
                         if (LogSegmentFilter.DEFAULT_FILTER == segmentFilter) {
                             isFullListFetched.set(true);
                         }
-                        getListStat.registerSuccessfulEvent(elapsedMs);
+                        getListStat.registerSuccessfulEvent(elapsedMicros);
                     }
                     finalCallback.operationComplete(rc, result);
                 }
@@ -980,10 +980,10 @@ abstract class BKLogPartitionHandler implements Watcher {
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            getListStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            getListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             finalCallback.operationComplete(BKException.Code.ZKException, null);
         } catch (InterruptedException e) {
-            getListStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            getListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             finalCallback.operationComplete(BKException.Code.InterruptedException, null);
         }
     }

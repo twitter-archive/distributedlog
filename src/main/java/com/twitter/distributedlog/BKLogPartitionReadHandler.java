@@ -87,10 +87,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromDLSN, fThrowOnEmpty, noBlocking, simulateErrors);
-            getInputStreamByDLSNStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            getInputStreamByDLSNStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             return reader;
         } catch (IOException ioe) {
-            getInputStreamByDLSNStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            getInputStreamByDLSNStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             throw ioe;
         }
     }
@@ -185,10 +185,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromTxId, fThrowOnEmpty, noBlocking, simulateErrors);
-            getInputStreamByTxIdStat.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            getInputStreamByTxIdStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             return reader;
         } catch (IOException ioe) {
-            getInputStreamByTxIdStat.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            getInputStreamByTxIdStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             throw ioe;
         }
     }
@@ -307,7 +307,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private boolean doesLogExist() throws IOException {
         boolean logExists = false;
         boolean success = false;
-        long startTime = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         try {
             if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
                 logExists = true;
@@ -321,9 +321,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         } finally {
             if (success) {
-                existsStat.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                existsStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                existsStat.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                existsStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
         return logExists;

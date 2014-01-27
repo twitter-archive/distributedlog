@@ -184,9 +184,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             return handler;
         } finally {
             if (success) {
-                createWriteHandlerStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                createWriteHandlerStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                createWriteHandlerStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+                createWriteHandlerStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }

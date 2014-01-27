@@ -136,9 +136,9 @@ class DistributedReentrantLock implements Runnable {
             success = true;
         } finally {
             if (success) {
-                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                acquireStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+                acquireStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -179,9 +179,9 @@ class DistributedReentrantLock implements Runnable {
             success = true;
         } finally {
             if (success) {
-                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                releaseStats.registerFailedEvent(stopwatch.stop().elapsedMillis());
+                releaseStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -268,20 +268,19 @@ class DistributedReentrantLock implements Runnable {
 
     static class DeleteCallback implements AsyncCallback.VoidCallback {
 
-        final long startNS;
+        final Stopwatch stopwatch;
 
         DeleteCallback() {
-            this.startNS = MathUtils.nowInNano();
+            stopwatch = new Stopwatch().start();
         }
 
         @Override
         public void processResult(int rc, String path, Object ctx) {
-            long elapsedMS = MathUtils.elapsedMSec(startNS);
             if (KeeperException.Code.OK.intValue() == rc) {
-                asyncDeleteStats.registerSuccessfulEvent(elapsedMS);
+                asyncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 LOG.info("Deleted lock znode {} successfully!", path);
             } else {
-                asyncDeleteStats.registerFailedEvent(elapsedMS);
+                asyncDeleteStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
             }
         }
@@ -387,18 +386,17 @@ class DistributedReentrantLock implements Runnable {
 
         private int prepare()
                 throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
-            long startNS = MathUtils.nowInNano();
+            Stopwatch stopwatch = new Stopwatch().start();
             boolean success = false;
             try {
                 int res = doPrepare();
                 success = true;
                 return res;
             } finally {
-                long elapsedMs = MathUtils.elapsedMSec(startNS);
                 if (success) {
-                    prepareStats.registerSuccessfulEvent(elapsedMs);
+                    prepareStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 } else {
-                    prepareStats.registerFailedEvent(elapsedMs);
+                    prepareStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 }
             }
         }
@@ -512,7 +510,7 @@ class DistributedReentrantLock implements Runnable {
             try {
                 if (null != nodeToDelete) {
                     if (sync) {
-                        long startNS = MathUtils.nowInNano();
+                        Stopwatch stopwatch = new Stopwatch().start();
                         boolean success = false;
                         try {
                             Stat stat = zkClient.get().exists(nodeToDelete, false);
@@ -523,11 +521,10 @@ class DistributedReentrantLock implements Runnable {
                             }
                             success = true;
                         } finally {
-                            long elapsedMS = MathUtils.elapsedMSec(startNS);
                             if (success) {
-                                syncDeleteStats.registerSuccessfulEvent(elapsedMS);
+                                syncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                             } else {
-                                syncDeleteStats.registerFailedEvent(elapsedMS);
+                                syncDeleteStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                             }
                         }
 
@@ -560,17 +557,16 @@ class DistributedReentrantLock implements Runnable {
             }
 
             public void checkForLock(boolean wait) {
-                long startNS = MathUtils.nowInNano();
+                Stopwatch stopwatch = new Stopwatch().start();
                 boolean success = false;
                 try {
                     doCheckForLock(wait);
                     success = true;
                 } finally {
-                    long elapsedMs = MathUtils.elapsedMSec(startNS);
                     if (success) {
-                        checkLockStats.registerSuccessfulEvent(elapsedMs);
+                        checkLockStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                     } else {
-                        checkLockStats.registerFailedEvent(elapsedMs);
+                        checkLockStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                     }
                 }
             }

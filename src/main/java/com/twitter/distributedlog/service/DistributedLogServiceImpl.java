@@ -161,7 +161,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          failure reason
          */
         void fail(String owner, Throwable t) {
-            opStatsLogger.registerFailedEvent(stopwatch.stop().elapsedMillis());
+            opStatsLogger.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             if (null != owner) {
                 redirects.inc();
                 result.setValue(writeResponse(ownerToResponseHeader(owner)));
@@ -172,7 +172,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         public void onSuccess(WriteResponse response) {
-            opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+            opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             // complete the response, so it would be sent back to client.
             result.setValue(response);
         }
@@ -319,16 +319,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         executorService.schedule(new Runnable() {
                             @Override
                             public void run() {
-                                opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                                opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                                 result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                             }
                         }, delayMs, TimeUnit.MILLISECONDS);
                     } catch (RejectedExecutionException ree) {
-                        opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                        opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                         result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                     }
                 } else {
-                    opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedMillis());
+                    opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                     result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnId)));
                 }
                 return result;
@@ -611,11 +611,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     success = false;
                 }
             }
-            stopwatch.stop();
             if (success) {
-                streamAcquireStat.registerSuccessfulEvent(stopwatch.elapsedMillis());
+                streamAcquireStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                streamAcquireStat.registerFailedEvent(stopwatch.elapsedMillis());
+                streamAcquireStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
             for (StreamOp op : oldPendingOps) {
                 executeOp(op, success);

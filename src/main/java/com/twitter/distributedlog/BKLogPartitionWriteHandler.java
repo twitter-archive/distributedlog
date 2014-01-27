@@ -2,6 +2,8 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
+
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -598,18 +600,17 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * @param txId First transaction id to be written to the stream
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             BKPerStreamLogWriter writer = doStartLogSegment(txId);
             success = true;
             return writer;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                openOpStats.registerSuccessfulEvent(elapsed);
+                openOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                openOpStats.registerFailedEvent(elapsed);
+                openOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -838,7 +839,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                     long ledgerId, long firstTxId, long lastTxId,
                                     int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             doCompleteAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo,
@@ -846,11 +847,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                          lastEntryId, lastSlotId, shouldReleaseLock);
             success = true;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                closeOpStats.registerSuccessfulEvent(elapsed);
+                closeOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                closeOpStats.registerFailedEvent(elapsed);
+                closeOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -942,7 +942,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         @Override
         void processOp() throws IOException {
-            long start = MathUtils.nowInNano();
+            Stopwatch stopwatch = new Stopwatch().start();
             boolean success = false;
             try {
                 synchronized (BKLogPartitionWriteHandler.this) {
@@ -954,11 +954,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
                 success = true;
             } finally {
-                long elapsed = MathUtils.elapsedMSec(start);
                 if (success) {
-                    recoverOpStats.registerSuccessfulEvent(elapsed);
+                    recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 } else {
-                    recoverOpStats.registerFailedEvent(elapsed);
+                    recoverOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
                 }
             }
         }
@@ -1238,17 +1237,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             doDeleteLedgerAndMetadata(ledgerMetadata);
             success = true;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                deleteOpStats.registerSuccessfulEvent(elapsed);
+                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                deleteOpStats.registerFailedEvent(elapsed);
+                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
         }
     }

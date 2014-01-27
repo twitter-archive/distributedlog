@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -136,19 +137,18 @@ public class LedgerHandleCache {
             LOG.error("Interrupted when opening ledger {} : ", metadata.getLedgerId(), e);
             throw new IOException("Could not open ledger for " + metadata.getLedgerId(), e);
         }
-        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
             if (fence) {
-                openStats.registerSuccessfulEvent(elapsedMs);
+                openStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             } else {
-                openNoRecoveryStats.registerSuccessfulEvent(elapsedMs);
+                openNoRecoveryStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             }
             return syncObject.getValue();
         }
         if (fence) {
-            openStats.registerFailedEvent(elapsedMs);
+            openStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
         } else {
-            openNoRecoveryStats.registerFailedEvent(elapsedMs);
+            openNoRecoveryStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
         }
         throw BKException.create(syncObject.getrc());
     }
@@ -212,12 +212,11 @@ public class LedgerHandleCache {
             }
         }, null);
         syncObject.block(0);
-        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
-            tryReadLastConfirmedStats.registerSuccessfulEvent(elapsedMs);
+            tryReadLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             return;
         }
-        tryReadLastConfirmedStats.registerFailedEvent(elapsedMs);
+        tryReadLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 
@@ -245,12 +244,11 @@ public class LedgerHandleCache {
             }
         }, null);
         syncObject.block(0);
-        long elapsedMs = stopwatch.stop().elapsedMillis();
         if (BKException.Code.OK == syncObject.getrc()) {
-            readLastConfirmedStats.registerSuccessfulEvent(elapsedMs);
+            readLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
             return;
         }
-        readLastConfirmedStats.registerFailedEvent(elapsedMs);
+        readLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 
