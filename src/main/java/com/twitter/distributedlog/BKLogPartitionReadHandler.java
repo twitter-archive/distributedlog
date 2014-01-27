@@ -421,9 +421,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.simulateErrors = simulateErrors;
             if ((readLACOptionInt < ReadLACOption.INVALID_OPTION.value) &&
                 (readLACOptionInt >= ReadLACOption.DEFAULT.value)) {
-                LOG.warn("Invalid value of ReadLACOption configured {}", readLACOptionInt);
                 this.readLACOption = ReadLACOption.values()[readLACOptionInt];
             } else {
+                LOG.warn("Invalid value of ReadLACOption configured {}", readLACOptionInt);
                 this.readLACOption = ReadLACOption.DEFAULT;
             }
             this.readAheadBatchSize = readAheadBatchSize;
