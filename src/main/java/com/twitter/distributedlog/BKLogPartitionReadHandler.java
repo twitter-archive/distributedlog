@@ -43,6 +43,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static OpStatsLogger getInputStreamByDLSNStat;
     private static OpStatsLogger existsStat;
 
+    public enum ReadLACOption {
+        DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK (2), INVALID_OPTION(3);
+        private int value;
+
+        private ReadLACOption(int value) {
+            this.value = value;
+        }
+    }
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -376,7 +385,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final LedgerDataAccessor ledgerDataAccessor;
         private volatile List<LogSegmentLedgerMetadata> ledgerList;
         private final boolean simulateErrors;
-        private final boolean readLACLongPollEnabled;
+        private final ReadLACOption readLACOption;
         private final long readAheadBatchSize;
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
@@ -401,7 +410,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
                                boolean simulateErrors,
-                               boolean readLACLongPollEnabled,
+                               int readLACOptionInt,
                                int readAheadBatchSize,
                                int readAheadMaxEntries,
                                int readAheadWaitTime) {
@@ -410,7 +419,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.nextReadPosition = startPosition;
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.simulateErrors = simulateErrors;
-            this.readLACLongPollEnabled = readLACLongPollEnabled;
+            if ((readLACOptionInt < ReadLACOption.INVALID_OPTION.value) &&
+                (readLACOptionInt >= ReadLACOption.DEFAULT.value)) {
+                LOG.warn("Invalid value of ReadLACOption configured {}", readLACOptionInt);
+                this.readLACOption = ReadLACOption.values()[readLACOptionInt];
+            } else {
+                this.readLACOption = ReadLACOption.DEFAULT;
+            }
             this.readAheadBatchSize = readAheadBatchSize;
             this.readAheadMaxEntries = readAheadMaxEntries;
             this.readAheadWaitTime = readAheadWaitTime;
@@ -605,7 +620,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         final class OpenLedgerPhase extends Phase
                 implements BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>,
-                            AsyncCallback.ReadLastConfirmedCallback {
+                            AsyncCallback.ReadLastConfirmedCallback,
+                            AsyncCallback.ReadLastConfirmedAndEntryCallback {
 
             OpenLedgerPhase(Phase next) {
                 super(next);
@@ -630,13 +646,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
                             if (LOG.isTraceEnabled()) {
-                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {} Read LAC Long Poll Enabled: {}",
-                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, readLACLongPollEnabled});
+                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
+                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, readLACOption.value});
                             }
-                            if (readLACLongPollEnabled) {
-                                bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
-                            } else {
-                                bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                            switch(readLACOption) {
+                                case LONGPOLL:
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
+                                    break;
+                                case READENTRYPIGGYBACK:
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, this, null);
+                                    break;
+                                default:
+                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
                             }
                         } else {
                             next.process(BKException.Code.OK);
@@ -728,6 +749,42 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 });
             }
 
+            public void readLastConfirmedAndEntryComplete(final int rc, final long lastConfirmed, final LedgerEntry entry, Object ctx) {
+                // submit callback execution to dlg executor to avoid deadlock.
+                submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (BKException.Code.OK != rc) {
+                            exceptionHandler.process(rc);
+                            return;
+                        }
+                        bkcZkExceptions.set(0);
+                        bkcUnExpectedExceptions.set(0);
+                        if (LOG.isTraceEnabled()) {
+                            try {
+                            LOG.trace("Advancing Last Add Confirmed of {} for {} : {}, {}",
+                                new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed, bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH) });
+                            } catch (Exception exc) {
+                                // Ignore
+                            }
+                        }
+
+                        if ((null != entry)
+                            && (nextReadPosition.getEntryId() == entry.getEntryId())
+                            && (nextReadPosition.getLedgerId() == entry.getLedgerId())) {
+
+                            nextReadPosition.advance();
+                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()), entry);
+
+                            if (LOG.isTraceEnabled()) {
+                                LOG.trace("Reading the value received {} for {} : entryId {}",
+                                    new Object[] { currentMetadata, fullyQualifiedName, entry.getEntryId() });
+                            }
+                        }
+                        next.process(rc);
+                    }
+                });
+            }
         }
 
         final class ReadEntriesPhase extends Phase implements AsyncCallback.ReadCallback, Runnable {
@@ -811,7 +868,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             fullyQualifiedName, readAheadWaitTime);
                     }
                     ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, readAheadMaxEntries);
-                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && !readLACLongPollEnabled) {
+                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT == readLACOption)) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
                             fullyQualifiedName, readAheadWaitTime);

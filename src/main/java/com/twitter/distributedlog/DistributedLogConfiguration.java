@@ -163,8 +163,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
     public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
 
-    public static final String BKDL_READLAC_LONGPOLL = "readLACLongPoll";
-    public static final boolean BKDL_READLAC_LONGPOLL_DEFAULT = true;
+    public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
+    public static final int BKDL_READLAC_OPTION_DEFAULT = 2;
 
     public DistributedLogConfiguration() {
         super();
@@ -1041,23 +1041,23 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
 
     /**
-     * Should read ahead use long polling for read last confirmed
+     * Should read ahead use long polling or piggyback for read last confirmed
      *
-     * @return whether read ahead should use long polling for read last confirmed.
+     * @return whether read ahead should use long polling or piggyback for read last confirmed.
      */
-    public boolean getReadLACLongPollEnabled() {
-        return getBoolean(BKDL_READLAC_LONGPOLL, BKDL_READLAC_LONGPOLL_DEFAULT);
+    public int getReadLACLongPollEnabled() {
+        return getInt(BKDL_READLAC_OPTION, BKDL_READLAC_OPTION_DEFAULT);
     }
 
     /**
-     * Enable/Disable read-ahead's use of long polling for read last confirmed.
+     * Set the method that read-ahead's should use to get read last confirmed.
      *
      * @param enabled
-     *          flag to enable/disable read-ahead's use of long polling for read last confirmed.
+     *          flag to set the read-ahead's option for read last confirmed.
      * @return configuration instance.
      */
-    public DistributedLogConfiguration setReadLACLongPollEnabled(boolean enabled) {
-        setProperty(BKDL_READLAC_LONGPOLL, enabled);
+    public DistributedLogConfiguration setReadLACLongPollEnabled(int option) {
+        setProperty(BKDL_READLAC_OPTION, option);
         return this;
     }
 }
