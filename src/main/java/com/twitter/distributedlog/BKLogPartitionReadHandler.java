@@ -285,6 +285,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 startPosition,
                 ledgerDataAccessor,
                 simulateErrors,
+                conf.getReadLACLongPollEnabled(),
                 conf.getReadAheadBatchSize(),
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
@@ -375,6 +376,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final LedgerDataAccessor ledgerDataAccessor;
         private volatile List<LogSegmentLedgerMetadata> ledgerList;
         private final boolean simulateErrors;
+        private final boolean readLACLongPollEnabled;
         private final long readAheadBatchSize;
         private final long readAheadMaxEntries;
         private final long readAheadWaitTime;
@@ -399,6 +401,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
                                boolean simulateErrors,
+                               boolean readLACLongPollEnabled,
                                int readAheadBatchSize,
                                int readAheadMaxEntries,
                                int readAheadWaitTime) {
@@ -407,6 +410,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.nextReadPosition = startPosition;
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.simulateErrors = simulateErrors;
+            this.readLACLongPollEnabled = readLACLongPollEnabled;
             this.readAheadBatchSize = readAheadBatchSize;
             this.readAheadMaxEntries = readAheadMaxEntries;
             this.readAheadWaitTime = readAheadWaitTime;
@@ -629,7 +633,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
                             }
-                            bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                            if (readLACLongPollEnabled) {
+                                LOG.info("Read LAC Long Poll");
+                                bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
+                            } else {
+                                LOG.info("Read LAC No Long Poll");
+                                bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                            }
                         } else {
                             next.process(BKException.Code.OK);
                         }
@@ -797,19 +807,19 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
 
             private void complete() {
-                if ((null != currentMetadata) && currentMetadata.isInProgress()) {
+                if (cacheFull) {
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
-                                fullyQualifiedName, readAheadWaitTime);
-                    }
-                    // Backoff before resuming
-                    schedule(ReadAheadWorker.this, readAheadWaitTime);
-                } else if (cacheFull) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Cache for {} is full. Backoff reading ahead for {} ms.",
+                        LOG.info("Cache for {} is full. Backoff reading ahead for {} ms.",
                             fullyQualifiedName, readAheadWaitTime);
                     }
                     ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, readAheadMaxEntries);
+                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && !readLACLongPollEnabled) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
+                            fullyQualifiedName, readAheadWaitTime);
+                    }
+                    // Backoff before resuming
+                    schedule(ReadAheadWorker.this, readAheadWaitTime);
                 } else {
                     run();
                 }
