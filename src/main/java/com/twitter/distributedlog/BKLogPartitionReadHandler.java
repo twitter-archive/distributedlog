@@ -630,14 +630,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
                             if (LOG.isTraceEnabled()) {
-                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
-                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition });
+                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {} Read LAC Long Poll Enabled: {}",
+                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, readLACLongPollEnabled});
                             }
                             if (readLACLongPollEnabled) {
-                                LOG.info("Read LAC Long Poll");
                                 bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
                             } else {
-                                LOG.info("Read LAC No Long Poll");
                                 bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
                             }
                         } else {
