@@ -136,9 +136,9 @@ class DistributedReentrantLock implements Runnable {
             success = true;
         } finally {
             if (success) {
-                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                acquireStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                acquireStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -179,9 +179,9 @@ class DistributedReentrantLock implements Runnable {
             success = true;
         } finally {
             if (success) {
-                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                releaseStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                releaseStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -277,10 +277,10 @@ class DistributedReentrantLock implements Runnable {
         @Override
         public void processResult(int rc, String path, Object ctx) {
             if (KeeperException.Code.OK.intValue() == rc) {
-                asyncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                asyncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 LOG.info("Deleted lock znode {} successfully!", path);
             } else {
-                asyncDeleteStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                asyncDeleteStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
             }
         }
@@ -394,9 +394,9 @@ class DistributedReentrantLock implements Runnable {
                 return res;
             } finally {
                 if (success) {
-                    prepareStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    prepareStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 } else {
-                    prepareStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    prepareStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 }
             }
         }
@@ -522,9 +522,9 @@ class DistributedReentrantLock implements Runnable {
                             success = true;
                         } finally {
                             if (success) {
-                                syncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                                syncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                             } else {
-                                syncDeleteStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                                syncDeleteStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                             }
                         }
 
@@ -564,9 +564,9 @@ class DistributedReentrantLock implements Runnable {
                     success = true;
                 } finally {
                     if (success) {
-                        checkLockStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                        checkLockStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                     } else {
-                        checkLockStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                        checkLockStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                     }
                 }
             }

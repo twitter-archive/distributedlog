@@ -544,9 +544,9 @@ abstract class BKLogPartitionHandler implements Watcher {
             return record;
         } finally {
             if (success) {
-                recoverLastEntryStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                recoverLastEntryStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -721,9 +721,9 @@ abstract class BKLogPartitionHandler implements Watcher {
         } finally {
             OpStatsLogger statsLogger = fetchFullList ? getFullListStat : getFilteredListStat;
             if (success) {
-                statsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                statsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                statsLogger.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                statsLogger.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -779,10 +779,10 @@ abstract class BKLogPartitionHandler implements Watcher {
             try {
                 latch.await();
             } catch (InterruptedException e) {
-                forceGetListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                forceGetListStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 throw new DLInterruptedException("Interrupted on reading ledger list from zkfor " + getFullyQualifiedName(), e);
             }
-            long elapsedMicros = stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS);
+            long elapsedMicros = stopwatch.stop().elapsed(TimeUnit.MICROSECONDS);
 
             KeeperException.Code rc = KeeperException.Code.get(result.get());
             if (rc == KeeperException.Code.OK) {
@@ -897,7 +897,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             final GenericCallback<List<LogSegmentLedgerMetadata>> callback = new GenericCallback<List<LogSegmentLedgerMetadata>>() {
                 @Override
                 public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
-                    long elapsedMicros = stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS);
+                    long elapsedMicros = stopwatch.stop().elapsed(TimeUnit.MICROSECONDS);
                     if (BKException.Code.OK != rc) {
                         getListStat.registerFailedEvent(elapsedMicros);
                     } else {
@@ -980,10 +980,10 @@ abstract class BKLogPartitionHandler implements Watcher {
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            getListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getListStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             finalCallback.operationComplete(BKException.Code.ZKException, null);
         } catch (InterruptedException e) {
-            getListStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getListStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             finalCallback.operationComplete(BKException.Code.InterruptedException, null);
         }
     }
