@@ -608,9 +608,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             return writer;
         } finally {
             if (success) {
-                openOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                openOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                openOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                openOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -848,9 +848,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             success = true;
         } finally {
             if (success) {
-                closeOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                closeOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                closeOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                closeOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -955,9 +955,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 success = true;
             } finally {
                 if (success) {
-                    recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 } else {
-                    recoverOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    recoverOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 }
             }
         }
@@ -1244,9 +1244,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             success = true;
         } finally {
             if (success) {
-                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }

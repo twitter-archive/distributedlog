@@ -139,16 +139,16 @@ public class LedgerHandleCache {
         }
         if (BKException.Code.OK == syncObject.getrc()) {
             if (fence) {
-                openStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                openStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                openNoRecoveryStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                openNoRecoveryStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
             return syncObject.getValue();
         }
         if (fence) {
-            openStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            openStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         } else {
-            openNoRecoveryStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            openNoRecoveryStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
         throw BKException.create(syncObject.getrc());
     }
@@ -223,10 +223,10 @@ public class LedgerHandleCache {
         }, null);
         syncObject.block(0);
         if (BKException.Code.OK == syncObject.getrc()) {
-            tryReadLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            tryReadLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return;
         }
-        tryReadLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+        tryReadLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 
@@ -255,10 +255,10 @@ public class LedgerHandleCache {
         }, null);
         syncObject.block(0);
         if (BKException.Code.OK == syncObject.getrc()) {
-            readLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            readLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return;
         }
-        readLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+        readLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 

@@ -122,13 +122,13 @@ public class MonitorService implements Runnable, NamespaceListener {
 
         @Override
         public void onSuccess(Void value) {
-            successStat.add(stopwatch.stop().elapsedMillis());
+            successStat.add(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             scheduleCheck();
         }
 
         @Override
         public void onFailure(Throwable cause) {
-            failureStat.add(stopwatch.stop().elapsedMillis());
+            failureStat.add(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             scheduleCheck();
         }
 
