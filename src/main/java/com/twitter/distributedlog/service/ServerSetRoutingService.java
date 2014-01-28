@@ -103,7 +103,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         SocketAddress address = null;
         synchronized (hostSet) {
             if (0 != hostList.size()) {
-                int hashCode = hasher.hashString(key).asInt();
+                int hashCode = hasher.hashUnencodedChars(key).asInt();
                 int hostId = MathUtils.signSafeMod(hashCode, hostList.size());
                 address = hostList.get(hostId);
                 if (null != previousAddr && address.equals(previousAddr)) {

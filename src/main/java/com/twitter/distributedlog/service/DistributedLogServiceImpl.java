@@ -161,7 +161,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          failure reason
          */
         void fail(String owner, Throwable t) {
-            opStatsLogger.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            opStatsLogger.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             if (null != owner) {
                 redirects.inc();
                 result.setValue(writeResponse(ownerToResponseHeader(owner)));
@@ -172,7 +172,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         public void onSuccess(WriteResponse response) {
-            opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             // complete the response, so it would be sent back to client.
             result.setValue(response);
         }
@@ -319,16 +319,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         executorService.schedule(new Runnable() {
                             @Override
                             public void run() {
-                                opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                                opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                                 result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                             }
                         }, delayMs, TimeUnit.MILLISECONDS);
                     } catch (RejectedExecutionException ree) {
-                        opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                        opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                         result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                     }
                 } else {
-                    opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                     result.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnId)));
                 }
                 return result;
@@ -397,7 +397,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 if (needAcquire) {
                     lastAcquireWatch.reset().start();
                     acquireStream();
-                } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsedTime(TimeUnit.HOURS) > 2) {
+                } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
                     if (streams.remove(name, this)) {
                         shouldClose = true;
                         break;
@@ -444,7 +444,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         completeOpNow = true;
                         success = true;
                     } else if (StreamStatus.FAILED == status &&
-                            lastAcquireFailureWatch.elapsedMillis() < nextAcquireWaitTimeMs) {
+                            lastAcquireFailureWatch.elapsed(TimeUnit.MILLISECONDS) < nextAcquireWaitTimeMs) {
                         completeOpNow = true;
                         success = false;
                     } else { // closing & initializing
@@ -612,9 +612,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             }
             if (success) {
-                streamAcquireStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                streamAcquireStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                streamAcquireStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                streamAcquireStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
             for (StreamOp op : oldPendingOps) {
                 executeOp(op, success);

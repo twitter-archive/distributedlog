@@ -390,7 +390,7 @@ public class DistributedLogClientBuilder {
             }
 
             void send(SocketAddress address) {
-                long elapsedMs = stopwatch.elapsedMillis();
+                long elapsedMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
                 if (clientConfig.getMaxRedirects() > 0 &&
                         tries.get() >= clientConfig.getMaxRedirects()) {
                     fail(new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),

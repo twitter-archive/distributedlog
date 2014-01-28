@@ -43,7 +43,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         }
 
         private Long replicaHash(int shardId, int replica) {
-            return hashFunction.hashString(replicaName(shardId, replica)).asLong();
+            return hashFunction.hashUnencodedChars(replicaName(shardId, replica)).asLong();
         }
 
         public synchronized void add(int shardId, SocketAddress address) {
@@ -63,7 +63,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         }
 
         public SocketAddress get(String key, SocketAddress prevAddr) {
-            long hash = hashFunction.hashString(key).asLong();
+            long hash = hashFunction.hashUnencodedChars(key).asLong();
             Pair<Long, SocketAddress> pair = get(hash);
             if (null == pair) {
                 return null;

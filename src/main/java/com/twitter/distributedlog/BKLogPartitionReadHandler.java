@@ -87,10 +87,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromDLSN, fThrowOnEmpty, noBlocking, simulateErrors);
-            getInputStreamByDLSNStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getInputStreamByDLSNStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return reader;
         } catch (IOException ioe) {
-            getInputStreamByDLSNStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getInputStreamByDLSNStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             throw ioe;
         }
     }
@@ -185,10 +185,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromTxId, fThrowOnEmpty, noBlocking, simulateErrors);
-            getInputStreamByTxIdStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getInputStreamByTxIdStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return reader;
         } catch (IOException ioe) {
-            getInputStreamByTxIdStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            getInputStreamByTxIdStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             throw ioe;
         }
     }
@@ -321,9 +321,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         } finally {
             if (success) {
-                existsStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                existsStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                existsStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                existsStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
         return logExists;
