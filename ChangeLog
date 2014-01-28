@@ -1,3 +1,10 @@
+0.3.9
+-----
+- Upgrade Guava 16
+- Change stats to micro seconds
+- Read Last Add Confirmed Long Polling
+- Piggyback one entry with LAC
+
 0.3.8
 -----
 - Ledger Allocation
