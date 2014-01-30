@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 
-public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier {
+public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
 
     private final BKDistributedLogManager bkDistributedLogManager;
@@ -23,6 +23,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
+    private ReaderNotification notification = null;
 
 
     public BKContinuousLogReader (BKDistributedLogManager bkdlm,
@@ -186,5 +187,60 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         }
 
         bkDistributedLogManager.checkClosedOrInError(operation);
+    }
+
+    /**
+     * Triggered when the background activity encounters an exception
+     */
+    @Override
+    public synchronized void notifyOnError() {
+        if (null != notification) {
+            notification.notifyNextRecordAvailable();
+            notification = null;
+            bkLedgerManager.setNotification(null);
+        }
+    }
+
+    /**
+     * Triggered when the background activity completes an operation
+     */
+    @Override
+    public synchronized void notifyOnOperationComplete() {
+        if (null != notification) {
+            notification.notifyNextRecordAvailable();
+            notification = null;
+            bkLedgerManager.setNotification(null);
+        }
+    }
+
+    /**
+     * Register for notifications of changes to background reader when using
+     * non blocking semantics
+     *
+     * @param readNotification Implementation of the ReaderNotification interface whose methods
+     * are called when new data is available or when the reader errors out
+     */
+    @Override
+    public synchronized void registerNotification(ReaderNotification readNotification) {
+        if ((null != notification) && (null != readNotification)) {
+            throw new IllegalStateException("Notification already registered for " + bkLedgerManager.getFullyQualifiedName());
+        }
+
+        this.notification = readNotification;
+        try {
+            // Set the notification first and then check for errors so we don't
+            // miss errors set by the read ahead task
+            bkLedgerManager.setNotification(this);
+
+            checkClosedOrInError("registerNotification");
+
+            if ((null != currentReader) && currentReader.canResume()) {
+                notifyOnOperationComplete();
+            }
+            LOG.debug("Registered for notification {}", bkLedgerManager.getFullyQualifiedName());
+        } catch (IOException exc) {
+            LOG.error("registerNotification encountered exception", exc);
+            notifyOnError();
+        }
     }
 }

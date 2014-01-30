@@ -201,7 +201,7 @@ abstract class BKLogPartitionHandler {
         throws IOException {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
-        LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
+        LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger);
         List<LogSegmentLedgerMetadata> ledgerListDesc = getLedgerListDesc(false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             LOG.debug("Inspecting Ledger: {}", l);
@@ -313,7 +313,7 @@ abstract class BKLogPartitionHandler {
         Throwable exceptionEncountered = null;
         try {
             LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
-            LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, statsLogger);
+            LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger);
             boolean trySmallLedger = true;
             LedgerDescriptor ledgerDescriptor = handleCachePriv.openLedger(l, fence);
             long scanStartPoint = handleCachePriv.getLastAddConfirmed(ledgerDescriptor);

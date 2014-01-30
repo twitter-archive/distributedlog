@@ -33,15 +33,18 @@ public class LedgerDataAccessor {
     private final Counter readAheadMisses;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
+    private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
+    private final String streamName;
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache) {
-        this(ledgerHandleCache, NullStatsLogger.INSTANCE);
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName) {
+        this(ledgerHandleCache, streamName, NullStatsLogger.INSTANCE);
     }
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, StatsLogger statsLogger) {
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
         this.ledgerHandleCache = ledgerHandleCache;
+        this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
@@ -76,6 +79,10 @@ public class LedgerDataAccessor {
         if (getNumCacheEntries() < maxEntries) {
             invokeReadAheadCallback();
         }
+    }
+
+    public synchronized void setNotification(AsyncNotification notification) {
+        this.notification = notification;
     }
 
     public void setReadAheadEnabled(boolean enabled, int waitTime, int batchSize) {
@@ -197,6 +204,13 @@ public class LedgerDataAccessor {
 
             value.setLedgerEntry(entry);
             value.notifyAll();
+        }
+
+        if (null != notification) {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Notification of new entry Stream: {}, LedgerReadPoistion: {}", streamName, key);
+            }
+            notification.notifyOnOperationComplete();
         }
     }
 

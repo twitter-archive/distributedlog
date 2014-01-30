@@ -5,6 +5,10 @@ import java.io.IOException;
 import java.util.List;
 
 public interface LogReader extends Closeable {
+
+    public interface ReaderNotification {
+        void notifyNextRecordAvailable();
+    }
     /**
      * Close the stream.
      *
@@ -29,6 +33,15 @@ public interface LogReader extends Closeable {
      * @throws IOException if there is an error reading from the stream
      */
     public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException;
+
+    /**
+     * Register for notifications of changes to background reader when using
+     * non blocking semantics
+     *
+     * @param notification Implementation of the ReaderNotification interface whose methods
+     * are called when new data is available or when the reader errors out
+     */
+    public void registerNotification(ReaderNotification notification);
 
     /**
      * Read the last transaction id
