@@ -247,10 +247,10 @@ class BKPerStreamLogReader {
                 getEntryCounter(nonBlocking).inc();
                 e = ledgerDataAccessor.getEntry(ledgerDesc, readPosition, nonBlocking);
                 getEntryLatencyStat(nonBlocking).registerSuccessfulEvent(
-                    stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (IOException ioe) {
                 getEntryLatencyStat(nonBlocking).registerFailedEvent(
-                    stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                    stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 throw ioe;
             }
 

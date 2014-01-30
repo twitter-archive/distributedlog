@@ -26,9 +26,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -173,18 +175,17 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * @param txId First transaction id to be written to the stream
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             BKPerStreamLogWriter writer = doStartLogSegment(txId);
             success = true;
             return writer;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                openOpStats.registerSuccessfulEvent(elapsed);
+                openOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                openOpStats.registerFailedEvent(elapsed);
+                openOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -329,17 +330,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     public void completeAndCloseLogSegment(long firstTxId, long lastTxId,
                                            int recordCount, boolean shouldReleaseLock)
             throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             doCompleteAndCloseLogSegment(firstTxId, lastTxId, recordCount, shouldReleaseLock);
             success = true;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                closeOpStats.registerSuccessfulEvent(elapsed);
+                closeOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                closeOpStats.registerFailedEvent(elapsed);
+                closeOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -419,17 +419,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public void recoverIncompleteLogSegments() throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             doRecoverIncompleteLogSegments();
             success = true;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                recoverOpStats.registerSuccessfulEvent(elapsed);
+                recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                recoverOpStats.registerFailedEvent(elapsed);
+                recoverOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -658,17 +657,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
-        long start = MathUtils.nowInNano();
+        Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
             doDeleteLedgerAndMetadata(ledgerMetadata);
             success = true;
         } finally {
-            long elapsed = MathUtils.elapsedMSec(start);
             if (success) {
-                deleteOpStats.registerSuccessfulEvent(elapsed);
+                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } else {
-                deleteOpStats.registerFailedEvent(elapsed);
+                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }

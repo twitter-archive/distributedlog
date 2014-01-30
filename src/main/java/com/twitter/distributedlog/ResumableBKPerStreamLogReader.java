@@ -74,9 +74,9 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         Stopwatch stopwatch = new Stopwatch().start();
         try {
             doResume(shouldReadLAC);
-            resumeHitStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            resumeHitStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         } catch (IOException ioe) {
-            resumeHitStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+            resumeHitStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             throw ioe;
         }
     }
@@ -88,18 +88,18 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                 if (null == zkc.get().exists(zkPath, this)) {
                     nodeDeleteNotification.set(true);
                 }
-                resumeSetWatcherStat.registerSuccessfulEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                resumeSetWatcherStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (ZooKeeperClient.ZooKeeperConnectionException exc) {
                 watchSet.set(false);
                 LOG.debug("Error on setup latch due to zookeeper connection issue : ", exc);
-                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (KeeperException ke) {
                 watchSet.set(false);
                 LOG.debug("Error on setup latch due to zookeeper exception : ", ke);
-                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (InterruptedException ie) {
                 watchSet.set(false);
-                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsedTime(TimeUnit.MICROSECONDS));
+                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 throw new DLInterruptedException("Interrupted on setup latch : ", ie);
             }
         }
