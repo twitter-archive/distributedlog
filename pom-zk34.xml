@@ -220,4 +220,16 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>twitter-ostrich-provider</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.bookkeeper.stats</groupId>
+                    <artifactId>twitter-ostrich-provider</artifactId>
+                    <version>4.2.11-TWTTR-NETTY</version>
+                </dependency>
+            </dependencies>
+        </profile> 
+    </profiles>
 </project>
