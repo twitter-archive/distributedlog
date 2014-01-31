@@ -624,8 +624,8 @@ public class DistributedLogClientBuilder {
                 .name(clientName)
                 .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                 .hostConnectionLimit(10)
-                .connectionTimeout(Duration.fromSeconds(600))
-                .requestTimeout(Duration.fromSeconds(600))
+                .connectionTimeout(Duration.fromSeconds(1))
+                .requestTimeout(Duration.fromSeconds(1))
                 .reportTo(statsReceiver);
         }
 

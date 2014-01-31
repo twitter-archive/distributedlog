@@ -19,7 +19,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -107,7 +106,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             } catch (IllegalAccessException e) {
                 throw new IOException("Encountered illegal access when instantiating writer handler : ", e);
             } catch (InvocationTargetException e) {
-                throw new IOException("Encountered invocation target exception when instantiating writer handler : ", e);
+                Throwable targetException = e.getTargetException();
+                if (targetException instanceof IOException) {
+                    throw (IOException) targetException;
+                } else {
+                    throw new IOException("Encountered invocation target exception when instantiating writer handler : ", e);
+                }
             }
         }
     }

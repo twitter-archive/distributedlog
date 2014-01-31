@@ -15,12 +15,16 @@ import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.finagle.builder.ClientBuilder;
+import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Duration;
 import com.twitter.util.FutureEventListener;
+import org.apache.bookkeeper.stats.NullStatsProvider;
+import org.apache.bookkeeper.stats.StatsProvider;
+import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
@@ -61,6 +65,7 @@ public class MonitorService implements Runnable, NamespaceListener {
     private DistributedLogManagerFactory dlFactory = null;
     private ZooKeeperClient zkClient = null;
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
+    private StatsProvider statsProvider = null;
     private final ScheduledExecutorService executorService =
             Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
@@ -167,6 +172,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         options.addOption("s", "serverset", true, "Proxy Server Set");
         options.addOption("i", "interval", true, "Check interval");
         options.addOption("d", "region", true, "Region ID");
+        options.addOption("p", "provider", true, "DistributedLog Stats Provider");
     }
 
     void printUsage() {
@@ -216,6 +222,13 @@ public class MonitorService implements Runnable, NamespaceListener {
                         + configFile + ".");
             }
         }
+        statsProvider = new NullStatsProvider();
+        if (cmdline.hasOption("p")) {
+            String providerClass = cmdline.getOptionValue("p");
+            statsProvider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
+        }
+        logger.info("Starting stats provider : {}.", statsProvider.getClass());
+        statsProvider.start(dlConf);
         String[] serverSetPath = StringUtils.split(cmdline.getOptionValue("s"), '/');
         if (serverSetPath.length != 3) {
             throw new ParseException("Invalid serverset path : " + cmdline.getOptionValue("s"));
@@ -235,6 +248,7 @@ public class MonitorService implements Runnable, NamespaceListener {
                         .tcpConnectTimeout(Duration.fromSeconds(2))
                         .requestTimeout(Duration.fromSeconds(5))
                         .hostConnectionLimit(10)
+                        .reportHostStats(new NullStatsReceiver())
                         .hostConnectionIdleTime(Duration.fromSeconds(1)))
                 .statsReceiver(statsReceiver)
                 .buildClient();
@@ -298,6 +312,10 @@ public class MonitorService implements Runnable, NamespaceListener {
         } catch (InterruptedException e) {
             logger.error("Interrupted on waiting shutting down monitor executor service : ", e);
         }
+        if (null != statsProvider) {
+            statsProvider.stop();
+        }
+        keepAliveLatch.countDown();
         logger.info("Closed monitor service.");
     }
 
