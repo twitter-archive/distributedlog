@@ -1,3 +1,9 @@
+0.3.10
+-----
+- New BKC Release (Preliminary changes for region aware placement and reordering)
+- Twitter DNS Resolver
+- Initial DLSN
+
 0.3.9
 -----
 - Upgrade Guava 16
