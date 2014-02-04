@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.net.TwitterDNSResolver;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -165,6 +166,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
     public static final int BKDL_READLAC_OPTION_DEFAULT = 2;
+
+    public static final String BKDL_BK_DNS_RESOLVER_CLASS = "bkDNSResolverClass";
+    public static final String BKDL_BK_DNS_RESOLVER_CLASS_DEFAULT = TwitterDNSResolver.class.getName();
 
     public DistributedLogConfiguration() {
         super();
@@ -1058,6 +1062,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadLACLongPollEnabled(int option) {
         setProperty(BKDL_READLAC_OPTION, option);
+        return this;
+    }
+
+    /**
+     * Get DNS Resolver Class used by bookkeeper client.
+     *
+     * @return DNS Resolver Class.
+     */
+    public String getBkDNSResolverClass() {
+        return getString(BKDL_BK_DNS_RESOLVER_CLASS, BKDL_BK_DNS_RESOLVER_CLASS_DEFAULT);
+    }
+
+    /**
+     * Set DNS Resolver Class used by bookkeeper client.
+     *
+     * @param className
+     *          dns resolver class name.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setBkDNSResolverClass(String className) {
+        setProperty(BKDL_BK_DNS_RESOLVER_CLASS, className);
         return this;
     }
 }

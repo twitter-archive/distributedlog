@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
+import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -37,6 +39,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setZkLedgersRootPath(bkdlConfig.getBkLedgersPath());
         bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
+        bkConfig.setEnsemblePlacementPolicy(RackawareEnsemblePlacementPolicy.class);
+        bkConfig.setProperty("reppDnsResolverClass", conf.getBkDNSResolverClass());
         if (null == channelFactory) {
             this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
         } else {
@@ -64,9 +68,9 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         this.name = name;
         commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, conf.getBKClientZKNumRetries() <= 0);
         LOG.info("BookKeeper Client created {} with its own ZK Client : numRetries = {}, " +
-                " sessionTimeout = {}, backoff = {}, maxBackoff = {}", new Object[] { name,
+                " sessionTimeout = {}, backoff = {}, maxBackoff = {}, dnsResolver = {}", new Object[] { name,
                 conf.getBKClientZKNumRetries(), zkSessionTimeout, conf.getBKClientZKRetryBackoffStartMillis(),
-                conf.getBKClientZKRetryBackoffMaxMillis() });
+                conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBkDNSResolverClass() });
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,
