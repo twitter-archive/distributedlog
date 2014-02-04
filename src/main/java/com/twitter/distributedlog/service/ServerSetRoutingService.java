@@ -67,7 +67,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     public void startService() {
         start();
         try {
-            if (!changeLatch.await(60, TimeUnit.MINUTES)) {
+            if (!changeLatch.await(1, TimeUnit.MINUTES)) {
                 logger.warn("No serverset change received in 1 minute.");
             }
         } catch (InterruptedException e) {

@@ -42,6 +42,7 @@ public class DistributedLogServer implements Runnable {
 
     private DistributedLogServiceImpl dlService = null;
     private Server server = null;
+    private StatsProvider statsProvider = null;
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
 
     DistributedLogServer(String[] args) {
@@ -91,13 +92,15 @@ public class DistributedLogServer implements Runnable {
                         + configFile + ".");
             }
         }
-        StatsProvider provider = new NullStatsProvider();
+        statsProvider = new NullStatsProvider();
         if (cmdline.hasOption("s")) {
             String providerClass = cmdline.getOptionValue("s");
-            provider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
+            statsProvider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
         }
+        logger.info("Starting stats provider : {}", statsProvider.getClass());
+        statsProvider.start(dlConf);
         Pair<DistributedLogServiceImpl, Server>
-            serverPair = runServer(dlConf, uri, provider,
+            serverPair = runServer(dlConf, uri, statsProvider,
                   Integer.parseInt(cmdline.getOptionValue("p", "0")),
                   keepAliveLatch, statsReceiver);
         this.dlService = serverPair.getFirst();
@@ -147,6 +150,10 @@ public class DistributedLogServer implements Runnable {
      */
     public void close() {
         closeServer(Pair.of(dlService, server));
+        if (statsProvider != null) {
+            statsProvider.stop();
+        }
+        keepAliveLatch.countDown();
     }
 
     public void join() throws InterruptedException {
