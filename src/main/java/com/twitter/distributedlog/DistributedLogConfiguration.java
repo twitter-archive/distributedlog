@@ -165,7 +165,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
 
     public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
-    public static final int BKDL_READLAC_OPTION_DEFAULT = 2;
+    public static final int BKDL_READLAC_OPTION_DEFAULT = 3;
 
     public static final String BKDL_BK_DNS_RESOLVER_CLASS = "bkDNSResolverClass";
     public static final String BKDL_BK_DNS_RESOLVER_CLASS_DEFAULT = TwitterDNSResolver.class.getName();
@@ -1049,7 +1049,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return whether read ahead should use long polling or piggyback for read last confirmed.
      */
-    public int getReadLACLongPollEnabled() {
+    public int getReadLACOption() {
         return getInt(BKDL_READLAC_OPTION, BKDL_READLAC_OPTION_DEFAULT);
     }
 
@@ -1060,7 +1060,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *          flag to set the read-ahead's option for read last confirmed.
      * @return configuration instance.
      */
-    public DistributedLogConfiguration setReadLACLongPollEnabled(int option) {
+    public DistributedLogConfiguration setReadLACOption(int option) {
         setProperty(BKDL_READLAC_OPTION, option);
         return this;
     }

@@ -44,7 +44,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static OpStatsLogger existsStat;
 
     public enum ReadLACOption {
-        DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK (2), INVALID_OPTION(3);
+        DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
         private int value;
 
         private ReadLACOption(int value) {
@@ -294,7 +294,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 startPosition,
                 ledgerDataAccessor,
                 simulateErrors,
-                conf.getReadLACLongPollEnabled(),
+                conf.getReadLACOption(),
                 conf.getReadAheadBatchSize(),
                 conf.getReadAheadMaxEntries(),
                 conf.getReadAheadWaitTime());
@@ -653,8 +653,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 case LONGPOLL:
                                     bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
                                     break;
-                                case READENTRYPIGGYBACK:
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, this, null);
+                                case READENTRYPIGGYBACK_PARALLEL:
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, true, this, null);
+                                    break;
+                                case READENTRYPIGGYBACK_SEQUENTIAL:
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, false, this, null);
                                     break;
                                 default:
                                     bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);

@@ -68,7 +68,7 @@ public class TestInterleavedReaders {
 
     private int drainStreams(LogReader reader0, LogReader reader1) throws Exception {
         // Allow time for watches to fire
-        Thread.sleep(5);
+        Thread.sleep(15);
         int numTrans = 0;
         LogRecord record = reader0.readNext(false);
         while (null != record) {
@@ -1225,6 +1225,11 @@ public class TestInterleavedReaders {
         testSimpleAsyncReadWriteLACOptions("distrlog-simpleasyncreadwritepiggyback", 2);
     }
 
+    @Test
+    public void testSimpleAsyncReadWritePiggyBackSpec() throws Exception {
+        testSimpleAsyncReadWriteLACOptions("distrlog-simpleasyncreadwritepiggybackspec", 3);
+    }
+
     private void testSimpleAsyncReadWriteLACOptions(String name, int lacOption) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
@@ -1234,7 +1239,7 @@ public class TestInterleavedReaders {
         confLocal.setReadAheadMaxEntries(100);
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
-        confLocal.setReadLACLongPollEnabled(lacOption);
+        confLocal.setReadLACOption(lacOption);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
