@@ -122,6 +122,7 @@ public class LedgerDataAccessor {
                         return null;
                     } else {
                         LOG.trace("Read-ahead readAheadCache hit for non blocking read");
+                        readAheadHits.inc();
                         return value.getLedgerEntry();
                     }
                 } else {
@@ -145,12 +146,12 @@ public class LedgerDataAccessor {
                         readAheadHits.inc();
                         return value.getLedgerEntry();
                     }
-
-                    readAheadMisses.inc();
-                    if ((readAheadMisses.get() % 1000) == 0) {
-                        LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
-                    }
                 }
+            }
+
+            readAheadMisses.inc();
+            if ((readAheadMisses.get() % 1000) == 0) {
+                LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
             }
 
             Enumeration<LedgerEntry> entries
