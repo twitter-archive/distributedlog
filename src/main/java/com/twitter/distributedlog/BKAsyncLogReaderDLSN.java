@@ -48,7 +48,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
         this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, true, this);
-        StatsLogger asyncReaderStatsLogger = statsLogger.scope("asyncReader");
+        StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
 
         if (null == futureSatisfyLatency) {
             futureSatisfyLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
@@ -187,11 +187,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     // Fail 10% of the requests when asked to simulate errors
                     if (simulateErrors && Utils.randomPercent(10)) {
                         throw new IOException("Reader Simulated Exception");
-
-
-
-
-
                     }
                     record = currentReader.readNextWithSkip();
                 } catch (IOException exc) {
