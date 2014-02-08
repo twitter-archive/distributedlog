@@ -8,6 +8,8 @@ import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.PermitManager;
+
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -34,6 +36,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -75,7 +78,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private DistributedLogConfiguration conf;
     private URI namespace;
     private final StatsLogger statsLogger;
-    private final ScheduledExecutorService scheduledExecutorService;
+    private final ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
     private final ClientSocketChannelFactory channelFactory;
     // zk & bk client
     private final ZooKeeperClientBuilder zooKeeperClientBuilder;
@@ -109,7 +112,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.statsLogger = statsLogger;
         this.clientId = clientId;
         this.regionId = regionId;
-        this.scheduledExecutorService = Executors.newScheduledThreadPool(
+        this.scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(
                 conf.getNumWorkerThreads(),
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
         );
@@ -135,7 +138,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).statsLogger(statsLogger);
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
-                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledExecutorService);
+                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
 
         // propagate bkdlConfig to configuration
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);
@@ -158,6 +161,26 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         } else {
             allocator = null;
         }
+
+        StatsLogger factoryThreadPoolLogger = statsLogger.scope("factory").scope("thread_pool");
+        // outstanding requests
+        factoryThreadPoolLogger.registerGauge("pending_tasks", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                try {
+                    return scheduledThreadPoolExecutor.getTaskCount() - scheduledThreadPoolExecutor.getCompletedTaskCount();
+                } catch (RuntimeException exc) {
+                    return 0;
+                }
+            }
+        });
+
+
 
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
@@ -205,7 +228,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     private void scheduleTask(Runnable r, long ms) {
         try {
-            scheduledExecutorService.schedule(r, ms, TimeUnit.MILLISECONDS);
+            scheduledThreadPoolExecutor.schedule(r, ms, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException ree) {
             LOG.error("Task {} scheduled in {} ms is rejected : ", new Object[] { r, ms, ree });
         }
@@ -285,7 +308,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            null, null, scheduledExecutorService, channelFactory, statsLogger);
+            null, null, scheduledThreadPoolExecutor, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
@@ -307,7 +330,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
+            zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, channelFactory, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
@@ -544,7 +567,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
     public void close() {
-        scheduledExecutorService.shutdown();
+        scheduledThreadPoolExecutor.shutdown();
         LOG.info("Executor Service Stopped.");
         if (null != allocator) {
             allocator.close();

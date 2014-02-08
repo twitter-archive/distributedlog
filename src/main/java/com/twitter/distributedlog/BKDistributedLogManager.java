@@ -378,7 +378,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
-        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN);
+        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN, statsLogger);
     }
 
     /**
