@@ -13,12 +13,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
+
 
 class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncLogReader, Runnable, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
@@ -32,15 +35,24 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();
     private AtomicLong scheduleCount = new AtomicLong(0);
     private boolean simulateErrors = false;
+    private final StatsLogger statsLogger;
+    private static OpStatsLogger futureSatisfyLatency = null;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
                                      String streamIdentifier,
-                                     DLSN startDLSN) throws IOException {
+                                     DLSN startDLSN,
+                                     StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
+        this.statsLogger = statsLogger;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
         this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, true, this);
+        StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
+
+        if (null == futureSatisfyLatency) {
+            futureSatisfyLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
+        }
     }
 
     @Override
@@ -87,7 +99,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
 
         if (checkClosedOrInError("readNext")) {
+            Stopwatch stopwatch = new Stopwatch().start();
             promise.setException(lastException.get());
+            futureSatisfyLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return promise;
         }
 
@@ -121,7 +135,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private void cancelAllPendingReads(Throwable throwExc) {
         for (Promise<LogRecordWithDLSN> promise : pendingRequests) {
+            Stopwatch stopwatch = new Stopwatch().start();
             promise.updateIfEmpty(new Throw(throwExc));
+            futureSatisfyLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
         pendingRequests.clear();
     }
@@ -187,7 +203,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     }
                     Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                     if (null != promise) {
+                        Stopwatch stopwatch = new Stopwatch().start();
                         promise.setValue(record);
+                        futureSatisfyLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                     }
                 } else {
                     if (0 == scheduleCountLocal) {
