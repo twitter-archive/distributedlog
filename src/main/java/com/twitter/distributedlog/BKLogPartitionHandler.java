@@ -944,7 +944,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                         List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator, segmentFilter);
                         callback.operationComplete(BKException.Code.OK, segmentList);
                         notifyUpdatedLogSegments(segmentList);
-                        notifyOnOperationComplete();
+                        if (!segmentsRemoved.isEmpty()) {
+                            notifyOnOperationComplete();
+                        }
                         return;
                     }
 
@@ -976,7 +978,6 @@ abstract class BKLogPartitionHandler implements Watcher {
                                 }
                             });
                     }
-                    notifyOnOperationComplete();
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
