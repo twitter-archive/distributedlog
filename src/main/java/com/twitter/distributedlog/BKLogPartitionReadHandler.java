@@ -39,6 +39,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     // stats
     private static Counter readAheadWorkerWaits;
+    private static Counter readAheadEntryPiggyBackHits;
+    private static Counter readAheadEntryPiggyBackMisses;
     private static OpStatsLogger getInputStreamByTxIdStat;
     private static OpStatsLogger getInputStreamByDLSNStat;
     private static OpStatsLogger existsStat;
@@ -75,6 +77,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         if (null == readAheadWorkerWaits) {
             readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
         }
+
+        if (null == readAheadEntryPiggyBackHits) {
+            readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
+        }
+
+        if (null == readAheadEntryPiggyBackMisses) {
+            readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
+        }
+
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
         if (null == getInputStreamByDLSNStat) {
             getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
@@ -783,6 +794,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
                                     new Object[] { currentMetadata, fullyQualifiedName, entry.getEntryId() });
                             }
+                            readAheadEntryPiggyBackHits.inc();
+                        } else {
+                            readAheadEntryPiggyBackMisses.inc();
                         }
                         next.process(rc);
                     }
