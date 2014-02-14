@@ -37,6 +37,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean simulateErrors = false;
     private final StatsLogger statsLogger;
     private static OpStatsLogger futureSatisfyLatency = null;
+    private static OpStatsLogger scheduleLatency = null;
+    private static OpStatsLogger backgroundReaderRunTime = null;
+    private Stopwatch scheduleDelayStopwatch;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -52,6 +55,14 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
         if (null == futureSatisfyLatency) {
             futureSatisfyLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
+        }
+
+        if (null == scheduleLatency) {
+            scheduleLatency = asyncReaderStatsLogger.getOpStatsLogger("schedule");
+        }
+
+        if (null == backgroundReaderRunTime) {
+            backgroundReaderRunTime = asyncReaderStatsLogger.getOpStatsLogger("background_read");
         }
     }
 
@@ -118,6 +129,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     public synchronized void scheduleBackgroundRead() {
         long prevCount = scheduleCount.getAndIncrement();
         if (0 == prevCount) {
+            scheduleDelayStopwatch = new Stopwatch().start();
             executorService.submit(this);
         }
 
@@ -146,6 +158,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     @Override
     public void run() {
         synchronized(scheduleCount) {
+            if (null != scheduleDelayStopwatch) {
+                scheduleLatency.registerSuccessfulEvent(scheduleDelayStopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                scheduleDelayStopwatch = null;
+            }
+
+            Stopwatch runTime = new Stopwatch().start();
             int iterations = 0;
             long scheduleCountLocal = scheduleCount.get();
             LOG.debug("{}: Scheduled Background Reader", currentReader.getFullyQualifiedName());
@@ -162,6 +180,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     if (null == nextPromise) {
                         LOG.trace("{}: Queue Empty waiting for Input", currentReader.getFullyQualifiedName());
                         scheduleCount.set(0);
+                        backgroundReaderRunTime.registerSuccessfulEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                         return;
                     }
                 }
@@ -179,6 +198,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     if (!(lastException.get().getCause() instanceof LogNotFoundException)) {
                         LOG.warn("{}: Exception", currentReader.getFullyQualifiedName(), lastException.get());
                     }
+                    backgroundReaderRunTime.registerFailedEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                     return;
                 }
 
@@ -210,6 +230,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 } else {
                     if (0 == scheduleCountLocal) {
                         LOG.trace("Schedule count dropping to zero", lastException.get());
+                        backgroundReaderRunTime.registerSuccessfulEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                         return;
                     }
                     scheduleCountLocal = scheduleCount.decrementAndGet();
