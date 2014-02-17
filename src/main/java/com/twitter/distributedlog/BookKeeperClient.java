@@ -1,10 +1,10 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.ConfUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
-import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -41,6 +41,11 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
         bkConfig.setEnsemblePlacementPolicy(RackawareEnsemblePlacementPolicy.class);
         bkConfig.setProperty("reppDnsResolverClass", conf.getBkDNSResolverClass());
+        // by default enable parallel recovery read
+        bkConfig.setEnableParallelRecoveryRead(true);
+        bkConfig.setRecoveryReadBatchSize(5);
+        // reload configuration from dl configuration with settings prefixed with 'bkc.'
+        ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
         if (null == channelFactory) {
             this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
         } else {
