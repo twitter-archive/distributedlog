@@ -350,7 +350,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerListDesc(true, true);
 
         for (LogSegmentLedgerMetadata metadata: ledgerList) {
-            LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, true, recover, false, includeEndOfStream);
+            LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, false, recover, false, includeEndOfStream);
 
             if (null != record) {
                 assert(!record.isControl());
@@ -385,7 +385,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         long count = 0;
         for (LogSegmentLedgerMetadata l : ledgerList) {
             if (l.isInProgress()) {
-                LogRecord record = recoverLastRecordInLedger(l, true, false, false, false);
+                LogRecord record = recoverLastRecordInLedger(l, false, false, false, false);
                 if (null != record) {
                     count += record.getCount();
                 }
@@ -437,7 +437,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = readLastTxIdInLedger(l, true).getFirst();
+                    long lastTxId = readLastTxIdInLedger(l, false).getFirst();
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
