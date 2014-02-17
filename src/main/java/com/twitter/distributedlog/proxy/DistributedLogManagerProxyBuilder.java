@@ -19,7 +19,7 @@ public class DistributedLogManagerProxyBuilder {
     private String _name = null;
     private ClientId _clientId = null;
     private ServerSet _serverSet = null;
-    private StatsReceiver _statsReceiver = new NullStatsReceiver();
+    private StatsReceiver _statsReceiver = null;
     private DistributedLogClientBuilder _clientBuilder = null;
 
     public static DistributedLogManagerProxyBuilder newBuilder() {

@@ -34,6 +34,7 @@ import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
@@ -67,6 +68,7 @@ public class DistributedLogClientBuilder {
     private RoutingService _routingService = null;
     private ClientBuilder _clientBuilder = null;
     private StatsReceiver _statsReceiver = new NullStatsReceiver();
+    private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
     private final ClientConfig _clientConfig = new ClientConfig();
 
     /**
@@ -206,9 +208,13 @@ public class DistributedLogClientBuilder {
         Preconditions.checkNotNull(_clientId, "No client id provided.");
         Preconditions.checkNotNull(_routingService, "No routing service provided.");
         Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided.");
+        if (null == _streamStatsReceiver) {
+            _streamStatsReceiver = new NullStatsReceiver();
+        }
 
         DistributedLogClientImpl clientImpl =
-                new DistributedLogClientImpl(_name, _clientId, _routingService, _clientBuilder, _clientConfig, _statsReceiver);
+                new DistributedLogClientImpl(_name, _clientId, _routingService, _clientBuilder, _clientConfig,
+                                             _statsReceiver, _streamStatsReceiver);
         _routingService.startService();
         clientImpl.handshake();
         return clientImpl;
@@ -344,6 +350,10 @@ public class DistributedLogClientBuilder {
         private final StatsReceiver ownershipStatsReceiver;
         private final ConcurrentMap<String, OwnershipStat> ownershipStats =
                 new ConcurrentHashMap<String, OwnershipStat>();
+        private final Stat successLatencyStat;
+        private final Stat failureLatencyStat;
+        private final Stat proxySuccessLatencyStat;
+        private final Stat proxyFailureLatencyStat;
 
         private Counter getResponseCounter(StatusCode code) {
             Counter counter = responseStats.get(code);
@@ -427,12 +437,14 @@ public class DistributedLogClientBuilder {
 
             void complete(WriteResponse response) {
                 stopwatch.stop();
+                successLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 redirectStat.add(tries.get());
                 result.setValue(response);
             }
 
             void fail(Throwable t) {
                 stopwatch.stop();
+                failureLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 redirectStat.add(tries.get());
                 result.setException(t);
             }
@@ -562,7 +574,8 @@ public class DistributedLogClientBuilder {
                                          RoutingService routingService,
                                          ClientBuilder clientBuilder,
                                          ClientConfig clientConfig,
-                                         StatsReceiver statsReceiver) {
+                                         StatsReceiver statsReceiver,
+                                         StatsReceiver streamStatsReceiver) {
             this.clientName = name;
             this.clientId = clientId;
             this.routingService = routingService;
@@ -577,11 +590,17 @@ public class DistributedLogClientBuilder {
             this.routingService.registerListener(this);
             // Stats
             ownershipStat = new OwnershipStat(statsReceiver.scope("ownership"));
-            ownershipStatsReceiver = statsReceiver.scope("perstream_ownership");
+            ownershipStatsReceiver = streamStatsReceiver.scope("perstream_ownership");
             StatsReceiver redirectStatReceiver = statsReceiver.scope("redirects");
             redirectStat = redirectStatReceiver.stat0("times");
             responseStatsReceiver = statsReceiver.scope("responses");
             exceptionStatsReceiver = statsReceiver.scope("exceptions");
+            StatsReceiver latencyStatReceiver = statsReceiver.scope("latency");
+            successLatencyStat = latencyStatReceiver.stat0("success");
+            failureLatencyStat = latencyStatReceiver.stat0("failure");
+            StatsReceiver proxyLatencyStatReceiver = statsReceiver.scope("proxy_request_latency");
+            proxySuccessLatencyStat = proxyLatencyStatReceiver.stat0("success");
+            proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
 
             // client builder
             if (null == clientBuilder) {
@@ -778,11 +797,13 @@ public class DistributedLogClientBuilder {
         private void sendWriteRequest(final SocketAddress addr, final StreamOp op) {
             // Get corresponding finagle client
             final ServiceWithClient sc = buildClient(addr);
+            final long startTimeNanos = System.nanoTime();
             // write the request to that host.
             op.sendRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
                 @Override
                 public void onSuccess(WriteResponse response) {
                     getResponseCounter(response.getHeader().getCode()).incr();
+                    proxySuccessLatencyStat.add(MathUtils.elapsedMicroSec(startTimeNanos));
                     switch (response.getHeader().getCode()) {
                         case SUCCESS:
                             updateOwnership(op.stream, addr);
@@ -814,6 +835,7 @@ public class DistributedLogClientBuilder {
                 @Override
                 public void onFailure(Throwable cause) {
                     getExceptionCounter(cause.getClass()).incr();
+                    proxyFailureLatencyStat.add(MathUtils.elapsedMicroSec(startTimeNanos));
                     if (cause instanceof RequestTimeoutException) {
                         op.fail(cause);
                     } else if (cause instanceof FailedFastException) {

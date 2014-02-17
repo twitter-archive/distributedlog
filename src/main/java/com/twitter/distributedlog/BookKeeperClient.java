@@ -41,9 +41,6 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
         bkConfig.setEnsemblePlacementPolicy(RackawareEnsemblePlacementPolicy.class);
         bkConfig.setProperty("reppDnsResolverClass", conf.getBkDNSResolverClass());
-        // by default enable parallel recovery read
-        bkConfig.setEnableParallelRecoveryRead(true);
-        bkConfig.setRecoveryReadBatchSize(5);
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
         if (null == channelFactory) {
