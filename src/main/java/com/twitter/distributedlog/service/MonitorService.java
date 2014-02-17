@@ -105,7 +105,7 @@ public class MonitorService implements Runnable, NamespaceListener {
                     executorService.schedule(this, interval, TimeUnit.MILLISECONDS);
                 }
             } else {
-                stopwatch.start();
+                stopwatch.reset().start();
                 dlClient.check(name).addEventListener(this);
             }
         }
@@ -244,13 +244,14 @@ public class MonitorService implements Runnable, NamespaceListener {
                 .maxRedirects(2)
                 .serverSet(serverSet)
                 .clientBuilder(ClientBuilder.get()
-                        .connectTimeout(Duration.fromSeconds(5))
-                        .tcpConnectTimeout(Duration.fromSeconds(2))
-                        .requestTimeout(Duration.fromSeconds(5))
-                        .hostConnectionLimit(10)
-                        .reportHostStats(new NullStatsReceiver())
-                        .hostConnectionIdleTime(Duration.fromSeconds(1)))
-                .statsReceiver(statsReceiver)
+                        .connectTimeout(Duration.fromSeconds(100))
+                        .tcpConnectTimeout(Duration.fromSeconds(100))
+                        .requestTimeout(Duration.fromSeconds(1))
+                        .hostConnectionLimit(5)
+                        .hostConnectionCoresize(5)
+                        .keepAlive(true)
+                        .reportHostStats(new NullStatsReceiver()))
+                .statsReceiver(monitorReceiver.scope("client"))
                 .buildClient();
         runMonitor(dlConf, uri);
     }

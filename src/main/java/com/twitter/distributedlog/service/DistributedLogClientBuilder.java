@@ -610,6 +610,7 @@ public class DistributedLogClientBuilder {
             }
             // turn off failfast
             this.clientBuilder.failFast(false);
+            this.clientBuilder.keepAlive(true);
 
             logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}",
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass() });
@@ -647,7 +648,7 @@ public class DistributedLogClientBuilder {
             return ClientBuilder.get()
                 .name(clientName)
                 .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
-                .hostConnectionLimit(10)
+                .hostConnectionLimit(1)
                 .connectionTimeout(Duration.fromSeconds(1))
                 .requestTimeout(Duration.fromSeconds(1))
                 .reportTo(statsReceiver);
@@ -683,7 +684,9 @@ public class DistributedLogClientBuilder {
             if (null != sc) {
                 return sc;
             }
-            Service<ThriftClientRequest, byte[]> client = ClientBuilder.safeBuild(clientBuilder.hosts(address));
+            // Build factory since DL proxy is kind of stateful service.
+            Service<ThriftClientRequest, byte[]> client =
+                    ClientBuilder.safeBuildFactory(clientBuilder.hosts(address)).toService();
             DistributedLogService.ServiceIface service =
                     new DistributedLogService.ServiceToClient(client, new TBinaryProtocol.Factory());
             sc = new ServiceWithClient(client, service);
