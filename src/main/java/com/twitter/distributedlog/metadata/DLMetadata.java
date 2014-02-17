@@ -131,6 +131,22 @@ public class DLMetadata {
         }
     }
 
+    public static void unbind(URI uri) throws IOException {
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .uri(uri).build();
+        byte[] data = new byte[0];
+        try {
+            zkc.get().setData(uri.getPath(), data, -1);
+        } catch (KeeperException ke) {
+            throw new IOException("Fail to unbound dl metadata on uri " + uri, ke);
+        } catch (InterruptedException ie) {
+            throw new IOException("Interrupted when unbinding dl metadata on uri " + uri, ie);
+        } finally {
+            zkc.close();
+        }
+    }
 
     /**
      * Deserialize dl metadata from a given bytes array.

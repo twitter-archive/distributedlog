@@ -18,6 +18,66 @@ import java.net.URI;
 public class DistributedLogAdmin extends Tool {
 
     /**
+     * Unbind the bookkeeper environment for a given distributedlog uri.
+     */
+    class UnbindCommand extends OptsCommand {
+
+        Options options = new Options();
+
+        UnbindCommand() {
+            super("unbind", "unbind the bookkeeper environment bound for a given distributedlog instance.");
+            options.addOption("f", "force", false, "Force unbinding without prompt.");
+        }
+
+        @Override
+        protected Options getOptions() {
+            return options;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "unbind [options] <distributedlog uri>";
+        }
+
+        @Override
+        protected int runCmd(CommandLine cmdline) throws Exception {
+            String[] args = cmdline.getArgs();
+            if (args.length <= 0) {
+                println("No distributedlog uri specified.");
+                printUsage();
+                return -1;
+            }
+            boolean force = cmdline.hasOption("f");
+            URI uri = URI.create(args[0]);
+            // resolving the uri to see if there is another bindings in this uri.
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
+                    .sessionTimeoutMs(10000).build();
+            BKDLConfig bkdlConfig;
+            try {
+                bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
+            } catch (IOException ie) {
+                bkdlConfig = null;
+            }
+            if (null == bkdlConfig) {
+                println("No bookkeeper is bound for " + uri);
+                return 0;
+            } else {
+                println("There is bookkeeper bound for " + uri + " : ");
+                println("");
+                println(bkdlConfig.toString());
+                println("");
+                if (!force && !IOUtils.confirmPrompt("Are you sure to unbind " + uri + " :\n")) {
+                    println("You just gave up. ByeBye.");
+                    return 0;
+                }
+            }
+            DLMetadata.unbind(uri);
+            println("Unbound on " + uri + ".");
+            return 0;
+        }
+    }
+
+    /**
      * Bind Command to bind bookkeeper environment for a given distributed uri.
      */
     class BindCommand extends OptsCommand {
@@ -119,6 +179,7 @@ public class DistributedLogAdmin extends Tool {
     public DistributedLogAdmin() {
         super();
         addCommand(new BindCommand());
+        addCommand(new UnbindCommand());
     }
 
     @Override
