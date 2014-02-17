@@ -25,8 +25,10 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.configuration.ConfigurationException;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -233,6 +235,113 @@ public class DistributedLogTool extends Tool {
                 println(stream);
             }
             println("--------------------------------");
+        }
+    }
+
+    class TruncateCommand extends PerDLCommand {
+
+        int numThreads = 1;
+        String streamPrefix = null;
+        boolean deleteStream = false;
+
+        TruncateCommand() {
+            super("truncate", "truncate streams under a given dl uri");
+            options.addOption("t", "threads", true, "Number threads to do truncation");
+            options.addOption("f", "filter", true, "Stream filter by prefix");
+            options.addOption("d", "delete", false, "Delete Stream");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("t")) {
+                numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
+            }
+            if (cmdline.hasOption("f")) {
+                streamPrefix = cmdline.getOptionValue("f");
+            }
+            if (cmdline.hasOption("d")) {
+                deleteStream = true;
+            }
+        }
+
+        @Override
+        protected String getUsage() {
+            return "truncate [options]";
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory =
+                    new DistributedLogManagerFactory(getConf(), getUri());
+            try {
+                return truncateStreams(factory);
+            } finally {
+                factory.close();
+            }
+        }
+
+        private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
+            Collection<String> streamCollection = factory.enumerateAllLogsInNamespace();
+            final List<String> streams = new ArrayList<String>();
+            if (null != streamPrefix) {
+                for (String s : streamCollection) {
+                    if (s.startsWith(streamPrefix)) {
+                        streams.add(s);
+                    }
+                }
+            } else {
+                streams.addAll(streamCollection);
+            }
+            if (0 == streams.size()) {
+                return 0;
+            }
+            println("Streams : " + streams);
+            if (!IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
+                return 0;
+            }
+            numThreads = Math.min(streams.size(), numThreads);
+            final int numStreamsPerThreads = streams.size() / numThreads;
+            Thread[] threads = new Thread[numThreads];
+            for (int i = 0; i < numThreads; i++) {
+                final int tid = i;
+                threads[i] = new Thread("Truncate-" + i) {
+                    @Override
+                    public void run() {
+                        try {
+                            truncateStreams(factory, streams, tid, numStreamsPerThreads);
+                            println("Thread " + tid + " finished.");
+                        } catch (IOException e) {
+                            println("Thread " + tid + " quits with exception : " + e.getMessage());
+                        }
+                    }
+                };
+                threads[i].start();
+            }
+            for (int i = 0; i < numThreads; i++) {
+                threads[i].join();
+            }
+            return 0;
+        }
+
+        private void truncateStreams(DistributedLogManagerFactory factory, List<String> streams,
+                                     int tid, int numStreamsPerThreads) throws IOException {
+            int startIdx = tid * numStreamsPerThreads;
+            int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
+            for (int i = startIdx; i < endIdx; i++) {
+                String s = streams.get(i);
+                DistributedLogManager dlm =
+                        factory.createDistributedLogManagerWithSharedClients(s);
+                try {
+                    if (deleteStream) {
+                        dlm.delete();
+                    } else {
+                        dlm.purgeLogsOlderThan(Long.MAX_VALUE);
+                    }
+                } finally {
+                    dlm.close();
+                }
+            }
         }
     }
 
@@ -506,6 +615,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new ShowCommand());
         addCommand(new DeleteCommand());
         addCommand(new DeleteAllocatorPoolCommand());
+        addCommand(new TruncateCommand());
     }
 
     @Override
