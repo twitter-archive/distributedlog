@@ -608,6 +608,8 @@ public class DistributedLogClientBuilder {
             } else {
                 this.clientBuilder = setDefaultSettings(clientBuilder);
             }
+            // turn off failfast
+            this.clientBuilder.failFast(false);
 
             logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}",
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass() });
