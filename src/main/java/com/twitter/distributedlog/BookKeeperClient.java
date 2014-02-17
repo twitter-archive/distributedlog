@@ -4,7 +4,7 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.ConfUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
+import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -39,7 +39,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setZkLedgersRootPath(bkdlConfig.getBkLedgersPath());
         bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
-        bkConfig.setEnsemblePlacementPolicy(RackawareEnsemblePlacementPolicy.class);
+        bkConfig.setEnsemblePlacementPolicy(RegionAwareEnsemblePlacementPolicy.class);
         bkConfig.setProperty("reppDnsResolverClass", conf.getBkDNSResolverClass());
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");

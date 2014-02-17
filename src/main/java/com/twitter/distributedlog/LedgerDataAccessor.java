@@ -31,6 +31,8 @@ public class LedgerDataAccessor {
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
+    private final Counter readAheadAddHits;
+    private final Counter readAheadAddMisses;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private final AsyncNotification notification;
@@ -47,6 +49,8 @@ public class LedgerDataAccessor {
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
+        this.readAheadAddHits = readAheadStatsLogger.getCounter("add_hit");
+        this.readAheadAddMisses = readAheadStatsLogger.getCounter("add_miss");
         this.notification = notification;
         //Number of entries in the readAheadCache
         readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
@@ -190,6 +194,9 @@ public class LedgerDataAccessor {
             if (null == value) {
                 readAheadCache.put(key, newValue);
                 value = newValue;
+                readAheadAddMisses.inc();
+            } else {
+                readAheadAddHits.inc();
             }
         }
 

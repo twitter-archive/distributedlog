@@ -40,9 +40,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static Counter readAheadWorkerWaits;
     private static Counter readAheadEntryPiggyBackHits;
     private static Counter readAheadEntryPiggyBackMisses;
+    private static Counter readAheadReadLACCounter;
+    private static Counter readAheadReadLACAndEntryCounter;
     private static OpStatsLogger getInputStreamByTxIdStat;
     private static OpStatsLogger getInputStreamByDLSNStat;
     private static OpStatsLogger existsStat;
+    private static OpStatsLogger readAheadReadEntriesStat;
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
@@ -83,6 +86,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         if (null == readAheadEntryPiggyBackMisses) {
             readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
+        }
+
+        if (null == readAheadReadEntriesStat) {
+            readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
+        }
+
+        if (null == readAheadReadLACCounter) {
+            readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
+        }
+
+        if (null == readAheadReadLACAndEntryCounter) {
+            readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
         }
 
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
@@ -669,6 +684,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         metadataNotification = lpCallback;
                                         bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, lpCallback, null);
                                         lpCallback.callbackImmediately(reInitializeMetadata);
+                                        readAheadReadLACCounter.inc();
                                         break;
                                     case READENTRYPIGGYBACK_PARALLEL:
                                         ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
@@ -676,6 +692,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         metadataNotification = pCallback;
                                         bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, true, pCallback, null);
                                         pCallback.callbackImmediately(reInitializeMetadata);
+                                        readAheadReadLACAndEntryCounter.inc();
                                         break;
                                     case READENTRYPIGGYBACK_SEQUENTIAL:
                                         ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
@@ -683,10 +700,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         metadataNotification = sCallback;
                                         bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, false, sCallback, null);
                                         sCallback.callbackImmediately(reInitializeMetadata);
+                                        readAheadReadLACAndEntryCounter.inc();
                                         break;
                                     default:
                                         metadataNotification = null;
                                         bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                                        readAheadReadLACCounter.inc();
+                                        break;
                                 }
                             }
                         } else {
@@ -871,19 +891,23 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     @Override
                     public void run() {
                         if (BKException.Code.OK != rc || null == lh) {
+                            readAheadReadEntriesStat.registerFailedEvent(0);
                             exceptionHandler.process(rc);
                             return;
                         }
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Read entries for {} of {}.", currentMetadata, fullyQualifiedName);
                         }
+                        int numReads = 0;
                         while (seq.hasMoreElements()) {
                             bkcZkExceptions.set(0);
                             bkcUnExpectedExceptions.set(0);
                             nextReadPosition.advance();
                             LedgerEntry e = seq.nextElement();
                             ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), currentLH.getLedgerSequenceNo(), e.getEntryId()), e);
+                            ++numReads;
                         }
+                        readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
                         if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
                             cacheFull = true;
                             complete();
