@@ -10,7 +10,6 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -24,8 +23,8 @@ import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -287,7 +286,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return null;
     }
 
-
     public void close() throws IOException {
         if (null != readAheadWorker) {
             readAheadWorker.stop();
@@ -410,6 +408,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final AtomicInteger bkcUnExpectedExceptions = new AtomicInteger(0);
         volatile boolean inProgressChanged = false;
 
+        // Metadata Notification
+        final Object notificationLock = new Object();
+        AsyncNotification metadataNotification = null;
+
         // ReadAhead Phases
         final Phase schedulePhase = new ScheduleReadAheadPhase();
         final Phase exceptionHandler = new ExceptionHandlePhase(schedulePhase);
@@ -449,7 +451,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         public void stop() {
             running = false;
-
         }
 
         @Override
@@ -660,18 +661,33 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, readLACOption.value});
                             }
-                            switch(readLACOption) {
-                                case LONGPOLL:
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, this, null);
-                                    break;
-                                case READENTRYPIGGYBACK_PARALLEL:
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, true, this, null);
-                                    break;
-                                case READENTRYPIGGYBACK_SEQUENTIAL:
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, false, this, null);
-                                    break;
-                                default:
-                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                            synchronized (notificationLock) {
+                                switch(readLACOption) {
+                                    case LONGPOLL:
+                                        ReadLastConfirmedCallbackWithNotification lpCallback =
+                                                new ReadLastConfirmedCallbackWithNotification(lastAddConfirmed, this, null);
+                                        metadataNotification = lpCallback;
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, lpCallback, null);
+                                        lpCallback.callbackImmediately(reInitializeMetadata);
+                                        break;
+                                    case READENTRYPIGGYBACK_PARALLEL:
+                                        ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
+                                                new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
+                                        metadataNotification = pCallback;
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, true, pCallback, null);
+                                        pCallback.callbackImmediately(reInitializeMetadata);
+                                        break;
+                                    case READENTRYPIGGYBACK_SEQUENTIAL:
+                                        ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
+                                                new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
+                                        metadataNotification = sCallback;
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, false, sCallback, null);
+                                        sCallback.callbackImmediately(reInitializeMetadata);
+                                        break;
+                                    default:
+                                        metadataNotification = null;
+                                        bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
+                                }
                             }
                         } else {
                             next.process(BKException.Code.OK);
@@ -778,7 +794,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             try {
                             LOG.trace("Advancing Last Add Confirmed of {} for {} : {}, {}",
                                 new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed, bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH) });
-                            } catch (Exception exc) {
+                            } catch (IOException exc) {
                                 // Ignore
                             }
                         }
@@ -909,14 +925,100 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
 
         @Override
-        synchronized public void process(WatchedEvent event) {
+        public void process(WatchedEvent event) {
             if ((event.getType() == Watcher.Event.EventType.None)
                     && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
                 LOG.debug("Reconnected ...");
             } else {
-                reInitializeMetadata = true;
-                LOG.debug("{} Read ahead node changed", fullyQualifiedName);
+                AsyncNotification notification;
+                synchronized (notificationLock) {
+                    reInitializeMetadata = true;
+                    LOG.debug("{} Read ahead node changed", fullyQualifiedName);
+                    notification = metadataNotification;
+                    metadataNotification = null;
+                }
+                if (null != notification) {
+                    notification.notifyOnOperationComplete();
+                }
             }
+        }
+
+        abstract class LongPollNotification<T> implements AsyncNotification {
+
+            final long lac;
+            final T cb;
+            final Object ctx;
+            final AtomicBoolean called = new AtomicBoolean(false);
+
+            LongPollNotification(long lac, T cb, Object ctx) {
+                this.lac = lac;
+                this.cb = cb;
+                this.ctx = ctx;
+            }
+
+            abstract void complete();
+
+            @Override
+            public void notifyOnError() {
+                complete();
+            }
+
+            @Override
+            public void notifyOnOperationComplete() {
+                complete();
+            }
+
+            void callbackImmediately(boolean immediate) {
+                if (immediate) {
+                    complete();
+                }
+            }
+        }
+
+        class ReadLastConfirmedCallbackWithNotification
+                extends LongPollNotification<AsyncCallback.ReadLastConfirmedCallback>
+                implements AsyncCallback.ReadLastConfirmedCallback {
+
+            ReadLastConfirmedCallbackWithNotification(
+                    long lac, AsyncCallback.ReadLastConfirmedCallback cb, Object ctx) {
+                super(lac, cb, ctx);
+            }
+
+            @Override
+            public void readLastConfirmedComplete(int rc, long lac, Object ctx) {
+                if (called.compareAndSet(false, true)) {
+                    this.cb.readLastConfirmedComplete(rc, lac, ctx);
+                }
+            }
+
+            @Override
+            void complete() {
+                readLastConfirmedComplete(BKException.Code.OK, lac, ctx);
+            }
+
+        }
+
+        class ReadLastConfirmedAndEntryCallbackWithNotification
+                extends LongPollNotification<AsyncCallback.ReadLastConfirmedAndEntryCallback>
+                implements AsyncCallback.ReadLastConfirmedAndEntryCallback {
+
+            ReadLastConfirmedAndEntryCallbackWithNotification(
+                    long lac, AsyncCallback.ReadLastConfirmedAndEntryCallback cb, Object ctx) {
+                super(lac, cb, ctx);
+            }
+
+            @Override
+            public void readLastConfirmedAndEntryComplete(int rc, long lac, LedgerEntry entry, Object ctx) {
+                if (called.compareAndSet(false, true)) {
+                    this.cb.readLastConfirmedAndEntryComplete(rc, lac, entry, ctx);
+                }
+            }
+
+            @Override
+            void complete() {
+                readLastConfirmedAndEntryComplete(BKException.Code.OK, lac, null, ctx);
+            }
+
         }
     }
 

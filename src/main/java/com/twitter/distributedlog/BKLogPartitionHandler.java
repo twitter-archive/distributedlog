@@ -480,7 +480,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
 
-        throw new AlreadyTruncatedTransactionException("Records prior to" + thresholdTxId +
+        throw new AlreadyTruncatedTransactionException("Records prior to " + thresholdTxId +
             " have already been deleted for log " + getFullyQualifiedName());
     }
 
