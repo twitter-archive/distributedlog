@@ -792,11 +792,17 @@ public class DistributedLogClientBuilder {
                             handleRedirectResponse(response, op, addr);
                             break;
                         case SERVICE_UNAVAILABLE:
-                            // we are receiving SERVICE_UNAVAILABLE exception from proxy, it means proxy or the stream is closed
+                        case ZOOKEEPER_ERROR:
+                        case LOCKING_EXCEPTION:
+                        case UNEXPECTED:
+                        case INTERRUPTED:
+                            // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                             // redirect the request.
                             clearHostFromStream(op.stream, addr);
                             redirect(op, addr, null);
                             break;
+                        // for responses that indicate the requests definitely failed,
+                        // we should fail them immediately (e.g. BAD_REQUEST, TOO_LARGE_RECORD, METADATA_EXCEPTION)
                         default:
                             logger.error("Failed to write request to {} : {}", op.stream, response);
                             // server side exceptions, throw to the client.
