@@ -84,6 +84,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_WAITTIME = "ReadAheadWaitTime";
     public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
 
+    public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
+    public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
+
     // should each partition use a separate zookeeper client
     public static final String BKDL_SEPARATE_ZK_CLIENT = "separateZKClients";
     public static final boolean BKDL_SEPARATE_ZK_CLIENT_DEFAULT = false;
@@ -569,16 +572,16 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get ZK Session timeout
+     * Get the wait time between successive attempts to poll for new log records
      *
-     * @return ensemble size
+     * @return read ahead wait time
      */
     public int getReadAheadWaitTime() {
         return this.getInt(BKDL_READAHEAD_WAITTIME, BKDL_READAHEAD_WAITTIME_DEFAULT);
     }
 
     /**
-     * Set the wait time between successive attempts to check for new log records
+     * Set the wait time between successive attempts to poll for new log records
      *
      * @param readAheadWaitTime read ahead wait time
      * @return distributed log configuration
@@ -587,6 +590,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_READAHEAD_WAITTIME, readAheadWaitTime);
         return this;
     }
+
+    /**
+     * Get the long poll time out for read last add confirmed requests
+     *
+     * @return long poll timeout
+     */
+    public int getReadLACLongPollTimeout() {
+        return this.getInt(BKDL_READLACLONGPOLL_TIMEOUT, BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT);
+    }
+
+    /**
+     * Set the long poll time out for read last add confirmed requests
+     *
+     * @param readAheadLongPollTimeout long poll timeout
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setReadLACLongPollTimeout(int readAheadLongPollTimeout) {
+        setProperty(BKDL_READLACLONGPOLL_TIMEOUT, readAheadLongPollTimeout);
+        return this;
+    }
+
 
     /**
      * Get ZK Session timeout

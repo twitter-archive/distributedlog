@@ -49,7 +49,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
-        private int value;
+        private final int value;
 
         private ReadLACOption(int value) {
             this.value = value;
@@ -318,10 +318,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 startPosition,
                 ledgerDataAccessor,
                 simulateErrors,
-                conf.getReadLACOption(),
-                conf.getReadAheadBatchSize(),
-                conf.getReadAheadMaxEntries(),
-                conf.getReadAheadWaitTime());
+                conf);
             readAheadWorker.start();
             ledgerDataAccessor.setReadAheadEnabled(true, conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
         }
@@ -409,10 +406,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final LedgerDataAccessor ledgerDataAccessor;
         private volatile List<LogSegmentLedgerMetadata> ledgerList;
         private final boolean simulateErrors;
-        private final ReadLACOption readLACOption;
-        private final long readAheadBatchSize;
-        private final long readAheadMaxEntries;
-        private final long readAheadWaitTime;
+        private final DistributedLogConfiguration conf;
         private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
         private static final int BKC_UNEXPECTED_EXCEPTION_THRESHOLD = 3;
 
@@ -438,25 +432,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
                                boolean simulateErrors,
-                               int readLACOptionInt,
-                               int readAheadBatchSize,
-                               int readAheadMaxEntries,
-                               int readAheadWaitTime) {
+                               DistributedLogConfiguration conf) {
             this.bkLedgerManager = ledgerManager;
             this.fullyQualifiedName = fullyQualifiedName;
             this.nextReadPosition = startPosition;
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.simulateErrors = simulateErrors;
-            if ((readLACOptionInt < ReadLACOption.INVALID_OPTION.value) &&
-                (readLACOptionInt >= ReadLACOption.DEFAULT.value)) {
-                this.readLACOption = ReadLACOption.values()[readLACOptionInt];
-            } else {
-                LOG.warn("Invalid value of ReadLACOption configured {}", readLACOptionInt);
-                this.readLACOption = ReadLACOption.DEFAULT;
+            if ((conf.getReadLACOption() >= ReadLACOption.INVALID_OPTION.value) ||
+                (conf.getReadLACOption() < ReadLACOption.DEFAULT.value)) {
+                LOG.warn("Invalid value of ReadLACOption configured {}", conf.getReadLACOption());
+                conf.setReadLACOption(ReadLACOption.DEFAULT.value);
             }
-            this.readAheadBatchSize = readAheadBatchSize;
-            this.readAheadMaxEntries = readAheadMaxEntries;
-            this.readAheadWaitTime = readAheadWaitTime;
+            this.conf = conf;
         }
 
         public void start() {
@@ -518,8 +505,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 }
                 boolean simulate = simulateErrors && Utils.randomPercent(2);
                 if (encounteredException || simulate) {
-                    if ((bkcZkExceptions.get() > (BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / readAheadWaitTime)) ||
-                        simulate) {
+                    int zkErrorThreshold = BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / conf.getReadAheadWaitTime();
+
+                    if ((bkcZkExceptions.get() > zkErrorThreshold) || simulate) {
                         LOG.error("BookKeeper Client used by the ReadAhead Thread has encountered zookeeper exception");
                         running = false;
                         bkLedgerManager.setReadAheadError();
@@ -533,9 +521,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         encounteredException = false;
                         // Backoff before resuming
                         if (LOG.isTraceEnabled()) {
-                            LOG.trace("Scheduling read ahead for {} after {} ms.", fullyQualifiedName, readAheadWaitTime/4);
+                            LOG.trace("Scheduling read ahead for {} after {} ms.", fullyQualifiedName, conf.getReadAheadWaitTime() / 4);
                         }
-                        schedule(ReadAheadWorker.this, readAheadWaitTime / 4);
+                        schedule(ReadAheadWorker.this, conf.getReadAheadWaitTime() / 4);
                     }
                 } else {
                     if (LOG.isTraceEnabled()) {
@@ -620,7 +608,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Initialized metadata for {}, starting reading ahead from {} : {}.",
-                                    new Object[] { fullyQualifiedName, currentMetadataIndex, currentMetadata });
+                                new Object[]{fullyQualifiedName, currentMetadataIndex, currentMetadata});
                         }
                         next.process(BKException.Code.OK);
                     }
@@ -674,15 +662,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
-                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, readLACOption.value});
+                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, conf.getReadLACOption()});
                             }
                             synchronized (notificationLock) {
-                                switch(readLACOption) {
+                                switch(ReadLACOption.values()[conf.getReadLACOption()]) {
                                     case LONGPOLL:
                                         ReadLastConfirmedCallbackWithNotification lpCallback =
                                                 new ReadLastConfirmedCallbackWithNotification(lastAddConfirmed, this, null);
                                         metadataNotification = lpCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, readAheadWaitTime, lpCallback, null);
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, conf.getReadLACLongPollTimeout(), lpCallback, null);
                                         lpCallback.callbackImmediately(reInitializeMetadata);
                                         readAheadReadLACCounter.inc();
                                         break;
@@ -690,7 +678,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
                                                 new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
                                         metadataNotification = pCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, true, pCallback, null);
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), true, pCallback, null);
                                         pCallback.callbackImmediately(reInitializeMetadata);
                                         readAheadReadLACAndEntryCounter.inc();
                                         break;
@@ -698,7 +686,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
                                                 new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
                                         metadataNotification = sCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, readAheadWaitTime, false, sCallback, null);
+                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), false, sCallback, null);
                                         sCallback.callbackImmediately(reInitializeMetadata);
                                         readAheadReadLACAndEntryCounter.inc();
                                         break;
@@ -828,7 +816,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
-                                    new Object[] { currentMetadata, fullyQualifiedName, entry.getEntryId() });
+                                    new Object[]{currentMetadata, fullyQualifiedName, entry.getEntryId()});
                             }
                             readAheadEntryPiggyBackHits.inc();
                         } else {
@@ -880,7 +868,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             new Object[] { nextReadPosition, currentMetadata, fullyQualifiedName });
                 }
                 bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, nextReadPosition.getEntryId(),
-                        Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + readAheadBatchSize - 1)), this, null);
+                        Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + conf.getReadAheadBatchSize() - 1)), this, null);
             }
 
             @Override
@@ -908,7 +896,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             ++numReads;
                         }
                         readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
-                        if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
+                        if (ledgerDataAccessor.getNumCacheEntries() >= conf.getReadAheadMaxEntries()) {
                             cacheFull = true;
                             complete();
                         } else {
@@ -922,16 +910,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (cacheFull) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Cache for {} is full. Backoff reading ahead for {} ms.",
-                            fullyQualifiedName, readAheadWaitTime);
+                            fullyQualifiedName, conf.getReadAheadWaitTime());
                     }
-                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, readAheadMaxEntries);
-                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT == readLACOption)) {
+                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, conf.getReadAheadWaitTime());
+                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
-                            fullyQualifiedName, readAheadWaitTime);
+                            fullyQualifiedName, conf.getReadAheadWaitTime());
                     }
                     // Backoff before resuming
-                    schedule(ReadAheadWorker.this, readAheadWaitTime);
+                    schedule(ReadAheadWorker.this, conf.getReadAheadWaitTime());
                 } else {
                     run();
                 }

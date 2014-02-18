@@ -1199,6 +1199,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-maxentries-readahead";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
+        confLocal.setReadLACOption(0);
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setRetentionPeriodHours(24 * 7);

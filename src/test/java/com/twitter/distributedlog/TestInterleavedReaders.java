@@ -37,7 +37,7 @@ public class TestInterleavedReaders {
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration().setLockTimeout(10).setReadLACLongPollTimeout(200);
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
