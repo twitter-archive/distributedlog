@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -58,6 +59,78 @@ public class TestNonBlockingReads {
         zkc.close();
     }
 
+
+    private void readNonBlocking(DistributedLogManager dlm, boolean notification) throws Exception {
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 0;
+        long lastTxId = -1;
+
+        boolean exceptionEncountered = false;
+        try {
+            while (true) {
+                LogRecord record = reader.readNext(true);
+                if (null != record) {
+                    DLMTestUtil.verifyLogRecord(record);
+                    assert (lastTxId < record.getTransactionId());
+                    lastTxId = record.getTransactionId();
+                    numTrans++;
+                    continue;
+                }
+
+                if (numTrans >= (3 * DEFAULT_SEGMENT_SIZE)) {
+                    break;
+                }
+
+                if (notification) {
+                    final CountDownLatch syncLatch = new CountDownLatch(1);
+                    reader.registerNotification(new LogReader.ReaderNotification() {
+                        @Override
+                        public void notifyNextRecordAvailable() {
+                            syncLatch.countDown();
+                        }
+                    });
+                    syncLatch.await();
+                } else {
+                    TimeUnit.MILLISECONDS.sleep(2);
+                }
+            }
+        } catch (LogReadException readexc) {
+            exceptionEncountered = true;
+        } catch (LogNotFoundException exc) {
+            exceptionEncountered = true;
+        }
+        assert(!exceptionEncountered);
+        reader.close();
+    }
+
+    void writeRecordsForNonBlockingReads(DistributedLogManager dlm, boolean recover) throws Exception {
+        long txId = 1;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j < DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txId++));
+            }
+            if (recover) {
+                writer.setReadyToFlush();
+                writer.flushAndSync();
+                writer.write(DLMTestUtil.getLogRecordInstance(txId++));
+                writer.setReadyToFlush();
+                TimeUnit.MILLISECONDS.sleep(300);
+                writer.abort();
+                LOG.debug("Recovering Segments");
+                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+                blplm.recoverIncompleteLogSegments();
+                blplm.close();
+                LOG.debug("Recovered Segments");
+            } else {
+                writer.write(DLMTestUtil.getLogRecordInstance(txId++));
+                writer.closeAndComplete();
+            }
+            TimeUnit.MILLISECONDS.sleep(300);
+        }
+    }
+
+
     @Test(timeout = 10000)
     public void nonBlockingRead() throws Exception {
         String name = "distrlog-non-blocking-reader";
@@ -74,13 +147,7 @@ public class TestNonBlockingReads {
                 @Override
                 public void run() {
                     try {
-                        for (long i = 0; i < 3; i++) {
-                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
-                            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
-                                writer.write(DLMTestUtil.getLogRecordInstance(System.nanoTime()));
-                            }
-                            writer.closeAndComplete();
-                        }
+                        writeRecordsForNonBlockingReads(dlm, false);
                     } catch (Exception exc) {
                         currentThread.interrupt();
                     }
@@ -88,35 +155,8 @@ public class TestNonBlockingReads {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        LogReader reader = dlm.getInputStream(1);
-        long numTrans = 0;
-        long lastTxId = -1;
-
-        boolean exceptionEncountered = false;
-        try {
-            while (true) {
-                LogRecord record = reader.readNext(true);
-                if (null != record) {
-                    DLMTestUtil.verifyLogRecord(record);
-                    assert (lastTxId < record.getTransactionId());
-                    lastTxId = record.getTransactionId();
-                    numTrans++;
-                } else {
-                    Thread.sleep(2);
-                }
-
-                if (numTrans >= (3 * DEFAULT_SEGMENT_SIZE)) {
-                    break;
-                }
-            }
-        } catch (LogReadException readexc) {
-            exceptionEncountered = true;
-        } catch (LogNotFoundException exc) {
-            exceptionEncountered = true;
-        }
-        assert(!exceptionEncountered);
+        readNonBlocking(dlm, false);
         assert(!currentThread.isInterrupted());
-        reader.close();
         executor.shutdown();
     }
 
@@ -137,24 +177,7 @@ public class TestNonBlockingReads {
                 @Override
                 public void run() {
                     try {
-                        long txId = 1;
-                        for (long i = 0; i < 3; i++) {
-                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
-                            for (long j = 1; j < DEFAULT_SEGMENT_SIZE; j++) {
-                                writer.write(DLMTestUtil.getLogRecordInstance(txId++));
-                            }
-                            writer.setReadyToFlush();
-                            writer.flushAndSync();
-                            writer.write(DLMTestUtil.getLogRecordInstance(txId++));
-                            writer.setReadyToFlush();
-                            Thread.sleep(300);
-                            writer.abort();
-                            LOG.debug("Recovering Segments");
-                            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
-                            blplm.recoverIncompleteLogSegments();
-                            blplm.close();
-                            LOG.debug("Recovered Segments");
-                        }
+                        writeRecordsForNonBlockingReads(dlm, true);
                     } catch (Exception exc) {
                         currentThread.interrupt();
                     }
@@ -162,38 +185,71 @@ public class TestNonBlockingReads {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        LogReader reader = dlm.getInputStream(1);
-        long numTrans = 0;
-        long lastTxId = -1;
-
-        boolean exceptionEncountered = false;
-        try {
-            while (true) {
-                LogRecord record = reader.readNext(true);
-                if (null != record) {
-                    DLMTestUtil.verifyLogRecord(record);
-                    assert (lastTxId < record.getTransactionId());
-                    lastTxId = record.getTransactionId();
-                    numTrans++;
-                } else {
-                    Thread.sleep(2);
-                }
-
-                if (numTrans >= (3 * DEFAULT_SEGMENT_SIZE)) {
-                    break;
-                }
-            }
-        } catch (LogReadException readexc) {
-            exceptionEncountered = true;
-        } catch (LogNotFoundException exc) {
-            exceptionEncountered = true;
-        }
-        assert(!exceptionEncountered);
+        readNonBlocking(dlm, false);
         assert(!currentThread.isInterrupted());
-        reader.close();
         executor.shutdown();
     }
 
+    @Test(timeout = 10000)
+    public void nonBlockingReadNotification() throws Exception {
+        String name = "distrlog-non-blocking-reader-notification";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        writeRecordsForNonBlockingReads(dlm, false);
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+
+                }
+            }, 100, TimeUnit.MILLISECONDS);
+
+        readNonBlocking(dlm, true);
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
+
+
+    @Test(timeout = 10000)
+    public void nonBlockingReadRecoveryWithNotification() throws Exception {
+        String name = "distrlog-non-blocking-reader-recovery-notification";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(16);
+        confLocal.setReadAheadBatchSize(10);
+        confLocal.setReadAheadMaxEntries(10);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        writeRecordsForNonBlockingReads(dlm, true);
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+
+                }
+            }, 100, TimeUnit.MILLISECONDS);
+
+        readNonBlocking(dlm, true);
+
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
 
     static class ReaderThread extends Thread {
 

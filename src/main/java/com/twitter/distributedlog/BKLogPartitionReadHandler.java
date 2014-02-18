@@ -72,7 +72,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
               statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
-        ledgerDataAccessor = new LedgerDataAccessor(handleCache, statsLogger, notification);
+        ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger, notification);
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
@@ -311,6 +311,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         super.close();
     }
 
+    private void setWatcherOnLedgerRoot(Watcher watcher) throws ZooKeeperClient.ZooKeeperConnectionException, KeeperException, InterruptedException {
+        zooKeeperClient.get().getChildren(ledgerPath, watcher);
+    }
+
     public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
@@ -358,6 +362,38 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
         }
         return logExists;
+    }
+
+    public void setNotification(final AsyncNotification notification) {
+        // If we are setting a notification, then we must ensure that
+        // read ahead has already been started. Once we have the read
+        // ahead setup, it will notify on errors or successful reads
+        // If we don't have read ahead setup then there are two possibilities
+        // 1. There is nothing in the log => we must exit immediately, this is
+        // mostly applicable only for tests
+        // 2. We don't have a log segment beyond the start read point, in this case
+        // we set a watcher on the ledger root and wait for changes
+        //
+        if ((null != notification) && (null == readAheadWorker)) {
+            try {
+                setWatcherOnLedgerRoot(new Watcher() {
+                    @Override
+                    public void process(WatchedEvent event) {
+                        notification.notifyOnOperationComplete();
+                    }
+                });
+            } catch (InterruptedException exc) {
+                // Propagate the interrupt bit
+                Thread.currentThread().interrupt();
+                notification.notifyOnError();
+            } catch (KeeperException exc) {
+                notification.notifyOnError();
+            } catch (ZooKeeperClient.ZooKeeperConnectionException exc) {
+                notification.notifyOnError();
+            }
+        }
+
+        ledgerDataAccessor.setNotification(notification);
     }
 
     public void checkClosedOrInError() throws LogReadException {
