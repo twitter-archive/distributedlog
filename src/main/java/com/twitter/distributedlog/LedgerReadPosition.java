@@ -34,7 +34,7 @@ public class LedgerReadPosition {
 
     @Override
     public String toString() {
-        return String.format("(lid=%d, eid=%d)", ledgerId, entryId);
+        return String.format("(lid=%d, lseqNo=%d, eid=%d)", ledgerId, ledgerSequenceNo, entryId);
     }
 
     public boolean definitelyLessThanOrEqualTo(LedgerReadPosition threshold) {

@@ -163,6 +163,13 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         }
     }
 
+    synchronized public boolean canResume() throws IOException {
+        return (null == ledgerDescriptor) ||
+            (nodeDeleteNotification.get() ||
+            !isInProgress() ||
+            (lin.nextEntryToRead() < ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor)) );
+    }
+
     synchronized public void requireResume() {
         shouldResume = true;
     }
