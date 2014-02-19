@@ -24,7 +24,6 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private boolean zkSessionExpired = false;
     private volatile boolean endOfStreamEncountered = false;
     private LogReader.ReaderNotification notification = null;
-    protected final boolean nonBlockingReader;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
     protected boolean simulateErrors = false;
 
@@ -32,14 +31,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      boolean readAheadEnabled,
-                                     boolean nonBlockingReader,
                                      AsyncNotification notification) throws IOException {
-        // nonBlockingReader => readAheadEnabled
-        assert(!nonBlockingReader || readAheadEnabled);
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
         this.readAheadEnabled = readAheadEnabled;
-        this.nonBlockingReader = nonBlockingReader;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -80,11 +75,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
-            advancedOnce = createOrPositionReader(nonBlockingReadOperation || nonBlockingReader);
+            advancedOnce = createOrPositionReader(nonBlockingReadOperation);
 
             if (null != currentReader) {
 
-                record = currentReader.readOp(nonBlockingReadOperation || nonBlockingReader);
+                record = currentReader.readOp(nonBlockingReadOperation);
 
                 if (null == record) {
                     if (handleEndOfCurrentStream()) {
@@ -113,7 +108,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         boolean advancedOnce = false;
         if (null == currentReader) {
             currentReader = getCurrentReader();
-            if ((null != currentReader) && !nonBlockingReader) {
+            if ((null != currentReader)) {
                 if(readAheadEnabled) {
                     bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors);
                 }

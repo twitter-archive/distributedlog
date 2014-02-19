@@ -27,7 +27,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogReaderDLSN.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
-    protected final BKContinuousLogReaderDLSN currentReader;
+    protected final BKLogPartitionReadHandler bkLedgerManager;
     private Watcher sessionExpireWatcher = null;
     private boolean endOfStreamEncountered = false;
     private AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
@@ -35,11 +35,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();
     private AtomicLong scheduleCount = new AtomicLong(0);
     private boolean simulateErrors = false;
-    private final StatsLogger statsLogger;
     private static OpStatsLogger futureSatisfyLatency = null;
     private static OpStatsLogger scheduleLatency = null;
     private static OpStatsLogger backgroundReaderRunTime = null;
     private Stopwatch scheduleDelayStopwatch;
+    private final DLSN startDLSN;
+    private boolean readAheadStarted = false;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -47,10 +48,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                      DLSN startDLSN,
                                      StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.statsLogger = statsLogger;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
-        this.currentReader = new BKContinuousLogReaderDLSN(bkDistributedLogManager, streamIdentifier, startDLSN, true, true, this);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, this);
+        LOG.debug("Starting async reader at {}", startDLSN);
+        this.startDLSN = startDLSN;
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
 
         if (null == futureSatisfyLatency) {
@@ -77,7 +79,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean checkClosedOrInError(String operation) {
         if (null == lastException.get()) {
             try {
-                currentReader.checkClosedOrInError(operation);
+                if (null != bkLedgerManager) {
+                    bkLedgerManager.checkClosedOrInError();
+                }
+
+                bkDistributedLogManager.checkClosedOrInError(operation);
             } catch (IOException exc) {
                 setLastException(exc);
             }
@@ -95,7 +101,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private void setLastException(Throwable exc) {
         lastException.set(exc);
         if (!(exc instanceof EndOfStreamException)) {
-            lastException.set(new RetryableReadException(currentReader.getFullyQualifiedName(), exc.getMessage(), exc));
+            lastException.set(new RetryableReadException(bkLedgerManager.getFullyQualifiedName(), exc.getMessage(), exc));
         }
     }
 
@@ -108,6 +114,22 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     @Override
     public synchronized Future<LogRecordWithDLSN> readNext() {
         Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
+
+        if (!readAheadStarted) {
+            boolean exists = false;
+            try {
+                exists = bkLedgerManager.doesLogExist();
+            } catch (IOException ioe) {
+                setLastException(ioe);
+            }
+
+            if (!exists) {
+                setLastException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", bkLedgerManager.getFullyQualifiedName())));
+            } else {
+                bkLedgerManager.startReadAhead(new LedgerReadPosition(startDLSN), simulateErrors);
+                readAheadStarted = true;
+            }
+        }
 
         if (checkClosedOrInError("readNext")) {
             Stopwatch stopwatch = new Stopwatch().start();
@@ -138,9 +160,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     @Override
     public void close() throws IOException {
         cancelAllPendingReads(new RetryableReadException(
-            currentReader.getFullyQualifiedName(), "Reader was closed"));
+            bkLedgerManager.getFullyQualifiedName(), "Reader was closed"));
 
-        currentReader.close();
+        bkLedgerManager.close();
 
         bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
@@ -166,10 +188,10 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             Stopwatch runTime = new Stopwatch().start();
             int iterations = 0;
             long scheduleCountLocal = scheduleCount.get();
-            LOG.debug("{}: Scheduled Background Reader", currentReader.getFullyQualifiedName());
+            LOG.debug("{}: Scheduled Background Reader", bkLedgerManager.getFullyQualifiedName());
             while(true) {
                 if (LOG.isTraceEnabled()) {
-                    LOG.trace("{}: Executing Iteration: {}", currentReader.getFullyQualifiedName(), iterations++);
+                    LOG.trace("{}: Executing Iteration: {}", bkLedgerManager.getFullyQualifiedName(), iterations++);
                 }
 
                 Promise<LogRecordWithDLSN> nextPromise = null;
@@ -178,7 +200,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
                     // Queue is empty, nothing to read, return
                     if (null == nextPromise) {
-                        LOG.trace("{}: Queue Empty waiting for Input", currentReader.getFullyQualifiedName());
+                        LOG.trace("{}: Queue Empty waiting for Input", bkLedgerManager.getFullyQualifiedName());
                         scheduleCount.set(0);
                         backgroundReaderRunTime.registerSuccessfulEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                         return;
@@ -196,7 +218,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
                 if (checkClosedOrInError("readNext")) {
                     if (!(lastException.get().getCause() instanceof LogNotFoundException)) {
-                        LOG.warn("{}: Exception", currentReader.getFullyQualifiedName(), lastException.get());
+                        LOG.warn("{}: Exception", bkLedgerManager.getFullyQualifiedName(), lastException.get());
                     }
                     backgroundReaderRunTime.registerFailedEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                     return;
@@ -208,18 +230,20 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     if (simulateErrors && Utils.randomPercent(10)) {
                         throw new IOException("Reader Simulated Exception");
                     }
-                    record = currentReader.readNextWithSkip();
+                    do {
+                        record = bkLedgerManager.getNextReadAheadRecord();
+                    } while (null != record && (record.isControl() || (record.getDlsn().compareTo(startDLSN) < 0)));
                 } catch (IOException exc) {
                     setLastException(exc);
                     if (!(exc instanceof LogNotFoundException)) {
-                        LOG.warn("{} : read with skip Exception", currentReader.getFullyQualifiedName(), lastException.get());
+                        LOG.warn("{} : read with skip Exception", bkLedgerManager.getFullyQualifiedName(), lastException.get());
                     }
                     continue;
                 }
 
                 if (null != record) {
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("{} : Satisfied promise with record {}", currentReader.getFullyQualifiedName(), record.getTransactionId());
+                        LOG.trace("{} : Satisfied promise with record {}", bkLedgerManager.getFullyQualifiedName(), record.getTransactionId());
                     }
                     Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                     if (null != promise) {
@@ -258,7 +282,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     @VisibleForTesting
     void simulateErrors() {
         simulateErrors = true;
-        currentReader.simulateErrors();
+        if (null != bkLedgerManager) {
+            bkLedgerManager.simulateErrors();
+        }
     }
 }
 

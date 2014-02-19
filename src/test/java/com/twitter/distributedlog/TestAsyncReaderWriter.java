@@ -225,7 +225,7 @@ public class TestAsyncReaderWriter {
                     } catch (Exception exc) {
                         //
                     }
-                    if (cause instanceof RetryableReadException) {
+                    if (cause instanceof IOException) {
                         int newDelay = Math.min(delay * 2, 500);
                         if (0 == delay) {
                             newDelay = 10;
@@ -469,12 +469,12 @@ public class TestAsyncReaderWriter {
         @Override
         public void onSuccess(DLSN value) {
             if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
-                LOG.debug("EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                LOG.debug("Thread Interrupted - Ledger Seq No: " + value.getLedgerSequenceNo() + ", Expected: " + currentLedgerSeqNo);
                 currentThread.interrupt();
             }
 
             if(value.getEntryId() != currentEntryId) {
-                LOG.debug("EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
+                LOG.debug("Thread Interrupted - EntryId: " + value.getEntryId() + ", TxId " + record.getTransactionId() + "Expected " + currentEntryId);
                 currentThread.interrupt();
             }
         }
@@ -484,6 +484,7 @@ public class TestAsyncReaderWriter {
          */
         @Override
         public void onFailure(Throwable cause) {
+            LOG.debug("Thread Interrupted - onFailure", cause);
             currentThread.interrupt();
         }
     }
@@ -746,13 +747,13 @@ public class TestAsyncReaderWriter {
                     @Override
                     public void onSuccess(DLSN value) {
                         if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
-                            LOG.debug("Interrupting: EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
+                            LOG.debug("Thread Interrupted - EntryId: " + value.getLedgerSequenceNo() + ", TxId " + currentLedgerSeqNo);
                             currentThread.interrupt();
                         }
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        LOG.debug("Interrupting for failure", cause);
+                        LOG.debug("Thread Interrupted - onFailure", cause);
                         currentThread.interrupt();
                     }
                 });
@@ -768,7 +769,7 @@ public class TestAsyncReaderWriter {
             try {
                 success = syncLatch.await(15, TimeUnit.SECONDS);
             } catch (InterruptedException exc) {
-                LOG.debug("Interrupting for failure", exc);
+                LOG.debug("Thread Interrupted - onFailure", exc);
                 Thread.currentThread().interrupt();
             }
         }

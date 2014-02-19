@@ -22,6 +22,8 @@ public class DistributedLogConstants {
     public static final int FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO = 2;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
+    public static final long UNRESOLVED_LEDGER_ID = -1;
+
     public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
     // log segment prefix
     public static final String INPROGRESS_LOGSEGMENT_PREFIX = "inprogress";

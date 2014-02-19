@@ -211,24 +211,21 @@ public class LogRecord {
         public LogRecordWithDLSN readOp() throws IOException {
             try {
                 long metadata = in.readLong();
-                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN();
-                nextRecordInStream.setMetadata(metadata);
                 // Reading the first 8 bytes positions the record stream on the correct log record
                 // By this time all components of the DLSN are valid so this is where we shoud
                 // retrieve the currentDLSN and advance to the next
                 // Given that there are 20 bytes following the read position of the previous call
                 // to readLong, we should not have moved ahead in the stream.
-                DLSN dlsn = recordStream.getCurrentPosition();
-                nextRecordInStream.setDlsn(dlsn);
-
+                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition());
+                nextRecordInStream.setMetadata(metadata);
                 recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
                 if (LOG.isTraceEnabled()) {
                     if (nextRecordInStream.isControl()) {
-                        LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), dlsn);
+                        LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
                     } else {
-                        LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), dlsn);
+                        LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
                     }
                 }
                 return nextRecordInStream;

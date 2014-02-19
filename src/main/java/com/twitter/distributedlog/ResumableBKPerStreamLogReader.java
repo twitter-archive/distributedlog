@@ -41,7 +41,6 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata,
-                                  boolean noBlocking,
                                   long startBkEntry,
                                   StatsLogger statsLogger) throws IOException {
         super(ledgerManager, metadata, statsLogger);
@@ -67,7 +66,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             resumeSetWatcherStat = readerStatsLogger.getOpStatsLogger("resume_setwatcher");
         }
 
-        resume(!noBlocking);
+        resume(true);
     }
 
     /**
@@ -77,9 +76,8 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata,
-                                  boolean noBlocking,
                                   StatsLogger statsLogger) throws IOException {
-        this(ledgerManager, zkc, ledgerDataAccessor, metadata, noBlocking, 0, statsLogger);
+        this(ledgerManager, zkc, ledgerDataAccessor, metadata, 0, statsLogger);
     }
 
     public LogSegmentLedgerMetadata getLogSegmentLedgerMetadata() {
@@ -196,7 +194,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
     }
 
     synchronized boolean reachedEndOfLogSegment() {

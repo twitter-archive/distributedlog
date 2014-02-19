@@ -246,7 +246,7 @@ public class TestBackgroundRecovery {
         BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
         BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
         for (long i = 1L; i <= numSegments; i++) {
-            ResumableBKPerStreamLogReader perStreamLogReader = readHandler.getInputStream(i, false, false, false);
+            ResumableBKPerStreamLogReader perStreamLogReader = readHandler.getInputStream(i, false, false);
             assertNotNull(perStreamLogReader);
             assertEquals(1L, perStreamLogReader.getLogSegmentLedgerMetadata().getLedgerSequenceNumber());
         }
@@ -282,7 +282,7 @@ public class TestBackgroundRecovery {
         BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
         for (long i = 1L; i <= numSegments; i++) {
             DLSN dlsn = new DLSN(i, 0, 0);
-            ResumableBKPerStreamLogReader perStreamLogReader = readHandler.getInputStream(dlsn, false, false, false);
+            ResumableBKPerStreamLogReader perStreamLogReader = readHandler.getInputStream(dlsn, false, false);
             assertNotNull(perStreamLogReader);
             assertEquals(i, perStreamLogReader.getLogSegmentLedgerMetadata().getLedgerSequenceNumber());
         }

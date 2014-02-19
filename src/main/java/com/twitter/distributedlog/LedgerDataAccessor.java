@@ -9,16 +9,20 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -33,7 +37,10 @@ public class LedgerDataAccessor {
     private final Counter readAheadMisses;
     private final Counter readAheadAddHits;
     private final Counter readAheadAddMisses;
-    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
+    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
+    private final ConcurrentLinkedQueue<LogRecordWithDLSN> readAheadRecords;
+    private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
+    private AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
@@ -54,6 +61,15 @@ public class LedgerDataAccessor {
         this.readAheadAddHits = readAheadStatsLogger.getCounter("add_hit");
         this.readAheadAddMisses = readAheadStatsLogger.getCounter("add_miss");
         this.notification = notification;
+
+        if (null == notification) {
+            readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
+            readAheadRecords = null;
+        } else {
+           readAheadCache = null;
+           readAheadRecords = new ConcurrentLinkedQueue<LogRecordWithDLSN>();
+        }
+
         //Number of entries in the readAheadCache
         readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
             @Override
@@ -94,6 +110,13 @@ public class LedgerDataAccessor {
         readAheadEnabled = enabled;
         readAheadWaitTime = waitTime;
         readAheadBatchSize = batchSize;
+    }
+
+    private void setLastException(IOException exc) {
+        lastException.set(exc);
+        if (!(exc instanceof EndOfStreamException)) {
+            lastException.set(new RetryableReadException(streamName, exc.getMessage(), exc));
+        }
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
@@ -185,7 +208,32 @@ public class LedgerDataAccessor {
         return null;
     }
 
+    public LogRecordWithDLSN getNextReadAheadRecord() throws IOException {
+        if (null != lastException.get()) {
+            throw lastException.get();
+        }
+
+        LogRecordWithDLSN record = readAheadRecords.poll();
+
+        if (null != record) {
+            invokeReadAheadCallback();
+        }
+
+        return record;
+    }
+
     public void set(LedgerReadPosition key, LedgerEntry entry) {
+        LOG.trace("Set Called");
+        if (null != readAheadCache) {
+            setReadAheadCacheEntry(key, entry);
+        } else {
+            LOG.trace("Calling process");
+            processNewLedgerEntry(key, entry);
+            notification.notifyOnOperationComplete();
+        }
+    }
+
+    private void setReadAheadCacheEntry(LedgerReadPosition key, LedgerEntry entry) {
         // Read Ahead is completing the read after the foreground reader
         // Don't add the entry to the readAheadCache
         if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
@@ -254,8 +302,12 @@ public class LedgerDataAccessor {
     }
 
     public int getNumCacheEntries() {
-        synchronized(readAheadCache) {
-            return readAheadCache.size();
+        if (null != readAheadCache) {
+            synchronized(readAheadCache) {
+                return readAheadCache.size();
+            }
+        } else {
+            return readAheadRecords.size();
         }
     }
 
@@ -285,6 +337,45 @@ public class LedgerDataAccessor {
         }
     }
 
+    void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry) {
+        LogRecord.Reader reader = new LogRecord.Reader(new RecordStream() {
+            long slotId = 0;
+
+            @Override
+            public void advanceToNextRecord() {
+                slotId++;
+            }
+
+            @Override
+            public DLSN getCurrentPosition() {
+                return new DLSN(readPosition.getLedgerSequenceNumber(), readPosition.getEntryId(), slotId);
+            }
+
+            @Override
+            public String getName() {
+                return streamName;
+            }
+        }, new DataInputStream(ledgerEntry.getEntryInputStream()), 0);
+
+        try {
+            while(true) {
+                LogRecordWithDLSN record = reader.readOp();
+                if (null == record) {
+                    break;
+                }
+                readAheadRecords.add(record);
+                if (lastReadAheadDLSN.compareTo(record.getDlsn()) >= 0) {
+                    LOG.error("Out of order reads last {} : curr {}", lastReadAheadDLSN, record.getDlsn());
+                    throw new LogReadException("Out of order reads");
+                }
+                lastReadAheadDLSN = record.getDlsn();
+            }
+        } catch (IOException exc) {
+            setLastException(exc);
+        }
+    }
+
+
     private synchronized void invokeReadAheadCallback() {
         if (null != readAheadCallback) {
             if (LOG.isTraceEnabled()) {
@@ -295,9 +386,15 @@ public class LedgerDataAccessor {
         }
     }
 
+
+
     public void clear() {
-        synchronized(readAheadCache) {
-            readAheadCache.clear();
+        if (null != readAheadCache) {
+            synchronized(readAheadCache) {
+                readAheadCache.clear();
+            }
+        } else {
+            readAheadRecords.clear();
         }
     }
 
