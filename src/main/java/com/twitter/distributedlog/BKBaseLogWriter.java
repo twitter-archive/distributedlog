@@ -98,14 +98,12 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
-        long numFlushes = 0;
         boolean shouldCheckForTruncation = false;
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
         if ((null != ledgerWriter) && (ledgerWriter.isStreamInError() || forceRecovery)) {
             // Close the ledger writer so that we will recover and start a new log segment
-            numFlushes = ledgerWriter.getNumFlushes();
             ledgerWriter.close();
             ledgerWriter = null;
             removeCachedLogWriter(streamIdentifier);
@@ -117,10 +115,8 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             }
         }
 
-
         if (null == ledgerWriter) {
             ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
-            ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }
@@ -128,9 +124,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (ledgerManager.shouldStartNewSegment() || ledgerWriter.shouldStartNewSegment(numRecordsToBeWritten) || forceRolling) {
             ledgerManager.completeAndCloseLogSegment(ledgerWriter);
-            numFlushes = ledgerWriter.getNumFlushes();
             ledgerWriter = ledgerManager.startLogSegment(startTxId);
-            ledgerWriter.setNumFlushes(numFlushes);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }
@@ -251,16 +245,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
      * becomes full or a certain period of time is elapsed.
      */
     public long flushAndSync() throws IOException {
-        checkClosedOrInError("flushAndSync");
-        long highestTransactionId = 0;
-        Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
-        for (BKPerStreamLogWriter writer : writerSet) {
-            writer.flushAndSyncPhaseOne();
-        }
-        for (BKPerStreamLogWriter writer : writerSet) {
-            highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseTwo());
-        }
-        return highestTransactionId;
+        return flushAndSync(true, true);
     }
 
     public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
@@ -269,10 +254,6 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         LOG.info("FlushAndSync Started");
 
         long highestTransactionId = 0;
-        long totalFlushes = 0;
-        int minTransmitSize = Integer.MAX_VALUE;
-        int maxTransmitSize = Integer.MIN_VALUE;
-        long totalAddConfirmed = 0;
 
         Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
 
@@ -290,15 +271,10 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
                     highestTransactionId = Math.max(highestTransactionId, writer.flushAndSync());
                 }
             }
-            totalFlushes += writer.getNumFlushes();
-            minTransmitSize = Math.min(minTransmitSize, writer.getAverageTransmitSize());
-            maxTransmitSize = Math.max(maxTransmitSize, writer.getAverageTransmitSize());
-            totalAddConfirmed += writer.getLastAddConfirmed();
         }
 
         if (writerSet.size() > 0) {
-            LOG.info("FlushAndSync Completed with {} flushes and add Confirmed {}", totalFlushes, totalAddConfirmed);
-            LOG.info("Transmission Size Min {} Max {}", minTransmitSize, maxTransmitSize);
+            LOG.info("FlushAndSync Completed");
         } else {
             LOG.info("FlushAndSync Completed - Nothing to Flush");
         }

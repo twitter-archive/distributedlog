@@ -95,7 +95,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private AtomicInteger shouldFlushControl = new AtomicInteger(0);
     private final int flushTimeoutSeconds;
     private int preFlushCounter;
-    private long numFlushes = 0;
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
     private boolean periodicFlushNeeded = false;
@@ -110,9 +109,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     // stats
     private final StatsLogger statsLogger;
-    private final Counter transmitSuccesses;
-    private final Counter transmitMisses;
-    private final OpStatsLogger transmitPacketSize;
+    private final Counter transmitDataSuccesses;
+    private final Counter transmitDataMisses;
+    private final OpStatsLogger transmitDataPacketSize;
+    private final Counter transmitControlSuccesses;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
 
@@ -134,9 +134,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         pFlushMisses = pFlushStatsLogger.getCounter("miss");
         // transmit
         StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
-        transmitSuccesses = transmitStatsLogger.getCounter("success");
-        transmitMisses = transmitStatsLogger.getCounter("miss");
-        transmitPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
+        StatsLogger transmitDataStatsLogger = statsLogger.scope("data");
+        transmitDataSuccesses = transmitDataStatsLogger.getCounter("success");
+        transmitDataMisses = transmitDataStatsLogger.getCounter("miss");
+        transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
+        StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
+        transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
+
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
         // outstanding requests
         transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
@@ -371,20 +375,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         synchronized (this) {
             preFlushCounter = shouldFlushControl.get();
             shouldFlushControl.set(0);
-        }
 
-        if (preFlushCounter > 0) {
-            try {
-                writeControlLogRecord();
-                transmit(true);
-            } catch (Exception exc) {
-                shouldFlushControl.addAndGet(preFlushCounter);
-                preFlushCounter = 0;
-                throw new FlushException("Flush error", exc);
+            if (preFlushCounter > 0) {
+                try {
+                    writeControlLogRecord();
+                    transmit(true);
+                } catch (Exception exc) {
+                    shouldFlushControl.addAndGet(preFlushCounter);
+                    preFlushCounter = 0;
+                    throw new FlushException("Flush error", exc);
+                }
             }
-        }
 
-        synchronized (this) {
             return lastTxIdAcknowledged;
         }
     }
@@ -479,7 +481,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             packetCurrent = getTransmitPacket();
             writer = new LogRecord.Writer(packetCurrent.getBuffer());
             lastTxIdFlushed = lastTxId;
-            numFlushes++;
 
             if (!isControl) {
                 numBytes += packet.getBuffer().getLength();
@@ -488,12 +489,19 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
             lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().getLength(),
                 this, packet);
-            transmitSuccesses.inc();
+
+            if (isControl) {
+                transmitDataSuccesses.inc();
+            } else {
+                transmitControlSuccesses.inc();
+            }
+
             outstandingRequests.incrementAndGet();
             periodicFlushNeeded = false;
             return true;
         } else {
-            transmitMisses.inc();
+            // Control flushes always have at least the control record to flush
+            transmitDataMisses.inc();
         }
         return false;
     }
@@ -524,14 +532,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                     + BKException.getMessage(rc) + "\""
                     + " but is already (" + transmitResult.get() + ") \""
                     + BKException.getMessage(transmitResult.get()) + "\"");
-                transmitPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
+                if (!transmitPacket.isControl) {
+                    transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
+                }
             }
             else {
                 // If we had data that we flushed then we need it to make sure that
                 // background flush in the next pass will make the previous writes
                 // visible by advancing the lastAck
                 periodicFlushNeeded = !transmitPacket.isControl();
-                transmitPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
+                if (!transmitPacket.isControl()) {
+                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
+                }
             }
 
             releasePacket(transmitPacket);
@@ -540,14 +552,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 l.countDown();
             }
         }
-    }
-
-    public synchronized long getNumFlushes() {
-        return numFlushes;
-    }
-
-    public synchronized void setNumFlushes(long numFlushes) {
-        this.numFlushes = numFlushes;
     }
 
     public synchronized int getAverageTransmitSize() {
