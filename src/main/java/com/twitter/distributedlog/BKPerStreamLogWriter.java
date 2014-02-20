@@ -36,8 +36,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -171,11 +169,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private final DistributedLogConfiguration conf;
     private final ScheduledExecutorService executorService;
 
-    private final Queue<BKTransmitPacket> transmitPacketQueue
-        = new ConcurrentLinkedQueue<BKTransmitPacket>();
-
     // stats
-    private final StatsLogger statsLogger;
     private final Counter transmitDataSuccesses;
     private final Counter transmitDataMisses;
     private final OpStatsLogger transmitDataPacketSize;
@@ -195,7 +189,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         super();
 
         // stats
-        this.statsLogger = statsLogger;
         StatsLogger flushStatsLogger = statsLogger.scope("flush");
         StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
         pFlushSuccesses = pFlushStatsLogger.getCounter("success");
@@ -275,18 +268,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     private BKTransmitPacket getTransmitPacket() {
-        BKTransmitPacket packet = transmitPacketQueue.poll();
-        if (packet == null) {
-            return new BKTransmitPacket(ledgerSequenceNumber,
-                Math.max(transmissionThreshold, getAverageTransmitSize()));
-        } else {
-            return packet;
-        }
-    }
-
-    private void releasePacket(BKTransmitPacket packet) {
-        packet.reset();
-        transmitPacketQueue.add(packet);
+        return new BKTransmitPacket(ledgerSequenceNumber,
+            Math.max(transmissionThreshold, getAverageTransmitSize()));
     }
 
     public void closeToFinalize() throws IOException {
@@ -709,7 +692,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                     lastDLSN = transmitPacket.getLastDLSN();
                 }
             }
-            releasePacket(transmitPacket);
             CountDownLatch l = syncLatch;
             if (l != null) {
                 l.countDown();
