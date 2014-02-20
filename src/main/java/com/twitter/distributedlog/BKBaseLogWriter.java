@@ -301,16 +301,7 @@ public abstract class BKBaseLogWriter {
      * becomes full or a certain period of time is elapsed.
      */
     public long flushAndSync() throws IOException {
-        checkClosedOrInError("flushAndSync");
-        long highestTransactionId = 0;
-        Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
-        for (BKPerStreamLogWriter writer : writerSet) {
-            writer.flushAndSyncPhaseOne();
-        }
-        for (BKPerStreamLogWriter writer : writerSet) {
-            highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseTwo());
-        }
-        return highestTransactionId;
+        return flushAndSync(true, true);
     }
 
     public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
@@ -319,9 +310,6 @@ public abstract class BKBaseLogWriter {
         LOG.info("FlushAndSync Started");
 
         long highestTransactionId = 0;
-        int minTransmitSize = Integer.MAX_VALUE;
-        int maxTransmitSize = Integer.MIN_VALUE;
-        long totalAddConfirmed = 0;
 
         Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
 
@@ -339,14 +327,10 @@ public abstract class BKBaseLogWriter {
                     highestTransactionId = Math.max(highestTransactionId, writer.flushAndSync());
                 }
             }
-            minTransmitSize = Math.min(minTransmitSize, writer.getAverageTransmitSize());
-            maxTransmitSize = Math.max(maxTransmitSize, writer.getAverageTransmitSize());
-            totalAddConfirmed += writer.getLastAddConfirmed();
         }
 
         if (writerSet.size() > 0) {
-            LOG.info("FlushAndSync Completed with add Confirmed {}", totalAddConfirmed);
-            LOG.info("Transmission Size Min {} Max {}", minTransmitSize, maxTransmitSize);
+            LOG.info("FlushAndSync Completed");
         } else {
             LOG.info("FlushAndSync Completed - Nothing to Flush");
         }
