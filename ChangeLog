@@ -1,3 +1,9 @@
+0.3.11
+-----
+- Remove blocking calls in the async reader
+- Additional Stats
+- New Finagle Settings for the proxy
+
 0.3.10
 -----
 - New BKC Release (Preliminary changes for region aware placement and reordering)

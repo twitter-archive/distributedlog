@@ -5,7 +5,7 @@
     <groupId>com.twitter</groupId>
     <artifactId>distributedlog</artifactId>
     <packaging>jar</packaging>
-    <version>0.3.11-SNAPSHOT</version>
+    <version>0.3.11</version>
     <distributionManagement>
         <repository>
             <id>artifactory-release</id>
@@ -19,7 +19,7 @@
         </snapshotRepository>
     </distributionManagement>
     <properties>
-        <bookkeeper.version>4.2.14-TWTTR-NETTY-SNAPSHOT</bookkeeper.version>
+        <bookkeeper.version>4.2.14-TWTTR-NETTY</bookkeeper.version>
     </properties>
     <dependencies>
         <dependency>
