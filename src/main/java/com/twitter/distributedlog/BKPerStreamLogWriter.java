@@ -383,7 +383,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 } catch (Exception exc) {
                     shouldFlushControl.addAndGet(preFlushCounter);
                     preFlushCounter = 0;
-                    throw new FlushException("Flush error", exc);
+                    throw new FlushException("Flush encountered an error while writing data to the backend", lastTxId, lastTxIdAcknowledged, exc);
                 }
             }
 
@@ -397,7 +397,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 flushAndSyncInternal();
             } catch (Exception exc) {
                 shouldFlushControl.addAndGet(preFlushCounter);
-                throw new FlushException("Flush error", exc);
+                throw new FlushException("Flush encountered an error while writing data to backend", lastTxId, lastTxIdAcknowledged, exc);
             } finally {
                 preFlushCounter = 0;
             }
@@ -432,11 +432,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         try {
             waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
-            throw new FlushException("Wait for Flush Interrupted", ie);
+            throw new FlushException("Wait for Flush Interrupted", lastTxId, lastTxIdAcknowledged, ie);
         }
 
         if (!waitSuccessful) {
-            throw new FlushException("Flush Timeout");
+            throw new FlushException("Flush request timed out", lastTxId, lastTxIdAcknowledged);
         }
 
         synchronized (this) {
