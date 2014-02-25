@@ -159,7 +159,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         syncLatch = null;
         this.lh = lh;
         this.lock = lock;
-        this.lock.acquire("BKPerStreamLogWriter");
+        this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
             LOG.warn("Setting output buffer size {} greater than max transmission size {}",
@@ -240,7 +240,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         } catch (BKException bke) {
             LOG.warn("BookKeeper error during close", bke);
         } finally {
-            lock.release("PerStreamLogWriterClose");
+            lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         }
 
         if (attemptFlush && (null != throwExc)) {
@@ -413,7 +413,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     private void checkWriteLock() throws LockingException {
         if (enforceLock) {
-            lock.checkWriteLock(false);
+            lock.checkWriteLock(false, DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         }
     }
 

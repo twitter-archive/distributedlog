@@ -193,7 +193,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
         checkLogExists();
 
-        lock.acquire("StartLogSegment");
+        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         lockAcquired = true;
         long highestTxIdWritten = maxTxId.get();
         if (txId < highestTxIdWritten) {
@@ -358,7 +358,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            acquiredLocally = lock.checkWriteLock(true);
+            acquiredLocally = lock.checkWriteLock(true, DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
@@ -412,7 +412,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } finally {
             if (acquiredLocally || (shouldReleaseLock && lockAcquired)) {
-                lock.release("CompleteAndClose");
+                DistributedReentrantLock.LockReason reason = acquiredLocally ?
+                    DistributedReentrantLock.LockReason.COMPLETEANDCLOSE:
+                    DistributedReentrantLock.LockReason.WRITEHANDLER;
+                lock.release(reason);
                 lockAcquired = false;
             }
         }
@@ -438,7 +441,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             return;
         }
         LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
-        lock.acquire("RecoverIncompleteSegments");
+        lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
         synchronized (this) {
             try {
                 if (recovered) {
@@ -481,7 +484,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 }
                 recovered = true;
             } finally {
-                lock.release("RecoverIncompleteSegments");
+                lock.release(DistributedReentrantLock.LockReason.RECOVER);
             }
         }
     }
@@ -496,7 +499,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
 
         try {
-            deleteLock.acquire("DeleteLog");
+            deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
         } catch (LockingException lockExc) {
             throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
         }
@@ -504,7 +507,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         try {
             purgeAllLogs();
         } finally {
-            deleteLock.release("DeleteLog");
+            deleteLock.release(DistributedReentrantLock.LockReason.DELETELOG);
         }
 
         try {
@@ -694,11 +697,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     public void close() throws IOException {
         if (lockAcquired) {
-            try {
-                lock.release("WriteHandlerClose");
-            } catch (IOException ioe) {
-                LOG.error("Error on releasing WriteHandlerClose {} : ", getFullyQualifiedName(), ioe);
-            }
+            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
             lockAcquired = false;
         }
         lock.close();
