@@ -12,7 +12,10 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+
+import com.google.common.base.Stopwatch;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -146,6 +149,34 @@ public class LedgerHandleCache {
         }
 
         return refhandle.handle.getLastAddConfirmed();
+    }
+
+    public void asyncTryReadLastConfirmed(LedgerDescriptor ledgerDesc,
+                                          AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readLastConfirmedComplete(BKException.Code.NoSuchLedgerExistsException, -1, ctx);
+            return;
+        }
+        refHandle.handle.asyncTryReadLastConfirmed(callback, ctx);
+    }
+
+    public void tryReadLastConfirmed(LedgerDescriptor ledgerDesc) throws BKException, InterruptedException {
+        final SyncObject<Long> syncObject = new SyncObject<Long>();
+        syncObject.inc();
+        asyncTryReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
+            @Override
+            public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object ctx) {
+                syncObject.setrc(rc);
+                syncObject.setValue(lastAddConfirmed);
+                syncObject.dec();
+            }
+        }, null);
+        syncObject.block(0);
+        if (BKException.Code.OK == syncObject.getrc()) {
+            return;
+        }
+        throw BKException.create(syncObject.getrc());
     }
 
     public synchronized void asyncReadLastConfirmed(LedgerDescriptor ledgerDesc,

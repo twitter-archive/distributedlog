@@ -122,7 +122,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                     positionInputStream(h, ledgerDataAccessor, startBkEntry);
                 } else if (isInProgress()) {
                     if (shouldReadLAC && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor))) {
-                        ledgerManager.getHandleCache().readLastConfirmed(ledgerDescriptor);
+                        ledgerManager.getHandleCache().tryReadLastConfirmed(ledgerDescriptor);
                     }
                     LOG.debug("Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
                 }
