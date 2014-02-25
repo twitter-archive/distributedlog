@@ -137,7 +137,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public boolean isEndOfStreamMarked() throws IOException {
-        return (getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, true) == DistributedLogConstants.MAX_TXID);
+        return (getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, true) == DistributedLogConstants.MAX_TXID);
     }
 
     /**
@@ -148,7 +148,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
         long position;
         try {
-            position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true, false);
+            position = getLastTxIdInternal(conf.getUnpartitionedStreamName(), true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
                 DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
                 position = 0;
@@ -216,7 +216,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public LogReader getInputStream(long fromTxnId)
         throws IOException {
-        return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromTxnId);
+        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromTxnId);
     }
 
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
@@ -240,7 +240,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getTxIdNotLaterThan(long thresholdTxId) throws IOException {
-        return getTxIdNotLaterThanInternal(DistributedLogConstants.DEFAULT_STREAM, thresholdTxId);
+        return getTxIdNotLaterThanInternal(conf.getUnpartitionedStreamName(), thresholdTxId);
     }
 
     private long getTxIdNotLaterThanInternal(String streamIdentifier, long thresholdTxId) throws IOException {
@@ -271,7 +271,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecord getLastLogRecord() throws IOException {
-        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLastLogRecordInternal(conf.getUnpartitionedStreamName());
     }
 
     private LogRecord getLastLogRecordInternal(String streamIdentifier) throws IOException {
@@ -291,7 +291,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getFirstTxId() throws IOException {
-        return getFirstTxIdInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getFirstTxIdInternal(conf.getUnpartitionedStreamName());
     }
 
     private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
@@ -311,7 +311,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getLastTxId() throws IOException {
-        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, false);
+        return getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, false);
     }
 
     private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
@@ -348,7 +348,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public long getLogRecordCount() throws IOException {
-        return getLogRecordCountInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLogRecordCountInternal(conf.getUnpartitionedStreamName());
     }
 
     private long getLogRecordCountInternal(String streamIdentifier) throws IOException {
@@ -380,7 +380,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public void recover() throws IOException {
-        recoverInternal(DistributedLogConstants.DEFAULT_STREAM);
+        recoverInternal(conf.getUnpartitionedStreamName());
     }
 
     /**

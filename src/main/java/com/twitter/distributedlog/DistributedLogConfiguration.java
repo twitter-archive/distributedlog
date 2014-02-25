@@ -22,6 +22,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         }
     }
 
+    // Name for the default (non-partitioned) stream
+    public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
+    public static final String BKDL_UNPARTITIONED_STREAM_NAME_DEFAULT = "<default>";
+
     // Controls when log records accumulated in the writer will be
     // transmitted to bookkeeper
     public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
@@ -145,6 +149,24 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public void loadConf(Configuration otherConf) {
         addConfiguration(otherConf);
+    }
+
+    /**
+     * Get name of the unpartitioned stream
+     *
+     * @return unpartitioned stream
+     */
+    public String getUnpartitionedStreamName() {
+        return getString(BKDL_UNPARTITIONED_STREAM_NAME, BKDL_UNPARTITIONED_STREAM_NAME_DEFAULT);
+    }
+
+    /**
+     * Set name of the unpartitioned stream
+     *
+     * @param streamName name of the unpartitioned stream
+     */
+    public void setUnpartitionedStreamName(String streamName) {
+        setProperty(BKDL_UNPARTITIONED_STREAM_NAME, streamName);
     }
 
     /**

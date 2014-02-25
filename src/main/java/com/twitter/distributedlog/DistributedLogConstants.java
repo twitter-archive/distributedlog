@@ -6,7 +6,6 @@ public class DistributedLogConstants {
     public static final long MAX_TXID = Long.MAX_VALUE;
     public static final long SMALL_LEDGER_THRESHOLD = 10;
     public static final int LAYOUT_VERSION = 1;
-    public static final String DEFAULT_STREAM = "<default>";
     // Allow 4K overhead for metadata within the max transmission size
     public static final int MAX_LOGRECORD_SIZE = 1 * 1024 * 1024 - 8 * 1024; //1MB - 8KB
     // Allow 4K overhead for transmission overhead

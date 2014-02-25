@@ -288,7 +288,7 @@ public class TestFailureAndRecovery {
 
         out.close();
 
-        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
 
         assertNull(zkc.exists(blplm1.completedLedgerZNode(1, 100), false));
         assertNotNull(zkc.exists(blplm1.inprogressZNode(1), false));

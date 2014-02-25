@@ -24,8 +24,10 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     private LogTruncationTask lastTruncationAttempt = null;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
+    protected final DistributedLogConfiguration conf;
 
     public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
+        this.conf = conf;
         this.bkDistributedLogManager = bkdlm;
         this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
