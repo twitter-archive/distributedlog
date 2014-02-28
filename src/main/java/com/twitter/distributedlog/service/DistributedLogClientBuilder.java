@@ -15,6 +15,7 @@ import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.CancelledRequestException;
 import com.twitter.finagle.ChannelException;
+import com.twitter.finagle.ConnectionFailedException;
 import com.twitter.finagle.FailedFastException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
@@ -56,7 +57,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DistributedLogClientBuilder {
@@ -616,15 +616,19 @@ public class DistributedLogClientBuilder {
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass() });
         }
 
-        private ServerInfo handshake() {
+        private void handshake() {
             Map<SocketAddress, ServiceWithClient> snapshot =
                     new HashMap<SocketAddress, ServiceWithClient>(address2Services);
             final CountDownLatch latch = new CountDownLatch(snapshot.size());
-            final AtomicReference<ServerInfo> result = new AtomicReference<ServerInfo>(null);
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo value) {
-                    result.compareAndSet(null, value);
+                    if (null != value && value.isSetOwnerships()) {
+                        Map<String, String> ownerships = value.getOwnerships();
+                        for (Map.Entry<String, String> entry : ownerships.entrySet()) {
+                            updateOwnership(entry.getKey(), entry.getValue());
+                        }
+                    }
                     latch.countDown();
                 }
                 @Override
@@ -641,7 +645,6 @@ public class DistributedLogClientBuilder {
             } catch (InterruptedException e) {
                 logger.warn("Interrupted on handshaking with servers : ", e);
             }
-            return result.get();
         }
 
         private ClientBuilder getDefaultClientBuilder() {
@@ -850,6 +853,11 @@ public class DistributedLogClientBuilder {
                         onServerLeft(addr, sc);
                         // redirect the request to other host.
                         doSend(op, addr);
+                    } else if (cause instanceof ConnectionFailedException) {
+                        routingService.removeHost(addr, cause);
+                        onServerLeft(addr, sc);
+                        // redirect the request to other host.
+                        doSend(op, addr);
                     } else if (cause instanceof ChannelException) {
                         // redirect the request to other host.
                         doSend(op, addr);
@@ -910,11 +918,24 @@ public class DistributedLogClientBuilder {
                                         op.stream, curAddr)));
                         return;
                     }
+                    // update ownership when redirects.
+                    updateOwnership(op.stream, ownerAddr);
                 } catch (IOException e) {
                     ownerAddr = null;
                 }
             }
             redirect(op, curAddr, ownerAddr);
+        }
+
+        void updateOwnership(String stream, String location) {
+            try {
+                SocketAddress ownerAddr = DLSocketAddress.deserialize(location).getSocketAddress();
+                // update ownership
+                updateOwnership(stream, ownerAddr);
+            } catch (IOException e) {
+                logger.warn("Invalid ownership {} found for stream {} : ",
+                            new Object[] { location, stream, e });
+            }
         }
 
         // Ownership Operations

@@ -38,23 +38,23 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             this.circle = new TreeMap<Long, SocketAddress>();
         }
 
-        private String replicaName(int shardId, int replica) {
-            return String.format("shard-%d-%d", shardId, replica);
+        private String replicaName(int shardId, int replica, SocketAddress address) {
+            return String.format("shard-%d-%d-%s", shardId, replica, address);
         }
 
-        private Long replicaHash(int shardId, int replica) {
-            return hashFunction.hashUnencodedChars(replicaName(shardId, replica)).asLong();
+        private Long replicaHash(int shardId, int replica, SocketAddress address) {
+            return hashFunction.hashUnencodedChars(replicaName(shardId, replica, address)).asLong();
         }
 
         public synchronized void add(int shardId, SocketAddress address) {
             for (int i = 0; i < numOfReplicas; i++) {
-                circle.put(replicaHash(shardId, i), address);
+                circle.put(replicaHash(shardId, i, address), address);
             }
         }
 
         public synchronized void remove(int shardId, SocketAddress address) {
             for (int i = 0; i < numOfReplicas; i++) {
-                long hash = replicaHash(shardId, i);
+                long hash = replicaHash(shardId, i, address);
                 SocketAddress oldAddress = circle.get(hash);
                 if (null != oldAddress && oldAddress.equals(address)) {
                     circle.remove(hash);

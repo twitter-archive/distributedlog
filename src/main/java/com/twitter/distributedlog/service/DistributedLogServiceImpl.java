@@ -35,6 +35,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -874,7 +876,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<ServerInfo> handshake() {
-        return Future.value(new ServerInfo());
+        ServerInfo serverInfo = new ServerInfo();
+        Map<String, String> ownerships = new HashMap<String, String>();
+        for (String name : acquiredStreams.keySet()) {
+            Stream stream = acquiredStreams.get(name);
+            if (null == stream) {
+                continue;
+            }
+            String owner = stream.owner;
+            if (null == owner) {
+                ownerships.put(name, clientId);
+            }
+        }
+        serverInfo.setOwnerships(ownerships);
+        return Future.value(serverInfo);
     }
 
     Stream getLogWriter(String stream) throws IOException {

@@ -61,6 +61,7 @@ struct WriteContext {
 
 // Server Info
 struct ServerInfo {
+    1: optional map<string, string> ownerships;
 }
 
 service DistributedLogService {
