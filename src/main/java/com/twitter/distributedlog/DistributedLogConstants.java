@@ -2,6 +2,8 @@ package com.twitter.distributedlog;
 
 import org.apache.bookkeeper.shims.Version;
 
+import java.util.concurrent.TimeUnit;
+
 public class DistributedLogConstants {
     public static final long INVALID_TXID = -999;
     public static final long EMPTY_LEDGER_TX_ID = -99;
@@ -23,6 +25,7 @@ public class DistributedLogConstants {
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final long UNRESOLVED_LEDGER_ID = -1;
+    public static final long LATENCY_WARN_THRESHOLD_IN_MICROS = TimeUnit.SECONDS.toMicros(1);
 
     public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
     // log segment prefix

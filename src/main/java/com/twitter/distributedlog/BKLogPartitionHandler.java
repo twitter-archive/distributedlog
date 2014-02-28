@@ -28,7 +28,6 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -849,6 +848,10 @@ abstract class BKLogPartitionHandler implements Watcher {
             // NOTE: it is a hack here.
             long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getFirstTxId());
             if (elapsedMicroSec > 0) {
+                if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
+                    LOG.warn("{} received inprogress log segment in {} micros : {}",
+                             new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                }
                 getInprogressSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
             } else {
                 negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
@@ -856,6 +859,10 @@ abstract class BKLogPartitionHandler implements Watcher {
         } else {
             long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getCompletionTime());
             if (elapsedMicroSec > 0) {
+                if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
+                    LOG.warn("{} received completed log segment in {} micros : {}",
+                             new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                }
                 getCompletedSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
             } else {
                 negativeGetCompletedSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);

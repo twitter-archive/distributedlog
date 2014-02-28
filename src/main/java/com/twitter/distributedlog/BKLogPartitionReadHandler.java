@@ -10,6 +10,7 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -46,6 +47,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static OpStatsLogger getInputStreamByDLSNStat;
     private static OpStatsLogger existsStat;
     private static OpStatsLogger readAheadReadEntriesStat;
+    private static OpStatsLogger longPollInterruptionStat;
+    private static OpStatsLogger metadataReinitializationStat;
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
@@ -79,25 +82,26 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         if (null == readAheadWorkerWaits) {
             readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
         }
-
         if (null == readAheadEntryPiggyBackHits) {
             readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
         }
-
         if (null == readAheadEntryPiggyBackMisses) {
             readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
         }
-
         if (null == readAheadReadEntriesStat) {
             readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
         }
-
         if (null == readAheadReadLACCounter) {
             readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
         }
-
         if (null == readAheadReadLACAndEntryCounter) {
             readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
+        }
+        if (null == longPollInterruptionStat) {
+            longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
+        }
+        if (null == metadataReinitializationStat) {
+            metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
         }
 
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
@@ -442,6 +446,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         // Metadata Notification
         final Object notificationLock = new Object();
         AsyncNotification metadataNotification = null;
+        volatile long metadataNotificationTimeNanos = MathUtils.nowInNano();
 
         // ReadAhead Phases
         final Phase schedulePhase = new ScheduleReadAheadPhase();
@@ -692,6 +697,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("Reinitializing metadata for {}.", fullyQualifiedName);
                     }
+                    long elapsedMicrosSinceMetadataChanged = MathUtils.elapsedMicroSec(metadataNotificationTimeNanos);
+                    if (elapsedMicrosSinceMetadataChanged >= DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
+                        LOG.warn("{} reinitialize metadata {} micros after receiving notification at {}.",
+                                 new Object[] { getFullyQualifiedName(), elapsedMicrosSinceMetadataChanged,
+                                                metadataNotificationTimeNanos });
+                    }
+                    metadataReinitializationStat.registerSuccessfulEvent(elapsedMicrosSinceMetadataChanged);
+                    metadataNotificationTimeNanos = MathUtils.nowInNano();
                     bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
                 } else {
                     next.process(BKException.Code.OK);
@@ -1022,6 +1035,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     notification = metadataNotification;
                     metadataNotification = null;
                 }
+                metadataNotificationTimeNanos = MathUtils.nowInNano();
                 if (null != notification) {
                     notification.notifyOnOperationComplete();
                 }
@@ -1034,22 +1048,26 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             final T cb;
             final Object ctx;
             final AtomicBoolean called = new AtomicBoolean(false);
+            final long startNanos;
 
             LongPollNotification(long lac, T cb, Object ctx) {
                 this.lac = lac;
                 this.cb = cb;
                 this.ctx = ctx;
+                this.startNanos = MathUtils.nowInNano();
             }
 
             abstract void complete();
 
             @Override
             public void notifyOnError() {
+                longPollInterruptionStat.registerFailedEvent(MathUtils.elapsedMicroSec(startNanos));
                 complete();
             }
 
             @Override
             public void notifyOnOperationComplete() {
+                longPollInterruptionStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
                 complete();
             }
 
@@ -1072,6 +1090,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             @Override
             public void readLastConfirmedComplete(int rc, long lac, Object ctx) {
                 if (called.compareAndSet(false, true)) {
+                    // clear the notification when callback
+                    synchronized (notificationLock) {
+                        metadataNotification = null;
+                    }
                     this.cb.readLastConfirmedComplete(rc, lac, ctx);
                 }
             }
@@ -1095,6 +1117,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             @Override
             public void readLastConfirmedAndEntryComplete(int rc, long lac, LedgerEntry entry, Object ctx) {
                 if (called.compareAndSet(false, true)) {
+                    // clear the notification when callback
+                    synchronized (notificationLock) {
+                        metadataNotification = null;
+                    }
                     this.cb.readLastConfirmedAndEntryComplete(rc, lac, entry, ctx);
                 }
             }
