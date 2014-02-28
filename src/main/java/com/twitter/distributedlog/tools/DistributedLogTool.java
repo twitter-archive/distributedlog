@@ -243,12 +243,14 @@ public class DistributedLogTool extends Tool {
         int numThreads = 1;
         String streamPrefix = null;
         boolean deleteStream = false;
+        boolean force = false;
 
         TruncateCommand() {
             super("truncate", "truncate streams under a given dl uri");
             options.addOption("t", "threads", true, "Number threads to do truncation");
             options.addOption("f", "filter", true, "Stream filter by prefix");
             options.addOption("d", "delete", false, "Delete Stream");
+            options.addOption("x", "force", false, "Force execute");
         }
 
         @Override
@@ -263,6 +265,7 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("d")) {
                 deleteStream = true;
             }
+            force = cmdline.hasOption("x");
         }
 
         @Override
@@ -274,11 +277,9 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             final DistributedLogManagerFactory factory =
                     new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                return truncateStreams(factory);
-            } finally {
-                factory.close();
-            }
+            int rc = truncateStreams(factory);
+            System.exit(rc);
+            return rc;
         }
 
         private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
@@ -297,7 +298,7 @@ public class DistributedLogTool extends Tool {
                 return 0;
             }
             println("Streams : " + streams);
-            if (!IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
+            if (!force && !IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
                 return 0;
             }
             numThreads = Math.min(streams.size(), numThreads);
