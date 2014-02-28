@@ -116,7 +116,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 conf.getNumWorkerThreads(),
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
         );
-        this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool());
+        this.channelFactory = new NioClientSocketChannelFactory(
+                Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),
+                Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-worker-%d").build()),
+                conf.getBKClientNumberIOThreads());
         // Build zookeeper client
         RetryPolicy retryPolicy = null;
         if (conf.getZKNumRetries() > 0) {
@@ -137,6 +140,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).statsLogger(statsLogger);
+        LOG.info("BookKeeper Client : numIOThreads = {}, numWorkerThreads = {}",
+                 conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads());
+
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
                 conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
 
@@ -179,9 +185,6 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 }
             }
         });
-
-
-
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
 

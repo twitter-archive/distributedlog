@@ -140,6 +140,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
     public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
 
+    public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
+    public static final int BKDL_BKCLIENT_NUM_IO_THREADS_DEFAULT = Runtime.getRuntime().availableProcessors() * 2;
+
     public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
     public static final boolean BKDL_MAXID_SANITYCHECK_DEFAULT = true;
 
@@ -739,6 +742,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setBKClientNumberWorkerThreads(int numThreads) {
         setProperty(BKDL_BKCLIENT_NUM_WORKER_THREADS, numThreads);
+        return this;
+    }
+
+    /**
+     * Get BK client number of i/o threads.
+     *
+     * @return number of bookkeeper netty i/o threads.
+     */
+    public int getBKClientNumberIOThreads() {
+        return this.getInt(BKDL_BKCLIENT_NUM_IO_THREADS, BKDL_BKCLIENT_NUM_IO_THREADS_DEFAULT);
+    }
+
+    /**
+     * Set BK client number of i/o threads.
+     *
+     * @param numThreads
+     *          number io threads.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setBKClientNumberIOThreads(int numThreads) {
+        setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
         return this;
     }
 
