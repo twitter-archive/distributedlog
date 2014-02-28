@@ -62,6 +62,7 @@ public class MonitorService implements Runnable, NamespaceListener {
 
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private int interval = 100;
+    private String streamRegex = null;
     private DistributedLogManagerFactory dlFactory = null;
     private ZooKeeperClient zkClient = null;
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
@@ -173,6 +174,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         options.addOption("i", "interval", true, "Check interval");
         options.addOption("d", "region", true, "Region ID");
         options.addOption("p", "provider", true, "DistributedLog Stats Provider");
+        options.addOption("f", "filter", true, "Filter streams by regex");
     }
 
     void printUsage() {
@@ -208,6 +210,9 @@ public class MonitorService implements Runnable, NamespaceListener {
         }
         if (cmdline.hasOption("d")) {
             regionId = Integer.parseInt(cmdline.getOptionValue("d"));
+        }
+        if (cmdline.hasOption("f")) {
+            streamRegex = cmdline.getOptionValue("f");
         }
         URI uri = URI.create(cmdline.getOptionValue("u"));
         DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
@@ -258,7 +263,12 @@ public class MonitorService implements Runnable, NamespaceListener {
 
     @Override
     public void onStreamsChanged(Collection<String> streams) {
-        Set<String> newSet = new HashSet<String>(streams);
+        Set<String> newSet = new HashSet<String>();
+        for (String s : streams) {
+            if (null == streamRegex || s.matches(streamRegex)) {
+                newSet.add(s);
+            }
+        }
         List<StreamChecker> tasksToCancel = new ArrayList<StreamChecker>();
         synchronized (knownStreams) {
             Set<String> knownStreamSet = new HashSet<String>(knownStreams.keySet());
