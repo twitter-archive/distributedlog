@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.net.TwitterDNSResolver;
 import com.twitter.distributedlog.util.ConfUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -40,13 +41,12 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
         bkConfig.setEnsemblePlacementPolicy(RegionAwareEnsemblePlacementPolicy.class);
-        bkConfig.setProperty("reppDnsResolverClass", conf.getBkDNSResolverClass());
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
         if (null == channelFactory) {
-            this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger);
+            this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger, new TwitterDNSResolver(conf.getBkDNSResolverOverrides()));
         } else {
-            this.bkc = new BookKeeper(bkConfig, zkc.get(), channelFactory, statsLogger);
+            this.bkc = new BookKeeper(bkConfig, zkc.get(), channelFactory, statsLogger, new TwitterDNSResolver(conf.getBkDNSResolverOverrides()));
         }
         refCount = 1;
         if (registerExpirationHandler) {
@@ -72,7 +72,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         LOG.info("BookKeeper Client created {} with its own ZK Client : numRetries = {}, " +
                 " sessionTimeout = {}, backoff = {}, maxBackoff = {}, dnsResolver = {}", new Object[] { name,
                 conf.getBKClientZKNumRetries(), zkSessionTimeout, conf.getBKClientZKRetryBackoffStartMillis(),
-                conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBkDNSResolverClass() });
+                conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBkDNSResolverOverrides() });
     }
 
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,

@@ -19,7 +19,7 @@
         </snapshotRepository>
     </distributionManagement>
     <properties>
-        <bookkeeper.version>4.2.14-TWTTR-NETTY</bookkeeper.version>
+        <bookkeeper.version>4.2.15-TWTTR-NETTY-SNAPSHOT</bookkeeper.version>
     </properties>
     <dependencies>
         <dependency>

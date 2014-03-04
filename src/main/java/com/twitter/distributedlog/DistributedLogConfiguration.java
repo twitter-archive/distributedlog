@@ -173,8 +173,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
     public static final int BKDL_READLAC_OPTION_DEFAULT = 3;
 
-    public static final String BKDL_BK_DNS_RESOLVER_CLASS = "bkDNSResolverClass";
-    public static final String BKDL_BK_DNS_RESOLVER_CLASS_DEFAULT = TwitterDNSResolver.class.getName();
+    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES = "dnsResolverOverrides";
+    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
+
 
     public DistributedLogConfiguration() {
         super();
@@ -1114,23 +1115,23 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get DNS Resolver Class used by bookkeeper client.
+     * Get mapping used to override the region mapping derived by the default resolver.
      *
-     * @return DNS Resolver Class.
+     * @return dns resolver overrides.
      */
-    public String getBkDNSResolverClass() {
-        return getString(BKDL_BK_DNS_RESOLVER_CLASS, BKDL_BK_DNS_RESOLVER_CLASS_DEFAULT);
+    public String getBkDNSResolverOverrides() {
+        return getString(BKDL_BK_DNS_RESOLVER_OVERRIDES, BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT);
     }
 
     /**
-     * Set DNS Resolver Class used by bookkeeper client.
+     * Set mapping used to override the region mapping derived by the default resolver
      *
-     * @param className
-     *          dns resolver class name.
+     * @param overrides
+     *          dns resolver overrides
      * @return dl configuration.
      */
-    public DistributedLogConfiguration setBkDNSResolverClass(String className) {
-        setProperty(BKDL_BK_DNS_RESOLVER_CLASS, className);
+    public DistributedLogConfiguration setBkDNSResolverOverrides(String overrides) {
+        setProperty(BKDL_BK_DNS_RESOLVER_OVERRIDES, overrides);
         return this;
     }
 }

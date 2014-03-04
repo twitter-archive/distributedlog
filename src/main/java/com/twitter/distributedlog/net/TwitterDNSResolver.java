@@ -1,6 +1,8 @@
 package com.twitter.distributedlog.net;
 
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,11 +13,31 @@ import java.util.concurrent.ConcurrentMap;
  * TODO: we might need to move a twitter specific module?
  */
 public class TwitterDNSResolver implements DNSToSwitchMapping {
+    static final Logger LOG = LoggerFactory.getLogger(TwitterDNSResolver.class);
 
     static final String DEFAULT_RACK = "/default-region/default-rack";
 
     protected final ConcurrentMap<String, String> domainName2Racks =
             new ConcurrentHashMap<String, String>();
+
+    protected final ConcurrentMap<String, String> hostNameToRegion =
+        new ConcurrentHashMap<String, String>();
+
+    public TwitterDNSResolver(String hostRegionOverrides) {
+        // Host Region Overrides are of the form
+        // HN1:R1;HN2:R2;...
+        String[] overrides = hostRegionOverrides.split(";");
+
+        for(String override: overrides) {
+            String[] parts = override.split(":");
+            if (parts.length != 2) {
+                LOG.warn("Incorrect override specified", override);
+            } else {
+                hostNameToRegion.putIfAbsent(parts[0], parts[1]);
+            }
+        }
+    }
+
 
     @Override
     public List<String> resolve(List<String> names) {
@@ -40,11 +62,18 @@ public class TwitterDNSResolver implements DNSToSwitchMapping {
         if (parts.length <= 0) {
             return DEFAULT_RACK;
         }
-        String[] labels = parts[0].split("-");
+        String hostName = parts[0];
+        String[] labels = hostName.split("-");
         if (labels.length != 4) {
             return DEFAULT_RACK;
         }
-        return String.format("/%s/%s", labels[0], labels[1]);
+
+        String region = hostNameToRegion.get(hostName);
+        if (null == region) {
+            region = labels[0];
+        }
+
+        return String.format("/%s/%s", region, labels[1]);
     }
 
     @Override
