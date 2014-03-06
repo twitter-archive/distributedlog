@@ -8,9 +8,11 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import scala.runtime.AbstractFunction0;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
@@ -70,13 +72,41 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public Future<DLSN> write(final LogRecord record) {
+        final AtomicReference<BKPerStreamLogWriter> writerRef =
+                new AtomicReference<BKPerStreamLogWriter>(null);
         return futurePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
             public BKPerStreamLogWriter applyE() throws IOException {
-                return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId(), 1);
+                BKPerStreamLogWriter writer = getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM);
+                if (null == writer) {
+                    writer = rollLogSegmentIfNecessary(null, DistributedLogConstants.DEFAULT_STREAM,
+                                                       record.getTransactionId());
+                }
+                return writer;
             }
         }).flatMap(new ExceptionalFunction<BKPerStreamLogWriter, Future<DLSN>>() {
             public Future<DLSN> applyE(BKPerStreamLogWriter w) throws IOException {
+                writerRef.set(w);
                 return w.asyncWrite(record);
+            }
+        }).ensure(new AbstractFunction0() {
+            @Override
+            public Object apply() {
+                BKPerStreamLogWriter writer = writerRef.get();
+                if (null != writer) {
+                    try {
+                        rollLogSegmentIfNecessary(writer, DistributedLogConstants.DEFAULT_STREAM,
+                                                  record.getTransactionId());
+                    } catch (IOException e) {
+                        // it is hard to handle exceptions in an ensure block. but it is probaly ok
+                        // here. since if the failure happened during rolling log segment, it doesn't
+                        // put the newer log segment in caching map. so next write request could still
+                        // using the existing log segment. it is actually good for handling zookeeper
+                        // exceptions during ledger rolling.
+                        LOG.warn("Failed to roll log segment for {}, but it is OK right now. Next write request will try rolling : ",
+                                 BKUnPartitionedAsyncLogWriter.super.bkDistributedLogManager.name, e);
+                    }
+                }
+                return null;
             }
         });
     }

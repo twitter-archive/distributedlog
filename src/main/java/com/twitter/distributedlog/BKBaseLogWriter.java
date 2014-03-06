@@ -18,7 +18,7 @@ import java.util.concurrent.ExecutorService;
 public abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
-    private final BKDistributedLogManager bkDistributedLogManager;
+    protected final BKDistributedLogManager bkDistributedLogManager;
     private final long retentionPeriodInMillis;
     // Used by tests
     private Long minTimestampToKeepOverride = null;
@@ -120,8 +120,12 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
+        BKPerStreamLogWriter ledgerWriter = getLedgerWriter(streamIdentifier);
+        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId);
+    }
+
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
-        boolean shouldCheckForTruncation = false;
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
@@ -138,6 +142,12 @@ public abstract class BKBaseLogWriter {
             }
         }
 
+        return ledgerWriter;
+    }
+
+    synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
+                                                                          String streamIdentifier, long startTxId) throws IOException {
+        boolean shouldCheckForTruncation = false;
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment() || forceRolling)) {
             PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
