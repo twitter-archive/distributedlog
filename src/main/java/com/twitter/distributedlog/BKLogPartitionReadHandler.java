@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.stats.BKExceptionStatsLogger;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -21,6 +22,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +52,23 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static OpStatsLogger readAheadReadEntriesStat;
     private static OpStatsLogger longPollInterruptionStat;
     private static OpStatsLogger metadataReinitializationStat;
+    private static StatsLogger parentExceptionStatsLogger;
+    private final static ConcurrentMap<String, BKExceptionStatsLogger> exceptionStatsLoggers =
+            new ConcurrentHashMap<String, BKExceptionStatsLogger>();
+
+    private static BKExceptionStatsLogger getBKExceptionStatsLogger(String phase) {
+        assert null != parentExceptionStatsLogger;
+        BKExceptionStatsLogger exceptionStatsLogger = exceptionStatsLoggers.get(phase);
+        if (null == exceptionStatsLogger) {
+            exceptionStatsLogger = new BKExceptionStatsLogger(parentExceptionStatsLogger.scope(phase));
+            BKExceptionStatsLogger oldExceptionStatsLogger =
+                    exceptionStatsLoggers.putIfAbsent(phase, exceptionStatsLogger);
+            if (null != oldExceptionStatsLogger) {
+                exceptionStatsLogger = oldExceptionStatsLogger;
+            }
+        }
+        return exceptionStatsLogger;
+    }
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
@@ -102,6 +122,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
         if (null == metadataReinitializationStat) {
             metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
+        }
+        if (null == parentExceptionStatsLogger) {
+            parentExceptionStatsLogger = statsLogger.scope("exceptions");
         }
 
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
@@ -396,6 +419,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         void resumeReadAhead();
     }
 
+    static enum ReadAheadPhase {
+        GET_LEDGERS,
+        OPEN_LEDGER,
+        CLOSE_LEDGER,
+        READ_LAST_CONFIRMED,
+        READ_ENTRIES
+    }
+
     /**
      * ReadAhead Worker process readahead in asynchronous way. The whole readahead process are chained into
      * different phases:
@@ -507,6 +538,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
+        }
+
+        private void handleException(ReadAheadPhase phase, int returnCode) {
+            getBKExceptionStatsLogger(phase.name()).getExceptionCounter(returnCode).inc();
+            exceptionHandler.process(returnCode);
         }
 
         abstract class Phase {
@@ -624,7 +660,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (BKException.Code.OK != rc) {
                             LOG.debug("ZK Exception {} while reading ledger list", rc);
                             reInitializeMetadata = true;
-                            exceptionHandler.process(rc);
+                            handleException(ReadAheadPhase.GET_LEDGERS, rc);
                             return;
                         }
                         ledgerList = result;
@@ -649,10 +685,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         currentLH = null;
                                     } catch (InterruptedException ie) {
                                         LOG.debug("Interrupted during repositioning", ie);
-                                        exceptionHandler.process(BKException.Code.InterruptedException);
+                                        handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.InterruptedException);
                                     } catch (BKException bke) {
                                         LOG.debug("BK Exception during repositioning", bke);
-                                        exceptionHandler.process(bke.getCode());
+                                        handleException(ReadAheadPhase.CLOSE_LEDGER, bke.getCode());
                                     }
                                 }
 
@@ -735,7 +771,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
                         } catch (IOException ie) {
                             // Exception is thrown due to no ledger handle
-                            exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                            handleException(ReadAheadPhase.OPEN_LEDGER, BKException.Code.NoSuchLedgerExistsException);
                             return;
                         }
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
@@ -809,13 +845,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             next.process(BKException.Code.OK);
                         } catch (InterruptedException ie) {
                             LOG.debug("Interrupted while repositioning", ie);
-                            exceptionHandler.process(BKException.Code.InterruptedException);
+                            handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.InterruptedException);
                         } catch (IOException ioe) {
                             LOG.debug("Exception while repositioning", ioe);
-                            exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                            handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.NoSuchLedgerExistsException);
                         } catch (BKException bke) {
                             LOG.debug("Exception while repositioning", bke);
-                            exceptionHandler.process(bke.getCode());
+                            handleException(ReadAheadPhase.CLOSE_LEDGER, bke.getCode());
                         }
                     } else {
                         if (LOG.isTraceEnabled()) {
@@ -835,7 +871,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     public void run() {
                         if (BKException.Code.OK != rc) {
                             LOG.debug("BK Exception {} while opening ledger", rc);
-                            exceptionHandler.process(rc);
+                            handleException(ReadAheadPhase.OPEN_LEDGER, rc);
                             return;
                         }
                         if (LOG.isTraceEnabled()) {
@@ -856,7 +892,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     @Override
                     public void run() {
                         if (BKException.Code.OK != rc) {
-                            exceptionHandler.process(rc);
+                            handleException(ReadAheadPhase.READ_LAST_CONFIRMED, rc);
                             return;
                         }
                         bkcZkExceptions.set(0);
@@ -877,7 +913,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     public void run() {
                         if (BKException.Code.OK != rc) {
                             LOG.debug("BK Exception {} in read last add confirmed and entry", rc);
-                            exceptionHandler.process(rc);
+                            handleException(ReadAheadPhase.READ_LAST_CONFIRMED, rc);
                             return;
                         }
                         bkcZkExceptions.set(0);
@@ -929,7 +965,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     try {
                         lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
                     } catch (IOException e) {
-                        exceptionHandler.process(BKException.Code.NoSuchLedgerExistsException);
+                        handleException(ReadAheadPhase.READ_LAST_CONFIRMED, BKException.Code.NoSuchLedgerExistsException);
                         return;
                     }
                     read();
@@ -965,7 +1001,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         if (BKException.Code.OK != rc || null == lh) {
                             readAheadReadEntriesStat.registerFailedEvent(0);
                             LOG.debug("BK Exception {} while reading entry", rc);
-                            exceptionHandler.process(rc);
+                            handleException(ReadAheadPhase.READ_ENTRIES, rc);
                             return;
                         }
                         int numReads = 0;
