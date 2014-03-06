@@ -45,6 +45,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES = "rolling-interval";
     public static final int BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT = 120;
 
+    // Max LogSegment Bytes
+    public static final String BKDL_MAX_LOGSEGMENT_BYTES = "maxLogSegmentBytes";
+    public static final int BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT = 256 * 1024 * 1024; // default 256MB
+
     // Bookkeeper ensemble size
     public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
     public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
@@ -249,6 +253,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setLogSegmentRollingIntervalMinutes(int rollingMinutes) {
         setProperty(BKDL_ROLLING_INTERVAL_IN_MINUTES, rollingMinutes);
+        return this;
+    }
+
+    /**
+     * Get Max LogSegment Size in Bytes.
+     *
+     * @return max logsegment size in bytes.
+     */
+    public long getMaxLogSegmentBytes() {
+        return this.getLong(BKDL_MAX_LOGSEGMENT_BYTES, BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT);
+    }
+
+    /**
+     * Set Max LogSegment Size in Bytes.
+     *
+     * @param maxBytes
+     *          max logsegment size in bytes.
+     * @return configuration.
+     */
+    public DistributedLogConfiguration setMaxLogSegmentBytes(long maxBytes) {
+        setProperty(BKDL_MAX_LOGSEGMENT_BYTES, maxBytes);
         return this;
     }
 

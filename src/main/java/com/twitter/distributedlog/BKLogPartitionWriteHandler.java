@@ -136,6 +136,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final LinkedHashSet<MetadataOp> pendingMetadataOps = new LinkedHashSet<MetadataOp>();
     protected volatile boolean closed = false;
     protected boolean recoverInitiated = false;
+    protected final RollingPolicy rollingPolicy;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -397,6 +398,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         // acquire the lock if we enable recover in background
         if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
             lock.acquire("WriteHandlerCreate");
+        }
+
+        // Rolling Policy
+        if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
+            rollingPolicy = new TimeBasedRollingPolicy(conf);
+        } else {
+            rollingPolicy = new SizeBasedRollingPolicy(conf);
         }
 
         // Stats
@@ -726,19 +734,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    public boolean shouldStartNewSegment() {
-
-        boolean shouldSwitch = false;
-
-        if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
-            shouldSwitch = (Utils.elapsedMSec(lastLedgerRollingTimeMillis) >
-                ((long)conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000));
-        }
-        if (shouldSwitch) {
-            LOG.debug("Last Finalize Time: {} elapsed time (MSec): {}", lastLedgerRollingTimeMillis,
-                    Utils.elapsedMSec(lastLedgerRollingTimeMillis));
-        }
-        return shouldSwitch;
+    boolean shouldStartNewSegment(BKPerStreamLogWriter writer) {
+        return rollingPolicy.shouldRollLog(writer, lastLedgerRollingTimeMillis);
     }
 
     class CompleteOp extends MetadataOp {

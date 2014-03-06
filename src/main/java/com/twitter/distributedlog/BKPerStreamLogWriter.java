@@ -137,7 +137,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private BKTransmitPacket packetCurrent;
     private final AtomicInteger outstandingRequests;
     private final int transmissionThreshold;
-    private final LedgerHandle lh;
+    protected final LedgerHandle lh;
     private CountDownLatch syncLatch;
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);

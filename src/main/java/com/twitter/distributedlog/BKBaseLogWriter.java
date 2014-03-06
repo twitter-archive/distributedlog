@@ -149,7 +149,7 @@ public abstract class BKBaseLogWriter {
                                                                           String streamIdentifier, long startTxId) throws IOException {
         boolean shouldCheckForTruncation = false;
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
-        if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment() || forceRolling)) {
+        if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
             PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
             try {
                 if (switchPermit.isAllowed()) {
