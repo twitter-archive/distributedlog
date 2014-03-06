@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -564,6 +563,25 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             throw new IOException("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
         }
         return result;
+    }
+
+    public static void createUnpartitionedStreams(final DistributedLogConfiguration conf, final URI uri,
+                                                  final List<String> streamNames)
+        throws IOException, IllegalArgumentException {
+        withZooKeeperClient(new ZooKeeperClientHandler<Void>() {
+            @Override
+            public Void handle(ZooKeeperClient zkc) throws IOException {
+                for (String s : streamNames) {
+                    try {
+                        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, s);
+                    } catch (InterruptedException e) {
+                        LOG.error("Interrupted on creating unpartitioned stream {} : ", s, e);
+                        return null;
+                    }
+                }
+                return null;
+            }
+        }, conf, uri);
     }
 
     /**

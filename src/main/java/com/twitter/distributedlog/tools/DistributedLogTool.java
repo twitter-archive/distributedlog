@@ -452,6 +452,85 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    class CreateCommand extends PerDLCommand {
+
+        final List<String> streams = new ArrayList<String>();
+
+        CreateCommand() {
+            super("create", "create streams under a given namespace");
+            options.addOption("r", "prefix", true, "Prefix of stream name. E.g. 'QuantumLeapTest-'.");
+            options.addOption("e", "expression", true, "Expression to generate stream suffix. " +
+                              "Currently we support range 'x-y', list 'x,y,z' and name 'xyz'");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            String streamPrefix = null;
+            String streamExpression = null;
+            if (cmdline.hasOption("r")) {
+                streamPrefix = cmdline.getOptionValue("r");
+            }
+            if (cmdline.hasOption("e")) {
+                streamExpression = cmdline.getOptionValue("e");
+            }
+            if (null == streamPrefix || null == streamExpression) {
+                throw new ParseException("Please specify stream prefix & expression.");
+            }
+            // parse the stream expression
+            if (streamExpression.contains("-")) {
+                // a range expression
+                String[] parts = streamExpression.split("-");
+                if (parts.length != 2) {
+                    throw new ParseException("Invalid stream index range : " + streamExpression);
+                }
+                try {
+                    int start = Integer.parseInt(parts[0]);
+                    int end = Integer.parseInt(parts[1]);
+                    if (start > end) {
+                        throw new ParseException("Invalid stream index range : " + streamExpression);
+                    }
+                    for (int i = start; i <= end; i++) {
+                        streams.add(streamPrefix + i);
+                    }
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid stream index range : " + streamExpression);
+                }
+            } else if (streamExpression.contains(",")) {
+                // a list expression
+                String[] parts = streamExpression.split(",");
+                try {
+                    for (String part : parts) {
+                        int idx = Integer.parseInt(part);
+                        streams.add(streamPrefix + idx);
+                    }
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid stream suffix list : " + streamExpression);
+                }
+            } else {
+                streams.add(streamPrefix + streamExpression);
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            if (streams.isEmpty()) {
+                println("Nothing to create.");
+                return 0;
+            }
+            if (!IOUtils.confirmPrompt("Are u going to create streams : " + streams)) {
+                return 0;
+            }
+            DistributedLogManagerFactory.createUnpartitionedStreams(getConf(), getUri(), streams);
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "create [options]";
+        }
+    }
+
     class DumpCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
@@ -611,6 +690,7 @@ public class DistributedLogTool extends Tool {
 
     public DistributedLogTool() {
         super();
+        addCommand(new CreateCommand());
         addCommand(new ListCommand());
         addCommand(new DumpCommand());
         addCommand(new ShowCommand());
