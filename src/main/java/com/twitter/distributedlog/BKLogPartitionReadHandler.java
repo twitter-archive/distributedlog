@@ -149,6 +149,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    void dumpReadAheadState() {
+        LOG.warn("Idle Reader on stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+    }
+
     public LedgerHandleCache getHandleCache() {
         return handleCache;
     }
@@ -285,6 +289,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         public void stop() {
             running = false;
 
+        }
+
+        @Override
+        public String toString() {
+            return "Running:" + running +
+                ", NextReadPosition:" + nextReadPosition +
+                ", BKZKExceptions:" + bkcZkExceptions.get() +
+                ", BKUnexpectedExceptions:" + bkcUnExpectedExceptions.get() +
+                ", EncounteredException:" + encounteredException +
+                ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE");
         }
 
         @Override

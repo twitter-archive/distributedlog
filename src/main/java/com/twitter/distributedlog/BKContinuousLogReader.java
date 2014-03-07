@@ -1,16 +1,19 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
+
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 
 public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
@@ -21,21 +24,24 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private final BKLogPartitionReadHandler bkLedgerManager;
     private ResumableBKPerStreamLogReader currentReader = null;
     private final boolean readAheadEnabled;
+    private final int idleWarnThresholdMillis;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
     private ReaderNotification notification = null;
+    private Stopwatch idleReaderStopwatch = Stopwatch.createUnstarted();
 
 
     public BKContinuousLogReader (BKDistributedLogManager bkdlm,
                                   String streamIdentifier,
                                   long startTxId,
-                                  boolean readAheadEnabled) throws IOException {
+                                  final DistributedLogConfiguration conf) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
-        this.readAheadEnabled = readAheadEnabled;
+        this.readAheadEnabled = conf.getEnableReadAhead();
+        this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -103,6 +109,14 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             }
 
             lastTxId = record.getTransactionId();
+            idleReaderStopwatch.reset().start();
+        } else {
+            // If we have exceeded the warning threshold generate the warning and then reset the timer
+            // so as to avoid flooding the log with idle reader messages
+            if (idleReaderStopwatch.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
+                bkLedgerManager.dumpReadAheadState();
+                idleReaderStopwatch.reset().start();
+            }
         }
 
         return record;

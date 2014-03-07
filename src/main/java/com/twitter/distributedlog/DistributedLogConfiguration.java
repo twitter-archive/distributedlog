@@ -68,6 +68,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
 
+    // Reader parameters
+    public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
+    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 30000;
+
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -711,4 +716,25 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_ENABLE_RECORD_COUNTS, enableRecordCounts);
         return this;
     }
+
+    /**
+     * Get the time in milliseconds as the threshold for when an idle reader should dump warnings
+     *
+     * @return if record counts should be persisted
+     */
+    public int getReaderIdleWarnThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should dump warnings
+     *
+     * @param warnThreshold time after which we should dump the read ahead state
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setReaderIdleWarnThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
 }

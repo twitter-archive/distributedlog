@@ -364,6 +364,7 @@ public class TestInterleavedReaders {
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReaderIdleWarnThresholdMillis(100);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
