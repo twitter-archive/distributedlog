@@ -8,6 +8,7 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 
@@ -172,7 +173,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         return lastTxId;
     }
 
-    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {
+    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException, DLInterruptedException {
         if (endOfStreamEncountered) {
             throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
         }

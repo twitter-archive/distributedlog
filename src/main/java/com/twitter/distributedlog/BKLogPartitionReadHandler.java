@@ -33,6 +33,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
+    private boolean readAheadInterrupted = false;
 
     // stats
     private final Counter readAheadWorkerWaits;
@@ -156,6 +157,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readAheadError = true;
     }
 
+    public void setReadAheadInterrupted() {
+        readAheadInterrupted = true;
+    }
+
+
     public void setNotification(final AsyncNotification notification) {
         // If we are setting a notification, then we must ensure that
         // read ahead has already been started. Once we have the read
@@ -188,8 +194,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         ledgerDataAccessor.setNotification(notification);
     }
 
-    public void checkClosedOrInError() throws LogReadException {
-        if (readAheadError) {
+    public void checkClosedOrInError() throws LogReadException, DLInterruptedException {
+        if (readAheadInterrupted) {
+            throw new DLInterruptedException("ReadAhead Thread was interrupted");
+        }
+        else if (readAheadError) {
             throw new LogReadException("ReadAhead Thread encountered exceptions");
         }
     }
@@ -369,6 +378,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (BKException.Code.InterruptedException == rc) {
                     LOG.trace("ReadAhead Worker for {} is interrupted.", fullyQualifiedName);
                     running = false;
+                    bkLedgerManager.setReadAheadInterrupted();
                     return;
                 } else if (BKException.Code.ZKException == rc) {
                     encounteredException = true;
