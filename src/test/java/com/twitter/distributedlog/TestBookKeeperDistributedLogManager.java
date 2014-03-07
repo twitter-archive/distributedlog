@@ -1600,7 +1600,7 @@ public class TestBookKeeperDistributedLogManager {
         out.write(op);
         out.setReadyToFlush();
         out.flushAndSync();
-        out.close();
+        out.abort();
         dlm.close();
 
         dlm = DLMTestUtil.createNewDLM(conf, name);

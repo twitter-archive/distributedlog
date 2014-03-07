@@ -50,12 +50,16 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
 
     abstract protected Collection<BKPerStreamLogWriter> getCachedLogWriters();
 
+    abstract protected void closeAndComplete(boolean shouldThrow) throws IOException;
+
+    public void close() throws IOException {
+        closeAndComplete(false);
+    }
 
     /**
-     * Close the journal.
-     *
+     * Close the writer and release all the underlying resources
      */
-    public void close() {
+    public void closeNoThrow() {
         closed = true;
         try {
             waitForTruncation();
