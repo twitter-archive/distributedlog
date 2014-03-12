@@ -4,7 +4,7 @@ import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 public class OwnershipAcquireFailedException extends LockingException {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 8176056926552748001L;
     private final String currentOwner;
 
     public OwnershipAcquireFailedException(String lockPath, String currentOwner) {

@@ -26,6 +26,8 @@ enum StatusCode {
     INTERNAL_SERVER_ERROR = 500,
     // Not implemented
     NOT_IMPLEMENTED = 501,
+    // Already Closed Exception
+    ALREADY_CLOSED = 502,
     // Service is currently unavailable (because it is overloaded or down for maintenance).
     SERVICE_UNAVAILABLE = 503,
     // Locking exception
@@ -34,11 +36,30 @@ enum StatusCode {
     ZOOKEEPER_ERROR = 505,
     // Metadata exception
     METADATA_EXCEPTION = 506,
+    // BK Transmit Error
+    BK_TRANSMIT_ERROR = 507,
+    // Flush timeout
+    FLUSH_TIMEOUT = 508,
+    // Log empty
+    LOG_EMPTY = 509,
+    // Log not found
+    LOG_NOT_FOUND = 510,
+    // Truncated Transactions
+    TRUNCATED_TRANSACTION = 511,
+    // End of Stream
+    END_OF_STREAM = 512,
+    // Transaction Id Out of Order
+    TRANSACTION_OUT_OF_ORDER = 513,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
     INTERRUPTED = 601,
     INVALID_STREAM_NAME = 602,
+    ILLEGAL_STATE = 603,
+
+    // 10xx: reader exceptions
+    RETRYABLE_READ = 1000,
+    LOG_READ_ERROR = 1001,
 }
 
 // Response Header

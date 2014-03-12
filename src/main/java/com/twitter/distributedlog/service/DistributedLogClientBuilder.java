@@ -813,6 +813,9 @@ public class DistributedLogClientBuilder {
             op.sendRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
                 @Override
                 public void onSuccess(WriteResponse response) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Received response {}", response);
+                    }
                     getResponseCounter(response.getHeader().getCode()).incr();
                     proxySuccessLatencyStat.add(MathUtils.elapsedMicroSec(startTimeNanos));
                     switch (response.getHeader().getCode()) {
@@ -823,22 +826,31 @@ public class DistributedLogClientBuilder {
                         case FOUND:
                             handleRedirectResponse(response, op, addr);
                             break;
+                        // for responses that indicate the requests definitely failed,
+                        // we should fail them immediately (e.g. BAD_REQUEST, TOO_LARGE_RECORD, METADATA_EXCEPTION)
+                        case NOT_IMPLEMENTED:
+                        case METADATA_EXCEPTION:
+                        case LOG_EMPTY:
+                        case LOG_NOT_FOUND:
+                        case TRUNCATED_TRANSACTION:
+                        case END_OF_STREAM:
+                        case TRANSACTION_OUT_OF_ORDER:
+                        case INVALID_STREAM_NAME:
+                            logger.error("Failed to write request to {} : {}", op.stream, response);
+                            op.fail(DLException.of(response.getHeader()));
+                            break;
                         case SERVICE_UNAVAILABLE:
                         case ZOOKEEPER_ERROR:
                         case LOCKING_EXCEPTION:
                         case UNEXPECTED:
                         case INTERRUPTED:
+                        case BK_TRANSMIT_ERROR:
+                        case FLUSH_TIMEOUT:
+                        default:
                             // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                             // redirect the request.
                             clearHostFromStream(op.stream, addr);
                             redirect(op, addr, null);
-                            break;
-                        // for responses that indicate the requests definitely failed,
-                        // we should fail them immediately (e.g. BAD_REQUEST, TOO_LARGE_RECORD, METADATA_EXCEPTION)
-                        default:
-                            logger.error("Failed to write request to {} : {}", op.stream, response);
-                            // server side exceptions, throw to the client.
-                            op.fail(DLException.of(response.getHeader()));
                             break;
                     }
                 }

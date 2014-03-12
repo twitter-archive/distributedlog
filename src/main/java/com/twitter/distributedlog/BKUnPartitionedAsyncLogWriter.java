@@ -131,4 +131,9 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }).get();
         super.closeAndComplete();
     }
+
+    @Override
+    public void abort() throws IOException {
+        super.abort();
+    }
 }

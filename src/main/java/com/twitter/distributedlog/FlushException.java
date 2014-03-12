@@ -1,16 +1,17 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class FlushException extends IOException {
+public class FlushException extends DLException {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = -9060360360261130489L;
 
     public FlushException(String message) {
-        super(message);
+        super(StatusCode.FLUSH_TIMEOUT, message);
     }
 
     public FlushException(String message, Throwable cause) {
-        super(message, cause);
+        super(StatusCode.FLUSH_TIMEOUT, message, cause);
     }
 }

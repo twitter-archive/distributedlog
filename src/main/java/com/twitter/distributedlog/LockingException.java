@@ -5,7 +5,7 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 
 public class LockingException extends DLException {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = -4960278188448464473L;
 
     public LockingException(String lockPath, String message) {
         this(StatusCode.LOCKING_EXCEPTION, lockPath, message);

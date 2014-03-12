@@ -1,13 +1,15 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class TransactionIdOutOfOrderException extends IOException {
+public class TransactionIdOutOfOrderException extends DLException {
 
+    private static final long serialVersionUID = -6239322552103630036L;
     private final long lastTxnId;
 
     public TransactionIdOutOfOrderException(long smallerTxnId, long lastTxnId) {
-        super("Received smaller txn id " + smallerTxnId + ", last txn id is " + lastTxnId);
+        super(StatusCode.TRANSACTION_OUT_OF_ORDER,
+              "Received smaller txn id " + smallerTxnId + ", last txn id is " + lastTxnId);
         this.lastTxnId = lastTxnId;
     }
 

@@ -1,15 +1,16 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class RetryableReadException extends IOException {
-    private static final long serialVersionUID = 1L;
+public class RetryableReadException extends DLException {
+
+    private static final long serialVersionUID = 2803207702150642330L;
 
     public RetryableReadException (String streamName, String message) {
-        super(String.format("Reader on %s failed with %s", streamName, message));
+        super(StatusCode.RETRYABLE_READ, String.format("Reader on %s failed with %s", streamName, message));
     }
 
     public RetryableReadException (String streamName, String message, Throwable cause) {
-        super(String.format("Reader on %s failed with %s", streamName, message), cause);
+        super(StatusCode.RETRYABLE_READ, String.format("Reader on %s failed with %s", streamName, message), cause);
     }
 }

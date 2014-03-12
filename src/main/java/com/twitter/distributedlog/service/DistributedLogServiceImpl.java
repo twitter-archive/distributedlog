@@ -46,21 +46,22 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
-    static final int MAX_RETRIES = 3;
-
     static enum StreamStatus {
         UNINITIALIZED,
         INITIALIZING,
         INITIALIZED,
-        BACKOFF,
+        // if a stream is in failed state, it could be retried immediately.
+        // a stream will be put in failed state when encountered any stream exception.
         FAILED,
+        // if a stream is in backoff state, it would backoff for a while.
+        // a stream will be put in backoff state when failed to acquire the ownership.
+        BACKOFF,
         CLOSING,
         CLOSED
     }
@@ -122,7 +123,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     abstract class StreamOp implements FutureEventListener<WriteResponse> {
         final String stream;
-        final AtomicInteger retries = new AtomicInteger(0);
         final Promise<WriteResponse> result = new Promise<WriteResponse>();
         final Stopwatch stopwatch = new Stopwatch();
         final WriteContext context;
@@ -381,11 +381,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         this.status = StreamStatus.INITIALIZING;
                         needAcquire = true;
                         break;
-                    case BACKOFF:
+                    case FAILED:
                         this.status = StreamStatus.INITIALIZING;
                         needAcquire = true;
                         break;
-                    case FAILED:
+                    case BACKOFF:
                         // there are pending ops, try re-acquiring the stream again
                         if (pendingOps.size() > 0) {
                             this.status = StreamStatus.INITIALIZING;
@@ -425,7 +425,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          stream operation to execute.
          */
         void waitIfNeededAndWrite(StreamOp op) {
-            op.retries.incrementAndGet();
             boolean completeOpNow = false;
             boolean success = true;
             if (StreamStatus.CLOSED == status) {
@@ -445,18 +444,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     } if (StreamStatus.INITIALIZED == status) {
                         completeOpNow = true;
                         success = true;
-                    } else if (StreamStatus.FAILED == status &&
+                    } else if (StreamStatus.BACKOFF == status &&
                             lastAcquireFailureWatch.elapsed(TimeUnit.MILLISECONDS) < nextAcquireWaitTimeMs) {
                         completeOpNow = true;
                         success = false;
                     } else { // closing & initializing
-                        if (pendingOps.isEmpty()) {
+                        pendingOps.add(op);
+                        if (1 == pendingOps.size()) {
                             // when any op is added in pending queue, notify stream to acquire the stream.
                             synchronized (streamLock) {
                                 streamLock.notifyAll();
                             }
                         }
-                        pendingOps.add(op);
                     }
                 }
             }
@@ -497,12 +496,35 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        if (cause instanceof OwnershipAcquireFailedException) {
-                            handleOwnershipAcquireFailedException(op, (OwnershipAcquireFailedException) cause);
-                        } else if (cause instanceof AlreadyClosedException) {
-                            handleAlreadyClosedException((AlreadyClosedException) cause);
+                        countException(cause);
+                        if (cause instanceof DLException) {
+                            final DLException dle = (DLException) cause;
+                            switch (dle.getCode()) {
+                            case FOUND:
+                                handleOwnershipAcquireFailedException(op, (OwnershipAcquireFailedException) cause);
+                                break;
+                            case ALREADY_CLOSED:
+                                op.fail(null, cause);
+                                handleAlreadyClosedException((AlreadyClosedException) cause);
+                                break;
+                            // exceptions that mostly from client (e.g. too large record)
+                            case NOT_IMPLEMENTED:
+                            case METADATA_EXCEPTION:
+                            case LOG_EMPTY:
+                            case LOG_NOT_FOUND:
+                            case TRUNCATED_TRANSACTION:
+                            case END_OF_STREAM:
+                            case TRANSACTION_OUT_OF_ORDER:
+                            case INVALID_STREAM_NAME:
+                                op.fail(null, cause);
+                                break;
+                            // exceptions that *could* / *might* be recovered by creating a new writer
+                            default:
+                                handleRecoverableDLException(op, cause);
+                                break;
+                            }
                         } else {
-                            handleGenericException(op, cause);
+                            handleUnknownException(op, cause);
                         }
                     }
                 });
@@ -516,32 +538,51 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         /**
-         * Handle generic exception when executing <i>op</i>.
+         * Handle recoverable dl exception.
          *
          * @param op
          *          stream operation executing
          * @param cause
          *          exception received when executing <i>op</i>
          */
-        private void handleGenericException(StreamOp op, final Throwable cause) {
-            countException(cause);
+        private void handleRecoverableDLException(StreamOp op, final Throwable cause) {
             AsyncLogWriter oldWriter = null;
-            boolean reinitialize = false;
+            boolean statusChanged = false;
             synchronized (this) {
                 if (StreamStatus.INITIALIZED == status) {
-                    oldWriter = setStreamStatus(StreamStatus.BACKOFF, null, null, cause);
-                    reinitialize = true;
+                    oldWriter = setStreamStatus(StreamStatus.FAILED, null, null, cause);
+                    statusChanged = true;
                 }
             }
-            if (reinitialize) {
-                close(oldWriter);
+            if (statusChanged) {
+                abort(oldWriter);
                 logger.error("Failed to write data into stream {} : ", name, cause);
             }
-            if (op.retries.get() >= MAX_RETRIES) {
-                op.fail(owner, lastException);
-            } else {
-                waitIfNeededAndWrite(op);
+            failOp(op, null, cause);
+        }
+
+        /**
+         * Handle unknown exception when executing <i>op</i>.
+         *
+         * @param op
+         *          stream operation executing
+         * @param cause
+         *          exception received when executing <i>op</i>
+         */
+        private void handleUnknownException(StreamOp op, final Throwable cause) {
+            AsyncLogWriter oldWriter = null;
+            boolean statusChanged = false;
+            synchronized (this) {
+                if (StreamStatus.INITIALIZED == status) {
+                    oldWriter = setStreamStatus(StreamStatus.FAILED, null, null, cause);
+                    statusChanged = true;
+                }
             }
+            if (statusChanged) {
+                abort(oldWriter);
+                logger.error("Failed to write data into stream {} : ", name, cause);
+            }
+            failOp(op, null, cause);
         }
 
         /**
@@ -553,19 +594,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          the ownership exception received when executing <i>op</i>
          */
         private void handleOwnershipAcquireFailedException(StreamOp op, final OwnershipAcquireFailedException oafe) {
-            countException(oafe);
             logger.error("Failed to write data into stream {} : ", name, oafe);
             AsyncLogWriter oldWriter = null;
             boolean statusChanged = false;
             synchronized (this) {
                 if (StreamStatus.INITIALIZED == status) {
                     oldWriter =
-                        setStreamStatus(StreamStatus.FAILED, null, oafe.getCurrentOwner(), oafe);
+                        setStreamStatus(StreamStatus.BACKOFF, null, oafe.getCurrentOwner(), oafe);
                     statusChanged = true;
                 }
             }
             if (statusChanged) {
-                close(oldWriter);
+                abort(oldWriter);
             }
             failOp(op, oafe.getCurrentOwner(), oafe);
         }
@@ -592,13 +632,14 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     success = true;
                 }
             } catch (final AlreadyClosedException ace) {
+                countException(ace);
                 handleAlreadyClosedException(ace);
                 return;
             } catch (final OwnershipAcquireFailedException oafe) {
                 countException(oafe);
                 logger.error("Failed to initialize stream {} : ", name, oafe);
                 synchronized (this) {
-                    setStreamStatus(StreamStatus.FAILED, null, oafe.getCurrentOwner(), oafe);
+                    setStreamStatus(StreamStatus.BACKOFF, null, oafe.getCurrentOwner(), oafe);
                     oldPendingOps = pendingOps;
                     pendingOps = new ArrayDeque<StreamOp>();
                     success = false;
@@ -638,7 +679,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             this.lastException = t;
             this.status = status;
-            if (StreamStatus.FAILED == status && null != owner) {
+            if (StreamStatus.BACKOFF == status && null != owner) {
                 // start failure watch
                 this.lastAcquireFailureWatch.reset().start();
             }
@@ -666,6 +707,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     writer.close();
                 } catch (IOException ioe) {
                     logger.warn("Failed to close async log writer for {} : ", ioe);
+                }
+            }
+        }
+
+        void abort(AsyncLogWriter writer) {
+            if (null != writer) {
+                try {
+                    writer.abort();
+                } catch (IOException e) {
+                    logger.warn("Failed to abort async log writer for {} : ", e);
                 }
             }
         }

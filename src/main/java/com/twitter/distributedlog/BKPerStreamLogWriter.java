@@ -102,7 +102,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             for(Promise<DLSN> promise : promiseList) {
                 promise.setException(new BKTransmitException("Failed to write to bookkeeper; Error is ("
                     + transmitResult + ") "
-                    + BKException.getMessage(transmitResult)));
+                    + BKException.getMessage(transmitResult), transmitResult));
             }
             promiseList.clear();
         }
@@ -375,6 +375,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     synchronized public Future<DLSN> asyncWrite(LogRecord record) throws IOException {
+        if (BKException.Code.OK != transmitResult.get()) {
+            // failfast if the stream already encountered error
+            throw new BKTransmitException("Stream already encountered error : " +
+                    BKException.getMessage(transmitResult.get()), transmitResult.get());
+        }
+
         if (streamEnded) {
             throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
         }
@@ -579,7 +585,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 transmitResult.get(), BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Failed to write to bookkeeper; Error is ("
                 + transmitResult.get() + ") "
-                + BKException.getMessage(transmitResult.get()));
+                + BKException.getMessage(transmitResult.get()), transmitResult.get());
         }
 
         synchronized (this) {
@@ -603,7 +609,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Trying to write to an errored stream;"
                 + " Error code : (" + transmitResult.get()
-                + ") " + BKException.getMessage(transmitResult.get()));
+                + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
         }
         if (packetCurrent.getBuffer().getLength() > 0) {
             BKTransmitPacket packet = packetCurrent;

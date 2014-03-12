@@ -17,17 +17,18 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.IOException;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
  * Thrown when there's a failure to read an edit log op from disk when loading
  * edits.
  */
-public class LogReadException extends IOException {
+public class LogReadException extends DLException {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 302945709106128177L;
 
     public LogReadException(String message) {
-        super(message);
+        super(StatusCode.LOG_READ_ERROR, message);
     }
 }

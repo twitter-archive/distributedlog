@@ -24,4 +24,9 @@ public interface AsyncLogWriter extends Closeable {
      * if the truncation fails.
      */
     public Future<Boolean> truncate(DLSN dlsn);
+
+    /**
+     * Abort the writer.
+     */
+    public void abort() throws IOException;
 }

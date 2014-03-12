@@ -19,16 +19,19 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.List;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for setting up bookkeeper ensembles
@@ -80,6 +83,20 @@ public class DLMTestUtil {
         return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
                 path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, null,
                 NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
+    }
+
+    public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
+        try {
+            BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            List<LogSegmentLedgerMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
+            LogSegmentLedgerMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
+            LedgerHandle lh = dlm.getBookKeeperClient().get().openLedger(lastSegment.getLedgerId(),
+                    BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+            lh.close();
+        } finally {
+            dlm.close();
+        }
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {

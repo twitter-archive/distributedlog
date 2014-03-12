@@ -127,7 +127,7 @@ public class TestDistributedLogServer {
         zks.stop();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testBasicWrite() throws Exception {
         String name = "dlserver-basic-write";
 
@@ -155,7 +155,44 @@ public class TestDistributedLogServer {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
+    public void testFenceWrite() throws Exception {
+        String name = "dlserver-fence-write";
+
+        routingService.addHost(name, localAddress);
+
+        for (long i = 1; i <= 10; i++) {
+            logger.debug("Write entry {} to stream {}.", i, name);
+            dlClient.write(name, ByteBuffer.wrap(("" + i).getBytes())).get();
+        }
+
+        Thread.sleep(1000);
+
+        logger.info("Fencing stream {}.", name);
+        DLMTestUtil.fenceStream(conf, uri, name);
+        logger.info("Fenced stream {}.", name);
+
+        for (long i = 11; i <= 20; i++) {
+            logger.debug("Write entry {} to stream {}.", i, name);
+            dlClient.write(name, ByteBuffer.wrap(("" + i).getBytes())).get();
+        }
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        LogReader reader = dlm.getInputStream(1);
+        int numRead = 0;
+        LogRecord r = reader.readNext(false);
+        while (null != r) {
+            int i = Integer.parseInt(new String(r.getPayload()));
+            assertEquals(numRead + 1, i);
+            ++numRead;
+            r = reader.readNext(false);
+        }
+        assertEquals(20, numRead);
+        reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
     public void testDeleteStream() throws Exception {
         String name = "dlserver-delete-stream";
 
@@ -202,7 +239,7 @@ public class TestDistributedLogServer {
         dlm201.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testTruncateStream() throws Exception {
         String name = "dlserver-truncate-stream";
 

@@ -7,6 +7,8 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
  */
 public class DLInterruptedException extends DLException {
 
+    private static final long serialVersionUID = 3023394251107286496L;
+
     public DLInterruptedException(String msg) {
         super(StatusCode.INTERRUPTED, msg);
     }

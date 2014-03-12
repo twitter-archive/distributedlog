@@ -6,6 +6,8 @@ import org.apache.zookeeper.KeeperException.Code;
 
 public class ZKException extends DLException {
 
+    private static final long serialVersionUID = 7542748595054923600L;
+
     final KeeperException.Code code;
 
     public ZKException(String msg, Code code) {

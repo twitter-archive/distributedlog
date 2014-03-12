@@ -124,6 +124,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    BookKeeperClient getBookKeeperClient() {
+        return bookKeeperClient;
+    }
+
     @Override
     public synchronized void registerListener(LogSegmentListener listener) throws IOException {
         if (null == readHandlerForListener) {

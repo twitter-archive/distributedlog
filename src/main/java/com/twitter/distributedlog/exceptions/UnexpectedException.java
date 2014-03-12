@@ -3,6 +3,9 @@ package com.twitter.distributedlog.exceptions;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 public class UnexpectedException extends DLException {
+
+    private static final long serialVersionUID = 903763128422774055L;
+
     public UnexpectedException() {
         super(StatusCode.UNEXPECTED);
     }

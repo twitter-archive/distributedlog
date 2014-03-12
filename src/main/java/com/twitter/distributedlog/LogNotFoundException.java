@@ -1,12 +1,13 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class LogNotFoundException extends IOException {
+public class LogNotFoundException extends DLException {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 871435700699403164L;
 
     public LogNotFoundException(String message) {
-        super(message);
+        super(StatusCode.LOG_NOT_FOUND, message);
     }
 }

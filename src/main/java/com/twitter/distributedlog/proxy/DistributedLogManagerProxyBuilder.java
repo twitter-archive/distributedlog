@@ -117,6 +117,11 @@ public class DistributedLogManagerProxyBuilder {
         public void close() {
             // nop
         }
+
+        @Override
+        public void abort() {
+            // nop
+        }
     }
 
     public DistributedLogManagerProxy build() {
