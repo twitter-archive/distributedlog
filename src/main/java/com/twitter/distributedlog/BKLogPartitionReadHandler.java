@@ -95,7 +95,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
               statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
 
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
-        ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger, notification);
+        ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger,
+                notification, conf.getTraceReadAheadDeliveryLatency());
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");

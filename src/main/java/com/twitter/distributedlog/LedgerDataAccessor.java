@@ -4,7 +4,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +37,8 @@ public class LedgerDataAccessor {
     private final Counter readAheadMisses;
     private final Counter readAheadAddHits;
     private final Counter readAheadAddMisses;
+    private final OpStatsLogger readAheadDeliveryLatencyStat;
+    private final OpStatsLogger negativeReadAheadDeliveryLatencyStat;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
     private final ConcurrentLinkedQueue<LogRecordWithDLSN> readAheadRecords;
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
@@ -46,12 +48,14 @@ public class LedgerDataAccessor {
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
+    private final boolean traceDeliveryLatency;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
-        this(ledgerHandleCache, streamName, statsLogger, null);
+        this(ledgerHandleCache, streamName, statsLogger, null, false);
     }
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger, AsyncNotification notification) {
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger,
+                       AsyncNotification notification, boolean traceDeliveryLatency) {
         this.ledgerHandleCache = ledgerHandleCache;
         this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
@@ -60,7 +64,11 @@ public class LedgerDataAccessor {
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
         this.readAheadAddHits = readAheadStatsLogger.getCounter("add_hit");
         this.readAheadAddMisses = readAheadStatsLogger.getCounter("add_miss");
+        this.readAheadDeliveryLatencyStat = readAheadStatsLogger.getOpStatsLogger("delivery_latency");
+        this.negativeReadAheadDeliveryLatencyStat =
+                readAheadStatsLogger.getOpStatsLogger("negative_delivery_latency");
         this.notification = notification;
+        this.traceDeliveryLatency = traceDeliveryLatency;
 
         if (null == notification) {
             readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
@@ -362,6 +370,14 @@ public class LedgerDataAccessor {
                 LogRecordWithDLSN record = reader.readOp();
                 if (null == record) {
                     break;
+                }
+                if (traceDeliveryLatency && !record.isControl()) {
+                    long deliveryMs = System.currentTimeMillis() - record.getTransactionId();
+                    if (deliveryMs >= 0) {
+                        readAheadDeliveryLatencyStat.registerSuccessfulEvent(deliveryMs);
+                    } else {
+                        negativeReadAheadDeliveryLatencyStat.registerSuccessfulEvent(-deliveryMs);
+                    }
                 }
                 readAheadRecords.add(record);
                 if (lastReadAheadDLSN.compareTo(record.getDlsn()) >= 0) {

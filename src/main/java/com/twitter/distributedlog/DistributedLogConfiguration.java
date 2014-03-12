@@ -1,6 +1,5 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.net.TwitterDNSResolver;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -180,6 +179,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES = "dnsResolverOverrides";
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
 
+    public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
+    public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
 
     public DistributedLogConfiguration() {
         super();
@@ -1157,6 +1158,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setBkDNSResolverOverrides(String overrides) {
         setProperty(BKDL_BK_DNS_RESOLVER_OVERRIDES, overrides);
+        return this;
+    }
+
+    /**
+     * Whether to trace read ahead delivery latency or not?
+     *
+     * @return flag to trace read ahead delivery latency.
+     */
+    public boolean getTraceReadAheadDeliveryLatency() {
+        return getBoolean(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT);
+    }
+
+    /**
+     * Set the flag to trace readahead delivery latency.
+     *
+     * @param enabled
+     *          flag to trace readahead delivery latency.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setTraceReadAheadDeliveryLatency(boolean enabled) {
+        setProperty(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, enabled);
         return this;
     }
 }
