@@ -5,7 +5,7 @@
     <groupId>com.twitter</groupId>
     <artifactId>distributedlog-zk33</artifactId>
     <packaging>jar</packaging>
-    <version>0.3.12-SNAPSHOT</version>
+    <version>0.3.12</version>
     <distributionManagement>
         <repository>
             <id>artifactory-release</id>
@@ -19,7 +19,7 @@
         </snapshotRepository>
     </distributionManagement>
     <properties>
-        <bookkeeper.version>4.2.14-TWTTR-NETTY</bookkeeper.version>
+        <bookkeeper.version>4.2.15-TWTTR-NETTY</bookkeeper.version>
     </properties>
     <dependencies>
         <dependency>
