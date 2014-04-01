@@ -128,6 +128,14 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             LedgerDescriptor h = ledgerDescriptor;
             if (null == ledgerDescriptor){
                 h = ledgerManager.getHandleCache().openLedger(metadata, !isInProgress());
+                // if we retrieved the handle from the cache, then the last add confirmed may not be
+                // up to date so check and update it. This can cause the reader to return null when
+                // there actually is data. This makes no difference in practice as the next call to read
+                // will resume again and there it will go through the else part of this condition
+                // So this is mostly for tests
+                if (shouldReadLAC && isInProgress() && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(h))) {
+                    ledgerManager.getHandleCache().tryReadLastConfirmed(h);
+                }
                 positionInputStream(h, ledgerDataAccessor, startBkEntry);
             }  else {
                 startBkEntry = lin.nextEntryToRead();
