@@ -5,7 +5,7 @@
     <groupId>com.twitter</groupId>
     <artifactId>distributedlog</artifactId>
     <packaging>jar</packaging>
-    <version>0.3.12</version>
+    <version>0.3.14-SNAPSHOT</version>
     <distributionManagement>
         <repository>
             <id>artifactory-release</id>
