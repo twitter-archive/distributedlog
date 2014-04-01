@@ -27,8 +27,10 @@ public abstract class BKBaseLogWriter {
     private boolean forceRecovery = false;
     private LogTruncationTask lastTruncationAttempt = null;
     private Watcher sessionExpireWatcher = null;
+    protected final DistributedLogConfiguration conf;
 
     public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
+        this.conf = conf;
         this.bkDistributedLogManager = bkdlm;
         this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
         LOG.info("Retention Period {}", retentionPeriodInMillis);

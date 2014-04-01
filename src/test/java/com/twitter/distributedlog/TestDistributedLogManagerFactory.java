@@ -78,7 +78,7 @@ public class TestDistributedLogManagerFactory {
         dlm.close();
 
         // create the stream
-        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, streamName);
+        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, streamName);
 
         DistributedLogManager newDLM = factory.createDistributedLogManagerWithSharedClients(streamName);
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
@@ -164,9 +164,9 @@ public class TestDistributedLogManagerFactory {
             }
         });
         latches[0].await();
-        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, "test1");
+        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, "test1");
         latches[1].await();
-        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, "test2");
+        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, "test2");
         latches[2].await();
         assertEquals(0, numFailures.get());
         assertNotNull(receivedStreams.get());

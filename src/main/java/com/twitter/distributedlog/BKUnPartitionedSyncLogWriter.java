@@ -16,7 +16,7 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public void write(LogRecord record) throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM, record.getTransactionId(), 1).write(record);
+        getLedgerWriter(conf.getUnpartitionedStreamName(), record.getTransactionId(), 1).write(record);
     }
 
     /**
@@ -26,7 +26,7 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public int writeBulk(List<LogRecord> records) throws IOException {
-        return getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
+        return getLedgerWriter(conf.getUnpartitionedStreamName(),
                 records.get(0).getTransactionId(), records.size()).writeBulk(records);
     }
 
@@ -38,7 +38,7 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
      */
     @Override
     public void markEndOfStream() throws IOException {
-        getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM,
+        getLedgerWriter(conf.getUnpartitionedStreamName(),
             DistributedLogConstants.MAX_TXID, 0).markEndOfStream();
         closeAndComplete();
     }

@@ -55,12 +55,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                                          ExecutorService metadataExecutor) throws IOException {
         super(conf, bkdlm);
         this.futurePool = futurePool;
-        this.createAndCacheWriteHandler(DistributedLogConstants.DEFAULT_STREAM, metadataExecutor);
+        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), metadataExecutor);
     }
 
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
         BKLogPartitionWriteHandler writeHandler =
-                this.getWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM, false);
+                this.getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
         writeHandler.recoverIncompleteLogSegments();
         return this;
     }
@@ -76,9 +76,9 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 new AtomicReference<BKPerStreamLogWriter>(null);
         return futurePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
             public BKPerStreamLogWriter applyE() throws IOException {
-                BKPerStreamLogWriter writer = getLedgerWriter(DistributedLogConstants.DEFAULT_STREAM);
+                BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
                 if (null == writer) {
-                    writer = rollLogSegmentIfNecessary(null, DistributedLogConstants.DEFAULT_STREAM,
+                    writer = rollLogSegmentIfNecessary(null, conf.getUnpartitionedStreamName(),
                                                        record.getTransactionId());
                 }
                 return writer;
@@ -94,7 +94,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 BKPerStreamLogWriter writer = writerRef.get();
                 if (null != writer) {
                     try {
-                        rollLogSegmentIfNecessary(writer, DistributedLogConstants.DEFAULT_STREAM,
+                        rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
                                                   record.getTransactionId());
                     } catch (IOException e) {
                         // it is hard to handle exceptions in an ensure block. but it is probaly ok
@@ -116,7 +116,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return futurePool.apply(new ExceptionalFunction0<BKLogPartitionWriteHandler>() {
             @Override
             public BKLogPartitionWriteHandler applyE() throws Throwable {
-                return getWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM, false);
+                return getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
             }
         }).flatMap(new TruncationFunction(dlsn));
     }

@@ -17,20 +17,20 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
 
     @Override
     protected BKLogPartitionWriteHandler getCachedPartitionHandler(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         return partitionHander;
     }
 
     // Since we have only one stream we simply maintain one partition handler and one ledger
     @Override
     protected void cachePartitionHandler(String streamIdentifier, BKLogPartitionWriteHandler ledgerHandler) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         partitionHander = ledgerHandler;
     }
 
     @Override
     protected BKLogPartitionWriteHandler removeCachedPartitionHandler(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         BKLogPartitionWriteHandler ret = partitionHander;
         partitionHander = null;
         return ret;
@@ -47,19 +47,19 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
 
     @Override
     protected BKPerStreamLogWriter getCachedLogWriter(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         return perStreamWriter;
     }
 
     @Override
     protected void cacheLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         perStreamWriter = logWriter;
     }
 
     @Override
     protected BKPerStreamLogWriter removeCachedLogWriter(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         BKPerStreamLogWriter ret = perStreamWriter;
         perStreamWriter = null;
         return ret;
@@ -76,19 +76,19 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
 
     @Override
     protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         return allocatedPerStreamWriter;
     }
 
     @Override
     protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         allocatedPerStreamWriter = logWriter;
     }
 
     @Override
     protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier) {
-        assert (streamIdentifier.equals(DistributedLogConstants.DEFAULT_STREAM));
+        assert (streamIdentifier.equals(conf.getUnpartitionedStreamName()));
         try {
             return allocatedPerStreamWriter;
         } finally {

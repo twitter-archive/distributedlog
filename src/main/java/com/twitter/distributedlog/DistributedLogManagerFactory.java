@@ -573,7 +573,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             public Void handle(ZooKeeperClient zkc) throws IOException {
                 for (String s : streamNames) {
                     try {
-                        BKDistributedLogManager.createUnpartitionedStream(zkc.get(), uri, s);
+                        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, s);
                     } catch (InterruptedException e) {
                         LOG.error("Interrupted on creating unpartitioned stream {} : ", s, e);
                         return null;

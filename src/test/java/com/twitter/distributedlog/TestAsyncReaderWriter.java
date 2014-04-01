@@ -290,9 +290,9 @@ public class TestAsyncReaderWriter {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
-            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(DistributedLogConstants.DEFAULT_STREAM);
+            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
             writer.closeAndComplete();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
                 start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
             blplm.close();
@@ -349,9 +349,9 @@ public class TestAsyncReaderWriter {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
             }
-            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(DistributedLogConstants.DEFAULT_STREAM);
+            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
             writer.closeAndComplete();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
                 start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
             blplm.close();

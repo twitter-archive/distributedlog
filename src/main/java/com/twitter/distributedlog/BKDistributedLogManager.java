@@ -43,9 +43,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return String.format("%s/%s/%s", uri.getPath(), streamName, streamIdentifier);
     }
 
-    static void createUnpartitionedStream(ZooKeeper zk, URI uri, String streamName) throws IOException {
+    static void createUnpartitionedStream(DistributedLogConfiguration conf, ZooKeeper zk, URI uri, String streamName) throws IOException {
         BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
-                DistributedLogConstants.DEFAULT_STREAM), zk, true, new DataWithStat(), new DataWithStat());
+            conf.getUnpartitionedStreamName()), zk, true, new DataWithStat(), new DataWithStat());
     }
 
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
@@ -131,7 +131,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public synchronized void registerListener(LogSegmentListener listener) throws IOException {
         if (null == readHandlerForListener) {
-            readHandlerForListener = createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            readHandlerForListener = createReadLedgerHandler(conf.getUnpartitionedStreamName());
             readHandlerForListener.registerListener(listener);
             readHandlerForListener.scheduleGetLedgersTask(true, true);
         } else {
@@ -260,7 +260,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public boolean isEndOfStreamMarked() throws IOException {
-        return (getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, true) == DistributedLogConstants.MAX_TXID);
+        return (getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, true) == DistributedLogConstants.MAX_TXID);
     }
 
     /**
@@ -271,7 +271,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
         long position;
         try {
-            position = getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, true, false);
+            position = getLastTxIdInternal(conf.getUnpartitionedStreamName(), true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
                 DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
                 position = 0;
@@ -362,7 +362,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public LogReader getInputStream(long fromTxnId)
         throws IOException {
-        return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromTxnId);
+        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromTxnId);
     }
 
     @Override
@@ -372,7 +372,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public LogReader getInputStream(DLSN fromDLSN) throws IOException {
-        return getInputStreamInternal(DistributedLogConstants.DEFAULT_STREAM, fromDLSN);
+        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromDLSN);
     }
 
     @Override
@@ -382,7 +382,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
-        return new BKAsyncLogReaderDLSN(this, executorService, DistributedLogConstants.DEFAULT_STREAM, fromDLSN, statsLogger);
+        return new BKAsyncLogReaderDLSN(this, executorService, conf.getUnpartitionedStreamName(), fromDLSN, statsLogger);
     }
 
     /**
@@ -419,7 +419,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getTxIdNotLaterThan(long thresholdTxId) throws IOException {
-        return getTxIdNotLaterThanInternal(DistributedLogConstants.DEFAULT_STREAM, thresholdTxId);
+        return getTxIdNotLaterThanInternal(conf.getUnpartitionedStreamName(), thresholdTxId);
     }
 
     private long getTxIdNotLaterThanInternal(String streamIdentifier, long thresholdTxId) throws IOException {
@@ -450,7 +450,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecordWithDLSN getLastLogRecord() throws IOException {
-        return getLastLogRecordInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLastLogRecordInternal(conf.getUnpartitionedStreamName());
     }
 
     private LogRecordWithDLSN getLastLogRecordInternal(String streamIdentifier) throws IOException {
@@ -470,7 +470,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getFirstTxId() throws IOException {
-        return getFirstTxIdInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getFirstTxIdInternal(conf.getUnpartitionedStreamName());
     }
 
     private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
@@ -490,7 +490,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public long getLastTxId() throws IOException {
-        return getLastTxIdInternal(DistributedLogConstants.DEFAULT_STREAM, false, false);
+        return getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, false);
     }
 
     private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
@@ -510,7 +510,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public DLSN getLastDLSN() throws IOException {
-        return getLastDLSNInternal(DistributedLogConstants.DEFAULT_STREAM, false, false);
+        return getLastDLSNInternal(conf.getUnpartitionedStreamName(), false, false);
     }
 
     private DLSN getLastDLSNInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
@@ -541,7 +541,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<Long> getLastTxIdAsync() {
-        return getLastTxIdAsyncInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLastTxIdAsyncInternal(conf.getUnpartitionedStreamName());
     }
 
     private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
@@ -572,7 +572,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<DLSN> getLastDLSNAsync() {
-        return getLastDLSNAsyncInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLastDLSNAsyncInternal(conf.getUnpartitionedStreamName());
     }
 
     private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
@@ -608,7 +608,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public long getLogRecordCount() throws IOException {
-        return getLogRecordCountInternal(DistributedLogConstants.DEFAULT_STREAM);
+        return getLogRecordCountInternal(conf.getUnpartitionedStreamName());
     }
 
     private long getLogRecordCountInternal(String streamIdentifier) throws IOException {
@@ -640,7 +640,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public void recover() throws IOException {
-        recoverInternal(DistributedLogConstants.DEFAULT_STREAM);
+        recoverInternal(conf.getUnpartitionedStreamName());
     }
 
     /**

@@ -88,7 +88,7 @@ public class DLMTestUtil {
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
         try {
-            BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+            BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
             List<LogSegmentLedgerMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
             LogSegmentLedgerMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
             LedgerHandle lh = dlm.getBookKeeperClient().get().openLedger(lastSegment.getLedgerId(),

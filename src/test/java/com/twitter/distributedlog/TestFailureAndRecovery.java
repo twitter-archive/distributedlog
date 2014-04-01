@@ -281,13 +281,13 @@ public class TestFailureAndRecovery {
             }
 
         }
-        BKPerStreamLogWriter perStreamLogWriter = out.getCachedLogWriter(DistributedLogConstants.DEFAULT_STREAM);
+        BKPerStreamLogWriter perStreamLogWriter = out.getCachedLogWriter(conf.getUnpartitionedStreamName());
         out.setReadyToFlush();
         out.flushAndSync();
 
         out.close();
 
-        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(DistributedLogConstants.DEFAULT_STREAM);
+        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
 
         assertNull(zkc.exists(blplm1.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(), 1, 100,
                                                           perStreamLogWriter.getLedgerSequenceNumber()), false));
