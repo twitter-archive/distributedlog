@@ -22,12 +22,12 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>15.0</version>
+            <version>16.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.bookkeeper.shims</groupId>
             <artifactId>zookeeper-shim-3.3</artifactId>
-            <version>4.2.10-TWTTR-NETTY</version>
+            <version>4.2.15-TWTTR-NETTY</version>
             <scope>compile</scope>
         </dependency>
         <dependency>

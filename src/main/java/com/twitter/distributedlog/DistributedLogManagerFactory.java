@@ -167,6 +167,32 @@ public class DistributedLogManagerFactory {
         return distLogMgr;
     }
 
+
+    /**
+     * Create a DistributedLogManager as <i>nameOfLogStream</i>.
+     *
+     * <p>
+     * For zookeeper session expire handling purpose, we don't use shared bookkeeper client builder inside factory. We however use
+     * shared zookeeper client as the ZooKeeper client can seamlessly reconnect on a session expiration
+     * We managed the shared executor service for all the {@link DistributedLogManager}s created by this factory, so we don't
+     * spawn too much threads.
+     * </p>
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
+    public DistributedLogManager createDistributedLogManagerWithSharedZK(String nameOfLogStream) throws IOException, IllegalArgumentException {
+        DistributedLogManagerFactory.validateName(nameOfLogStream);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
+            zooKeeperClientBuilder, null, scheduledExecutorService, channelFactory, requestTimer, statsLogger);
+        distLogMgr.setClientId(clientId);
+        return distLogMgr;
+    }
+
+
     /**
      * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
      * used by the factory.

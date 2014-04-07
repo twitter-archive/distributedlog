@@ -594,4 +594,62 @@ public class TestInterleavedReaders {
         dlmread.close();
     }
 
+    @Test
+    public void testFactorySharedClients() throws Exception {
+        String name = "distrlog-factorysharedclients";
+        testFactory(name, true);
+    }
+
+    @Test
+    public void testFactorySharedZK() throws Exception {
+        String name = "distrlog-factorysharedZK";
+        testFactory(name, false);
+    }
+
+    private void testFactory(String name, boolean shareBK) throws Exception {
+        int count = 3;
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, DLMTestUtil.createDLMURI("/" + name));
+        DistributedLogManager[] dlms = new DistributedLogManager[count];
+        for (int s = 0; s < count; s++) {
+            if (shareBK) {
+                dlms[s] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", s));
+            } else {
+                dlms[s] = factory.createDistributedLogManagerWithSharedZK(name + String.format("%d", s));
+            }
+        }
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedSyncLogWriter[] writers = new BKUnPartitionedSyncLogWriter[count];
+            for (int s = 0; s < count; s++) {
+                writers[s] = (BKUnPartitionedSyncLogWriter)(dlms[s].startLogSegmentNonPartitioned());
+            }
+
+            for (long j = 0; j < 1; j++) {
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                for (int s = 0; s < count; s++) {
+                    writers[s].write(record);
+                }
+            }
+            for (int s = 0; s < count; s++) {
+                writers[s].closeAndComplete();
+            }
+
+            if (i < 2) {
+                // Restart the zeroth stream and make sure that the other streams can
+                // continue without restart
+                dlms[0].close();
+                if (shareBK) {
+                    dlms[0] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", 0));
+                } else {
+                    dlms[0] = factory.createDistributedLogManagerWithSharedZK(name + String.format("%d", 0));
+                }
+            }
+
+        }
+
+        for (int s = 0; s < count; s++) {
+            dlms[s].close();
+        }
+    }
 }
