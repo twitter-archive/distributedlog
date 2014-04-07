@@ -8,6 +8,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class DistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
@@ -56,6 +58,7 @@ public class DistributedLogManagerFactory {
     private final StatsLogger statsLogger;
     private final ScheduledExecutorService scheduledExecutorService;
     private final ClientSocketChannelFactory channelFactory;
+    private final HashedWheelTimer requestTimer;
     // zk & bk client
     private final ZooKeeperClientBuilder zooKeeperClientBuilder;
     private final ZooKeeperClient zooKeeperClient;
@@ -83,6 +86,10 @@ public class DistributedLogManagerFactory {
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
         );
         this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool());
+        this.requestTimer = new HashedWheelTimer(
+            new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),
+            conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
+            conf.getTimeoutTimerNumTicks());
         // Build zookeeper client
         this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri)
@@ -93,7 +100,7 @@ public class DistributedLogManagerFactory {
         // Build bookkeeper client
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
-                .channelFactory(channelFactory).statsLogger(statsLogger);
+                .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
@@ -155,7 +162,7 @@ public class DistributedLogManagerFactory {
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            null, null, scheduledExecutorService, channelFactory, statsLogger);
+            null, null, scheduledExecutorService, channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -174,7 +181,7 @@ public class DistributedLogManagerFactory {
         throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, statsLogger);
+            zooKeeperClientBuilder, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -407,5 +414,6 @@ public class DistributedLogManagerFactory {
             LOG.warn("Exception while closing distributed log manager factory", e);
         }
         channelFactory.releaseExternalResources();
+        requestTimer.stop();
     }
 }

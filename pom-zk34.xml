@@ -22,12 +22,12 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>15.0</version>
+            <version>16.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.bookkeeper.shims</groupId>
             <artifactId>zookeeper-shim-3.4</artifactId>
-            <version>4.2.10-TWTTR-NETTY</version>
+            <version>4.2.15-TWTTR-NETTY-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
@@ -92,7 +92,7 @@
         <dependency>
             <groupId>org.apache.bookkeeper</groupId>
             <artifactId>bookkeeper-server</artifactId>
-            <version>4.2.10-TWTTR-NETTY</version>
+            <version>4.2.15-TWTTR-NETTY-SNAPSHOT</version>
             <type>jar</type>
             <exclusions>
                 <exclusion>

@@ -6,6 +6,7 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
+import org.jboss.netty.util.HashedWheelTimer;
 
 import java.io.IOException;
 
@@ -35,6 +36,8 @@ class BookKeeperClientBuilder {
     private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
     // client channel factory
     private ClientSocketChannelFactory channelFactory = null;
+    // request timer
+    private HashedWheelTimer requestTimer = null;
 
     // Cached BookKeeper Client
     private BookKeeperClient cachedClient = null;
@@ -122,6 +125,18 @@ class BookKeeperClientBuilder {
     }
 
     /**
+     * Build BookKeeper client using existing <i>request timer</i>.
+     *
+     * @param requestTimer
+     *          HashedWheelTimer used to build bookkeeper client.
+     * @return bookkeeper client builder.
+     */
+    public synchronized BookKeeperClientBuilder requestTimer(HashedWheelTimer requestTimer) {
+        this.requestTimer = requestTimer;
+        return this;
+    }
+
+    /**
      * Build BookKeeper Client using given stats logger <i>statsLogger</i>.
      *
      * @param statsLogger
@@ -152,10 +167,6 @@ class BookKeeperClientBuilder {
     private BookKeeperClient buildClient()
             throws InterruptedException, IOException, KeeperException {
         validateParameters();
-        if (null == zkc) {
-            return new BookKeeperClient(dlConfig, bkdlConfig, name, channelFactory, statsLogger);
-        } else {
-            return new BookKeeperClient(dlConfig, bkdlConfig, zkc, name, channelFactory, statsLogger);
-        }
+        return new BookKeeperClient(dlConfig, bkdlConfig, zkc, name, channelFactory, requestTimer, statsLogger);
     }
 }

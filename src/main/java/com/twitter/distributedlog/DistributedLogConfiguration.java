@@ -121,6 +121,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
     public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
 
+    public static final String BKDL_TIMEOUT_TIMER_TICK_DURATION_MS = "timerTickDuration";
+    public static final long BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT = 100;
+
+    public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
+    public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -736,5 +742,48 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
         return this;
     }
+
+    /**
+     * Get the tick duration in milliseconds that used for timeout timer.
+     *
+     * @return tick duration in milliseconds
+     */
+    public long getTimeoutTimerTickDurationMs() {
+        return getLong(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT);
+    }
+
+    /**
+     * Set the tick duration in milliseconds that used for timeout timer.
+     *
+     * @param tickDuration
+     *          tick duration in milliseconds.
+     * @return distributed log configuration.
+     */
+    public DistributedLogConfiguration setTimeoutTimerTickDurationMs(long tickDuration) {
+        setProperty(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, tickDuration);
+        return this;
+    }
+
+    /**
+     * Get number of ticks that used for timeout timer.
+     *
+     * @return number of ticks that used for timeout timer.
+     */
+    public int getTimeoutTimerNumTicks() {
+        return getInt(BKDL_TIMEOUT_TIMER_NUM_TICKS, BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT);
+    }
+
+    /**
+     * Set number of ticks that used for timeout timer.
+     *
+     * @param numTicks
+     *          number of ticks that used for timeout timer.
+     * @return distributed log configuration.
+     */
+    public DistributedLogConfiguration setTimeoutTimerNumTicks(int numTicks) {
+        setProperty(BKDL_TIMEOUT_TIMER_NUM_TICKS, numTicks);
+        return this;
+    }
+
 
 }
