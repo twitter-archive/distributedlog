@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.net.URI;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
@@ -20,16 +23,22 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     protected final ZooKeeperClient zooKeeperClient;
 
     public ZKMetadataAccessor(String name,
+                              DistributedLogConfiguration conf,
                               URI uri,
-                              int zkSessionTimeoutMs,
                               ZooKeeperClientBuilder zkcBuilder) {
         this.name = name;
         this.uri = uri;
 
         if (null == zkcBuilder) {
+            RetryPolicy retryPolicy = null;
+            if (conf.getZKNumRetries() > 0) {
+                retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                    conf.getZKRetryBackoffStartMillis(),
+                    conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
+            }
             this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
-                .sessionTimeoutMs(zkSessionTimeoutMs)
-                .uri(uri).buildNew(false);
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .uri(uri).retryPolicy(retryPolicy).buildNew(false);
         } else {
             this.zooKeeperClientBuilder = zkcBuilder;
         }

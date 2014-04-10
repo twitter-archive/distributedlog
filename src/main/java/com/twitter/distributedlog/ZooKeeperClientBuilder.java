@@ -1,6 +1,9 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
 
 import java.net.URI;
 
@@ -26,6 +29,10 @@ public class ZooKeeperClientBuilder {
     private int conectionTimeoutMs = -1;
     // zkServers
     private String zkServers = null;
+    // retry policy
+    private RetryPolicy retryPolicy = null;
+    // stats logger
+    private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
 
     // Cached ZooKeeper Client
     private ZooKeeperClient cachedClient = null;
@@ -97,6 +104,30 @@ public class ZooKeeperClientBuilder {
     }
 
     /**
+     * Build zookeeper client with given retry policy <i>retryPolicy</i>.
+     *
+     * @param retryPolicy
+     *          retry policy
+     * @return builder
+     */
+    public synchronized ZooKeeperClientBuilder retryPolicy(RetryPolicy retryPolicy) {
+        this.retryPolicy = retryPolicy;
+        return this;
+    }
+
+    /**
+     * Build zookeeper client with given stats logger <i>statsLogger</i>.
+     *
+     * @param statsLogger
+     *          stats logger to expose zookeeper stats
+     * @return builder
+     */
+    public synchronized ZooKeeperClientBuilder statsLogger(StatsLogger statsLogger) {
+        this.statsLogger = statsLogger;
+        return this;
+    }
+
+    /**
      * If <i>buildNew</i> is set to false, the built zookeeper client by {@link #build()}
      * will be cached. Following {@link #build()} always returns this cached zookeeper
      * client. Otherwise, each {@link #build()} will create a new zookeeper client.
@@ -116,6 +147,7 @@ public class ZooKeeperClientBuilder {
                 "Invalid connection timeout : %d", conectionTimeoutMs);
         Preconditions.checkArgument(sessionTimeoutMs > 0,
                 "Invalid session timeout : %d", sessionTimeoutMs);
+        Preconditions.checkNotNull(statsLogger, "No stats logger provided.");
     }
 
     /**
@@ -159,7 +191,7 @@ public class ZooKeeperClientBuilder {
 
     private ZooKeeperClient buildClient() {
         validateParameters();
-        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers);
+        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers, retryPolicy, statsLogger);
     }
 
 }

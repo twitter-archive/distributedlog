@@ -16,6 +16,10 @@
 
 package com.twitter.distributedlog;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.zookeeper.RetryPolicy;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -75,6 +79,8 @@ public class ZooKeeperClient {
     private volatile ZooKeeper zooKeeper = null;
     private SessionState sessionState = null;
     private final AtomicInteger refCount;
+    private final RetryPolicy retryPolicy;
+    private final StatsLogger statsLogger;
 
     private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
 
@@ -91,10 +97,17 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
+        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE);
+    }
+
+    ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
+                    RetryPolicy retryPolicy, StatsLogger statsLogger) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
         this.refCount = new AtomicInteger(1);
+        this.retryPolicy = retryPolicy;
+        this.statsLogger = statsLogger;
     }
 
     /**
@@ -102,7 +115,7 @@ public class ZooKeeperClient {
      *
      * @return reference count.
      */
-    int addRef() {
+    public int addRef() {
         return refCount.incrementAndGet();
     }
 
@@ -149,64 +162,98 @@ public class ZooKeeperClient {
         }
 
         if (zooKeeper == null) {
-            final CountDownLatch connected = new CountDownLatch(1);
-            Watcher watcher = new Watcher() {
-                @Override
-                public void process(WatchedEvent event) {
-                    switch (event.getType()) {
-                        // Guard the None type since this watch may be used as the default watch on calls by
-                        // the client outside our control.
-                        case None:
-                            switch (event.getState()) {
-                                case Expired:
-                                    LOG.info("Zookeeper session expired. Event: " + event);
-                                    closeInternal();
-                                    break;
-                                case SyncConnected:
-                                    connected.countDown();
-                                    break;
-                                default:
-                                    break;
-                            }
-                    }
-
-                    synchronized (watchers) {
-                        for (Watcher watcher : watchers) {
-                            watcher.process(event);
-                        }
-                    }
-                }
-            };
-
-            try {
-                zooKeeper = (sessionState != null)
-                    ? new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher, sessionState.sessionId,
-                    sessionState.sessionPasswd)
-                    : new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher);
-            } catch (IOException e) {
-                throw new ZooKeeperConnectionException(
-                    "Problem connecting to servers: " + zooKeeperServers, e);
-            }
-
-            if (connectionTimeoutMs > 0) {
-                if (!connected.await(connectionTimeoutMs, TimeUnit.MILLISECONDS)) {
-                    closeInternal();
-                    throw new TimeoutException("Timed out waiting for a ZK connection after "
-                        + connectionTimeoutMs);
-                }
+            if (null != retryPolicy) {
+                zooKeeper = buildRetryableZooKeeper(connectionTimeoutMs);
             } else {
-                try {
-                    connected.await();
-                } catch (InterruptedException ex) {
-                    LOG.info("Interrupted while waiting to connect to zooKeeper");
-                    closeInternal();
-                    throw ex;
-                }
+                zooKeeper = buildZooKeeper(connectionTimeoutMs);
             }
-
-            sessionState = new SessionState(zooKeeper.getSessionId(), zooKeeper.getSessionPasswd());
         }
         return zooKeeper;
+    }
+
+    private ZooKeeper buildRetryableZooKeeper(int connectionTimeout)
+        throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
+        Watcher watcher = new Watcher() {
+            @Override
+            public void process(WatchedEvent event) {
+                for (Watcher watcher : watchers) {
+                    watcher.process(event);
+                }
+            }
+        };
+        Set<Watcher> watchers = new HashSet<Watcher>();
+        watchers.add(watcher);
+
+        ZooKeeper zk;
+        try {
+            zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.createConnectedZooKeeperClient(
+                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy, statsLogger);
+        } catch (KeeperException e) {
+            throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
+        } catch (IOException e) {
+            throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
+        }
+        return zk;
+    }
+
+    private ZooKeeper buildZooKeeper(int connectionTimeoutMs)
+        throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
+        final CountDownLatch connected = new CountDownLatch(1);
+        Watcher watcher = new Watcher() {
+            @Override
+            public void process(WatchedEvent event) {
+                switch (event.getType()) {
+                    // Guard the None type since this watch may be used as the default watch on calls by
+                    // the client outside our control.
+                    case None:
+                        switch (event.getState()) {
+                            case Expired:
+                                LOG.info("Zookeeper session expired. Event: " + event);
+                                closeInternal();
+                                break;
+                            case SyncConnected:
+                                connected.countDown();
+                                break;
+                            default:
+                                break;
+                        }
+                }
+
+                for (Watcher watcher : watchers) {
+                    watcher.process(event);
+                }
+            }
+        };
+
+        ZooKeeper zk;
+        try {
+            zk = (sessionState != null)
+                ? new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher, sessionState.sessionId,
+                sessionState.sessionPasswd)
+                : new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher);
+        } catch (IOException e) {
+            throw new ZooKeeperConnectionException(
+                "Problem connecting to servers: " + zooKeeperServers, e);
+        }
+
+        if (connectionTimeoutMs > 0) {
+            if (!connected.await(connectionTimeoutMs, TimeUnit.MILLISECONDS)) {
+                closeInternal();
+                throw new TimeoutException("Timed out waiting for a ZK connection after "
+                    + connectionTimeoutMs);
+            }
+        } else {
+            try {
+                connected.await();
+            } catch (InterruptedException ex) {
+                LOG.info("Interrupted while waiting to connect to zooKeeper");
+                closeInternal();
+                throw ex;
+            }
+        }
+
+        sessionState = new SessionState(zk.getSessionId(), zk.getSessionPasswd());
+        return zk;
     }
 
     /**
