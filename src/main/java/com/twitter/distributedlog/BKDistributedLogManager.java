@@ -321,21 +321,25 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+    public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        initializeFuturePool(true);
-        ExecutorService executorService = null;
-        if (conf.getRecoverLogSegmentsInBackground()) {
-            if (null == metadataExecutor) {
-                metadataExecutor = new ThreadPoolExecutor(0, 1, 60, TimeUnit.SECONDS,
-                        new LinkedBlockingQueue<Runnable>(),
-                        new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-metadata-executor-%d").build());
+        BKUnPartitionedAsyncLogWriter writer;
+        synchronized (this) {
+            initializeFuturePool(true);
+            ExecutorService executorService = null;
+            if (conf.getRecoverLogSegmentsInBackground()) {
+                if (null == metadataExecutor) {
+                    metadataExecutor = new ThreadPoolExecutor(0, 1, 60, TimeUnit.SECONDS,
+                            new LinkedBlockingQueue<Runnable>(),
+                            new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-metadata-executor-%d").build());
+                }
+                executorService = metadataExecutor;
             }
-            executorService = metadataExecutor;
-        }
 
-        // proactively recover incomplete logsegments for async log writer
-        return new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService).recover();
+            // proactively recover incomplete logsegments for async log writer
+            writer = new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService);
+        }
+        return writer.recover();
     }
 
     /**
