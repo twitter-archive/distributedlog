@@ -115,6 +115,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final StatsLogger statsLogger;
     private final AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
     private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
+    protected volatile boolean reportGetSegmentStats = false;
 
     // listener
     protected final CopyOnWriteArraySet<LogSegmentListener> listeners =
@@ -840,32 +841,34 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (!metadata.isInProgress() && (lastLedgerRollingTimeMillis < metadata.getCompletionTime())) {
             lastLedgerRollingTimeMillis = metadata.getCompletionTime();
         }
-        // update stats
 
-        long ts = System.currentTimeMillis();
-        if (metadata.isInProgress()) {
-            // as we used timestamp as start tx id we could take it as start time
-            // NOTE: it is a hack here.
-            long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getFirstTxId());
-            if (elapsedMicroSec > 0) {
-                if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
-                    LOG.warn("{} received inprogress log segment in {} micros : {}",
-                             new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+        if (reportGetSegmentStats) {
+            // update stats
+            long ts = System.currentTimeMillis();
+            if (metadata.isInProgress()) {
+                // as we used timestamp as start tx id we could take it as start time
+                // NOTE: it is a hack here.
+                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getFirstTxId());
+                if (elapsedMicroSec > 0) {
+                    if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
+                        LOG.warn("{} received inprogress log segment in {} micros : {}",
+                                 new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                    }
+                    getInprogressSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
+                } else {
+                    negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
                 }
-                getInprogressSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
             } else {
-                negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
-            }
-        } else {
-            long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getCompletionTime());
-            if (elapsedMicroSec > 0) {
-                if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
-                    LOG.warn("{} received completed log segment in {} micros : {}",
-                             new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getCompletionTime());
+                if (elapsedMicroSec > 0) {
+                    if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
+                        LOG.warn("{} received completed log segment in {} micros : {}",
+                                 new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                    }
+                    getCompletedSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
+                } else {
+                    negativeGetCompletedSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
                 }
-                getCompletedSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
-            } else {
-                negativeGetCompletedSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
             }
         }
     }

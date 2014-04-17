@@ -719,6 +719,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             }
                             next.process(BKException.Code.OK);
                         }
+
+                        // Once we have read the ledger list for the first time, subsequent segments
+                        // should be read in a streaming manner and we should get the new ledgers as
+                        // they close in ZK through watchers.
+                        // So lets start observing the latency
+                        bkLedgerManager.reportGetSegmentStats = true;
                     }
                 });
             }
