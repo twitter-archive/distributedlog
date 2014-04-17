@@ -136,4 +136,18 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     public void abort() throws IOException {
         super.abort();
     }
+
+    /**
+     * *TEMP HACK*
+     * Get the name of the stream this writer writes data to
+     */
+    @Override
+    public String getStreamName() {
+        return bkDistributedLogManager.getName();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("AsyncLogWriter:%s", getStreamName());
+    }
 }

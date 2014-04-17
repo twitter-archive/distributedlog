@@ -864,4 +864,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             readerFuturePool = new ExecutorServiceFuturePool(executorService);
         }
     }
+
+    @Override
+    public String toString() {
+        return String.format("DLM:%s:%s", getZKPath(), getName());
+    }
 }

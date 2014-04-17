@@ -209,6 +209,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+            if (!stream.equals(writer.getStreamName())) {
+                logger.error("Truncate: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
+                return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
+            }
             return writer.truncate(dlsn).map(new AbstractFunction1<Boolean, WriteResponse>() {
                 @Override
                 public WriteResponse apply(Boolean v1) {
@@ -242,7 +246,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 logger.warn("No stream {} to delete.", stream);
                 deletePromise.setException(new UnexpectedException("No stream " + stream + " to delete."));
             } else {
-                logger.info("Removing stream {}.", stream);
+                logger.info("Deleting stream {}, {}", stream, s);
                 try {
                     s.delete();
                     logger.info("Removed stream {}.", stream);
@@ -282,7 +286,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             if (null == s) {
                 logger.warn("No stream {} to release.", stream);
             } else {
-                logger.info("Removing stream {}.", stream);
+                logger.info("Releasing ownership for stream {}, {}", stream, s);
                 acquiredStreams.remove(stream, s);
                 s.close();
             }
@@ -301,6 +305,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+            if (!stream.equals(writer.getStreamName())) {
+                logger.error("Write: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
+                return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
+            }
+
             long txnId;
             Future<DLSN> writeResult;
             synchronized (txnLock) {
@@ -371,6 +380,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
+        public String toString() {
+            return String.format("Stream:%s, %s, %s Status:%s", name, manager, writer, status);
+        }
+
+        @Override
         public void run() {
             boolean shouldClose = false;
             while (running) {
@@ -401,6 +415,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     acquireStream();
                 } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
                     if (streams.remove(name, this)) {
+                        logger.info("Removed acquired stream {} -> writer {}", name, this);
                         shouldClose = true;
                         break;
                     }
@@ -685,8 +700,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             if (StreamStatus.INITIALIZED == status) {
                 acquiredStreams.put(name, this);
+                logger.info("Inserted acquired stream {} -> writer {}", name, this);
             } else {
                 acquiredStreams.remove(name, this);
+                logger.info("Removed acquired stream {} -> writer {}", name, this);
             }
             return oldWriter;
         }
@@ -958,6 +975,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     writer.close();
                     writer = oldWriter;
                 } else {
+                    logger.info("Inserted mapping stream {} -> writer {}", stream, writer);
                     writer.start();
                 }
             } finally {

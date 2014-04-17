@@ -122,6 +122,20 @@ public class DistributedLogManagerProxyBuilder {
         public void abort() {
             // nop
         }
+
+        /**
+         * *TEMP HACK*
+         * Get the name of the stream this writer writes data to
+         */
+        @Override
+        public String getStreamName() {
+            return name;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("AsyncLogWriter:%s", name);
+        }
     }
 
     public DistributedLogManagerProxy build() {

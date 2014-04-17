@@ -29,4 +29,10 @@ public interface AsyncLogWriter extends Closeable {
      * Abort the writer.
      */
     public void abort() throws IOException;
+
+    /**
+     * *TEMP HACK*
+     * Get the name of the stream this writer writes data to
+     */
+    public String getStreamName();
 }
