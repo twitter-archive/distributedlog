@@ -13,6 +13,7 @@ import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Future;
+import com.twitter.util.FuturePool;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -175,15 +176,17 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return createWriteLedgerHandler(streamIdentifier, null);
+        return createWriteLedgerHandler(streamIdentifier, null, null);
     }
 
-    BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier, ExecutorService metadataExecutor)
+    BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier,
+                                                        FuturePool orderedFuturePool,
+                                                        ExecutorService metadataExecutor)
             throws IOException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, metadataExecutor);
+            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
             success = true;
             return handler;
         } finally {
@@ -195,11 +198,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
-    synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier, ExecutorService metadataExecutor)
+    synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier,
+                                                                   FuturePool orderedFuturePool,
+                                                                   ExecutorService metadataExecutor)
             throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, metadataExecutor,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, orderedFuturePool, metadataExecutor,
                 ledgerAllocator, statsLogger, clientId, regionId);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {

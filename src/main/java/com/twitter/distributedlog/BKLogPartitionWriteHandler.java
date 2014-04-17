@@ -12,6 +12,8 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.zk.DataWithStat;
 
+import com.twitter.util.FuturePool;
+
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -58,7 +60,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, ExecutorService.class,
+        ScheduledExecutorService.class, FuturePool.class, ExecutorService.class,
         LedgerAllocator.class, StatsLogger.class, String.class, int.class
     };
 
@@ -69,6 +71,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        ZooKeeperClientBuilder zkcBuilder,
                                                                        BookKeeperClientBuilder bkcBuilder,
                                                                        ScheduledExecutorService executorService,
+                                                                       FuturePool orderedFuturePool,
                                                                        ExecutorService metadataExecutor,
                                                                        LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
@@ -76,7 +79,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        int regionId) throws IOException {
         if (ZK_VERSION.getVersion().equals("3.3")) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, metadataExecutor, ledgerAllocator, false, statsLogger, clientId, regionId);
+                    executorService, orderedFuturePool, metadataExecutor, ledgerAllocator, false, statsLogger, clientId, regionId);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -97,7 +100,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
             Object[] arguments = {
                     name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, metadataExecutor, ledgerAllocator, statsLogger, clientId, regionId
+                    executorService, orderedFuturePool, metadataExecutor, ledgerAllocator, statsLogger, clientId, regionId
             };
             try {
                 return constructor.newInstance(arguments);
@@ -131,6 +134,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected final DataWithStat allocationData;
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
+    protected FuturePool orderedFuturePool;
     protected final ExecutorService metadataExecutor;
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected final LinkedHashSet<MetadataOp> pendingMetadataOps = new LinkedHashSet<MetadataOp>();
@@ -314,6 +318,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
                                ScheduledExecutorService executorService,
+                               FuturePool orderedFuturePool,
                                ExecutorService metadataExecutor,
                                LedgerAllocator allocator,
                                boolean useAllocator,
@@ -323,6 +328,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, statsLogger, null, WRITE_HANDLE_FILTER);
         this.metadataExecutor = metadataExecutor;
+        this.orderedFuturePool = orderedFuturePool;
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -697,7 +703,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
             maxTxId.store(txId);
             addLogSegmentToCache(inprogressZnodeName, l);
-            return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, statsLogger);
+            return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
             if (lh != null) {

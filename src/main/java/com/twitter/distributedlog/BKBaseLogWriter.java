@@ -3,6 +3,9 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.PermitManager;
+
+import com.twitter.util.FuturePool;
+
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.KeeperException;
@@ -99,7 +102,7 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier, boolean recover) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
+        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null, null);
         ledgerManager.checkMetadataException();
         if (recover) {
             ledgerManager.recoverIncompleteLogSegments();
@@ -107,11 +110,13 @@ public abstract class BKBaseLogWriter {
         return ledgerManager;
     }
 
-    synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier, ExecutorService metadataExecutor)
+    synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier,
+                                                                                 FuturePool orderedFuturePool,
+                                                                                 ExecutorService metadataExecutor)
             throws IOException {
         BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
         if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, metadataExecutor);
+            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
             cachePartitionHandler(streamIdentifier, ledgerManager);
         }
         return ledgerManager;

@@ -20,8 +20,12 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+
+import com.twitter.util.Function0;
 import com.twitter.util.Future;
+import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
+
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -176,6 +180,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private final Counter transmitControlSuccesses;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
+    private final FuturePool orderedFuturePool;
 
     /**
      * Construct an edit log output stream which writes to a ledger.
@@ -184,6 +189,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                                    LedgerHandle lh, DistributedReentrantLock lock,
                                    long startTxId, long ledgerSequenceNumber,
                                    ScheduledExecutorService executorService,
+                                   FuturePool orderedFuturePool,
                                    StatsLogger statsLogger)
         throws IOException {
         super();
@@ -252,6 +258,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         }
         this.conf = conf;
         this.executorService = executorService;
+        this.orderedFuturePool = orderedFuturePool;
         assert(!this.immediateFlushEnabled || (null != this.executorService));
     }
 
@@ -658,9 +665,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     @Override
     public void addComplete(int rc, LedgerHandle handle,
-                            long entryId, Object ctx) {
+                            final long entryId, final Object ctx) {
         assert (ctx instanceof BKTransmitPacket);
-        BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
+        final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
         synchronized (this) {
             outstandingRequests.decrementAndGet();
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
@@ -690,10 +697,29 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
+        if (null != orderedFuturePool) {
+            orderedFuturePool.apply(new Function0<Void>() {
+                public Void apply() {
+                    addCompleteDeferredProcessing(transmitPacket, entryId, transmitResult.get());
+                    return null;
+                }
+            });
+        } else {
+            addCompleteDeferredProcessing(transmitPacket, entryId, transmitResult.get());
+        }
+
+
+
+
+    }
+
+    private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
+                                              final long entryId,
+                                              final int transmitResult) {
+        transmitPacket.processTransmitComplete(entryId, transmitResult);
 
         synchronized (this) {
-            if (BKException.Code.OK == rc && !transmitPacket.isControl()) {
+            if (BKException.Code.OK == transmitResult && !transmitPacket.isControl()) {
                 if (lastDLSN.compareTo(transmitPacket.getLastDLSN()) < 0) {
                     lastDLSN = transmitPacket.getLastDLSN();
                 }
@@ -704,6 +730,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
     }
+
 
     public synchronized int getAverageTransmitSize() {
         if (numFlushesSinceRestart > 0) {

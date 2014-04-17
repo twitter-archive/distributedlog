@@ -6,6 +6,9 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
+
+import com.twitter.util.FuturePool;
+
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.CreateMode;
@@ -46,13 +49,14 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   FuturePool orderedFuturePool,
                                    ExecutorService metadataExecutor,
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
                                    String clientId,
                                    int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, metadataExecutor, allocator, true, statsLogger, clientId, regionId);
+              executorService, orderedFuturePool, metadataExecutor, allocator, true, statsLogger, clientId, regionId);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -196,7 +200,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             abortStore(maxTxId, txId);
             throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
         }
-        return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, statsLogger);
+        return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
     }
 
     @Override

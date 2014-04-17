@@ -47,15 +47,15 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }
     }
 
-    private final FuturePool futurePool;
+    private final FuturePool orderedFuturePool;
 
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
-                                         FuturePool futurePool,
+                                         FuturePool orderedFuturePool,
                                          ExecutorService metadataExecutor) throws IOException {
         super(conf, bkdlm);
-        this.futurePool = futurePool;
-        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), metadataExecutor);
+        this.orderedFuturePool = orderedFuturePool;
+        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool, metadataExecutor);
     }
 
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
@@ -74,7 +74,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     public Future<DLSN> write(final LogRecord record) {
         final AtomicReference<BKPerStreamLogWriter> writerRef =
                 new AtomicReference<BKPerStreamLogWriter>(null);
-        return futurePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
+        return orderedFuturePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
             public BKPerStreamLogWriter applyE() throws IOException {
                 BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
                 if (null == writer) {
@@ -113,7 +113,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     @Override
     public Future<Boolean> truncate(final DLSN dlsn) {
-        return futurePool.apply(new ExceptionalFunction0<BKLogPartitionWriteHandler>() {
+        return orderedFuturePool.apply(new ExceptionalFunction0<BKLogPartitionWriteHandler>() {
             @Override
             public BKLogPartitionWriteHandler applyE() throws Throwable {
                 return getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
@@ -124,7 +124,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     @Override
     public void closeAndComplete() throws IOException {
         // Insert a request to future pool to wait until all writes are completed.
-        futurePool.apply(new ExceptionalFunction0<Integer>() {
+        orderedFuturePool.apply(new ExceptionalFunction0<Integer>() {
             public Integer applyE() throws IOException {
                 return 0;
             }

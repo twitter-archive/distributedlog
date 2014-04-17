@@ -81,7 +81,7 @@ public class DLMTestUtil {
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
         return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
-                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, null,
+                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, null, null,
                 NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
     }
 
