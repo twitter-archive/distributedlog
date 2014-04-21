@@ -50,6 +50,8 @@ enum StatusCode {
     END_OF_STREAM = 512,
     // Transaction Id Out of Order
     TRANSACTION_OUT_OF_ORDER = 513,
+    // Write exception
+    WRITE_EXCEPTION = 514,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

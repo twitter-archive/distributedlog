@@ -20,6 +20,8 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.WriteException;
 
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
@@ -94,7 +96,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         private void satisfyPromises(long entryId) {
             long nextSlotId = 0;
             for(Promise<DLSN> promise : promiseList) {
-                LOG.trace("Promise satisfied");
                 promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
                 nextSlotId++;
             }
@@ -138,6 +139,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         DataOutputBuffer buffer;
     }
 
+    private final String fullyQualifiedLogSegment;
     private BKTransmitPacket packetCurrent;
     private final AtomicInteger outstandingRequests;
     private final int transmissionThreshold;
@@ -167,6 +169,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
     private boolean enforceLock = true;
+    private boolean closed = true;
     private final boolean enableRecordCounts;
     private int recordCount = 0;
     private final long ledgerSequenceNumber;
@@ -185,7 +188,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
-    protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
+    protected BKPerStreamLogWriter(String streamName,
+                                   DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
                                    long startTxId, long ledgerSequenceNumber,
                                    ScheduledExecutorService executorService,
@@ -224,13 +228,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         outstandingRequests = new AtomicInteger(0);
         syncLatch = null;
+        this.fullyQualifiedLogSegment = streamName;
         this.lh = lh;
         this.lock = lock;
         this.lock.acquire("BKPerStreamLogWriter");
 
         if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
-            LOG.warn("Setting output buffer size {} greater than max transmission size {}",
-                conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE);
+            LOG.warn("Setting output buffer size {} greater than max transmission size {} for log segment {}",
+                new Object[] {conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE, fullyQualifiedLogSegment});
             this.transmissionThreshold = DistributedLogConstants.MAX_TRANSMISSION_SIZE;
         } else {
             this.transmissionThreshold = conf.getOutputBufferSize();
@@ -260,6 +265,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         this.executorService = executorService;
         this.orderedFuturePool = orderedFuturePool;
         assert(!this.immediateFlushEnabled || (null != this.executorService));
+        this.closed = false;
     }
 
     protected final LedgerHandle getLedgerHandle() {
@@ -326,6 +332,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             lock.release("PerStreamLogWriterClose");
         }
 
+        closed = true;
+
         if (attemptFlush && (null != throwExc)) {
             throw throwExc;
         }
@@ -333,17 +341,17 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     private void closeLedgerHandle(long delayInMs) {
         if (null != executorService && delayInMs > 0) {
-            LOG.debug("Scheduling closing ledger handle {} in {} ms.",
-                    lh.getId(), delayInMs);
+            LOG.debug("Log segment {}: scheduling closing ledger handle {} in {} ms.",
+                    new Object[] {fullyQualifiedLogSegment, lh.getId(), delayInMs});
             executorService.schedule(new Runnable() {
                 @Override
                 public void run() {
-                    LOG.debug("Closing ledger handle {}.", lh.getId());
+                    LOG.debug("Closing ledger handle {} for {}.", lh.getId(), fullyQualifiedLogSegment);
                     lh.asyncClose(BKPerStreamLogWriter.this, null);
                 }
             }, delayInMs, TimeUnit.MILLISECONDS);
         } else {
-            LOG.debug("Closing ledger handle {}.", lh.getId());
+            LOG.debug("Closing ledger handle {} for {}.", lh.getId(), fullyQualifiedLogSegment);
             lh.asyncClose(this, null);
         }
     }
@@ -363,10 +371,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         if (BKException.Code.OK == rc ||
             BKException.Code.NoSuchLedgerExistsException == rc ||
             BKException.Code.LedgerClosedException == rc) {
-            LOG.debug("Closed ledger handle {} successfully: {}", lh.getId(), rc);
+            LOG.debug("Closed ledger handle {} for {} successfully: {}", new Object[] {lh.getId(), fullyQualifiedLogSegment, rc});
         } else {
-            LOG.warn("Failed to close ledger handle {}, backoff and retry in {} ms.",
-                    lh.getId(), conf.getBKClientZKSessionTimeoutMilliSeconds());
+            LOG.warn("Failed to close ledger handle {} for {}, backoff and retry in {} ms.",
+                new Object[] {lh.getId(), fullyQualifiedLogSegment, conf.getBKClientZKSessionTimeoutMilliSeconds()});
             closeLedgerHandle(conf.getBKClientZKSessionTimeoutMilliSeconds());
         }
     }
@@ -378,14 +386,26 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     @Override
     synchronized public void write(LogRecord record) throws IOException {
-        asyncWrite(record);
+        writeUserRecord(record);
     }
 
-    synchronized public Future<DLSN> asyncWrite(LogRecord record) throws IOException {
+    synchronized public Future<DLSN> asyncWrite(LogRecord record) {
+        try {
+            return writeUserRecord(record);
+        } catch (IOException ioe) {
+            LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
+            return Future.exception(ioe);
+        }
+    }
+
+    synchronized private Future<DLSN> writeUserRecord(LogRecord record) throws IOException {
+        if (closed) {
+            throw new WriteException(fullyQualifiedLogSegment, BKException.Code.LedgerClosedException);
+        }
+
         if (BKException.Code.OK != transmitResult.get()) {
-            // failfast if the stream already encountered error
-            throw new BKTransmitException("Stream already encountered error : " +
-                    BKException.getMessage(transmitResult.get()), transmitResult.get());
+            // Failfast if the stream already encountered error with safe retry on the client
+            throw new WriteException(fullyQualifiedLogSegment, transmitResult.get());
         }
 
         if (streamEnded) {
@@ -394,7 +414,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         if ((record.getTransactionId() < 0) ||
             (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
-            throw new IOException("Invalid Transaction Id");
+            throw new TransactionIdOutOfOrderException(record.getTransactionId());
         }
 
         // The count represents the number of user records up to the
@@ -443,7 +463,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         packetCurrent.addToPromiseList(dlsn);
 
         if (record.getTransactionId() < lastTxId) {
-            LOG.info("TxId decreased Last: {} Record: {}", lastTxId, record.getTransactionId());
+            LOG.info("Log Segment {} TxId decreased Last: {} Record: {}", new Object[] {fullyQualifiedLogSegment, lastTxId, record.getTransactionId()});
         }
         lastTxId = record.getTransactionId();
         if (!record.isControl()) {
@@ -588,8 +608,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         }
 
         if (transmitResult.get() != BKException.Code.OK) {
-            LOG.error("Failed to write to bookkeeper; Error is ({}) {}",
-                transmitResult.get(), BKException.getMessage(transmitResult.get()));
+            LOG.error("Log Segment {} Failed to write to bookkeeper; Error is {}",
+                fullyQualifiedLogSegment, BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Failed to write to bookkeeper; Error is ("
                 + transmitResult.get() + ") "
                 + BKException.getMessage(transmitResult.get()), transmitResult.get());
@@ -611,8 +631,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         if (!transmitResult.compareAndSet(BKException.Code.OK,
             BKException.Code.OK)) {
-            LOG.error("Trying to write to an errored stream; Error is ({}) {}",
-                transmitResult.get(),
+            LOG.error("Log Segment {} Trying to write to an errored stream; Error is {}",
+                fullyQualifiedLogSegment,
                 BKException.getMessage(transmitResult.get()));
             throw new BKTransmitException("Trying to write to an errored stream;"
                 + " Error code : (" + transmitResult.get()
@@ -671,10 +691,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         synchronized (this) {
             outstandingRequests.decrementAndGet();
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
-                LOG.warn("Tried to set transmit result to (" + rc + ") \""
-                    + BKException.getMessage(rc) + "\""
-                    + " but is already (" + transmitResult.get() + ") \""
-                    + BKException.getMessage(transmitResult.get()) + "\"");
+                LOG.warn("Log segment {}: Tried to set transmit result to ({}) but is already ({})",
+                    new Object[] {fullyQualifiedLogSegment, rc, transmitResult.get()});
                 if (!transmitPacket.isControl) {
                     transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
                 }
@@ -773,7 +791,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 pFlushMisses.inc();
             }
         } catch (IOException exc) {
-            LOG.error("Error encountered by the periodic flush", exc);
+            LOG.error("Log Segment {}: Error encountered by the periodic flush", fullyQualifiedLogSegment, exc);
         }
     }
 

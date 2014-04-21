@@ -703,7 +703,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
             maxTxId.store(txId);
             addLogSegmentToCache(inprogressZnodeName, l);
-            return new BKPerStreamLogWriter(conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
+            return new BKPerStreamLogWriter(getFullyQualifiedName() + ":" + inprogressZnodeName,
+                conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
             if (lh != null) {

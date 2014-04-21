@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
@@ -83,8 +84,8 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 }
                 return writer;
             }
-        }).flatMap(new ExceptionalFunction<BKPerStreamLogWriter, Future<DLSN>>() {
-            public Future<DLSN> applyE(BKPerStreamLogWriter w) throws IOException {
+        }).flatMap(new Function<BKPerStreamLogWriter, Future<DLSN>>() {
+            public Future<DLSN> apply(BKPerStreamLogWriter w) {
                 writerRef.set(w);
                 return w.asyncWrite(record);
             }
