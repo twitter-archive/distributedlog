@@ -616,12 +616,30 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * to when we crashed.
      *
      * @param txId First transaction id to be written to the stream
+     * @return
+     * @throws IOException
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
+        return startLogSegment(txId, false);
+    }
+    /**
+     * Start a new log segment in a BookKeeper ledger.
+     * First ensure that we have the write lock for this journal.
+     * Then create a ledger and stream based on that ledger.
+     * The ledger id is written to the inprogress znode, so that in the
+     * case of a crash, a recovery process can find the ledger we were writing
+     * to when we crashed.
+     *
+     * @param txId First transaction id to be written to the stream
+     * @param bestEffort
+     * @return
+     * @throws IOException
+     */
+    public BKPerStreamLogWriter startLogSegment(long txId, boolean bestEffort) throws IOException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            BKPerStreamLogWriter writer = doStartLogSegment(txId);
+            BKPerStreamLogWriter writer = doStartLogSegment(txId, bestEffort);
             success = true;
             return writer;
         } finally {
@@ -633,7 +651,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    protected BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
+    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort) throws IOException {
         checkLogExists();
 
         if ((txId < 0) ||
@@ -658,7 +676,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 }
             }
         }
-        boolean writeInprogressZnode = false;
+        boolean wroteInprogressZnode = false;
         LedgerHandle lh = null;
         try {
             lh = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
@@ -696,7 +714,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
              * as this would lead to a split brain situation.
              */
             l.write(zooKeeperClient, znodePath);
-            writeInprogressZnode = true;
+            wroteInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
@@ -719,7 +737,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     // and would be doing a ZK transaction to move the ledger to the stream , this
                     // leak will automatically be addressed in that change
                     // {@link https://jira.twitter.biz/browse/PUBSUB-1230}
-                    if (!writeInprogressZnode) {
+                    if (!wroteInprogressZnode) {
                         LOG.warn("Potentially leaking Ledger with Id {}", id);
                     }
                 } catch (Exception e2) {
@@ -727,6 +745,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     LOG.error("Error closing ledger", e2);
                 }
             }
+
+            // If we haven't written an in progress node as yet, lets not fail if this was supposed
+            // to be best effort, we can retry this later
+            if (bestEffort && !wroteInprogressZnode) {
+                return null;
+            }
+
             if (e instanceof InterruptedException) {
                 throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " +
                     getFullyQualifiedName(), e);

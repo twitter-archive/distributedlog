@@ -98,110 +98,127 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
     }
 
     @Override
-    protected BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
+    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort) throws IOException {
         checkLogExists();
 
-        if ((txId < 0) ||
-                (txId == DistributedLogConstants.MAX_TXID)) {
-            throw new IOException("Invalid Transaction Id");
-        }
+        boolean wroteInprogressZnode = false;
 
-        lock.acquire("StartLogSegment");
-        startLogSegmentCount.incrementAndGet();
-
-        // sanity check txn id.
-        if (this.sanityCheckTxnId) {
-            long highestTxIdWritten = maxTxId.get();
-            if (txId < highestTxIdWritten) {
-                if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
-                    LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
-                    throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
-                }
-                else {
-                    LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
-                    throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
-                }
-            }
-        }
-        ledgerAllocator.allocate();
-        // Obtain a transaction for zookeeper
-        Transaction txn;
         try {
-            txn = zooKeeperClient.get().transaction();
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted on obtaining a zookeeper transaction for starting log segment on {} : ",
-                    getFullyQualifiedName(), e);
-            throw new DLInterruptedException("Interrupted on obtaining a zookeeper transaction for starting log segment on "
-                    + getFullyQualifiedName(), e);
-        }
+            if ((txId < 0) ||
+                    (txId == DistributedLogConstants.MAX_TXID)) {
+                throw new IOException("Invalid Transaction Id");
+            }
 
-        // Try obtaining an new ledger
-        LedgerHandle lh = ledgerAllocator.tryObtain(txn);
+            lock.acquire("StartLogSegment");
+            startLogSegmentCount.incrementAndGet();
 
-        // For any active stream we will always make sure that there is at least one
-        // active ledger (except when the stream first starts out). Therefore when we
-        // see no ledger metadata for a stream, we assume that this is the first ledger
-        // in the stream
-        long ledgerSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+            // sanity check txn id.
+            if (this.sanityCheckTxnId) {
+                long highestTxIdWritten = maxTxId.get();
+                if (txId < highestTxIdWritten) {
+                    if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
+                        LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
+                        throw new EndOfStreamException("Writing to a stream after it has been marked as completed");
+                    }
+                    else {
+                        LOG.error("We've already seen TxId {} the max TXId is {}", txId, highestTxIdWritten);
+                        throw new TransactionIdOutOfOrderException(txId, highestTxIdWritten);
+                    }
+                }
+            }
+            ledgerAllocator.allocate();
+            // Obtain a transaction for zookeeper
+            Transaction txn;
+            try {
+                txn = zooKeeperClient.get().transaction();
+            } catch (InterruptedException e) {
+                LOG.error("Interrupted on obtaining a zookeeper transaction for starting log segment on {} : ",
+                        getFullyQualifiedName(), e);
+                throw new DLInterruptedException("Interrupted on obtaining a zookeeper transaction for starting log segment on "
+                        + getFullyQualifiedName(), e);
+            }
 
-        if (conf.getDLLedgerMetadataLayoutVersion() >=
-                DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
-            List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
-            ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
-            if (!ledgerListDesc.isEmpty()) {
-                ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
+            // Try obtaining an new ledger
+            LedgerHandle lh = ledgerAllocator.tryObtain(txn);
+
+            // For any active stream we will always make sure that there is at least one
+            // active ledger (except when the stream first starts out). Therefore when we
+            // see no ledger metadata for a stream, we assume that this is the first ledger
+            // in the stream
+            long ledgerSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+
+            if (conf.getDLLedgerMetadataLayoutVersion() >=
+                    DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
+                List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
+                ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
+                if (!ledgerListDesc.isEmpty()) {
+                    ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
+                }
+            }
+
+            String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
+            String inprogressZnodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
+            tryWrite(txn, l, inprogressZnodePath);
+
+            // Try storing max tx id.
+            LOG.debug("Try storing MaxTxId in startLogSegment  {} {}", inprogressZnodePath, txId);
+            tryStore(txn, maxTxId, txId);
+
+            // issue transaction
+            try {
+                List<OpResult> resultList = txn.commit();
+
+                wroteInprogressZnode = true;
+
+                // Allocator handover completed
+                {
+                    OpResult result = resultList.get(0);
+                    ledgerAllocator.confirmObtain(lh, result);
+                }
+                // Created inprogress log segment completed
+                {
+                    OpResult result = resultList.get(1);
+                    confirmWrite(result, l, inprogressZnodePath);
+                    addLogSegmentToCache(inprogressZnodeName, l);
+                }
+                // Storing max tx id completed.
+                if (resultList.size() == 3) {
+                    // get the result of storing max tx id.
+                    OpResult result = resultList.get(2);
+                    confirmStore(result, maxTxId, txId);
+                }
+            } catch (InterruptedException ie) {
+                // abort ledger allocate
+                ledgerAllocator.abortObtain(lh);
+                // abort writing inprogress znode
+                abortWrite(l, inprogressZnodePath);
+                // abort setting max tx id
+                abortStore(maxTxId, txId);
+                throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " + getFullyQualifiedName(), ie);
+            } catch (KeeperException ke) {
+                // abort ledger allocate
+                ledgerAllocator.abortObtain(lh);
+                // abort writing inprogress znode
+                abortWrite(l, inprogressZnodePath);
+                // abort setting max tx id
+                abortStore(maxTxId, txId);
+                throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
+            }
+            return new BKPerStreamLogWriter(getFullyQualifiedName() + ":" + inprogressZnodeName, conf,
+                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
+        } catch (Exception exc) {
+            // If we haven't written an in progress node as yet, lets not fail if this was supposed
+            // to be best effort, we can retry this later
+            if (bestEffort && !wroteInprogressZnode) {
+                return null;
+            } else if (exc instanceof IOException) {
+                throw (IOException) exc;
+            } else {
+                throw new IOException("Error creating new log segment", exc);
             }
         }
-
-        String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
-        String inprogressZnodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
-        LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
-                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
-        tryWrite(txn, l, inprogressZnodePath);
-
-        // Try storing max tx id.
-        LOG.debug("Try storing MaxTxId in startLogSegment  {} {}", inprogressZnodePath, txId);
-        tryStore(txn, maxTxId, txId);
-
-        // issue transaction
-        try {
-            List<OpResult> resultList = txn.commit();
-            // Allocator handover completed
-            {
-                OpResult result = resultList.get(0);
-                ledgerAllocator.confirmObtain(lh, result);
-            }
-            // Created inprogress log segment completed
-            {
-                OpResult result = resultList.get(1);
-                confirmWrite(result, l, inprogressZnodePath);
-                addLogSegmentToCache(inprogressZnodeName, l);
-            }
-            // Storing max tx id completed.
-            if (resultList.size() == 3) {
-                // get the result of storing max tx id.
-                OpResult result = resultList.get(2);
-                confirmStore(result, maxTxId, txId);
-            }
-        } catch (InterruptedException ie) {
-            // abort ledger allocate
-            ledgerAllocator.abortObtain(lh);
-            // abort writing inprogress znode
-            abortWrite(l, inprogressZnodePath);
-            // abort setting max tx id
-            abortStore(maxTxId, txId);
-            throw new DLInterruptedException("Interrupted zookeeper transaction on starting log segment for " + getFullyQualifiedName(), ie);
-        } catch (KeeperException ke) {
-            // abort ledger allocate
-            ledgerAllocator.abortObtain(lh);
-            // abort writing inprogress znode
-            abortWrite(l, inprogressZnodePath);
-            // abort setting max tx id
-            abortStore(maxTxId, txId);
-            throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
-        }
-        return new BKPerStreamLogWriter(getFullyQualifiedName() + ":" + inprogressZnodeName, conf,
-            lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
     }
 
     @Override

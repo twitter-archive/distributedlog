@@ -128,7 +128,7 @@ public abstract class BKBaseLogWriter {
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getLedgerWriter(streamIdentifier);
-        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId);
+        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */);
     }
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier) throws IOException {
@@ -153,7 +153,7 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
-                                                                          String streamIdentifier, long startTxId) throws IOException {
+                                                                          String streamIdentifier, long startTxId, boolean bestEffort) throws IOException {
         boolean shouldCheckForTruncation = false;
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
@@ -168,7 +168,12 @@ public abstract class BKBaseLogWriter {
                                 LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
                                         ledgerManager.getFullyQualifiedName());
                             }
-                            newLedgerWriter = ledgerManager.startLogSegment(startTxId);
+                            newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort);
+                            if (null == newLedgerWriter) {
+                                assert (bestEffort);
+                                return null;
+                            }
+
                             cacheAllocatedLogWriter(streamIdentifier, newLedgerWriter);
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
@@ -202,7 +207,7 @@ public abstract class BKBaseLogWriter {
             }
         } else if (null == ledgerWriter) {
             // if exceptions thrown during initialize we should not catch it.
-            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
+            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId, false);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }

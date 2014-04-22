@@ -80,7 +80,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
                 if (null == writer) {
                     writer = rollLogSegmentIfNecessary(null, conf.getUnpartitionedStreamName(),
-                                                       record.getTransactionId());
+                                                       record.getTransactionId(), false);
                 }
                 return writer;
             }
@@ -96,13 +96,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 if (null != writer) {
                     try {
                         rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
-                                                  record.getTransactionId());
+                                                  record.getTransactionId(), true);
                     } catch (IOException e) {
-                        // it is hard to handle exceptions in an ensure block. but it is probaly ok
-                        // here. since if the failure happened during rolling log segment, it doesn't
-                        // put the newer log segment in caching map. so next write request could still
-                        // using the existing log segment. it is actually good for handling zookeeper
-                        // exceptions during ledger rolling.
+                        // The exception is only thrown if we have already created an inprogress
+                        // log segment. At this point the only way out is to recover the stream
+                        // otherwise we will have multiple unrecovered log segments. To force
+                        // recovery, we should mark the current log segment writer in error
+                        writer.abort();
+
                         LOG.warn("Failed to roll log segment for {}, but it is OK right now. Next write request will try rolling : ",
                                  BKUnPartitionedAsyncLogWriter.super.bkDistributedLogManager.name, e);
                     }

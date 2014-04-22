@@ -288,15 +288,23 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     public void closeToFinalize() throws IOException {
         // Its important to enforce the write-lock here as we are going to make
         // metadata changes following this call
-        closeInternal(true, true);
+        IOException throwExc = closeInternal(true, true);
+
+        if (null != throwExc) {
+            throw throwExc;
+        }
     }
 
     @Override
     public void close() throws IOException {
-        closeInternal(true, false);
+        IOException throwExc = closeInternal(true, false);
+
+        if (null != throwExc) {
+            throw throwExc;
+        }
     }
 
-    public void closeInternal(boolean attemptFlush, boolean enforceLock) throws IOException {
+    public IOException closeInternal(boolean attemptFlush, boolean enforceLock) {
         IOException throwExc = null;
         // Cancel the periodic flush schedule first
         // The task is allowed to exit gracefully
@@ -326,17 +334,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        try {
-            closeLedgerHandle(0);
-        } finally {
-            lock.release("PerStreamLogWriterClose");
-        }
-
+        closeLedgerHandle(0);
         closed = true;
 
-        if (attemptFlush && (null != throwExc)) {
-            throw throwExc;
+        try {
+            lock.release("PerStreamLogWriterClose");
+        } catch (IOException exc) {
+            if (null == throwExc) {
+                throwExc = exc;
+            }
         }
+
+        return throwExc;
     }
 
     private void closeLedgerHandle(long delayInMs) {
@@ -380,7 +389,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     @Override
-    public void abort() throws IOException {
+    public void abort() {
         closeInternal(false, false);
     }
 
