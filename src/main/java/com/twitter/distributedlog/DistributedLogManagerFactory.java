@@ -89,7 +89,10 @@ public class DistributedLogManagerFactory {
                 conf.getNumWorkerThreads(),
                 new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
         );
-        this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool());
+        this.channelFactory = new NioClientSocketChannelFactory(
+            Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),
+            Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-worker-%d").build()),
+            conf.getBKClientNumberIOThreads());
         this.requestTimer = new HashedWheelTimer(
             new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),
             conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
