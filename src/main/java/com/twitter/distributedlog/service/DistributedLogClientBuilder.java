@@ -7,6 +7,7 @@ import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
@@ -840,6 +841,13 @@ public class DistributedLogClientBuilder {
                             op.fail(DLException.of(response.getHeader()));
                             break;
                         case SERVICE_UNAVAILABLE:
+                            // service is unavailable, remove it out of routing service
+                            routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
+                            onServerLeft(addr);
+                            // redirect the request to other host.
+                            redirect(op, addr, null);
+                            break;
+                        case STREAM_UNAVAILABLE:
                         case ZOOKEEPER_ERROR:
                         case LOCKING_EXCEPTION:
                         case UNEXPECTED:

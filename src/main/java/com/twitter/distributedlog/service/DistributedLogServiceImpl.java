@@ -445,7 +445,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             if (StreamStatus.CLOSED == status) {
                 // Stream is closed, fail the op immediately
                 op.result.setValue(writeResponse(responseHeader(
-                        StatusCode.SERVICE_UNAVAILABLE, "Stream " + name + " is closed.")));
+                        StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.")));
                 return;
             } if (StreamStatus.INITIALIZED == status && writer != null) {
                 completeOpNow = true;
@@ -492,7 +492,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             try {
                 if (StreamStatus.CLOSED == status) {
                     op.result.setValue(writeResponse(responseHeader(
-                            StatusCode.SERVICE_UNAVAILABLE, "Stream " + name + " is closed.")));
+                            StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.")));
                     return;
                 }
                 doExecuteOp(op, success);
@@ -798,7 +798,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             for (StreamOp op : oldPendingOps) {
                 op.result.setValue(writeResponse(responseHeader(
-                        StatusCode.SERVICE_UNAVAILABLE, "Stream " + name + " is closed.")));
+                        StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.")));
             }
             close(writer);
             close(manager);

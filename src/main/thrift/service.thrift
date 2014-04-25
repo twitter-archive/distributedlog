@@ -52,6 +52,8 @@ enum StatusCode {
     TRANSACTION_OUT_OF_ORDER = 513,
     // Write exception
     WRITE_EXCEPTION = 514,
+    // Stream Unavailable
+    STREAM_UNAVAILABLE = 515,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
