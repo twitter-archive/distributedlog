@@ -859,13 +859,7 @@ public class DistributedLogClientBuilder {
                 public void onFailure(Throwable cause) {
                     getExceptionCounter(cause.getClass()).incr();
                     proxyFailureLatencyStat.add(MathUtils.elapsedMicroSec(startTimeNanos));
-                    if (cause instanceof RequestTimeoutException) {
-                        op.fail(cause);
-                    } else if (cause instanceof FailedFastException) {
-                        onServerLeft(addr, sc);
-                        // redirect the request to other host.
-                        doSend(op, addr);
-                    } else if (cause instanceof ConnectionFailedException) {
+                    if (cause instanceof ConnectionFailedException) {
                         routingService.removeHost(addr, cause);
                         onServerLeft(addr, sc);
                         // redirect the request to other host.
@@ -884,18 +878,16 @@ public class DistributedLogClientBuilder {
                         removeClient(addr, sc);
                         doSend(op, addr);
                     } else {
+                        // RequestTimeoutException: fail it and let client decide whether to retry or not.
+
+                        // FailedFastException:
+                        // We don't actually know when FailedFastException will be thrown
+                        // so properly we just throw it back to application to let application
+                        // handle it.
+
+                        // Other Exceptions: as we don't know how to handle them properly so throw them to client
                         logger.error("Failed to write request to {} @ {} : {}",
                                 new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
-                        /** NOTE: we don't need to change ownership here. since it might be due to transient issue.
-                         *        we don't need to remove the client, as retry will exclude this. if this is an transient issue,
-                         *        it would retry the client again. if it is due to server is down, serverset will remove the client.
-                        // remove from host list
-                        routingService.removeHost(addr, cause);
-                        // remove ownership to that host
-                        if (stream2Addresses.remove(op.stream, addr)) {
-                            ownershipRemoves.incr();
-                        }
-                        **/
                         op.fail(cause);
                     }
                 }
