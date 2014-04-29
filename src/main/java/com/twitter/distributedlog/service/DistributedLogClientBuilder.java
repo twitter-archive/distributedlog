@@ -604,15 +604,7 @@ public class DistributedLogClientBuilder {
             proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
 
             // client builder
-            if (null == clientBuilder) {
-                this.clientBuilder = getDefaultClientBuilder();
-            } else {
-                this.clientBuilder = setDefaultSettings(clientBuilder);
-            }
-            // turn off failfast
-            this.clientBuilder.failFast(false);
-            this.clientBuilder.keepAlive(true);
-
+            this.clientBuilder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
             logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}",
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass() });
         }
@@ -650,17 +642,16 @@ public class DistributedLogClientBuilder {
 
         private ClientBuilder getDefaultClientBuilder() {
             return ClientBuilder.get()
-                .name(clientName)
-                .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                 .hostConnectionLimit(1)
                 .connectionTimeout(Duration.fromSeconds(1))
-                .requestTimeout(Duration.fromSeconds(1))
-                .reportTo(statsReceiver);
+                .requestTimeout(Duration.fromSeconds(1));
         }
 
         private ClientBuilder setDefaultSettings(ClientBuilder builder) {
             return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
+                   .failFast(false)
+                   .keepAlive(true)
                    .reportTo(statsReceiver);
         }
 
