@@ -19,6 +19,7 @@
   </distributionManagement>
   <properties>
     <bookkeeper.version>4.2.15-TWTTR-NETTY</bookkeeper.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
   <dependencies>
     <dependency>
