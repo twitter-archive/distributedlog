@@ -693,10 +693,26 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     @Override
-    public void addComplete(int rc, LedgerHandle handle,
+    public void addComplete(final int rc, LedgerHandle handle,
                             final long entryId, final Object ctx) {
         assert (ctx instanceof BKTransmitPacket);
         final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
+
+        if (null != orderedFuturePool) {
+            orderedFuturePool.apply(new Function0<Void>() {
+                public Void apply() {
+                    addCompleteDeferredProcessing(transmitPacket, entryId, rc);
+                    return null;
+                }
+            });
+        } else {
+            addCompleteDeferredProcessing(transmitPacket, entryId, rc);
+        }
+    }
+
+    private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
+                                              final long entryId,
+                                              final int rc) {
         synchronized (this) {
             outstandingRequests.decrementAndGet();
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
@@ -724,29 +740,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        if (null != orderedFuturePool) {
-            orderedFuturePool.apply(new Function0<Void>() {
-                public Void apply() {
-                    addCompleteDeferredProcessing(transmitPacket, entryId, transmitResult.get());
-                    return null;
-                }
-            });
-        } else {
-            addCompleteDeferredProcessing(transmitPacket, entryId, transmitResult.get());
-        }
 
-
-
-
-    }
-
-    private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
-                                              final long entryId,
-                                              final int transmitResult) {
-        transmitPacket.processTransmitComplete(entryId, transmitResult);
+        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
 
         synchronized (this) {
-            if (BKException.Code.OK == transmitResult && !transmitPacket.isControl()) {
+            if (BKException.Code.OK == transmitResult.get() && !transmitPacket.isControl()) {
                 if (lastDLSN.compareTo(transmitPacket.getLastDLSN()) < 0) {
                     lastDLSN = transmitPacket.getLastDLSN();
                 }
