@@ -110,7 +110,9 @@ abstract class BKLogPartitionHandler {
             if (null == zkcBuilder) {
                 zkcBuilder = ZooKeeperClientBuilder.newBuilder()
                         .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                        .uri(uri).buildNew(false);
+                        .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                        .uri(uri)
+                        .buildNew(false);
             }
             this.zooKeeperClient = zkcBuilder.build();
             LOG.debug("Using ZK Path {}", partitionRootPath);

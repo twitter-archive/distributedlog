@@ -120,7 +120,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             // so as to avoid flooding the log with idle reader messages
             if (idleReaderStopwatch.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
                 if (null == currentReader) {
-                    LOG.warn("Idle Reader on stream %s; Current Reader %s", bkLedgerManager.getFullyQualifiedName(), currentReader);
+                    LOG.warn("Idle Reader on stream {}; Current Reader {}", bkLedgerManager.getFullyQualifiedName(), currentReader);
                 }
                 bkLedgerManager.dumpReadAheadState();
                 idleReaderStopwatch.reset().start();

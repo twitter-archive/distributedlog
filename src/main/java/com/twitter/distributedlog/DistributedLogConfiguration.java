@@ -132,6 +132,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
 
+    public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
+    public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
+
     public static final String BKDL_TIMEOUT_TIMER_TICK_DURATION_MS = "timerTickDuration";
     public static final long BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT = 100;
 
@@ -737,6 +740,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_BKCLIENT_NUM_WORKER_THREADS, numThreads);
         return this;
     }
+
+    /**
+     * Get ZK client number of retry executor threads.
+     *
+     * @return number of bookkeeper client worker threads.
+     */
+    public int getZKClientNumberRetryThreads() {
+        return this.getInt(BKDL_ZKCLIENT_NUM_RETRY_THREADS, BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT);
+    }
+
+    /**
+     * Set ZK client number of retry executor threads.
+     *
+     * @param numThreads
+     *          number of retry executor threads.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setZKClientNumberRetryThreads(int numThreads) {
+        setProperty(BKDL_ZKCLIENT_NUM_RETRY_THREADS, numThreads);
+        return this;
+    }
+
 
     /**
      * Get BK client read timeout

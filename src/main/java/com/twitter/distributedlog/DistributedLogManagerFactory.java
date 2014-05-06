@@ -46,7 +46,10 @@ public class DistributedLogManagerFactory {
                                              DistributedLogConfiguration conf,
                                              URI namespace) throws IOException {
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(namespace).buildNew();
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .uri(namespace)
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .buildNew();
         try {
             return handler.handle(zkc);
         } finally {
@@ -105,7 +108,11 @@ public class DistributedLogManagerFactory {
                 conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
         }
         this.sharedZKClientBuilderForDL = ZooKeeperClientBuilder.newBuilder()
-            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(uri).retryPolicy(retryPolicy).statsLogger(statsLogger)
+            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+            .retryThreadCount(conf.getZKClientNumberRetryThreads())
+            .uri(uri)
+            .retryPolicy(retryPolicy)
+            .statsLogger(statsLogger)
             .buildNew(conf.getSeparateZKClients());
         LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
             " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),
@@ -211,7 +218,11 @@ public class DistributedLogManagerFactory {
             }
 
             this.sharedZKClientBuilderForBK = ZooKeeperClientBuilder.newBuilder()
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds()).uri(namespace).retryPolicy(retryPolicy).statsLogger(statsLogger)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .uri(namespace)
+                .retryPolicy(retryPolicy)
+                .statsLogger(statsLogger)
                 .buildNew(conf.getSeparateZKClients());
             LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
                 " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),

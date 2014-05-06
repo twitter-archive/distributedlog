@@ -81,6 +81,8 @@ public class ZooKeeperClient {
     private final AtomicInteger refCount;
     private final RetryPolicy retryPolicy;
     private final StatsLogger statsLogger;
+    private final int retryThreadCount;
+
 
     private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
 
@@ -97,17 +99,18 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE);
+        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1);
     }
 
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
-                    RetryPolicy retryPolicy, StatsLogger statsLogger) {
+                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
         this.refCount = new AtomicInteger(1);
         this.retryPolicy = retryPolicy;
         this.statsLogger = statsLogger;
+        this.retryThreadCount = retryThreadCount;
     }
 
     /**
@@ -187,7 +190,7 @@ public class ZooKeeperClient {
         ZooKeeper zk;
         try {
             zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.createConnectedZooKeeperClient(
-                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy, statsLogger);
+                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy, statsLogger, retryThreadCount);
         } catch (KeeperException e) {
             throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
         } catch (IOException e) {
