@@ -72,6 +72,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
     public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 120000;
 
+    public static final String BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS = "readerIdleErrorThresholdMillis";
+    public static final int BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT = Integer.MAX_VALUE;
 
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
@@ -862,6 +864,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
         return this;
     }
+
+    /**
+     * Get the time in milliseconds as the threshold for when an idle reader should throw errors
+     *
+     * @return if record counts should be persisted
+     */
+    public int getReaderIdleErrorThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should throw errors
+     *
+     * @param warnThreshold time after which we should throw idle reader errors
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setReaderIdleErrorThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
 
     /**
      * Get the tick duration in milliseconds that used for timeout timer.

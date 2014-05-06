@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.IdleReaderException;
 
 import static org.junit.Assert.assertEquals;
 
@@ -477,6 +478,44 @@ public class TestInterleavedReaders {
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
+
+    @Test(timeout = 10000)
+    public void nonBlockingReadIdleError() throws Exception {
+        String name = "distrlog-non-blocking-reader-error";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReaderIdleWarnThresholdMillis(50);
+        confLocal.setReaderIdleErrorThresholdMillis(100);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        writeRecordsForNonBlockingReads(dlm, false);
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+
+                }
+            }, 100, TimeUnit.MILLISECONDS);
+
+        boolean exceptionEncountered = false;
+        try {
+            readNonBlocking(dlm, false);
+        } catch (IdleReaderException exc) {
+            exceptionEncountered = true;
+        }
+        assert(exceptionEncountered);
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
+
 
     static class ReaderThread extends Thread {
 

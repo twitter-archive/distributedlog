@@ -4,6 +4,7 @@ import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.IdleReaderException;
 
 import java.io.IOException;
 import java.util.LinkedList;
@@ -25,11 +26,13 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private ResumableBKPerStreamLogReader currentReader = null;
     private final boolean readAheadEnabled;
     private final int idleWarnThresholdMillis;
+    private final int idleErrorThresholdMillis;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private boolean endOfStreamEncountered = false;
     private ReaderNotification notification = null;
-    private Stopwatch idleReaderStopwatch = Stopwatch.createUnstarted();
+    private Stopwatch idleReaderLastWarnSw = Stopwatch.createStarted();
+    private Stopwatch idleReaderLastLogRecordSw = Stopwatch.createStarted();
     private boolean isReaderIdle = false;
 
 
@@ -43,6 +46,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         lastTxId = startTxId - 1;
         this.readAheadEnabled = conf.getEnableReadAhead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
+        this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -110,20 +114,29 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             }
 
             lastTxId = record.getTransactionId();
-            idleReaderStopwatch.reset().start();
+            idleReaderLastLogRecordSw.reset().start();
             if (isReaderIdle) {
                 LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
                 isReaderIdle = false;
             }
         } else {
-            // If we have exceeded the warning threshold generate the warning and then reset the timer
-            // so as to avoid flooding the log with idle reader messages
-            if (idleReaderStopwatch.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
+            long idleDuration = idleReaderLastLogRecordSw.elapsed(TimeUnit.MILLISECONDS);
+            if (idleDuration > idleErrorThresholdMillis) {
+                throw new IdleReaderException("Reader on stream" +
+                    bkLedgerManager.getFullyQualifiedName()
+                    + "is idle for " + idleDuration +"ms");
+            }
+            // If we have exceeded the warning threshold generate the warning and then reset
+            // the timer so as to avoid flooding the log with idle reader messages
+            else if (idleDuration > idleWarnThresholdMillis &&
+                idleReaderLastWarnSw.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
                 if (null == currentReader) {
-                    LOG.warn("Idle Reader on stream {}; Current Reader {}", bkLedgerManager.getFullyQualifiedName(), currentReader);
+                    LOG.warn("Idle Reader on stream {} for {} ms; Current Reader {}",
+                        new Object[] { bkLedgerManager.getFullyQualifiedName(),
+                            idleDuration, currentReader });
                 }
                 bkLedgerManager.dumpReadAheadState();
-                idleReaderStopwatch.reset().start();
+                idleReaderLastWarnSw.reset().start();
                 isReaderIdle = true;
             }
         }
@@ -134,13 +147,15 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private boolean createOrPositionReader(boolean nonBlocking) throws IOException {
         boolean advancedOnce = false;
         if (null == currentReader) {
-            LOG.debug("Opening reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
+            LOG.debug("Opening reader on partition {} starting at TxId: {}",
+                bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             currentReader = bkLedgerManager.getInputStream(lastTxId + 1, (lastTxId >= startTxId));
             if (null != currentReader) {
                 if (readAheadEnabled) {
                     bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead());
                 }
-                LOG.debug("Opened reader on partition {} starting at TxId: {}", bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
+                LOG.debug("Opened reader on partition {} starting at TxId: {}",
+                    bkLedgerManager.getFullyQualifiedName(), (lastTxId + 1));
             }
             advancedOnce = (currentReader == null);
         } else {
