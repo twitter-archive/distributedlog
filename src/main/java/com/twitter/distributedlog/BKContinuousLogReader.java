@@ -30,6 +30,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     private boolean endOfStreamEncountered = false;
     private ReaderNotification notification = null;
     private Stopwatch idleReaderStopwatch = Stopwatch.createUnstarted();
+    private boolean isReaderIdle = false;
 
 
     public BKContinuousLogReader (BKDistributedLogManager bkdlm,
@@ -110,12 +111,20 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
 
             lastTxId = record.getTransactionId();
             idleReaderStopwatch.reset().start();
+            if (isReaderIdle) {
+                LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
+                isReaderIdle = false;
+            }
         } else {
             // If we have exceeded the warning threshold generate the warning and then reset the timer
             // so as to avoid flooding the log with idle reader messages
             if (idleReaderStopwatch.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
+                if (null == currentReader) {
+                    LOG.warn("Idle Reader on stream %s; Current Reader %s", bkLedgerManager.getFullyQualifiedName(), currentReader);
+                }
                 bkLedgerManager.dumpReadAheadState();
                 idleReaderStopwatch.reset().start();
+                isReaderIdle = true;
             }
         }
 

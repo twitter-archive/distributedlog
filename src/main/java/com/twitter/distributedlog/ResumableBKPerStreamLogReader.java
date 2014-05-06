@@ -187,4 +187,9 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     synchronized boolean reachedEndOfLogSegment() {
         return ((null != lin) && !inProgress && lin.reachedEndOfLedger());
     }
+
+    @Override
+    public String toString() {
+        return String.format("Resumable Reader on stream %s,  LedgerInputStream %s", ledgerManager.getFullyQualifiedName(), lin);
+    }
 }

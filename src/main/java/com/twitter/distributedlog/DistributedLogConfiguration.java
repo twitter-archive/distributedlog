@@ -70,7 +70,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     // Reader parameters
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
-    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 30000;
+    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 120000;
 
 
     // Read ahead related parameters

@@ -343,5 +343,9 @@ class BKPerStreamLogReader {
                 return false;
             }
         }
+
+        public String toString() {
+            return String.format("Next Entry to read: %s", readEntries);
+        }
     }
 }

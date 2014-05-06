@@ -150,7 +150,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     void dumpReadAheadState() {
-        LOG.warn("Idle Reader on stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+        LOG.warn("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
     }
 
     public LedgerHandleCache getHandleCache() {
