@@ -45,7 +45,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
@@ -822,7 +821,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private boolean closed = false;
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
-    private final AtomicBoolean closing = new AtomicBoolean(false);
     private final CountDownLatch keepAliveLatch;
     private final Object txnLock = new Object();
 
@@ -1050,11 +1048,15 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         } finally {
             closeLock.writeLock().unlock();
         }
+        logger.info("Closing all acquired streams ...");
         for (Stream stream: streams.values()) {
-            stream.requestClose();
+            if (streams.remove(stream.name, stream)) {
+                stream.requestClose();
+            }
         }
         // shutdown the executor after requesting closing streams.
         executorService.shutdown();
+        logger.info("Waiting for closing all streams ...");
         try {
             if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
                 logger.warn("Executor service doesn't shutdown in 60 seconds, force quiting...");
@@ -1063,20 +1065,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         } catch (InterruptedException ie) {
             logger.warn("Interrupted on waiting shutting down executor service : ", ie);
         }
+        // shutdown the dl factory
+        logger.info("Closing distributedlog factory ...");
+        dlFactory.close();
+        logger.info("Closed distributedlog factory.");
+
+        // release the keepAliveLatch in case shutdown is called from a shutdown hook.
         keepAliveLatch.countDown();
+        logger.info("Finished shutting down distributedlog service.");
     }
 
     void triggerShutdown() {
-        // avoid spawning too many threads.
-        if (!closing.compareAndSet(false, true)) {
-            return;
-        }
-        Thread shutdownThread = new Thread("ShutdownThread") {
-            @Override
-            public void run() {
-                shutdown();
-            }
-        };
-        shutdownThread.start();
+        // release the keepAliveLatch to let the main thread shutdown the whole service.
+        logger.info("Releasing KeepAlive Latch to trigger shutdown ...");
+        keepAliveLatch.countDown();
+        logger.info("Released KeepAlive Latch. Main thread will shut the service down.");
     }
 }
