@@ -187,6 +187,9 @@ public class DistributedLogServer implements Runnable {
         } catch (InterruptedException e) {
             logger.warn("Interrupted when waiting distributedlog server to be finished : ", e);
         }
+        logger.info("DistributedLog Service Interrupted.");
+        server.close();
+        logger.info("Closed DistributedLog Server.");
     }
 
 }

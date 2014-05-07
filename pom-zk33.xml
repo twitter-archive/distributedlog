@@ -59,7 +59,7 @@
       <groupId>com.twitter.common_internal</groupId>
       <artifactId>zookeeper-utils</artifactId>
       <!-- See birdcage/jvm/com/twitter/common_internal/BUILD -->
-      <version>0.0.72</version>
+      <version>0.0.76</version>
     </dependency>
     <dependency>
       <groupId>log4j</groupId>

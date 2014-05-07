@@ -17,7 +17,6 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.CancelledRequestException;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.ConnectionFailedException;
-import com.twitter.finagle.FailedFastException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
