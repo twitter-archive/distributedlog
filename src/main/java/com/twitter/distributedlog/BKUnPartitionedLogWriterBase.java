@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.LinkedList;
 
 import com.twitter.distributedlog.util.Pair;
+import com.google.common.annotations.VisibleForTesting;
 
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     private BKPerStreamLogWriter perStreamWriter = null;
@@ -105,19 +106,33 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         return list;
     }
 
-    public void closeAndComplete() throws IOException {
-        if (null != perStreamWriter && null != partitionHander) {
-            try {
-                waitForTruncation();
-                partitionHander.completeAndCloseLogSegment(perStreamWriter);
-            } finally {
-                // ensure partition handler is closed.
-                partitionHander.close();
+    @VisibleForTesting
+    void closeAndComplete() throws IOException {
+        closeAndComplete(true);
+    }
+
+    @Override
+    protected void closeAndComplete(boolean shouldThrow) throws IOException {
+        try {
+            if (null != perStreamWriter && null != partitionHander) {
+                try {
+                    waitForTruncation();
+                    partitionHander.completeAndCloseLogSegment(perStreamWriter);
+                } finally {
+                    // ensure partition handler is closed.
+                    partitionHander.close();
+                }
+                perStreamWriter = null;
+                partitionHander = null;
             }
-            perStreamWriter = null;
-            partitionHander = null;
+        } catch (IOException exc) {
+            LOG.error("Completing Log segments encountered exception", exc);
+            if (shouldThrow) {
+                throw exc;
+            }
+        } finally {
+            closeNoThrow();
         }
-        close();
     }
 
     /**
@@ -131,6 +146,6 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
             perStreamWriter = null;
         }
 
-        close();
+        closeNoThrow();
     }
 }

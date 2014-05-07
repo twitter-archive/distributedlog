@@ -19,6 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.common.base.Stopwatch;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 public class LedgerHandleCache {

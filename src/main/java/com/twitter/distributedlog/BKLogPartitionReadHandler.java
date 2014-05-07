@@ -39,6 +39,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
+    private boolean readAheadInterrupted = false;
 
     // stats
     private static Counter readAheadWorkerWaits;
@@ -338,6 +339,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    void dumpReadAheadState() {
+        LOG.warn("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+    }
+
     public LedgerHandleCache getHandleCache() {
         return handleCache;
     }
@@ -374,6 +379,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return logExists;
     }
 
+    public void setReadAheadInterrupted() {
+        readAheadInterrupted = true;
+    }
+
+
     public void setNotification(final AsyncNotification notification) {
         // If we are setting a notification, then we must ensure that
         // read ahead has already been started. Once we have the read
@@ -406,8 +416,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         ledgerDataAccessor.setNotification(notification);
     }
 
-    public void checkClosedOrInError() throws LogReadException {
-        if (readAheadError) {
+    public void checkClosedOrInError() throws LogReadException, DLInterruptedException {
+        if (readAheadInterrupted) {
+            throw new DLInterruptedException("ReadAhead Thread was interrupted");
+        }
+        else if (readAheadError) {
             throw new LogReadException("ReadAhead Thread encountered exceptions");
         }
     }
@@ -520,6 +533,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
 
         @Override
+        public String toString() {
+            return "Running:" + running +
+                ", NextReadPosition:" + nextReadPosition +
+                ", BKZKExceptions:" + bkcZkExceptions.get() +
+                ", BKUnexpectedExceptions:" + bkcUnExpectedExceptions.get() +
+                ", EncounteredException:" + encounteredException +
+                ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE");
+        }
+
+        @Override
         public void resumeReadAhead() {
             submit(this);
         }
@@ -618,6 +641,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (BKException.Code.InterruptedException == rc) {
                     LOG.trace("ReadAhead Worker for {} is interrupted.", fullyQualifiedName);
                     running = false;
+                    bkLedgerManager.setReadAheadInterrupted();
                     return;
                 } else if (BKException.Code.ZKException == rc) {
                     encounteredException = true;

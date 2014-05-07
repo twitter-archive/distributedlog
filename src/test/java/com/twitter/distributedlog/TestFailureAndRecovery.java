@@ -285,7 +285,7 @@ public class TestFailureAndRecovery {
         out.setReadyToFlush();
         out.flushAndSync();
 
-        out.close();
+        out.abort();
 
         BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
 
@@ -304,5 +304,4 @@ public class TestFailureAndRecovery {
         assertEquals(100, dlm.getLogRecordCount());
         dlm.close();
     }
-
 }

@@ -13,6 +13,7 @@ import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
 
     private synchronized void commonInitialization(
             DistributedLogConfiguration conf, BKDLConfig bkdlConfig,
-            ClientSocketChannelFactory channelFactory, StatsLogger statsLogger,
+            ClientSocketChannelFactory channelFactory, StatsLogger statsLogger, HashedWheelTimer requestTimer,
             boolean registerExpirationHandler)
         throws IOException, InterruptedException, KeeperException {
         ClientConfiguration bkConfig = new ClientConfiguration();
@@ -43,17 +44,21 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setEnsemblePlacementPolicy(RegionAwareEnsemblePlacementPolicy.class);
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
-        if (null == channelFactory) {
-            this.bkc = new BookKeeper(bkConfig, zkc.get(), statsLogger, new TwitterDNSResolver(conf.getBkDNSResolverOverrides()));
-        } else {
-            this.bkc = new BookKeeper(bkConfig, zkc.get(), channelFactory, statsLogger, new TwitterDNSResolver(conf.getBkDNSResolverOverrides()));
-        }
+        this.bkc = BookKeeper.newBuilder()
+            .config(bkConfig)
+            .zk(zkc.get())
+            .channelFactory(channelFactory)
+            .statsLogger(statsLogger)
+            .dnsResolver(new TwitterDNSResolver(conf.getBkDNSResolverOverrides()))
+            .requestTimer(requestTimer).build();
+
         refCount = 1;
         if (registerExpirationHandler) {
             sessionExpireWatcher = this.zkc.registerExpirationHandler(this);
         }
     }
 
+/*
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, String name,
                      ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
@@ -74,15 +79,22 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                 conf.getBKClientZKNumRetries(), zkSessionTimeout, conf.getBKClientZKRetryBackoffStartMillis(),
                 conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBkDNSResolverOverrides() });
     }
-
+*/
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,
-                     String name, ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
+                     String name, ClientSocketChannelFactory channelFactory, HashedWheelTimer requestTimer, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        this.zkc = zkc;
-        this.ownZK = false;
+        if (null == zkc) {
+            int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
+            this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers());
+            this.ownZK = true;
+        } else {
+            this.zkc = zkc;
+            this.ownZK = false;
+        }
+
         this.name = name;
-        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, true);
-        LOG.info("BookKeeper Client created {} with shared zookeeper client", name);
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, requestTimer, true);
+        LOG.info("BookKeeper Client created {} with {} zookeeper client", name, ownZK ? "its own": "shared");
     }
 
 

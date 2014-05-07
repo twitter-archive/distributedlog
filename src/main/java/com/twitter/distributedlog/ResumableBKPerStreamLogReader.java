@@ -216,4 +216,9 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             return DLSN.InvalidDLSN;
         }
     }
+
+    @Override
+    public String toString() {
+        return String.format("Resumable Reader on stream %s,  LedgerInputStream %s", ledgerManager.getFullyQualifiedName(), lin);
+    }
 }

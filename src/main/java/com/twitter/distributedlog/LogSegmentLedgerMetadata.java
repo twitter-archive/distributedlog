@@ -481,9 +481,10 @@ public class LogSegmentLedgerMetadata {
         try {
             LogSegmentLedgerMetadata other = read(zkc, path, version);
             if (LOG.isTraceEnabled()) {
-                LOG.trace("Verifying " + this + " against " + other);
+                LOG.trace("Verifying {} against {}", this, other);
             }
-            System.out.println("Verifying " + this + " against " + other);
+
+            boolean retVal;
 
             // All fields may not be comparable so only compare the ones
             // that can be compared
@@ -493,14 +494,20 @@ public class LogSegmentLedgerMetadata {
             if (this.getLedgerSequenceNumber() != other.getLedgerSequenceNumber() ||
                 this.ledgerId != other.ledgerId ||
                 this.firstTxId != other.firstTxId) {
-                return false;
+                retVal = false;
             } else if (this.inprogress) {
-                return other.inprogress;
+                retVal = other.inprogress;
             } else {
-                return (!other.inprogress && (this.lastTxId == other.lastTxId));
+                retVal = (!other.inprogress && (this.lastTxId == other.lastTxId));
             }
+
+            if (!retVal) {
+                LOG.warn("Equivalence check failed between {} and {}", this, other);
+            }
+
+            return retVal;
         } catch (Exception e) {
-            LOG.error("Couldn't verify data in " + path, e);
+            LOG.error("Could not check equivalence between:" + this + " and data in " + path, e);
             return false;
         }
     }

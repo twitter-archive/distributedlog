@@ -231,7 +231,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         this.fullyQualifiedLogSegment = streamName;
         this.lh = lh;
         this.lock = lock;
-        this.lock.acquire("BKPerStreamLogWriter");
+        this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
             LOG.warn("Setting output buffer size {} greater than max transmission size {} for log segment {}",
@@ -336,14 +336,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         closeLedgerHandle(0);
         closed = true;
-
-        try {
-            lock.release("PerStreamLogWriterClose");
-        } catch (IOException exc) {
-            if (null == throwExc) {
-                throwExc = exc;
-            }
-        }
+        lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         return throwExc;
     }
@@ -556,7 +549,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 } catch (Exception exc) {
                     shouldFlushControl.addAndGet(preFlushCounter);
                     preFlushCounter = 0;
-                    throw new FlushException("Flush error", exc);
+                    throw new FlushException("Flush encountered an error while writing data to the backend", lastTxId, lastTxIdAcknowledged, exc);
                 }
             }
 
@@ -570,7 +563,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 flushAndSyncInternal();
             } catch (Exception exc) {
                 shouldFlushControl.addAndGet(preFlushCounter);
-                throw new FlushException("Flush error", exc);
+                throw new FlushException("Flush encountered an error while writing data to backend", lastTxId, lastTxIdAcknowledged, exc);
             } finally {
                 preFlushCounter = 0;
             }
@@ -586,7 +579,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     private void checkWriteLock() throws LockingException {
         if (enforceLock) {
-            lock.checkWriteLock(false);
+            lock.checkWriteLock(false, DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         }
     }
 
@@ -605,11 +598,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         try {
             waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
-            throw new FlushException("Wait for Flush Interrupted", ie);
+            throw new FlushException("Wait for Flush Interrupted", lastTxId, lastTxIdAcknowledged, ie);
         }
 
         if (!waitSuccessful) {
-            throw new FlushException("Flush Timeout");
+            throw new FlushException("Flush request timed out", lastTxId, lastTxIdAcknowledged);
         }
 
         synchronized (this) {
@@ -755,7 +748,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
     }
-
 
     public synchronized int getAverageTransmitSize() {
         if (numFlushesSinceRestart > 0) {

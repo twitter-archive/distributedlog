@@ -23,6 +23,7 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooKeeper;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,7 +76,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    StatsLogger statsLogger) throws IOException {
         this(name, conf, uri, zkcBuilder, bkcBuilder,
             Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-            null, statsLogger);
+            null, null, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -84,6 +85,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
                                    ClientSocketChannelFactory channelFactory,
+                                   HashedWheelTimer requestTimer,
                                    StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, zkcBuilder);
         this.conf = conf;
@@ -103,7 +105,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 BKDLConfig.propagateConfiguration(bkdlConfig, conf);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
-                        .channelFactory(channelFactory).statsLogger(statsLogger);
+                        .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
             } else {
                 this.bookKeeperClientBuilder = bkcBuilder;
             }
@@ -405,12 +407,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf.getEnableReadAhead(), null);
+        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf, null);
     }
 
     LogReader getInputStreamInternal(String streamIdentifier, DLSN dlsn) throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReaderDLSN(this, streamIdentifier, dlsn, conf.getEnableReadAhead(), null);
+        return new BKContinuousLogReaderDLSN(this, streamIdentifier, dlsn, conf, null);
     }
 
     /**

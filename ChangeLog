@@ -50,6 +50,14 @@
 -----
 - Expose DistributedLog Client Builder in Proxy Builder                                                      
 
+0.2.15
+------
+- Resilience to connection failures in read last add confirmed calls (polling)
+- Fix unbalanced lock release
+- Handle interrupted exception in the read ahead thread
+- Complete the log segment while closing the writer gracefully
+- Logging to detect reader stalls
+
 0.2.14
 ------
 - Make non blocking reads robust

@@ -109,7 +109,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 throw new IOException("Invalid Transaction Id");
             }
 
-            lock.acquire("StartLogSegment");
+            lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
             startLogSegmentCount.incrementAndGet();
 
             // sanity check txn id.
@@ -231,7 +231,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         String inprogressZnodePath = inprogressZNode(inprogressZnodeName);
         boolean acquiredLocally = false;
         try {
-            acquiredLocally = lock.checkWriteLock(true);
+            acquiredLocally = lock.checkWriteLock(true, DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             // for normal case, it just fetches the metadata from caches, for recovery case, it reads
             // from zookeeper.
             LogSegmentLedgerMetadata logSegment = readLogSegmentFromCache(inprogressZnodeName);
@@ -304,7 +304,10 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } finally {
             if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
-                lock.release("CompleteAndClose");
+                DistributedReentrantLock.LockReason reason = acquiredLocally ?
+                    DistributedReentrantLock.LockReason.COMPLETEANDCLOSE:
+                    DistributedReentrantLock.LockReason.WRITEHANDLER;
+                lock.release(reason);
                 startLogSegmentCount.decrementAndGet();
             }
         }

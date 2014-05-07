@@ -33,6 +33,8 @@ public class ZooKeeperClientBuilder {
     private RetryPolicy retryPolicy = null;
     // stats logger
     private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
+    // retry executor thread count
+    private int retryThreadCount = 1;
 
     // Cached ZooKeeper Client
     private ZooKeeperClient cachedClient = null;
@@ -51,6 +53,11 @@ public class ZooKeeperClientBuilder {
         if (this.conectionTimeoutMs <= 0) {
             this.conectionTimeoutMs = 2 * sessionTimeoutMs;
         }
+        return this;
+    }
+
+    public synchronized ZooKeeperClientBuilder retryThreadCount(int retryThreadCount) {
+        this.retryThreadCount = retryThreadCount;
         return this;
     }
 
@@ -191,7 +198,7 @@ public class ZooKeeperClientBuilder {
 
     private ZooKeeperClient buildClient() {
         validateParameters();
-        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers, retryPolicy, statsLogger);
+        return new ZooKeeperClient(sessionTimeoutMs, conectionTimeoutMs, zkServers, retryPolicy, statsLogger, retryThreadCount);
     }
 
 }

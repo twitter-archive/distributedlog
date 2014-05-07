@@ -63,11 +63,16 @@ public abstract class BKBaseLogWriter {
 
     abstract protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters();
 
+    abstract protected void closeAndComplete(boolean shouldThrow) throws IOException;
+
+    public void close() throws IOException {
+        closeAndComplete(false);
+    }
+
     /**
-     * Close the journal.
-     *
+     * Close the writer and release all the underlying resources
      */
-    public void close() {
+    public void closeNoThrow() {
         closed = true;
         try {
             waitForTruncation();

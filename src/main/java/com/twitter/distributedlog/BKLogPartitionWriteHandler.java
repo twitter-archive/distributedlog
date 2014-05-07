@@ -403,7 +403,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // acquire the lock if we enable recover in background
         if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
-            lock.acquire("WriteHandlerCreate");
+            lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         }
 
         // Rolling Policy
@@ -659,7 +659,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             throw new IOException("Invalid Transaction Id");
         }
 
-        lock.acquire("StartLogSegment");
+        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         startLogSegmentCount.incrementAndGet();
 
         // sanity check txn id.
@@ -796,13 +796,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         @Override
         void processOp() throws IOException {
-            lock.acquire("CompleteAndCloseLogSegment");
+            lock.acquire(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             try {
                 completeAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo, ledgerId, firstTxId, lastTxId,
                         recordCount, lastEntryId, lastSlotId, false);
                 LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
             } finally {
-                lock.release("CompleteAndCloseLogSegment");
+                lock.release(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             }
         }
 
@@ -914,7 +914,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     + " doesn't exist");
             }
 
-            acquiredLocally = lock.checkWriteLock(true);
+            acquiredLocally = lock.checkWriteLock(true, DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
@@ -958,7 +958,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             throw new ZKException("Error when finalising stream " + partitionRootPath, e);
         } finally {
             if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
-                lock.release("CompleteAndClose");
+                DistributedReentrantLock.LockReason reason = acquiredLocally ?
+                    DistributedReentrantLock.LockReason.COMPLETEANDCLOSE:
+                    DistributedReentrantLock.LockReason.WRITEHANDLER;
+                lock.release(reason);
                 startLogSegmentCount.decrementAndGet();
             }
         }
@@ -977,6 +980,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         void processOp() throws IOException {
             Stopwatch stopwatch = new Stopwatch().start();
             boolean success = false;
+
             try {
                 synchronized (BKLogPartitionWriteHandler.this) {
                     if (recoverInitiated) {
@@ -1034,13 +1038,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             long lastSlotId = -1;
 
             LogRecordWithDLSN record;
-            lock.acquire("RecoverLogSegment");
+            lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
             try {
                 LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
                 record = recoverLastRecordInLedger(l, false, true, true, true);
                 LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
             } finally {
-                lock.release("RecoverLogSegment");
+                lock.release(DistributedReentrantLock.LockReason.RECOVER);
             }
 
             if (null != record) {
@@ -1084,7 +1088,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
 
         try {
-            deleteLock.acquire("DeleteLog");
+            deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
         } catch (LockingException lockExc) {
             throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
         }
@@ -1092,7 +1096,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         try {
             purgeAllLogs();
         } finally {
-            deleteLock.release("DeleteLog");
+            deleteLock.release(DistributedReentrantLock.LockReason.DELETELOG);
         }
 
         try {
@@ -1316,16 +1320,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             op.waitForCompleted();
         }
         if (startLogSegmentCount.get() > 0) {
-            try {
-                while (startLogSegmentCount.decrementAndGet() >= 0) {
-                    lock.release("WriteHandlerClose");
-                }
-            } catch (IOException ioe) {
-                LOG.error("Error on releasing WriteHandlerClose {} : ", getFullyQualifiedName(), ioe);
+            while (startLogSegmentCount.decrementAndGet() >= 0) {
+                lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
             }
         }
         if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
-            lock.release("WriteHandlerClose");
+            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
         }
         lock.close();
         deleteLock.close();

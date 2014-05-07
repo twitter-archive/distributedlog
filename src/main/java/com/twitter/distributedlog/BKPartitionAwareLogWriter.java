@@ -116,21 +116,34 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
 
     @VisibleForTesting
     void closeAndComplete() throws IOException {
-        LinkedList<String> deletedStreams = new LinkedList<String>();
-        for(String streamIdentifier: partitionToWriter.keySet()) {
-            BKPerStreamLogWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
-            BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
-            if (null != perStreamWriter && null != partitionHander) {
-                waitForTruncation();
-                partitionHander.completeAndCloseLogSegment(perStreamWriter);
-                partitionHander.close();
-                deletedStreams.add(streamIdentifier);
+        closeAndComplete(true);
+    }
+
+    @Override
+    protected void closeAndComplete(boolean shouldThrow) throws IOException {
+        try {
+            LinkedList<String> deletedStreams = new LinkedList<String>();
+            for(String streamIdentifier: partitionToWriter.keySet()) {
+                BKPerStreamLogWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
+                BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
+                if (null != perStreamWriter && null != partitionHander) {
+                    waitForTruncation();
+                    partitionHander.completeAndCloseLogSegment(perStreamWriter);
+                    partitionHander.close();
+                    deletedStreams.add(streamIdentifier);
+                }
             }
+            for(String streamIdentifier: deletedStreams) {
+                partitionToWriter.remove(streamIdentifier);
+                partitionToLedger.remove(streamIdentifier);
+            }
+        } catch (IOException exc) {
+            LOG.error("Completing Log segments encountered exception", exc);
+            if (shouldThrow) {
+                throw exc;
+            }
+        } finally {
+            closeNoThrow();
         }
-        for(String streamIdentifier: deletedStreams) {
-            partitionToWriter.remove(streamIdentifier);
-            partitionToLedger.remove(streamIdentifier);
-        }
-        close();
     }
 }

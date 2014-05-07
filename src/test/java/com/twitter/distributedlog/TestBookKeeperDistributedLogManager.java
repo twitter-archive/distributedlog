@@ -1544,7 +1544,6 @@ public class TestBookKeeperDistributedLogManager {
                 BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
                 assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(), start, DistributedLogConstants.MAX_TXID,
                                                                     perStreamLogWriter.getLedgerSequenceNumber()), false));
-
                 blplm.close();
             }
         }
@@ -1752,7 +1751,7 @@ public class TestBookKeeperDistributedLogManager {
         out.write(op);
         out.setReadyToFlush();
         out.flushAndSync();
-        out.close();
+        out.abort();
         dlm.close();
 
         dlm = DLMTestUtil.createNewDLM(conf, name);

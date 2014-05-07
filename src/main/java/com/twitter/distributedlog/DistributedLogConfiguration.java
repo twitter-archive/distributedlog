@@ -78,6 +78,13 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
 
+    // Reader parameters
+    public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
+    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 120000;
+
+    public static final String BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS = "readerIdleErrorThresholdMillis";
+    public static final int BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT = Integer.MAX_VALUE;
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -185,6 +192,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
     public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
+
+    public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
+    public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
+
+    public static final String BKDL_TIMEOUT_TIMER_TICK_DURATION_MS = "timerTickDuration";
+    public static final long BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT = 100;
+
+    public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
+    public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
 
     public DistributedLogConfiguration() {
         super();
@@ -464,6 +480,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get BK client number of i/o threads.
+     *
+     * @return number of bookkeeper netty i/o threads.
+     */
+    public int getBKClientNumberIOThreads() {
+        return this.getInt(BKDL_BKCLIENT_NUM_IO_THREADS, getNumWorkerThreads());
+    }
+
+    /**
+     * Set BK client number of i/o threads.
+     *
+     * @param numThreads
+     *          number io threads.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setBKClientNumberIOThreads(int numThreads) {
+        setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
+        return this;
+    }
+
+    /**
      * Set if we should enable read ahead
      *
      * @param enableReadAhead
@@ -540,6 +577,40 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this.getInt(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS,
                            BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
     }
+
+    /**
+     * Set num of retries for zookeeper client.
+     *
+     * @param zkNumRetries num of retries of zookeeper client.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setZKNumRetries(int zkNumRetries) {
+        setProperty(BKDL_ZK_NUM_RETRIES, zkNumRetries);
+        return this;
+    }
+
+    /**
+     * Set the start backoff time of zookeeper operation retries, in seconds.
+     *
+     * @param zkRetryBackoffStartMillis start backoff time of zookeeper operation retries.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setZKRetryBackoffStartMillis(int zkRetryBackoffStartMillis) {
+        setProperty(BKDL_ZK_RETRY_BACKOFF_START_MILLIS, zkRetryBackoffStartMillis);
+        return this;
+    }
+
+    /**
+     * Set the max backoff time of zookeeper operation retries, in seconds.
+     *
+     * @param zkRetryBackoffMaxMillis max backoff time of zookeeper operation retries.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setZKRetryBackoffMaxMillis(int zkRetryBackoffMaxMillis) {
+        setProperty(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS, zkRetryBackoffMaxMillis);
+        return this;
+    }
+
 
     /**
      * Get Log Flush timeout
@@ -795,25 +866,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get BK client number of i/o threads.
+     * Get ZK client number of retry executor threads.
      *
-     * @return number of bookkeeper netty i/o threads.
+     * @return number of bookkeeper client worker threads.
      */
-    public int getBKClientNumberIOThreads() {
-        return this.getInt(BKDL_BKCLIENT_NUM_IO_THREADS, BKDL_BKCLIENT_NUM_IO_THREADS_DEFAULT);
+    public int getZKClientNumberRetryThreads() {
+        return this.getInt(BKDL_ZKCLIENT_NUM_RETRY_THREADS, BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT);
     }
 
     /**
-     * Set BK client number of i/o threads.
+     * Set ZK client number of retry executor threads.
      *
      * @param numThreads
-     *          number io threads.
+     *          number of retry executor threads.
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setBKClientNumberIOThreads(int numThreads) {
-        setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
+    public DistributedLogConfiguration setZKClientNumberRetryThreads(int numThreads) {
+        setProperty(BKDL_ZKCLIENT_NUM_RETRY_THREADS, numThreads);
         return this;
     }
+
 
     /**
      * Get BK client read timeout
@@ -950,6 +1022,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get the time in milliseconds as the threshold for when an idle reader should dump warnings
+     *
+     * @return if record counts should be persisted
+     */
+    public int getReaderIdleWarnThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should dump warnings
+     *
+     * @param warnThreshold time after which we should dump the read ahead state
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setReaderIdleWarnThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
+    /**
      * Whether sanity check txn id.
      *
      * @return true if should check txn id with max txn id.
@@ -1051,6 +1143,47 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setCreateStreamIfNotExists(boolean enabled) {
         setProperty(BKDL_CREATE_STREAM_IF_NOT_EXISTS, enabled);
+        return this;
+    }
+    /*
+     * Get the time in milliseconds as the threshold for when an idle reader should throw errors
+     *
+     * @return if record counts should be persisted
+     */
+    public int getReaderIdleErrorThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should throw errors
+     *
+     * @param warnThreshold time after which we should throw idle reader errors
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setReaderIdleErrorThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
+
+    /**
+     * Get the tick duration in milliseconds that used for timeout timer.
+     *
+     * @return tick duration in milliseconds
+     */
+    public long getTimeoutTimerTickDurationMs() {
+        return getLong(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT);
+    }
+
+    /**
+     * Set the tick duration in milliseconds that used for timeout timer.
+     *
+     * @param tickDuration
+     *          tick duration in milliseconds.
+     * @return distributed log configuration.
+     */
+    public DistributedLogConfiguration setTimeoutTimerTickDurationMs(long tickDuration) {
+        setProperty(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, tickDuration);
         return this;
     }
 
@@ -1201,6 +1334,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setTraceReadAheadDeliveryLatency(boolean enabled) {
         setProperty(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, enabled);
+        return this;
+    }
+
+    /**
+     * Get number of ticks that used for timeout timer.
+     *
+     * @return number of ticks that used for timeout timer.
+     */
+    public int getTimeoutTimerNumTicks() {
+        return getInt(BKDL_TIMEOUT_TIMER_NUM_TICKS, BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT);
+    }
+
+    /**
+     * Set number of ticks that used for timeout timer.
+     *
+     * @param numTicks
+     *          number of ticks that used for timeout timer.
+     * @return distributed log configuration.
+     */
+    public DistributedLogConfiguration setTimeoutTimerNumTicks(int numTicks) {
+        setProperty(BKDL_TIMEOUT_TIMER_NUM_TICKS, numTicks);
         return this;
     }
 }

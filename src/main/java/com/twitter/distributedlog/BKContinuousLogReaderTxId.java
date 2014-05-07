@@ -14,9 +14,9 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
     public BKContinuousLogReaderTxId(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      long startTxId,
-                                     boolean readAheadEnabled,
+                                     final DistributedLogConfiguration conf,
                                      AsyncNotification notification) throws IOException {
-        super(bkdlm, streamIdentifier, readAheadEnabled, notification);
+        super(bkdlm, streamIdentifier, conf, notification);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
     }

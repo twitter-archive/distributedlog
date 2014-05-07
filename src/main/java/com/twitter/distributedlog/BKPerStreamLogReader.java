@@ -384,5 +384,10 @@ class BKPerStreamLogReader {
         public String getName() {
             return fullyQualifiedName;
         }
+
+        @Override
+        public String toString() {
+            return String.format("Next Entry to read: %s", readEntries);
+        }
     }
 }

@@ -87,7 +87,9 @@ public class DLMetadata {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .uri(uri).buildNew(false).build();
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .uri(uri)
+                .buildNew(false).build();
         byte[] data = serialize();
         try {
             zkc.get().setData(uri.getPath(), data, -1);
@@ -115,7 +117,9 @@ public class DLMetadata {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .uri(uri).buildNew(false).build();
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .uri(uri)
+                .buildNew(false).build();
         byte[] data = serialize();
         try {
             Utils.zkCreateFullPathOptimistic(zkc, uri.getPath(), data,
@@ -135,7 +139,9 @@ public class DLMetadata {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .uri(uri).build();
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .uri(uri)
+                .build();
         byte[] data = new byte[0];
         try {
             zkc.get().setData(uri.getPath(), data, -1);

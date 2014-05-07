@@ -1,11 +1,16 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-
 import java.io.Closeable;
+import com.google.common.base.Stopwatch;
+
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.IdleReaderException;
+
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -26,15 +31,22 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private LogReader.ReaderNotification notification = null;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
     protected boolean simulateErrors = false;
+    private final int idleWarnThresholdMillis;
+    private final int idleErrorThresholdMillis;
+    private Stopwatch idleReaderLastWarnSw = Stopwatch.createStarted();
+    private Stopwatch idleReaderLastLogRecordSw = Stopwatch.createStarted();
+    private boolean isReaderIdle = false;
 
 
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
-                                     boolean readAheadEnabled,
+                                     final DistributedLogConfiguration conf,
                                      AsyncNotification notification) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
-        this.readAheadEnabled = readAheadEnabled;
+        this.readAheadEnabled = conf.getEnableReadAhead();
+        this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
+        this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();
         sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
     }
 
@@ -99,6 +111,32 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                 endOfStreamEncountered = true;
                 throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
             }
+
+            idleReaderLastLogRecordSw.reset().start();
+            if (isReaderIdle) {
+                LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
+                isReaderIdle = false;
+            }
+        } else {
+            long idleDuration = idleReaderLastLogRecordSw.elapsed(TimeUnit.MILLISECONDS);
+            if (idleDuration > idleErrorThresholdMillis) {
+                throw new IdleReaderException("Reader on stream" +
+                    bkLedgerManager.getFullyQualifiedName()
+                    + "is idle for " + idleDuration +"ms");
+            }
+            // If we have exceeded the warning threshold generate the warning and then reset
+            // the timer so as to avoid flooding the log with idle reader messages
+            else if (idleDuration > idleWarnThresholdMillis &&
+                idleReaderLastWarnSw.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
+                if (null == currentReader) {
+                    LOG.warn("Idle Reader on stream {} for {} ms; Current Reader {}",
+                        new Object[] { bkLedgerManager.getFullyQualifiedName(),
+                            idleDuration, currentReader });
+                }
+                bkLedgerManager.dumpReadAheadState();
+                idleReaderLastWarnSw.reset().start();
+                isReaderIdle = true;
+            }
         }
 
         return record;
@@ -107,6 +145,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     protected boolean createOrPositionReader(boolean nonBlocking) throws IOException {
         boolean advancedOnce = false;
         if (null == currentReader) {
+            LOG.debug("Opening reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             currentReader = getCurrentReader();
             if ((null != currentReader)) {
                 if(readAheadEnabled) {
@@ -167,7 +206,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         zkSessionExpired = true;
     }
 
-    public void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException {
+    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException, DLInterruptedException {
         if (endOfStreamEncountered) {
             throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
         }

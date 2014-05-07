@@ -46,6 +46,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -58,7 +59,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * acquired the lock and started writing to bookkeeper. Therefore other
  * mechanisms are required to ensure correctness (i.e. Fencing).
  */
-class DistributedReentrantLock implements Runnable {
+class DistributedReentrantLock {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
@@ -68,8 +69,20 @@ class DistributedReentrantLock implements Runnable {
     private LockingException asyncLockAcquireException = null;
 
     private final AtomicInteger lockCount = new AtomicInteger(0);
+    private final AtomicIntegerArray lockAcqTracker;
     private final DistributedLock internalLock;
     private final long lockTimeout;
+    private boolean logUnbalancedWarning = true;
+
+    public enum LockReason {
+        WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4), MAXREASON(5);
+        private final int value;
+
+        private LockReason(int value) {
+            this.value = value;
+        }
+    }
+
 
     private static StatsLogger lockStatsLogger = null;
     private static OpStatsLogger acquireStats = null;
@@ -104,6 +117,7 @@ class DistributedReentrantLock implements Runnable {
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
         this.internalLock = new DistributedLock(zkc, lockPath, clientId);
+        this.lockAcqTracker = new AtomicIntegerArray(LockReason.MAXREASON.value);
 
         if (null == lockStatsLogger) {
             lockStatsLogger = statsLogger.scope("lock");
@@ -128,7 +142,7 @@ class DistributedReentrantLock implements Runnable {
         }
     }
 
-    void acquire(String reason) throws LockingException {
+    void acquire(LockReason reason) throws LockingException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
@@ -143,14 +157,14 @@ class DistributedReentrantLock implements Runnable {
         }
     }
 
-    void doAcquire(String reason) throws LockingException {
+    void doAcquire(LockReason reason) throws LockingException {
         LOG.trace("Lock Acquire {}, {}", lockPath, reason);
         while (true) {
             if (lockCount.get() == 0) {
                 synchronized (this) {
                     if (lockCount.get() > 0) {
                         lockCount.incrementAndGet();
-                        return;
+                        break;
                     }
                     if (internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS)) {
                         lockCount.set(1);
@@ -164,14 +178,14 @@ class DistributedReentrantLock implements Runnable {
                 if (ret == 0) {
                     lockCount.decrementAndGet();
                 } else {
-                    return;
+                    break;
                 }
             }
         }
+        lockAcqTracker.incrementAndGet(reason.value);
     }
 
-
-    void release(String reason) throws IOException {
+    void release(LockReason reason) {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
@@ -186,29 +200,31 @@ class DistributedReentrantLock implements Runnable {
         }
     }
 
-    void doRelease(String reason) throws IOException {
+    void doRelease(LockReason reason) {
         LOG.trace("Lock Release {}, {}", lockPath, reason);
-        try {
-            if (lockCount.decrementAndGet() <= 0) {
-                if (lockCount.get() < 0) {
-                    LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
-                        reason, lockCount.get());
-                }
-                synchronized (this) {
-                    if (lockCount.get() <= 0) {
-                        if (internalLock.isLockHeld()) {
-                            LOG.info("Lock Release {}, {}", lockPath, reason);
-                            internalLock.unlock();
-                        }
+        int perReasonLockCount = lockAcqTracker.decrementAndGet(reason.value);
+        if ((perReasonLockCount < 0) && logUnbalancedWarning) {
+            LOG.warn("Unbalanced lock handling for {} type {}, lockCount is {} ",
+                new Object[]{lockPath, reason, perReasonLockCount});
+        }
+        if (lockCount.decrementAndGet() <= 0) {
+            if (logUnbalancedWarning && (lockCount.get() < 0)) {
+                LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
+                    lockPath, lockCount.get());
+                logUnbalancedWarning = false;
+            }
+            synchronized (this) {
+                if (lockCount.get() <= 0) {
+                    if (internalLock.isLockHeld()) {
+                        LOG.info("Lock Release {}, {}", lockPath, reason);
+                        internalLock.unlock();
                     }
                 }
             }
-        } catch (LockingException e) {
-            throw new IOException("Exception accessing Zookeeper", e);
         }
     }
 
-    public synchronized boolean checkWriteLock(boolean acquiresync) throws LockingException {
+    public synchronized boolean checkWriteLock(boolean acquiresync, LockReason reason) throws LockingException {
         if (!haveLock()) {
             if (null != asyncLockAcquireException) {
                 throw asyncLockAcquireException;
@@ -217,9 +233,9 @@ class DistributedReentrantLock implements Runnable {
             // not necessarily because someone else acquired the lock.
             // In such cases just try to reacquire. If that fails, it will throw
             if (acquiresync) {
-                acquire("checkWriteLock");
+                acquire(reason);
             } else {
-                asyncLockAcquire();
+                asyncLockAcquire(reason);
             }
             return true;
         }
@@ -246,23 +262,23 @@ class DistributedReentrantLock implements Runnable {
         this.asyncLockAcquireException = e;
     }
 
-    private synchronized void asyncLockAcquire() {
+    private synchronized void asyncLockAcquire(final LockReason reason) {
         if (null == asyncLockAcquireFuture) {
-            asyncLockAcquireFuture = executorService.submit(this);
-        }
-    }
-
-    @Override
-    public void run() {
-        try {
-            setAsyncLockAcquireException(null);
-            acquire("checkWriteLock");
-        } catch (LockingException exc) {
-            setAsyncLockAcquireException(exc);
-        } finally {
-            synchronized (this) {
-                asyncLockAcquireFuture = null;
-            }
+            asyncLockAcquireFuture = executorService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        setAsyncLockAcquireException(null);
+                        acquire(reason);
+                    } catch (LockingException exc) {
+                        setAsyncLockAcquireException(exc);
+                    } finally {
+                        synchronized (this) {
+                            asyncLockAcquireFuture = null;
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -472,9 +488,10 @@ class DistributedReentrantLock implements Runnable {
             return true;
         }
 
-        public void unlock() throws LockingException {
+        public void unlock() {
             if (currentId == null) {
-                throw new LockingException(lockPath, "Error, neither attempting to lock nor holding a lock!");
+                LOG.error("Error, neither attempting to lock nor holding a lock! {}", lockPath);
+                return;
             }
             // Try aborting!
             if (!holdsLock) {
