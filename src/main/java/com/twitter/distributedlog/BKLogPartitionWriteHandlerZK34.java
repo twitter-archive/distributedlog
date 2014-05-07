@@ -109,7 +109,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 throw new IOException("Invalid Transaction Id");
             }
 
-            lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+            lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
             startLogSegmentCount.incrementAndGet();
 
             // sanity check txn id.

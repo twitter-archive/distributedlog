@@ -121,7 +121,7 @@ public class TestBackgroundRecovery {
             BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
             logger.info("Adding txn id {} to log segment {}.", txid, i);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txid)));
-            out.close();
+            out.closeNoThrow();
             dlm.close();
             logger.info("Created segment {}.", i);
         }
@@ -153,7 +153,7 @@ public class TestBackgroundRecovery {
             long txnidToWrite = txid++;
             logger.info("Adding txn id {} to log segment {}.", txnidToWrite, i);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
-            out.close();
+            out.closeNoThrow();
             dlm.close();
             logger.info("Created log segment {}.", i);
         }
@@ -238,7 +238,7 @@ public class TestBackgroundRecovery {
             long txnidToWrite = txid++;
             logger.info("Adding txn id {} to log segment {}.", txnidToWrite, i);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
-            out.close();
+            out.closeNoThrow();
             dlm.close();
             logger.info("Created log segment {}.", i);
         }
@@ -273,7 +273,7 @@ public class TestBackgroundRecovery {
             long txnidToWrite = txid++;
             logger.info("Adding txn id {} to log segment {}.", txnidToWrite, i);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
-            out.close();
+            out.closeNoThrow();
             dlm.close();
             logger.info("Created log segment {}.", i);
         }
@@ -324,7 +324,7 @@ public class TestBackgroundRecovery {
             logger.info("Adding txn id {} to first log segment.", txnidToWrite);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
         }
-        out.close();
+        out.closeNoThrow();
         dlm.close();
         logger.info("Created first log segment.");
 
@@ -395,7 +395,7 @@ public class TestBackgroundRecovery {
                 logger.info("Adding txn id {} to log segment {}.", txnidToWrite, i);
                 Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
             }
-            out.close();
+            out.closeNoThrow();
             dlm.close();
             logger.info("Created log segment {}.", i);
         }

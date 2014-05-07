@@ -245,13 +245,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             if (null != metadataException.get()) {
                 throw metadataException.get();
             }
-            if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
+            if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground() && !closed) {
                 synchronized (pendingMetadataOps) {
                     pendingMetadataOps.add(this);
                 }
-                if (!closed) {
-                    future = metadataExecutor.submit(this);
-                }
+                future = metadataExecutor.submit(this);
             } else {
                 processOp();
             }

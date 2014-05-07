@@ -160,7 +160,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
             this.rc = rc;
             if (BKException.Code.OK == rc) {
-                LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
+                LOG.debug("Updated ledgers list for {} : {}", path, logSegmentLedgerMetadatas);
             }
             countDownLatch.countDown();
         }
