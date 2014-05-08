@@ -670,7 +670,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 bkc.release();
             }
             sharedZKClientForDL.close();
-            sharedZKClientForBK.close();
+
+            if (null != sharedZKClientForBK) {
+                sharedZKClientForBK.close();
+            }
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager factory", e);
         }

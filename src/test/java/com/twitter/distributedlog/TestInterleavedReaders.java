@@ -347,5 +347,7 @@ public class TestInterleavedReaders {
         for (int s = 0; s < count; s++) {
             dlms[s].close();
         }
+
+        factory.close();
     }
 }

@@ -50,6 +50,15 @@
 -----
 - Expose DistributedLog Client Builder in Proxy Builder                                                      
 
+0.2.16
+------
+- Configurable thread count for channel factory
+- Configurable number of threads for ZK retry
+- Allow sharing ZK client for distributed log across all streams while having a separate BK Client per stream
+- Allow sharing ZK client across several BK Clients
+- Idle Reader Trace Improvements
+- Idle Reader Exception based on configurable threshold
+
 0.2.15
 ------
 - Resilience to connection failures in read last add confirmed calls (polling)
