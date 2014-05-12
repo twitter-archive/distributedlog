@@ -334,7 +334,7 @@ public abstract class BKBaseLogWriter {
     public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
         checkClosedOrInError("flushAndSync");
 
-        LOG.info("FlushAndSync Started");
+        LOG.debug("FlushAndSync Started");
 
         long highestTransactionId = 0;
 
@@ -357,9 +357,9 @@ public abstract class BKBaseLogWriter {
         }
 
         if (writerSet.size() > 0) {
-            LOG.info("FlushAndSync Completed");
+            LOG.debug("FlushAndSync Completed");
         } else {
-            LOG.info("FlushAndSync Completed - Nothing to Flush");
+            LOG.debug("FlushAndSync Completed - Nothing to Flush");
         }
         return highestTransactionId;
     }
