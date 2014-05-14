@@ -29,6 +29,8 @@ import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DistributedLogServer implements Runnable {
 
@@ -172,6 +174,30 @@ public class DistributedLogServer implements Runnable {
         return server;
     }
 
+    private static void closeServer(DistributedLogServer server) {
+        // !!! tricky: the logic here is to avoid any hanging up on server.close()
+        // https://jira.twitter.biz/browse/PUBSUB-2164
+        final CountDownLatch inspectorLatch = new CountDownLatch(1);
+        Thread shutdownInspector = new Thread("ShutdownInspector") {
+            @Override
+            public void run() {
+                try {
+                    if (inspectorLatch.await(1, TimeUnit.MINUTES)) {
+                        logger.info("ByeBye!");
+                    } else {
+                        logger.warn("Sorry, we didn't close the server gracefully in 1 minute. Exiting ...");
+                        Runtime.getRuntime().exit(-1);
+                    }
+                } catch (InterruptedException e) {
+                    logger.warn("Interrupted when inspecting shutdown procedure : ", e);
+                }
+            }
+        };
+        shutdownInspector.start();
+        server.close();
+        inspectorLatch.countDown();
+    }
+
     public static void main(String[] args) {
         final DistributedLogServer server = run(args);
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -188,7 +214,7 @@ public class DistributedLogServer implements Runnable {
             logger.warn("Interrupted when waiting distributedlog server to be finished : ", e);
         }
         logger.info("DistributedLog Service Interrupted.");
-        server.close();
+        closeServer(server);
         logger.info("Closed DistributedLog Server.");
     }
 

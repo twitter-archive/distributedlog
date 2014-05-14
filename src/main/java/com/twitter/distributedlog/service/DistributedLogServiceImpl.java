@@ -26,6 +26,7 @@ import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -55,17 +56,27 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
     static enum StreamStatus {
-        UNINITIALIZED,
-        INITIALIZING,
-        INITIALIZED,
+        UNINITIALIZED(-1),
+        INITIALIZING(0),
+        INITIALIZED(1),
         // if a stream is in failed state, it could be retried immediately.
         // a stream will be put in failed state when encountered any stream exception.
-        FAILED,
+        FAILED(-2),
         // if a stream is in backoff state, it would backoff for a while.
         // a stream will be put in backoff state when failed to acquire the ownership.
-        BACKOFF,
-        CLOSING,
-        CLOSED
+        BACKOFF(-3),
+        CLOSING(-4),
+        CLOSED(-5);
+
+        final int code;
+
+        StreamStatus(int code) {
+            this.code = code;
+        }
+
+        int getCode() {
+            return code;
+        }
     }
 
     static enum ServerMode {
@@ -101,10 +112,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return response;
     }
 
-    static WriteResponse writeResponse(ResponseHeader responseHeader) {
-        return new WriteResponse(responseHeader);
-    }
-
     static ConcurrentMap<String, String> ownerToHosts = new ConcurrentHashMap<String, String>();
 
     static String getHostByOwner(String owner) {
@@ -121,6 +128,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         }
         return host;
+    }
+
+    // WriteResponse
+    WriteResponse writeResponse(ResponseHeader responseHeader) {
+        countStatusCode(responseHeader.getCode());
+        return new WriteResponse(responseHeader);
     }
 
     abstract class StreamOp implements FutureEventListener<WriteResponse> {
@@ -397,6 +410,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         final Stopwatch lastAcquireFailureWatch = new Stopwatch();
         final long nextAcquireWaitTimeMs;
 
+        // Stats
+        private final StatsLogger exceptionStatLogger;
+
         Stream(String name) throws IOException {
             super("Stream-" + name);
             this.name = name;
@@ -404,6 +420,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             status = StreamStatus.UNINITIALIZED;
             lastException = new IOException("Fail to write record to stream " + name);
             nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
+            // expose stream status
+            StatsLogger streamLogger = perStreamStatLogger.scope(name);
+            streamLogger.registerGauge("stream_status", new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return StreamStatus.UNINITIALIZED.getCode();
+                }
+
+                @Override
+                public Number getSample() {
+                    return status.getCode();
+                }
+            });
+            exceptionStatLogger = streamLogger.scope("exceptions");
         }
 
         @Override
@@ -420,16 +450,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     switch (this.status) {
                     case UNINITIALIZED:
                         this.status = StreamStatus.INITIALIZING;
+                        acquiredStreams.remove(name, this);
                         needAcquire = true;
                         break;
                     case FAILED:
                         this.status = StreamStatus.INITIALIZING;
+                        acquiredStreams.remove(name, this);
                         needAcquire = true;
                         break;
                     case BACKOFF:
                         // there are pending ops, try re-acquiring the stream again
                         if (pendingOps.size() > 0) {
                             this.status = StreamStatus.INITIALIZING;
+                            acquiredStreams.remove(name, this);
                             needAcquire = true;
                         }
                         break;
@@ -541,7 +574,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        countException(cause);
+                        countException(cause, exceptionStatLogger);
                         if (cause instanceof DLException) {
                             final DLException dle = (DLException) cause;
                             switch (dle.getCode()) {
@@ -677,11 +710,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     success = true;
                 }
             } catch (final AlreadyClosedException ace) {
-                countException(ace);
+                countException(ace, exceptionStatLogger);
                 handleAlreadyClosedException(ace);
                 return;
             } catch (final OwnershipAcquireFailedException oafe) {
-                countException(oafe);
+                countException(oafe, exceptionStatLogger);
                 logger.error("Failed to initialize stream {} : ", name, oafe);
                 synchronized (this) {
                     setStreamStatus(StreamStatus.BACKOFF, null, oafe.getCurrentOwner(), oafe);
@@ -690,7 +723,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     success = false;
                 }
             } catch (final IOException ioe) {
-                countException(ioe);
+                countException(ioe, exceptionStatLogger);
                 logger.error("Failed to initialize stream {} : ", name, ioe);
                 synchronized (this) {
                     setStreamStatus(StreamStatus.FAILED, null, null, ioe);
@@ -775,6 +808,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     return;
                 }
                 status = StreamStatus.CLOSING;
+                acquiredStreams.remove(name, this);
             } finally {
                 closeLock.writeLock().unlock();
             }
@@ -816,6 +850,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     return;
                 }
                 status = StreamStatus.CLOSED;
+                acquiredStreams.remove(name, this);
             } finally {
                 closeLock.writeLock().unlock();
             }
@@ -867,8 +902,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final StatsLogger exceptionStatLogger;
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
             new ConcurrentHashMap<String, Counter>();
+    private final StatsLogger statusCodeStatLogger;
+    private final ConcurrentHashMap<StatusCode, Counter> statusCodeCounters =
+            new ConcurrentHashMap<StatusCode, Counter>();
     // streams stats
     private final OpStatsLogger streamAcquireStat;
+    // per streams stats
+    private final StatsLogger perStreamStatLogger;
 
     private final String clientId;
     private final ServerMode serverMode;
@@ -895,12 +935,25 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.executorService = Executors.newScheduledThreadPool(numThreads,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
         if (ServerMode.MEM.equals(serverMode)) {
-            this.delayMs = dlConf.getLong("latency_delay", 0);
+            this.delayMs = dlConf.getLong("server_latency_delay", 0);
         } else {
             this.delayMs = 0;
         }
 
-        // Stats
+        // status about server health
+        statsLogger.registerGauge("proxy_status", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return closed ? -1 : 1;
+            }
+        });
+
+        // Stats on requests
         StatsLogger requestsStatsLogger = statsLogger.scope("request");
         this.writeStat = requestsStatsLogger.getOpStatsLogger("write");
         this.heartbeatStat = requestsStatsLogger.getOpStatsLogger("heartbeat");
@@ -909,6 +962,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.releaseStat = requestsStatsLogger.getOpStatsLogger("release");
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
+        this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
+
+        // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
         streamsStatsLogger.registerGauge("acquired", new Gauge<Number>() {
             @Override
@@ -933,9 +989,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         });
         streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
+        // Stats on per streams
+        boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
+        perStreamStatLogger = enablePerStreamStat ? statsLogger.scope("perstreams") : NullStatsLogger.INSTANCE;
 
-        logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}.",
-                new Object[] { serverMode, delayMs, clientId, allocatorPoolName });
+        logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
+                new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
     }
 
     private java.util.concurrent.Future<?> schedule(Runnable r, long delayMs) {
@@ -958,12 +1017,25 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    void countException(Throwable t) {
+    void countException(Throwable t, StatsLogger streamExceptionLogger) {
         String exceptionName = null == t ? "null" : t.getClass().getName();
         Counter counter = exceptionCounters.get(exceptionName);
         if (null == counter) {
             counter = exceptionStatLogger.getCounter(exceptionName);
             Counter oldCounter = exceptionCounters.putIfAbsent(exceptionName, counter);
+            if (null != oldCounter) {
+                counter = oldCounter;
+            }
+        }
+        counter.inc();
+        streamExceptionLogger.getCounter(exceptionName).inc();
+    }
+
+    void countStatusCode(StatusCode code) {
+        Counter counter = statusCodeCounters.get(code);
+        if (null == counter) {
+            counter = statusCodeStatLogger.getCounter(code.name());
+            Counter oldCounter = statusCodeCounters.putIfAbsent(code, counter);
             if (null != oldCounter) {
                 counter = oldCounter;
             }
