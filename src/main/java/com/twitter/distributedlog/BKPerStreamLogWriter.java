@@ -189,6 +189,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
      * Construct an edit log output stream which writes to a ledger.
      */
     protected BKPerStreamLogWriter(String streamName,
+                                   String logSegmentName,
                                    DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
                                    long startTxId, long ledgerSequenceNumber,
@@ -213,22 +214,25 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
 
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
+        String statPrefixForStream = streamName.replaceAll(":|<|>|/", "_");
         // outstanding requests
-        transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
+        if (conf.getEnablePerStreamStat()) {
+            transmitOutstandingLogger.registerGauge(statPrefixForStream + "_requests", new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
 
-            @Override
-            public Number getSample() {
-                return outstandingRequests.get();
-            }
-        });
+                @Override
+                public Number getSample() {
+                    return outstandingRequests.get();
+                }
+            });
+        }
 
         outstandingRequests = new AtomicInteger(0);
         syncLatch = null;
-        this.fullyQualifiedLogSegment = streamName;
+        this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
         this.lh = lh;
         this.lock = lock;
         this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);

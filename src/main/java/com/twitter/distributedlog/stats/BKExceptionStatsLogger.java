@@ -84,7 +84,7 @@ public class BKExceptionStatsLogger {
             if (null != counter) {
                 return counter;
             }
-            counter = parentLogger.getCounter(getMessage(rc).getClass().getSimpleName());
+            counter = parentLogger.getCounter(getMessage(rc));
             exceptionCounters.put(rc, counter);
         }
         return counter;

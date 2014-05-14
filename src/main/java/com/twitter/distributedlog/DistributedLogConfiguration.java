@@ -193,6 +193,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
     public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
 
+    public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
+    public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
+
     public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
     public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
 
@@ -1334,6 +1337,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setTraceReadAheadDeliveryLatency(boolean enabled) {
         setProperty(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, enabled);
+        return this;
+    }
+
+    /**
+     * Whether to enable per stream stat or not.
+     *
+     * @return flag to enable per stream stat.
+     */
+    public boolean getEnablePerStreamStat() {
+        return getBoolean(BKDL_ENABLE_PERSTREAM_STAT, BKDL_ENABLE_PERSTREAM_STAT_DEFAULT);
+    }
+
+    /**
+     * Set the flag to enable per stream stat or not.
+     *
+     * @param enabled
+     *          flag to enable/disable per stream stat.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEnablePerStreamStat(boolean enabled) {
+        setProperty(BKDL_ENABLE_PERSTREAM_STAT, enabled);
         return this;
     }
 

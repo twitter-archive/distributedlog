@@ -206,7 +206,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 abortStore(maxTxId, txId);
                 throw new ZKException("Encountered zookeeper exception on starting log segment for " + getFullyQualifiedName(), ke);
             }
-            return new BKPerStreamLogWriter(getFullyQualifiedName() + ":" + inprogressZnodeName, conf,
+            return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf,
                 lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
         } catch (Exception exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed

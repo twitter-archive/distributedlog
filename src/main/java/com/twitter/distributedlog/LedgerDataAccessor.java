@@ -77,30 +77,6 @@ public class LedgerDataAccessor {
            readAheadCache = null;
            readAheadRecords = new ConcurrentLinkedQueue<LogRecordWithDLSN>();
         }
-
-        //Number of entries in the readAheadCache
-        readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return getNumCacheEntries();
-            }
-        });
-        readAheadStatsLogger.registerGauge("num_cache_bytes", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return cacheBytes.get();
-            }
-        });
     }
 
     public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
@@ -372,11 +348,16 @@ public class LedgerDataAccessor {
                     break;
                 }
                 if (traceDeliveryLatency && !record.isControl()) {
-                    long deliveryMs = System.currentTimeMillis() - record.getTransactionId();
+                    long currentMs = System.currentTimeMillis();
+                    long deliveryMs = currentMs - record.getTransactionId();
                     if (deliveryMs >= 0) {
                         readAheadDeliveryLatencyStat.registerSuccessfulEvent(deliveryMs);
                     } else {
                         negativeReadAheadDeliveryLatencyStat.registerSuccessfulEvent(-deliveryMs);
+                    }
+                    if (deliveryMs > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        LOG.warn("Record {} for stream {} took long time to deliver : publish time = {}, available time = {}, delivery time = {}.",
+                                 new Object[] { record.getDlsn(), streamName, record.getTransactionId(), currentMs, deliveryMs });
                     }
                 }
                 readAheadRecords.add(record);

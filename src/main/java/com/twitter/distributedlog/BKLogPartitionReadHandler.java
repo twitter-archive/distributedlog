@@ -53,6 +53,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private static OpStatsLogger readAheadReadEntriesStat;
     private static OpStatsLogger longPollInterruptionStat;
     private static OpStatsLogger metadataReinitializationStat;
+    private static OpStatsLogger notificationExecutionStat;
     private static StatsLogger parentExceptionStatsLogger;
     private final static ConcurrentMap<String, BKExceptionStatsLogger> exceptionStatsLoggers =
             new ConcurrentHashMap<String, BKExceptionStatsLogger>();
@@ -121,6 +122,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
         if (null == longPollInterruptionStat) {
             longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
+        }
+        if (null == notificationExecutionStat) {
+            notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
         }
         if (null == metadataReinitializationStat) {
             metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
@@ -491,7 +495,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         // Metadata Notification
         final Object notificationLock = new Object();
         AsyncNotification metadataNotification = null;
-        volatile long metadataNotificationTimeNanos = MathUtils.nowInNano();
+        volatile long metadataNotificationTimeMillis = -1L;
 
         // ReadAhead Phases
         final Phase schedulePhase = new ScheduleReadAheadPhase();
@@ -764,14 +768,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("Reinitializing metadata for {}.", fullyQualifiedName);
                     }
-                    long elapsedMicrosSinceMetadataChanged = MathUtils.elapsedMicroSec(metadataNotificationTimeNanos);
-                    if (elapsedMicrosSinceMetadataChanged >= DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
-                        LOG.warn("{} reinitialize metadata {} micros after receiving notification at {}.",
-                                 new Object[] { getFullyQualifiedName(), elapsedMicrosSinceMetadataChanged,
-                                                metadataNotificationTimeNanos });
+                    if (metadataNotificationTimeMillis > 0) {
+                        long metadataReinitializeTimeMillis = System.currentTimeMillis();
+                        long elapsedMillisSinceMetadataChanged = metadataReinitializeTimeMillis - metadataNotificationTimeMillis;
+                        if (elapsedMillisSinceMetadataChanged >= DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                            LOG.warn("{} reinitialize metadata at {}, which is {} millis after receiving notification at {}.",
+                                     new Object[] { getFullyQualifiedName(), metadataReinitializeTimeMillis,
+                                                    elapsedMillisSinceMetadataChanged, metadataNotificationTimeMillis});
+                        }
+                        metadataReinitializationStat.registerSuccessfulEvent(
+                                TimeUnit.MILLISECONDS.toMicros(elapsedMillisSinceMetadataChanged));
+                        metadataNotificationTimeMillis = -1L;
                     }
-                    metadataReinitializationStat.registerSuccessfulEvent(elapsedMicrosSinceMetadataChanged);
-                    metadataNotificationTimeNanos = MathUtils.nowInNano();
                     bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
                 } else {
                     next.process(BKException.Code.OK);
@@ -1094,7 +1102,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             if ((event.getType() == Watcher.Event.EventType.None)
                     && (event.getState() == Watcher.Event.KeeperState.SyncConnected)) {
                 LOG.debug("Reconnected ...");
-            } else {
+            } else if (((event.getType() == Event.EventType.None) && (event.getState() == Event.KeeperState.Expired)) ||
+                       ((event.getType() == Event.EventType.NodeChildrenChanged))) {
                 AsyncNotification notification;
                 synchronized (notificationLock) {
                     reInitializeMetadata = true;
@@ -1102,7 +1111,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     notification = metadataNotification;
                     metadataNotification = null;
                 }
-                metadataNotificationTimeNanos = MathUtils.nowInNano();
+                metadataNotificationTimeMillis = System.currentTimeMillis();
                 if (null != notification) {
                     notification.notifyOnOperationComplete();
                 }
@@ -1124,23 +1133,33 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 this.startNanos = MathUtils.nowInNano();
             }
 
-            abstract void complete();
+            void complete(boolean success) {
+                long startTime = MathUtils.nowInNano();
+                doComplete(success);
+                if (success) {
+                    notificationExecutionStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
+                } else {
+                    notificationExecutionStat.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
+                }
+            }
+
+            abstract void doComplete(boolean success);
 
             @Override
             public void notifyOnError() {
                 longPollInterruptionStat.registerFailedEvent(MathUtils.elapsedMicroSec(startNanos));
-                complete();
+                complete(false);
             }
 
             @Override
             public void notifyOnOperationComplete() {
                 longPollInterruptionStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
-                complete();
+                complete(true);
             }
 
             void callbackImmediately(boolean immediate) {
                 if (immediate) {
-                    complete();
+                    complete(true);
                 }
             }
         }
@@ -1166,7 +1185,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
 
             @Override
-            void complete() {
+            void doComplete(boolean success) {
                 readLastConfirmedComplete(BKException.Code.OK, lac, ctx);
             }
 
@@ -1193,7 +1212,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
 
             @Override
-            void complete() {
+            void doComplete(boolean success) {
                 readLastConfirmedAndEntryComplete(BKException.Code.OK, lac, null, ctx);
             }
 

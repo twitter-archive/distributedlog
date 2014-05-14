@@ -851,22 +851,24 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (metadata.isInProgress()) {
                 // as we used timestamp as start tx id we could take it as start time
                 // NOTE: it is a hack here.
-                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getFirstTxId());
+                long elapsedMillis = ts - metadata.getFirstTxId();
+                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(elapsedMillis);
                 if (elapsedMicroSec > 0) {
-                    if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
-                        LOG.warn("{} received inprogress log segment in {} micros : {}",
-                                 new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                    if (elapsedMillis > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        LOG.warn("{} received inprogress log segment in {} millis: {}",
+                                 new Object[] { getFullyQualifiedName(), elapsedMillis, metadata });
                     }
                     getInprogressSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
                 } else {
                     negativeGetInprogressSegmentStat.registerSuccessfulEvent(-elapsedMicroSec);
                 }
             } else {
-                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(ts - metadata.getCompletionTime());
+                long elapsedMillis = ts - metadata.getCompletionTime();
+                long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(elapsedMillis);
                 if (elapsedMicroSec > 0) {
-                    if (elapsedMicroSec > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MICROS) {
-                        LOG.warn("{} received completed log segment in {} micros : {}",
-                                 new Object[] { getFullyQualifiedName(), elapsedMicroSec, metadata });
+                    if (elapsedMillis > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        LOG.warn("{} received completed log segment in {} millis : {}",
+                                 new Object[] { getFullyQualifiedName(), elapsedMillis, metadata });
                     }
                     getCompletedSegmentStat.registerSuccessfulEvent(elapsedMicroSec);
                 } else {
