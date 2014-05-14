@@ -66,6 +66,19 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return this;
     }
 
+
+    /**
+     * Write a log record as control record. The method will be used by Monitor Service to enforce a new inprogress segment.
+     *
+     * @param record
+     *          log record
+     * @return future of the write
+     */
+    public Future<DLSN> writeControlRecord(final LogRecord record) {
+        record.setControl();
+        return write(record);
+    }
+
     /**
      * Write a log record to the stream.
      *

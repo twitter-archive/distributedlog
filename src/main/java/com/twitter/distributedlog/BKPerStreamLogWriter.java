@@ -393,6 +393,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     synchronized public Future<DLSN> asyncWrite(LogRecord record) {
         try {
+            if (record.isControl()) {
+                // write control record.
+                Future<DLSN> result = writeControlLogRecord(record);
+                transmit(true);
+                return result;
+            }
             return writeUserRecord(record);
         } catch (IOException ioe) {
             LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
@@ -477,7 +483,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     synchronized private void writeControlLogRecord() throws IOException {
         LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes(UTF_8));
         controlRec.setControl();
-        writeInternal(controlRec);
+        writeControlLogRecord(controlRec);
+    }
+
+    synchronized private Future<DLSN> writeControlLogRecord(LogRecord record) throws IOException {
+        return writeInternal(record);
     }
 
     /**

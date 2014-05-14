@@ -7,6 +7,7 @@ import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.util.Pair;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.builder.Server;
@@ -153,6 +154,48 @@ public class TestDistributedLogServer {
         assertEquals(10, numRead);
         reader.close();
         dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testHeartbeat() throws Exception {
+        String name = "dlserver-heartbeat";
+
+        routingService.addHost(name, localAddress);
+
+        DistributedLogClientBuilder.DistributedLogClientImpl clientImpl =
+                DistributedLogClientBuilder.newBuilder()
+                    .name("monitorclient")
+                    .clientId(ClientId$.MODULE$.apply("monitorclient"))
+                    .routingService(routingService)
+                    .buildClient();
+
+        for (long i = 1; i <= 10; i++) {
+            logger.debug("Send heartbeat {} to stream {}.", i, name);
+            clientImpl.check(name).get();
+        }
+
+        logger.debug("Write entry one to stream {}.", name);
+        clientImpl.write(name, ByteBuffer.wrap("1".getBytes())).get();
+
+        Thread.sleep(1000);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+        int numRead = 0;
+        // eid=0 => control records
+        // other 9 heartbeats will not trigger writing any control records.
+        // eid=1 => user entry
+        long startEntryId = 1;
+        LogRecordWithDLSN r = reader.readNext(false);
+        while (null != r) {
+            int i = Integer.parseInt(new String(r.getPayload()));
+            assertEquals(numRead + 1, i);
+            assertEquals(startEntryId, r.getDlsn().getEntryId());
+            ++numRead;
+            ++startEntryId;
+            r = reader.readNext(false);
+        }
+        assertEquals(1, numRead);
     }
 
     @Test(timeout = 60000)

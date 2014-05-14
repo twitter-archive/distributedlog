@@ -3,6 +3,8 @@ package com.twitter.distributedlog.service;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.common_internal.zookeeper.TwitterServerSet;
@@ -15,7 +17,6 @@ import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.finagle.builder.ClientBuilder;
-import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -67,6 +68,9 @@ public class MonitorService implements Runnable, NamespaceListener {
     private ZooKeeperClient zkClient = null;
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
     private StatsProvider statsProvider = null;
+    private boolean watchNamespaceChanges = false;
+    private int instanceId = -1;
+    private int totalInstances = -1;
     private final ScheduledExecutorService executorService =
             Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
@@ -76,6 +80,8 @@ public class MonitorService implements Runnable, NamespaceListener {
     private final StatsReceiver monitorReceiver = statsReceiver.scope("monitor");
     private final Stat successStat = monitorReceiver.stat0("success");
     private final Stat failureStat = monitorReceiver.stat0("failure");
+    // Hash Function
+    private final HashFunction hashFunction = Hashing.md5();
 
     class StreamChecker implements Runnable, FutureEventListener<Void>, LogSegmentListener {
         private final String name;
@@ -175,6 +181,9 @@ public class MonitorService implements Runnable, NamespaceListener {
         options.addOption("d", "region", true, "Region ID");
         options.addOption("p", "provider", true, "DistributedLog Stats Provider");
         options.addOption("f", "filter", true, "Filter streams by regex");
+        options.addOption("w", "watch", false, "Watch stream changes under a given namespace");
+        options.addOption("n", "instance_id", true, "Instance ID");
+        options.addOption("t", "total_instances", true, "Total instances");
     }
 
     void printUsage() {
@@ -214,6 +223,16 @@ public class MonitorService implements Runnable, NamespaceListener {
         if (cmdline.hasOption("f")) {
             streamRegex = cmdline.getOptionValue("f");
         }
+        if (cmdline.hasOption("n")) {
+            instanceId = Integer.parseInt(cmdline.getOptionValue("n"));
+        }
+        if (cmdline.hasOption("t")) {
+            totalInstances = Integer.parseInt(cmdline.getOptionValue("t"));
+        }
+        if (instanceId < 0 || totalInstances <= 0 || instanceId >= totalInstances) {
+            throw new ParseException("Invalid instance id or total instances number.");
+        }
+        watchNamespaceChanges = cmdline.hasOption('w');
         URI uri = URI.create(cmdline.getOptionValue("u"));
         DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
         if (cmdline.hasOption("c")) {
@@ -246,16 +265,17 @@ public class MonitorService implements Runnable, NamespaceListener {
                 .clientId(ClientId$.MODULE$.apply("monitor"))
                 .redirectBackoffMaxMs(50)
                 .redirectBackoffStartMs(100)
+                .requestTimeoutMs(2000)
                 .maxRedirects(2)
                 .serverSet(serverSet)
                 .clientBuilder(ClientBuilder.get()
                         .connectTimeout(Duration.fromSeconds(100))
                         .tcpConnectTimeout(Duration.fromSeconds(100))
-                        .requestTimeout(Duration.fromSeconds(1))
-                        .hostConnectionLimit(5)
-                        .hostConnectionCoresize(5)
+                        .requestTimeout(Duration.fromSeconds(2))
+                        .hostConnectionLimit(2)
+                        .hostConnectionCoresize(2)
                         .keepAlive(true)
-                        .reportHostStats(new NullStatsReceiver()))
+                        .failFast(false))
                 .statsReceiver(monitorReceiver.scope("client"))
                 .buildClient();
         runMonitor(dlConf, uri);
@@ -266,7 +286,9 @@ public class MonitorService implements Runnable, NamespaceListener {
         Set<String> newSet = new HashSet<String>();
         for (String s : streams) {
             if (null == streamRegex || s.matches(streamRegex)) {
-                newSet.add(s);
+                if (Math.abs(hashFunction.hashUnencodedChars(s).asInt()) % totalInstances == instanceId) {
+                    newSet.add(s);
+                }
             }
         }
         List<StreamChecker> tasksToCancel = new ArrayList<StreamChecker>();
@@ -296,9 +318,25 @@ public class MonitorService implements Runnable, NamespaceListener {
     }
 
     void runMonitor(DistributedLogConfiguration conf, URI dlUri) throws IOException {
+        // stats
+        statsProvider.getStatsLogger("monitor").registerGauge("num_streams", new org.apache.bookkeeper.stats.Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return knownStreams.size();
+            }
+        });
         logger.info("Construct dl factory @ {}", dlUri);
         dlFactory = new DistributedLogManagerFactory(conf, dlUri);
-        dlFactory.registerNamespaceListener(this);
+        if (watchNamespaceChanges) {
+            dlFactory.registerNamespaceListener(this);
+        } else {
+            onStreamsChanged(dlFactory.enumerateAllLogsInNamespace());
+        }
     }
 
     /**

@@ -4,6 +4,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
+import com.twitter.distributedlog.BKUnPartitionedAsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
@@ -46,6 +47,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
@@ -184,16 +187,41 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
+    static final byte[] HEARTBEAT_DATA = "heartbeat".getBytes(UTF_8);
+
     class HeartbeatOp extends StreamOp {
+
+        boolean writeControlRecord = false;
 
         HeartbeatOp(String stream, WriteContext context) {
             super(stream, context, heartbeatStat);
         }
 
+        HeartbeatOp setWriteControlRecord(boolean writeControlRecord) {
+            this.writeControlRecord = writeControlRecord;
+            return this;
+        }
+
         @Override
         Future<WriteResponse> executeOp(AsyncLogWriter writer) {
-            return Future.value(writeResponse(successResponseHeader()))
-                    .addEventListener(this);
+            // write a control record if heartbeat is the first request of the recovered log segment.
+            if (writeControlRecord) {
+                long txnId;
+                Future<DLSN> writeResult;
+                synchronized (txnLock) {
+                    txnId = System.currentTimeMillis();
+                    writeResult = ((BKUnPartitionedAsyncLogWriter) writer).writeControlRecord(new LogRecord(txnId, HEARTBEAT_DATA));
+                }
+                return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
+                    @Override
+                    public WriteResponse apply(DLSN value) {
+                        return writeResponse(successResponseHeader()).setDlsn(value.serialize());
+                    }
+                }).addEventListener(this);
+            } else {
+                return Future.value(writeResponse(successResponseHeader()))
+                        .addEventListener(this);
+            }
         }
     }
 
@@ -465,6 +493,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     } else { // closing & initializing
                         pendingOps.add(op);
                         if (1 == pendingOps.size()) {
+                            if (op instanceof HeartbeatOp) {
+                                ((HeartbeatOp) op).setWriteControlRecord(true);
+                            }
                             // when any op is added in pending queue, notify stream to acquire the stream.
                             synchronized (streamLock) {
                                 streamLock.notifyAll();

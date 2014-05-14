@@ -18,12 +18,12 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static com.google.common.base.Charsets.UTF_8;
 
 public class TestAsyncReaderWriter {
     static final Logger LOG = LoggerFactory.getLogger(TestAsyncReaderWriter.class);
@@ -56,6 +56,52 @@ public class TestAsyncReaderWriter {
     @After
     public void teardown() throws Exception {
         zkc.close();
+    }
+
+    @Test
+    public void testWriteControlRecord() throws Exception {
+        String name = "distrlog-writecontrolrecord";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            final long currentLedgerSeqNo = i + 1;
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            DLSN dlsn = writer.writeControlRecord(new LogRecord(txid++, "control".getBytes(UTF_8))).get();
+            assertEquals(currentLedgerSeqNo, dlsn.getLedgerSequenceNo());
+            assertEquals(0, dlsn.getEntryId());
+            assertEquals(0, dlsn.getSlotId());
+            for (long j = 1; j < 10; j++) {
+                final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                writer.write(record).get();
+            }
+            writer.closeAndComplete();
+        }
+        dlm.close();
+
+        DistributedLogManager readDlm = DLMTestUtil.createNewDLM(confLocal, name);
+        LogReader reader = readDlm.getInputStream(1);
+
+        long numTrans = 0;
+        long expectedTxId = 2;
+        LogRecord record = reader.readNext(false);
+        while (null != record) {
+            DLMTestUtil.verifyLargeLogRecord(record);
+            numTrans++;
+            assertEquals(expectedTxId, record.getTransactionId());
+            if (expectedTxId % 10 == 0) {
+                expectedTxId += 2;
+            } else {
+                ++expectedTxId;
+            }
+            record = reader.readNext(false);
+        }
+        assertEquals(3 * 9, numTrans);
+        assertEquals(3 * 9, readDlm.getLogRecordCount());
+
+        readDlm.close();
     }
 
     @Test

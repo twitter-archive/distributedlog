@@ -67,7 +67,7 @@ public class LogRecord {
     }
 
     void setCount(int count) {
-        assert(count > 0);
+        assert(count > 0 || isControl());
         metadata = metadata | (((long)count) << LOGRECORD_METADATA_COUNT_SHIFT);
     }
 
