@@ -140,6 +140,30 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         }
     }
 
+    /**
+     * The caller should synchronize on <i>shardId2Address</i>.
+     * @param shardId
+     *          Shard id of new host joined.
+     * @param newHost
+     *          New host joined.
+     * @param removedList
+     *          Old hosts to remove
+     */
+    private void join(int shardId, SocketAddress newHost, Set<SocketAddress> removedList) {
+        SocketAddress oldHost = shardId2Address.put(shardId, newHost);
+        if (null != oldHost) {
+            // remove the old host only when a new shard is kicked in to replace it.
+            address2ShardId.remove(oldHost);
+            circle.remove(shardId, oldHost);
+            removedList.add(oldHost);
+            logger.info("Shard {} ({}) left permanently.", shardId, oldHost);
+        }
+        address2ShardId.put(newHost, shardId);
+        circle.add(shardId, newHost);
+        logger.info("Shard {} ({}) joined to replace ({}).",
+                    new Object[] { shardId, newHost, oldHost });
+    }
+
     @Override
     protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet) {
         Map<Integer, SocketAddress> newMap = new HashMap<Integer, SocketAddress>();
@@ -149,36 +173,41 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             newMap.put(serviceInstance.getShard(), address);
         }
 
-        Map<Integer, SocketAddress> removed;
-        Map<Integer, SocketAddress> added;
+        Map<Integer, SocketAddress> left;
+        Set<SocketAddress> joinedList = new HashSet<SocketAddress>();
+        Set<SocketAddress> removedList = new HashSet<SocketAddress>();
         synchronized (shardId2Address) {
             MapDifference<Integer, SocketAddress> difference =
                     Maps.difference(shardId2Address, newMap);
-            removed = difference.entriesOnlyOnLeft();
-            added = difference.entriesOnlyOnRight();
-            for (Integer shard : removed.keySet()) {
-                SocketAddress host = shardId2Address.remove(shard);
+            left = difference.entriesOnlyOnLeft();
+            for (Integer shard : left.keySet()) {
+                SocketAddress host = shardId2Address.get(shard);
                 if (null != host) {
-                    address2ShardId.remove(host);
-                    circle.remove(shard, host);
-                    logger.info("Shard {} ({}) left.", shard, host);
+                    // we don't remove those hosts that just disappered on serverset proactively,
+                    // since it might be just because serverset become flaky
+                    // address2ShardId.remove(host);
+                    // circle.remove(shard, host);
+                    logger.info("Shard {} ({}) left temporarily.", shard, host);
                 }
             }
-            for (Map.Entry<Integer, SocketAddress> entry : added.entrySet()) {
-                shardId2Address.put(entry.getKey(), entry.getValue());
-                address2ShardId.put(entry.getValue(), entry.getKey());
-                circle.add(entry.getKey(), entry.getValue());
-                logger.info("Shard {} ({}) joined.", entry.getKey(), entry.getValue());
+            // we need to find if any shards are replacing old shards
+            for (Integer shard : newMap.keySet()) {
+                SocketAddress oldHost = shardId2Address.get(shard);
+                SocketAddress newHost = newMap.get(shard);
+                if (!newHost.equals(oldHost)) {
+                    join(shard, newHost, removedList);
+                    joinedList.add(newHost);
+                }
             }
         }
 
-        for (SocketAddress addr : removed.values()) {
+        for (SocketAddress addr : removedList) {
             for (RoutingListener listener : listeners) {
                 listener.onServerLeft(addr);
             }
         }
 
-        for (SocketAddress addr : added.values()) {
+        for (SocketAddress addr : joinedList) {
             for (RoutingListener listener : listeners) {
                 listener.onServerJoin(addr);
             }

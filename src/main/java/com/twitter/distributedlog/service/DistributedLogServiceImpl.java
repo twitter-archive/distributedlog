@@ -394,7 +394,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // lock
         final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
 
-        final DistributedLogManager manager;
+        DistributedLogManager manager;
 
         volatile AsyncLogWriter writer;
         volatile StreamStatus status;
@@ -408,16 +408,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         final Stopwatch lastAcquireWatch = new Stopwatch();
         // last acquire failure time
         final Stopwatch lastAcquireFailureWatch = new Stopwatch();
-        final long nextAcquireWaitTimeMs;
+        long nextAcquireWaitTimeMs;
 
         // Stats
-        private final StatsLogger exceptionStatLogger;
+        private StatsLogger exceptionStatLogger;
 
-        Stream(String name) throws IOException {
+        Stream(String name) {
             super("Stream-" + name);
             this.name = name;
-            this.manager = dlFactory.createDistributedLogManagerWithSharedClients(name);
             status = StreamStatus.UNINITIALIZED;
+        }
+
+        public Stream initialize() throws IOException {
+            this.manager = dlFactory.createDistributedLogManagerWithSharedClients(name);
+            status = StreamStatus.INITIALIZING;
             lastException = new IOException("Fail to write record to stream " + name);
             nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
             // expose stream status
@@ -434,6 +438,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             });
             exceptionStatLogger = streamLogger.scope("exceptions");
+            return this;
         }
 
         @Override
@@ -448,8 +453,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 boolean needAcquire = false;
                 synchronized (this) {
                     switch (this.status) {
-                    case UNINITIALIZED:
-                        this.status = StreamStatus.INITIALIZING;
+                    case INITIALIZING:
                         acquiredStreams.remove(name, this);
                         needAcquire = true;
                         break;
@@ -856,6 +860,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             logger.info("Closing stream {} ...", name);
             running = false;
+            // stop any outstanding ownership acquire actions first
+            interrupt();
+            try {
+                join();
+            } catch (InterruptedException e) {
+                logger.error("Interrupted on closing stream {} : ", name, e);
+            }
+            logger.info("Stopped acquiring ownership for stream {}.", name);
+            // Close the writers to release the locks before failing the requests
+            close(writer);
+            close(manager);
+            // Failed the pending requests.
             Queue<StreamOp> oldPendingOps;
             synchronized (this) {
                 oldPendingOps = pendingOps;
@@ -864,14 +880,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             for (StreamOp op : oldPendingOps) {
                 op.result.setValue(writeResponse(responseHeader(
                         StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.")));
-            }
-            close(writer);
-            close(manager);
-            interrupt();
-            try {
-                join();
-            } catch (InterruptedException e) {
-                logger.error("Interrupted on closing stream {} : ", name, e);
             }
             logger.info("Closed stream {}.", name);
         }
@@ -1073,11 +1081,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 writer = new Stream(stream);
                 Stream oldWriter = streams.putIfAbsent(stream, writer);
                 if (null != oldWriter) {
-                    writer.close();
                     writer = oldWriter;
                 } else {
                     logger.info("Inserted mapping stream {} -> writer {}", stream, writer);
-                    writer.start();
+                    writer.initialize().start();
                 }
             } finally {
                 closeLock.readLock().unlock();
