@@ -206,13 +206,13 @@ public class LedgerDataAccessor {
         return record;
     }
 
-    public void set(LedgerReadPosition key, LedgerEntry entry) {
+    public void set(LedgerReadPosition key, LedgerEntry entry, String reason) {
         LOG.trace("Set Called");
         if (null != readAheadCache) {
             setReadAheadCacheEntry(key, entry);
         } else {
             LOG.trace("Calling process");
-            processNewLedgerEntry(key, entry);
+            processNewLedgerEntry(key, entry, reason);
             notification.notifyOnOperationComplete();
         }
     }
@@ -321,7 +321,8 @@ public class LedgerDataAccessor {
         }
     }
 
-    void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry) {
+    void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
+                               final String reason) {
         LogRecord.Reader reader = new LogRecord.Reader(new RecordStream() {
             long slotId = 0;
 
@@ -355,9 +356,9 @@ public class LedgerDataAccessor {
                     } else {
                         negativeReadAheadDeliveryLatencyStat.registerSuccessfulEvent(-deliveryMs);
                     }
-                    if (deliveryMs > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
-                        LOG.warn("Record {} for stream {} took long time to deliver : publish time = {}, available time = {}, delivery time = {}.",
-                                 new Object[] { record.getDlsn(), streamName, record.getTransactionId(), currentMs, deliveryMs });
+                    if (deliveryMs > 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        LOG.warn("Record {} for stream {} took long time to deliver : publish time = {}, available time = {}, delivery time = {}, reason = {}.",
+                                 new Object[] { record.getDlsn(), streamName, record.getTransactionId(), currentMs, deliveryMs, reason });
                     }
                 }
                 readAheadRecords.add(record);

@@ -87,8 +87,8 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
-                                             final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
+    public void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
+                                final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
         final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
         if (null == refhandle) {
@@ -121,7 +121,7 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
+    public LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
         Stopwatch stopwatch = new Stopwatch().start();
@@ -159,7 +159,7 @@ public class LedgerHandleCache {
         return null == ledgerDescriptor ? null : handlesMap.get(ledgerDescriptor);
     }
 
-    public synchronized void closeLedger(LedgerDescriptor ledgerDesc)
+    public void closeLedger(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
@@ -274,7 +274,7 @@ public class LedgerHandleCache {
         throw BKException.create(syncObject.getrc());
     }
 
-    public synchronized void asyncReadEntries(LedgerDescriptor ledgerDesc, long first, long last,
+    public void asyncReadEntries(LedgerDescriptor ledgerDesc, long first, long last,
                                               AsyncCallback.ReadCallback callback, Object ctx) {
         RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
         if (null == refHandle) {
@@ -284,7 +284,7 @@ public class LedgerHandleCache {
         refHandle.handle.asyncReadEntries(first, last, callback, ctx);
     }
 
-    public synchronized Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
+    public Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
         throws InterruptedException, BKException, IOException {
         final SyncObject<Enumeration<LedgerEntry>> syncObject =
                 new SyncObject<Enumeration<LedgerEntry>>();
@@ -304,7 +304,7 @@ public class LedgerHandleCache {
         throw BKException.create(syncObject.getrc());
     }
 
-    public synchronized long getLength(LedgerDescriptor ledgerDesc) throws IOException {
+    public long getLength(LedgerDescriptor ledgerDesc) throws IOException {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {

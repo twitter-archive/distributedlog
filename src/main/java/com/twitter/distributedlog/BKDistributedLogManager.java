@@ -9,6 +9,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.PermitManager;
+import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
@@ -55,6 +56,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
+    private final ScheduledExecutorService readAheadExecutor;
     private boolean ownExecutor;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
@@ -75,8 +77,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
         this(name, conf, uri, zkcBuilder, bkcBuilder,
-            Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-            null, null, statsLogger);
+                Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+                null, null, null, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -84,12 +86,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   ScheduledExecutorService readAheadExecutor,
                                    ClientSocketChannelFactory channelFactory,
                                    HashedWheelTimer requestTimer,
                                    StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, zkcBuilder);
         this.conf = conf;
         this.executorService = executorService;
+        this.readAheadExecutor = null == readAheadExecutor ? executorService : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
 
@@ -174,7 +178,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
                                                                           AsyncNotification notification) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, notification);
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, readAheadExecutor,
+                statsLogger, notification);
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
@@ -805,14 +810,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             }
         }
         if (ownExecutor) {
-            executorService.shutdown();
-            try {
-                executorService.awaitTermination(5000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                LOG.warn("Interrupted when shutting down scheduler : ", e);
-            }
-            executorService.shutdownNow();
+            SchedulerUtils.shutdownScheduler(executorService, 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL executor service for {}.", name);
+
+            if (executorService != readAheadExecutor) {
+                SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
+                LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
+            }
         } else {
             if (null != metadataExecutor) {
                 metadataExecutor.shutdown();

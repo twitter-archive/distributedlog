@@ -37,6 +37,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private LedgerDataAccessor ledgerDataAccessor = null;
     private final LedgerHandleCache handleCache;
 
+    protected final ScheduledExecutorService readAheadExecutor;
     private ReadAheadWorker readAheadWorker = null;
     private boolean readAheadError = false;
     private boolean readAheadInterrupted = false;
@@ -91,11 +92,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
                                      ScheduledExecutorService executorService,
+                                     ScheduledExecutorService readAheadExecutor,
                                      StatsLogger statsLogger,
                                      AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
               statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
 
+        this.readAheadExecutor = readAheadExecutor;
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger,
                 notification, conf.getTraceReadAheadDeliveryLatency());
@@ -553,7 +556,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         void submit(Runnable runnable) {
             try {
-                executorService.submit(runnable);
+                readAheadExecutor.submit(runnable);
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
@@ -562,7 +565,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private void schedule(Runnable runnable, long timeInMillis) {
             try {
                 readAheadWorkerWaits.inc();
-                executorService.schedule(runnable, timeInMillis, TimeUnit.MILLISECONDS);
+                readAheadExecutor.schedule(runnable, timeInMillis, TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
@@ -722,6 +725,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 }
 
                                 nextReadPosition = new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry);
+                                if (conf.getTraceReadAheadMetadataChanges()) {
+                                    LOG.info("Moved read position to {} for stream {} at {}.",
+                                             new Object[] { nextReadPosition, getFullyQualifiedName(), System.currentTimeMillis() });
+                                }
                                 currentMetadata = l;
                                 currentMetadataIndex = i;
                                 break;
@@ -800,8 +807,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             void process(int rc) {
                 if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
                     if (null == currentLH) {
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Opening inprogress ledger of {} for {}.", currentMetadata, fullyQualifiedName);
+                        if (conf.getTraceReadAheadMetadataChanges()) {
+                            LOG.info("Opening inprogress ledger of {} for {} at {}.",
+                                     new Object[] { currentMetadata, fullyQualifiedName, System.currentTimeMillis() });
                         }
                         bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false, this);
                     } else {
@@ -818,38 +826,47 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, conf.getReadLACOption()});
                             }
-                            synchronized (notificationLock) {
-                                switch(ReadLACOption.values()[conf.getReadLACOption()]) {
-                                    case LONGPOLL:
-                                        ReadLastConfirmedCallbackWithNotification lpCallback =
-                                                new ReadLastConfirmedCallbackWithNotification(lastAddConfirmed, this, null);
-                                        metadataNotification = lpCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, conf.getReadLACLongPollTimeout(), lpCallback, null);
-                                        lpCallback.callbackImmediately(reInitializeMetadata);
-                                        readAheadReadLACCounter.inc();
-                                        break;
-                                    case READENTRYPIGGYBACK_PARALLEL:
-                                        ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
-                                                new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
-                                        metadataNotification = pCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), true, pCallback, null);
-                                        pCallback.callbackImmediately(reInitializeMetadata);
-                                        readAheadReadLACAndEntryCounter.inc();
-                                        break;
-                                    case READENTRYPIGGYBACK_SEQUENTIAL:
-                                        ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
-                                                new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, null);
-                                        metadataNotification = sCallback;
-                                        bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), false, sCallback, null);
-                                        sCallback.callbackImmediately(reInitializeMetadata);
-                                        readAheadReadLACAndEntryCounter.inc();
-                                        break;
-                                    default:
-                                        metadataNotification = null;
-                                        bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, null);
-                                        readAheadReadLACCounter.inc();
-                                        break;
-                                }
+                            if (nextReadPosition.getEntryId() == 0 && conf.getTraceReadAheadMetadataChanges()) {
+                                // we are waiting for first entry to arrive
+                                LOG.info("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
+                                         new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadPosition });
+                            }
+                            String ctx;
+                            boolean callbackImmediately;
+                            switch(ReadLACOption.values()[conf.getReadLACOption()]) {
+                                case LONGPOLL:
+                                    ctx = String.format("LongPoll(%d)", lastAddConfirmed);
+                                    ReadLastConfirmedCallbackWithNotification lpCallback =
+                                            new ReadLastConfirmedCallbackWithNotification(lastAddConfirmed, this, ctx);
+                                    callbackImmediately = setMetadataNotification(lpCallback);
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, conf.getReadLACLongPollTimeout(), lpCallback, ctx);
+                                    lpCallback.callbackImmediately(callbackImmediately);
+                                    readAheadReadLACCounter.inc();
+                                    break;
+                                case READENTRYPIGGYBACK_PARALLEL:
+                                    ctx = String.format("ReadLastConfirmedAndEntry(Parallel, %d)", lastAddConfirmed);
+                                    ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
+                                            new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
+                                    callbackImmediately = setMetadataNotification(pCallback);
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), true, pCallback, ctx);
+                                    pCallback.callbackImmediately(callbackImmediately);
+                                    readAheadReadLACAndEntryCounter.inc();
+                                    break;
+                                case READENTRYPIGGYBACK_SEQUENTIAL:
+                                    ctx = String.format("ReadLastConfirmedAndEntry(Sequential, %d)", lastAddConfirmed);
+                                    ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
+                                            new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
+                                    callbackImmediately = setMetadataNotification(sCallback);
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), false, sCallback, ctx);
+                                    sCallback.callbackImmediately(callbackImmediately);
+                                    readAheadReadLACAndEntryCounter.inc();
+                                    break;
+                                default:
+                                    ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
+                                    setMetadataNotification(null);
+                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, ctx);
+                                    readAheadReadLACCounter.inc();
+                                    break;
                             }
                         } else {
                             next.process(BKException.Code.OK);
@@ -913,10 +930,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             handleException(ReadAheadPhase.OPEN_LEDGER, rc);
                             return;
                         }
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Opened ledger of {} for {}.", currentMetadata, fullyQualifiedName);
-                        }
                         currentLH = result;
+                        if (conf.getTraceReadAheadMetadataChanges()) {
+                            LOG.info("Opened inprogress ledger of {} for {} at {}.",
+                                    new Object[] { currentMetadata, fullyQualifiedName, System.currentTimeMillis() });
+                        }
                         bkcZkExceptions.set(0);
                         bkcUnExpectedExceptions.set(0);
                         next.process(rc);
@@ -945,7 +963,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 });
             }
 
-            public void readLastConfirmedAndEntryComplete(final int rc, final long lastConfirmed, final LedgerEntry entry, Object ctx) {
+            public void readLastConfirmedAndEntryComplete(final int rc, final long lastConfirmed, final LedgerEntry entry,
+                                                          final Object ctx) {
                 // submit callback execution to dlg executor to avoid deadlock.
                 submit(new Runnable() {
                     @Override
@@ -959,8 +978,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         bkcUnExpectedExceptions.set(0);
                         if (LOG.isTraceEnabled()) {
                             try {
-                            LOG.trace("Advancing Last Add Confirmed of {} for {} : {}, {}",
-                                new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed, bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH) });
+                                LOG.trace("Advancing Last Add Confirmed of {} for {} : {}, {}",
+                                          new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed,
+                                                         bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH) });
                             } catch (IOException exc) {
                                 // Ignore
                             }
@@ -971,7 +991,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             && (nextReadPosition.getLedgerId() == entry.getLedgerId())) {
 
                             nextReadPosition.advance();
-                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()), entry);
+
+                            if (lastConfirmed <= 4 && conf.getTraceReadAheadMetadataChanges()) {
+                                LOG.info("Hit readLastConfirmedAndEntry for {} at {} : entry = {}, lac = {}, position = {}.",
+                                        new Object[] { fullyQualifiedName, System.currentTimeMillis(),
+                                                       entry.getEntryId(), lastConfirmed, nextReadPosition });
+                            }
+
+                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()),
+                                                   entry, null != ctx ? ctx.toString() : "");
 
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
@@ -1026,8 +1054,17 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     LOG.trace("Reading entry {} for {} of {}.",
                             new Object[] { nextReadPosition, currentMetadata, fullyQualifiedName });
                 }
-                bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, nextReadPosition.getEntryId(),
-                        Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + conf.getReadAheadBatchSize() - 1)), this, null);
+                long startEntryId = nextReadPosition.getEntryId();
+                long endEntryId = Math.min(lastAddConfirmed, (nextReadPosition.getEntryId() + conf.getReadAheadBatchSize() - 1));
+
+                if (endEntryId <= conf.getReadAheadBatchSize() && conf.getTraceReadAheadMetadataChanges()) {
+                    // trace first read batch
+                    LOG.info("Reading entries ({} - {}) for {} at {} : lac = {}, nextReadPosition = {}.",
+                             new Object[] { startEntryId, endEntryId, fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadPosition });
+                }
+
+                bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, startEntryId, endEntryId , this,
+                                                                  String.format("ReadEntries(%d-%d)", startEntryId, endEntryId));
             }
 
             @Override
@@ -1050,7 +1087,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             nextReadPosition.advance();
                             LedgerEntry e = seq.nextElement();
                             LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLedgerSequenceNumber(), e.getEntryId());
-                            ledgerDataAccessor.set(readPosition, e);
+                            ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "");
                             ++numReads;
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Read entry {} of {}.", readPosition, fullyQualifiedName);
@@ -1115,6 +1152,20 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 if (null != notification) {
                     notification.notifyOnOperationComplete();
                 }
+            }
+        }
+
+        /**
+         * Set metadata notification and return the flag indicating whether to reinitialize metadata.
+         *
+         * @param notification
+         *          metadata notification
+         * @return flag indicating whether to reinitialize metadata.
+         */
+        private boolean setMetadataNotification(AsyncNotification notification) {
+            synchronized (notificationLock) {
+                this.metadataNotification = notification;
+                return reInitializeMetadata;
             }
         }
 

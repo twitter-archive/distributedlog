@@ -77,6 +77,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
+    public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
 
     // Reader parameters
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
@@ -192,6 +193,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
     public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
+
+    public static final String BKDL_TRACE_READAHEAD_METADATA_CHANGES = "traceReadAheadMetadataChanges";
+    public static final boolean BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT = false;
 
     public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
     public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
@@ -480,6 +484,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public int getNumWorkerThreads() {
         return getInt(BKDL_NUM_WORKER_THREADS, Runtime.getRuntime().availableProcessors());
+    }
+
+    /**
+     * Set the number of dedicated readahead worker threads used by distributedlog manager factory.
+     * If it is set to zero or any negative number, it would use the normal executor for readahead.
+     *
+     * @param numWorkerThreads
+     *          number of dedicated readahead worker threads.
+     * @return configuration
+     */
+    public DistributedLogConfiguration setNumReadAheadWorkerThreads(int numWorkerThreads) {
+        setProperty(BKDL_NUM_READAHEAD_WORKER_THREADS, numWorkerThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of dedicated readahead worker threads used by distributedlog manager factory.
+     *
+     * @return number of dedicated readahead worker threads.
+     */
+    public int getNumReadAheadWorkerThreads() {
+        return getInt(BKDL_NUM_READAHEAD_WORKER_THREADS, 0);
     }
 
     /**
@@ -1337,6 +1363,30 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setTraceReadAheadDeliveryLatency(boolean enabled) {
         setProperty(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, enabled);
+        return this;
+    }
+
+    /**
+     * Whether to trace read ahead changes? If enabled, it will log readahead metadata changes with timestamp.
+     * It is helpful when you are troubleshooting latency related issues.
+     *
+     * @return flag to trace read ahead delivery latency.
+     */
+    public boolean getTraceReadAheadMetadataChanges() {
+        return getBoolean(BKDL_TRACE_READAHEAD_METADATA_CHANGES, BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT);
+    }
+
+    /**
+     * Set the flag to trace readahead metadata changes.
+     *
+     * @see #getTraceReadAheadMetadataChanges()
+     *
+     * @param enabled
+     *          flag to trace readahead metadata changes.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setTraceReadAheadMetadataChanges(boolean enabled) {
+        setProperty(BKDL_TRACE_READAHEAD_METADATA_CHANGES, enabled);
         return this;
     }
 
