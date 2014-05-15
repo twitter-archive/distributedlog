@@ -60,6 +60,12 @@
       <artifactId>zookeeper-utils</artifactId>
       <!-- See birdcage/jvm/com/twitter/common_internal/BUILD -->
       <version>0.0.76</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-jdk14</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>log4j</groupId>
