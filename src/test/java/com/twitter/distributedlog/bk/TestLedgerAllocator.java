@@ -107,7 +107,7 @@ public class TestLedgerAllocator {
         allocator.confirmObtain(newLh, results.get(0));
         data = zkc.get().getData(allocationPath, false, null);
         assertEquals(0, data.length);
-        allocator.close();
+        allocator.close(true);
     }
 
     @Test(timeout = 60000)
@@ -141,8 +141,8 @@ public class TestLedgerAllocator {
         }
         assertNotNull(results);
         allocator1.confirmObtain(lh, results.get(0));
-        allocator1.close();
-        allocator2.close();
+        allocator1.close(true);
+        allocator2.close(true);
 
         long eid = lh.addEntry("hello world".getBytes());
         lh.close();
@@ -198,8 +198,8 @@ public class TestLedgerAllocator {
         }
         assertNotNull(results);
         allocator2.confirmObtain(lh2, results.get(0));
-        allocator1.close();
-        allocator2.close();
+        allocator1.close(true);
+        allocator2.close(true);
 
         // ledger handle should be deleted
         try {
@@ -235,7 +235,7 @@ public class TestLedgerAllocator {
         Transaction txn = zkc.get().transaction();
         // close during obtaining ledger.
         LedgerHandle lh = allocator.tryObtain(txn);
-        allocator.close();
+        allocator.close(true);
         byte[] data = zkc.get().getData(allocationPath, false, null);
         assertEquals((Long) lh.getId(), Long.valueOf(new String(data, UTF_8)));
         // the ledger is not deleted
@@ -253,7 +253,7 @@ public class TestLedgerAllocator {
         LedgerHandle lh = allocator.tryObtain(txn);
         List<OpResult> results = txn.commit();
         allocator.confirmObtain(lh, results.get(0));
-        allocator.close();
+        allocator.close(true);
         byte[] data = zkc.get().getData(allocationPath, false, null);
         assertEquals(0, data.length);
         // the ledger is not deleted.
@@ -270,7 +270,7 @@ public class TestLedgerAllocator {
         // close during obtaining ledger.
         LedgerHandle lh = allocator.tryObtain(txn);
         allocator.abortObtain(lh);
-        allocator.close();
+        allocator.close(true);
         byte[] data = zkc.get().getData(allocationPath, false, null);
         assertEquals(0, data.length);
         // the ledger is not deleted.

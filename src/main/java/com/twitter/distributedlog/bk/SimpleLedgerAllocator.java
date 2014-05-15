@@ -375,12 +375,16 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         return closing;
     }
 
-    private void closeInternal() throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException {
+    private void closeInternal(boolean cleanup) throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException {
         synchronized (this) {
             if (closing) {
                 return;
             }
             closing = true;
+        }
+        if (!cleanup) {
+            LOG.info("Abort ledger allocator without cleaning up on {}.", allocatePath);
+            return;
         }
         LOG.info("Closing ledger allocator on {}.", allocatePath);
         // wait for ongoing allocation to be completed
@@ -416,9 +420,9 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
     }
 
     @Override
-    public void close() {
+    public void close(boolean cleanup) {
         try {
-            closeInternal();
+            closeInternal(cleanup);
             this.bkc.release();
         } catch (BKException e) {
             LOG.error("Exception when releasing bookkeeper client for ledger allocator {} : ", allocatePath, e);
@@ -433,7 +437,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
     @Override
     public void delete() throws IOException {
         try {
-            closeInternal();
+            closeInternal(true);
             try {
                 this.zkc.get().delete(allocatePath, getZkVersion());
                 LOG.info("Deleted allocator {}.", allocatePath);

@@ -46,5 +46,5 @@ public interface Allocator<I, T, R> {
     /**
      * Close the allocator.
      */
-    void close();
+    void close(boolean cleanup);
 }

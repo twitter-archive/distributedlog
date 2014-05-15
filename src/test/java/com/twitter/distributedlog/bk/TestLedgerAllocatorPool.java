@@ -111,7 +111,7 @@ public class TestLedgerAllocatorPool {
         pool.confirmObtain(newLh, results.get(0));
         validatePoolSize(pool, 1, 0, 0);
 
-        pool.close();
+        pool.close(true);
     }
 
     @Test(timeout = 60000)
@@ -126,7 +126,7 @@ public class TestLedgerAllocatorPool {
             // expected.
         }
 
-        pool.close();
+        pool.close(true);
     }
 
     @Test(timeout = 60000)
@@ -174,7 +174,7 @@ public class TestLedgerAllocatorPool {
         assertEquals(0, numFailures.get());
         assertEquals(50 * numAllocators, allocatedLedgers.size());
 
-        pool.close();
+        pool.close(true);
     }
 
 }

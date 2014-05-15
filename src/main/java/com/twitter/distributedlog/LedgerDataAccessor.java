@@ -181,7 +181,9 @@ public class LedgerDataAccessor {
             if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
                 (ledgerDesc.isFenced() &&
                     (bke.getCode() == BKException.Code.NoSuchEntryException))) {
-                throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
+                String errorMessage = String.format("Ledger %d Not Found or Entry %d Not Found In Closed Ledger %d",
+                                                    ledgerDesc.getLedgerId(), key.getEntryId(), ledgerDesc.getLedgerId());
+                throw new LogReadException(errorMessage);
             }
             LOG.info("Reached the end of the stream");
             LOG.debug("Encountered exception at end of stream", bke);

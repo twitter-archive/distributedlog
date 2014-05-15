@@ -265,16 +265,16 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public void close() {
+    public void close(boolean cleanup) {
         synchronized (this) {
             for (LedgerAllocator allocator : pendingList) {
-                allocator.close();
+                allocator.close(cleanup);
             }
             for (LedgerAllocator allocator : allocatingList) {
-                allocator.close();
+                allocator.close(cleanup);
             }
             for (LedgerAllocator allocator : obtainMap.values()) {
-                allocator.close();
+                allocator.close(cleanup);
             }
         }
         try {

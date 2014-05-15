@@ -664,7 +664,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             LOG.info("ReadAhead Executor Service Stopped.");
         }
         if (null != allocator) {
-            allocator.close();
+            allocator.close(false);
             LOG.info("Ledger Allocator stopped.");
         }
         try {
@@ -672,13 +672,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             if (null != bkc) {
                 bkc.release();
             }
-            sharedZKClientForDL.close();
-
-            if (null != sharedZKClientForBK) {
-                sharedZKClientForBK.close();
-            }
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager factory", e);
+        }
+        sharedZKClientForDL.close();
+        if (null != sharedZKClientForBK) {
+            sharedZKClientForBK.close();
         }
         channelFactory.releaseExternalResources();
         requestTimer.stop();
