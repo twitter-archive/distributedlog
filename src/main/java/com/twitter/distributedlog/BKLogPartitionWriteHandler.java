@@ -1356,8 +1356,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      */
     String inprogressZNodeName(long ledgerId, long firstTxId, long ledgerSeqNo) {
         if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
-            return String.format("%s_%s_%018d_v%dl%d_%04d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX,
-                    Long.toString(firstTxId, 16), ledgerSeqNo, conf.getLogSegmentNameVersion(), ledgerId, regionId);
+            // Lots of the problems are introduced due to different inprogress names with same ledger sequence number.
+            // {@link https://jira.twitter.biz/browse/PUBSUB-1964}
+            return String.format("%s_%018d_%04d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo, regionId);
         } else {
             return DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX + "_" + Long.toString(firstTxId, 16);
         }
