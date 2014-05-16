@@ -21,6 +21,7 @@ import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -38,8 +39,10 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -493,7 +496,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             }
             if (shouldClose) {
-                requestClose();
+                requestClose(null);
             }
         }
 
@@ -805,7 +808,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         }
 
-        void requestClose() {
+        void requestClose(final CountDownLatch closeLatch) {
             closeLock.writeLock().lock();
             try {
                 if (StreamStatus.CLOSING == status) {
@@ -824,11 +827,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     @Override
                     public void run() {
                         close();
+                        if (null != closeLatch) {
+                            closeLatch.countDown();
+                        }
                     }
                 });
             } catch (RejectedExecutionException ree) {
                 logger.warn("Failed to schedule closing stream {}, close it directly : ", name, ree);
                 close();
+                if (null != closeLatch) {
+                    closeLatch.countDown();
+                }
             }
         }
 
@@ -1158,23 +1167,34 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         } finally {
             closeLock.writeLock().unlock();
         }
-        logger.info("Closing all acquired streams ...");
-        for (Stream stream: streams.values()) {
+        int numAcquired = acquiredStreams.size();
+        int numCached = streams.size();
+        logger.info("Closing all acquired streams : acquired = {}, cached = {}.",
+                    numAcquired, numCached);
+        Set<Stream> streamsToClose = new HashSet<Stream>();
+        streamsToClose.addAll(streams.values());
+        CountDownLatch closeLatch = new CountDownLatch(streamsToClose.size());
+        for (Stream stream: streamsToClose) {
             if (streams.remove(stream.name, stream)) {
-                stream.requestClose();
+                stream.requestClose(closeLatch);
+            } else {
+                closeLatch.countDown();
             }
         }
-        // shutdown the executor after requesting closing streams.
-        executorService.shutdown();
+
         logger.info("Waiting for closing all streams ...");
         try {
-            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-                logger.warn("Executor service doesn't shutdown in 60 seconds, force quiting...");
-                executorService.shutdownNow();
+            if (closeLatch.await(5, TimeUnit.MINUTES)) {
+                logger.info("Closed all streams.");
+            } else {
+                logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes.");
             }
-        } catch (InterruptedException ie) {
-            logger.warn("Interrupted on waiting shutting down executor service : ", ie);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted on waiting for closing all streams : ", e);
         }
+
+        // shutdown the executor after requesting closing streams.
+        SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
         // shutdown the dl factory
         logger.info("Closing distributedlog factory ...");
         dlFactory.close();

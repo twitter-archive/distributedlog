@@ -667,17 +667,16 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             allocator.close(false);
             LOG.info("Ledger Allocator stopped.");
         }
-        try {
-            BookKeeperClient bkc = getBookKeeperClient();
-            if (null != bkc) {
-                bkc.release();
-            }
-        } catch (Exception e) {
-            LOG.warn("Exception while closing distributed log manager factory", e);
+        // force closing all bk/zk clients to avoid zookeeper threads not being
+        // shutdown due to any reference count issue, which make the factory still
+        // holding locks w/o releasing ownerships.
+        BookKeeperClient bkc = getBookKeeperClient();
+        if (null != bkc) {
+            bkc.release(true);
         }
-        sharedZKClientForDL.close();
+        sharedZKClientForDL.close(true);
         if (null != sharedZKClientForBK) {
-            sharedZKClientForBK.close();
+            sharedZKClientForBK.close(true);
         }
         channelFactory.releaseExternalResources();
         requestTimer.stop();

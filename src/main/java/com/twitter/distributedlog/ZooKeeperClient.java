@@ -333,10 +333,18 @@ public class ZooKeeperClient {
      * Closes the connection when the reference count drops to zero
      * Subsequent attempts to {@link #get} will fail
      */
-    public synchronized void close() {
+    public void close() {
+        close(false);
+    }
+
+    /**
+     * TODO: force close is a temp solution. we need to figure out ref count leaking.
+     * {@link https://jira.twitter.biz/browse/PUBSUB-2232}
+     */
+    public synchronized void close(boolean force) {
         int refs = refCount.decrementAndGet();
-        LOG.info("Close zookeeper client : ref = {}.", refs);
-        if (refs == 0) {
+        if (refs == 0 || force) {
+            LOG.info("Close zookeeper client : ref = {}, force = {}.", refs, force);
             closeInternal();
         }
     }

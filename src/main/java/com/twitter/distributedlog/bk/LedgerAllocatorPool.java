@@ -277,13 +277,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 allocator.close(cleanup);
             }
         }
-        try {
-            this.bkc.release();
-        } catch (BKException bke) {
-            logger.error("Failed to release bookkeeper client reference : ", bke);
-        } catch (InterruptedException ie) {
-            logger.error("Interrupted on releasing bookkeeper client reference : ", ie);
-        }
+        this.bkc.release();
         this.zkc.close();
     }
 
@@ -307,13 +301,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         } catch (KeeperException ke) {
             throw new IOException("Error on deleting allocator pool " + poolPath + " : ", ke);
         }
-        try {
-            this.bkc.release();
-        } catch (BKException bke) {
-            logger.error("Failed to release bookkeeper client reference : ", bke);
-        } catch (InterruptedException ie) {
-            logger.error("Interrupted on releasing bookkeeper client reference : ", ie);
-        }
+        this.bkc.release();
         this.zkc.close();
     }
 }

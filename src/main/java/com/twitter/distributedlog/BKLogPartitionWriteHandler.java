@@ -1333,8 +1333,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     String completedLedgerZNodeName(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
         if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
-            return String.format("%s_%018d_%018d_%018d_v%dl%d_%04d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
-                    firstTxId, lastTxId, ledgerSeqNo, conf.getLogSegmentNameVersion(), ledgerId, regionId);
+            return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, ledgerSeqNo);
         } else {
             return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
                     firstTxId, lastTxId);
@@ -1358,7 +1357,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
             // Lots of the problems are introduced due to different inprogress names with same ledger sequence number.
             // {@link https://jira.twitter.biz/browse/PUBSUB-1964}
-            return String.format("%s_%018d_%04d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo, regionId);
+            return String.format("%s_%018d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo);
         } else {
             return DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX + "_" + Long.toString(firstTxId, 16);
         }

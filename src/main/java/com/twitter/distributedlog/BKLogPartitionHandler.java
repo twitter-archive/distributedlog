@@ -504,13 +504,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     public void close() throws IOException {
-        try {
-            bookKeeperClient.release();
-        } catch (BKException bke) {
-            LOG.error("Couldn't release bookkeeper client for {} : ", getFullyQualifiedName(), bke);
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted on releasing bookkeeper client for {} : ", getFullyQualifiedName(), ie);
-        }
+        bookKeeperClient.release();
         zooKeeperClient.close();
     }
 

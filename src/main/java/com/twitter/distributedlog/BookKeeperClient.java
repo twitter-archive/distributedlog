@@ -58,43 +58,44 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         }
     }
 
-/*
-    BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, String name,
-                     ClientSocketChannelFactory channelFactory, StatsLogger statsLogger)
-        throws IOException, InterruptedException, KeeperException {
-        int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
-        RetryPolicy retryPolicy = null;
-        if (conf.getBKClientZKNumRetries() > 0) {
-            retryPolicy = new BoundExponentialBackoffRetryPolicy(
-                    conf.getBKClientZKRetryBackoffStartMillis(),
-                    conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
-        }
-        this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers(),
-                retryPolicy, statsLogger.scope("bkc_zkc"));
-        this.ownZK = true;
-        this.name = name;
-        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, conf.getBKClientZKNumRetries() <= 0);
-        LOG.info("BookKeeper Client created {} with its own ZK Client : numRetries = {}, " +
-                " sessionTimeout = {}, backoff = {}, maxBackoff = {}, dnsResolver = {}", new Object[] { name,
-                conf.getBKClientZKNumRetries(), zkSessionTimeout, conf.getBKClientZKRetryBackoffStartMillis(),
-                conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBkDNSResolverOverrides() });
-    }
-*/
     BookKeeperClient(DistributedLogConfiguration conf, BKDLConfig bkdlConfig, ZooKeeperClient zkc,
                      String name, ClientSocketChannelFactory channelFactory, HashedWheelTimer requestTimer, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
+        boolean registerExpirationHandler;
         if (null == zkc) {
             int zkSessionTimeout = conf.getBKClientZKSessionTimeoutMilliSeconds();
-            this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers());
+            RetryPolicy retryPolicy = null;
+            if (conf.getBKClientZKNumRetries() > 0) {
+                retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                        conf.getBKClientZKRetryBackoffStartMillis(),
+                        conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
+            }
+            this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers(),
+                                           retryPolicy, statsLogger.scope("bkc_zkc"), conf.getZKClientNumberRetryThreads());
             this.ownZK = true;
+            registerExpirationHandler = conf.getBKClientZKNumRetries() <= 0;
         } else {
             this.zkc = zkc;
             this.ownZK = false;
+            registerExpirationHandler = conf.getZKNumRetries() <= 0;
         }
 
         this.name = name;
-        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, requestTimer, true);
-        LOG.info("BookKeeper Client created {} with {} zookeeper client", name, ownZK ? "its own": "shared");
+        commonInitialization(conf, bkdlConfig, channelFactory, statsLogger, requestTimer, registerExpirationHandler);
+
+        if (ownZK) {
+            LOG.info("BookKeeper Client created {} with its own ZK Client : numRetries = {}, " +
+                    "sessionTimeout = {}, backoff = {}, maxBackoff = {}, dnsResolver = {}, registerExpirationHandler = {}",
+                    new Object[] { name, conf.getBKClientZKNumRetries(), conf.getBKClientZKSessionTimeoutMilliSeconds(),
+                    conf.getBKClientZKRetryBackoffStartMillis(), conf.getBKClientZKRetryBackoffMaxMillis(),
+                    conf.getBkDNSResolverOverrides(), registerExpirationHandler });
+        } else {
+            LOG.info("BookKeeper Client created {} with shared zookeeper client : numRetries = {}, " +
+                    "sessionTimeout = {}, backoff = {}, maxBackoff = {}, dnsResolver = {}, registerExpirationHandler = {}",
+                    new Object[] { name, conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),
+                    conf.getZKRetryBackoffStartMillis(), conf.getZKRetryBackoffMaxMillis(),
+                    conf.getBkDNSResolverOverrides(), registerExpirationHandler });
+        }
     }
 
 
@@ -107,18 +108,36 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         refCount++;
     }
 
-    public synchronized void release() throws BKException, InterruptedException {
+    public void release() {
+        release(false);
+    }
+
+    /**
+     * TODO: force close is a temp solution. we need to figure out ref count leaking.
+     * {@link https://jira.twitter.biz/browse/PUBSUB-2232}
+     */
+    public synchronized void release(boolean force) {
         refCount--;
 
-        if (0 == refCount) {
-            LOG.info("BookKeeper Client closed {}", name);
-            bkc.close();
-            bkc = null;
+        if (0 == refCount || force) {
+            LOG.info("BookKeeper Client closed {} : refs = {}, force = {}",
+                     new Object[] { name, refCount, force });
+            if (null != bkc) {
+                try {
+                    bkc.close();
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on closing bookkeeper client {} : ", name, e);
+                    Thread.currentThread().interrupt();
+                } catch (BKException e) {
+                    LOG.warn("Error on closing bookkeeper client {} : ", name, e);
+                }
+                bkc = null;
+            }
             if (null != sessionExpireWatcher) {
                 zkc.unregister(sessionExpireWatcher);
             }
             if (ownZK) {
-                zkc.close();
+                zkc.close(force);
             }
         }
     }
