@@ -1,3 +1,10 @@
+0.3.15
+----
+- Merge changes from master back to AsyncLogReader
+- Write Control Record for Heartbeat
+- Fixes for proxy shutdown
+- Fixes for duplicated log segments
+
 0.3.12
 -----
 - Additional stats on readers/read ahead
