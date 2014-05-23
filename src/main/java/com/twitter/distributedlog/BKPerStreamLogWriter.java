@@ -119,7 +119,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
-    protected BKPerStreamLogWriter(DistributedLogConfiguration conf,
+    protected BKPerStreamLogWriter(String streamName,
+                                   DistributedLogConfiguration conf,
                                    LedgerHandle lh, DistributedReentrantLock lock,
                                    long startTxId, ScheduledExecutorService executorService,
                                    StatsLogger statsLogger)
@@ -142,18 +143,21 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
 
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
-        // outstanding requests
-        transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
+        if (conf.getEnablePerStreamStat()) {
+            String statPrefixForStream = streamName.replaceAll(":|<|>|/", "_");
+            // outstanding requests
+            transmitOutstandingLogger.registerGauge(statPrefixForStream + "_requests", new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
 
-            @Override
-            public Number getSample() {
-                return outstandingRequests.get();
-            }
-        });
+                @Override
+                public Number getSample() {
+                    return outstandingRequests.get();
+                }
+            });
+        }
 
         outstandingRequests = new AtomicInteger(0);
         syncLatch = null;

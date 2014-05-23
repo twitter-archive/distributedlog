@@ -49,29 +49,6 @@ public class LedgerDataAccessor {
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
-        //Number of entries in the readAheadCache
-        readAheadStatsLogger.registerGauge("num_cache_entries", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return getNumCacheEntries();
-            }
-        });
-        readAheadStatsLogger.registerGauge("num_cache_bytes", new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return cacheBytes.get();
-            }
-        });
     }
 
     public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {

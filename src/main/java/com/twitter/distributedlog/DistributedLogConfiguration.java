@@ -134,6 +134,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
 
+    public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
+    public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
+
     public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
     public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
 
@@ -885,6 +888,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Whether to enable per stream stat or not.
+     *
+     * @return flag to enable per stream stat.
+     */
+    public boolean getEnablePerStreamStat() {
+        return getBoolean(BKDL_ENABLE_PERSTREAM_STAT, BKDL_ENABLE_PERSTREAM_STAT_DEFAULT);
+    }
+
+    /**
+     * Set the flag to enable per stream stat or not.
+     *
+     * @param enabled
+     *          flag to enable/disable per stream stat.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEnablePerStreamStat(boolean enabled) {
+        setProperty(BKDL_ENABLE_PERSTREAM_STAT, enabled);
+        return this;
+    }
 
     /**
      * Get the tick duration in milliseconds that used for timeout timer.

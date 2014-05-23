@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.collect.Sets;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 
@@ -35,7 +36,13 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -85,6 +92,12 @@ abstract class BKLogPartitionHandler {
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
 
+    // Maintain the list of ledgers
+    protected final Map<String, LogSegmentLedgerMetadata> logSegments =
+            new HashMap<String, LogSegmentLedgerMetadata>();
+    protected final ConcurrentMap<Long, LogSegmentLedgerMetadata> lid2LogSegments =
+            new ConcurrentHashMap<Long, LogSegmentLedgerMetadata>();
+
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -110,8 +123,9 @@ abstract class BKLogPartitionHandler {
             if (null == zkcBuilder) {
                 zkcBuilder = ZooKeeperClientBuilder.newBuilder()
                         .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                        .retryThreadCount(conf.getZKClientNumberRetryThreads())
                         .uri(uri)
+                        .statsLogger(statsLogger)
+                        .retryThreadCount(conf.getZKClientNumberRetryThreads())
                         .buildNew(false);
             }
             this.zooKeeperClient = zkcBuilder.build();
@@ -183,7 +197,6 @@ abstract class BKLogPartitionHandler {
         return ledgerList.get(0).getFirstTxId();
     }
 
-
     private void checkLogStreamExists() throws IOException {
         try {
             if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
@@ -197,7 +210,6 @@ abstract class BKLogPartitionHandler {
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
     }
-
 
     public long getTxIdNotLaterThan(long thresholdTxId)
         throws IOException {
@@ -399,6 +411,28 @@ abstract class BKLogPartitionHandler {
         return lastRecord;
     }
 
+    // Ledgers Related Functions
+    // ***Note***
+    // Caching of log segment metadata assumes that the data contained in the ZNodes for individual
+    // log segments is never updated after creation i.e we never call setData. A log segment
+    // is finalized by creating a new ZNode and deleting the in progress node. This code will have
+    // to change if we change the behavior
+
+    private List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator) {
+        List<LogSegmentLedgerMetadata> segmentsToReturn;
+        synchronized (logSegments) {
+            segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+            for (String name : logSegments.keySet()) {
+                segmentsToReturn.add(logSegments.get(name));
+            }
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("Cached log segments : {}", segmentsToReturn);
+            }
+        }
+        Collections.sort(segmentsToReturn, comparator);
+        return segmentsToReturn;
+    }
+
     public List<LogSegmentLedgerMetadata> getLedgerList(boolean throwOnEmpty) throws IOException {
         return getLedgerList(LogSegmentLedgerMetadata.COMPARATOR, throwOnEmpty);
     }
@@ -412,16 +446,85 @@ abstract class BKLogPartitionHandler {
     }
 
     /**
+     * Add the segment <i>metadata</i> for <i>name</i> in the cache.
+     *
+     * @param name
+     *          segment znode name.
+     * @param metadata
+     *          segment metadata.
+     */
+    protected void addLogSegmentToCache(String name, LogSegmentLedgerMetadata metadata) {
+        synchronized (logSegments) {
+            if (!logSegments.containsKey(name)) {
+                logSegments.put(name, metadata);
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Added log segment ({} : {}) to cache.", name, metadata);
+                }
+            }
+            LogSegmentLedgerMetadata oldMetadata = lid2LogSegments.remove(metadata.getLedgerId());
+            if (null == oldMetadata) {
+                lid2LogSegments.put(metadata.getLedgerId(), metadata);
+            } else {
+                if (oldMetadata.isInProgress() && !metadata.isInProgress()) {
+                    lid2LogSegments.put(metadata.getLedgerId(), metadata);
+                } else {
+                    lid2LogSegments.put(oldMetadata.getLedgerId(), oldMetadata);
+                }
+            }
+        }
+        // update the last ledger rolling time
+        if (!metadata.isInProgress() && (lastLedgerRollingTimeMillis < metadata.getCompletionTime())) {
+            lastLedgerRollingTimeMillis = metadata.getCompletionTime();
+        }
+    }
+
+    protected LogSegmentLedgerMetadata readLogSegmentFromCache(String name) {
+        synchronized (logSegments) {
+            return logSegments.get(name);
+        }
+    }
+
+    protected LogSegmentLedgerMetadata removeLogSegmentFromCache(String name) {
+        synchronized (logSegments) {
+            LogSegmentLedgerMetadata metadata = logSegments.remove(name);
+            if (null != metadata) {
+                lid2LogSegments.remove(metadata.getLedgerId(), metadata);
+                LOG.debug("Removed log segment ({} : {}) from cache.", name, metadata);
+            }
+            return metadata;
+        }
+    }
+
+    /**
      * Get a list of all segments in the journal.
      */
     protected List<LogSegmentLedgerMetadata> getLedgerList(Comparator comparator, boolean throwOnEmpty) throws IOException {
-        List<LogSegmentLedgerMetadata> ledgers
-            = new ArrayList<LogSegmentLedgerMetadata>();
         try {
             List<String> ledgerNames = zooKeeperClient.get().getChildren(ledgerPath, false);
-            for (String n : ledgerNames) {
-                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n);
-                ledgers.add(l);
+            Set<String> segmentsReceived = new HashSet<String>();
+            segmentsReceived.addAll(ledgerNames);
+            Set<String> segmentsAdded;
+            Set<String> segmentsRemoved;
+            synchronized (logSegments) {
+                Set<String> segmentsCached = logSegments.keySet();
+                segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
+                segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
+                for (String s : segmentsRemoved) {
+                    LogSegmentLedgerMetadata segmentMetadata = removeLogSegmentFromCache(s);
+                    LOG.debug("Removed log segment {} from cache : {}.", s, segmentMetadata);
+                }
+            }
+
+            if (segmentsAdded.isEmpty()) {
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("No segments added for {}.", getFullyQualifiedName());
+                }
+                return getCachedLedgerList(comparator);
+            }
+
+            for (String segment : segmentsAdded) {
+                LogSegmentLedgerMetadata l = LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + segment);
+                addLogSegmentToCache(segment, l);
                 if (!l.isInProgress() && (lastLedgerRollingTimeMillis < l.getCompletionTime())) {
                     lastLedgerRollingTimeMillis = l.getCompletionTime();
                 }
@@ -434,11 +537,12 @@ abstract class BKLogPartitionHandler {
             throw new DLInterruptedException("Interrupted on reading ledger list from zk", e);
         }
 
+        List<LogSegmentLedgerMetadata> ledgers = getCachedLedgerList(comparator);
+
         if (throwOnEmpty && ledgers.isEmpty()) {
             throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
         }
 
-        Collections.sort(ledgers, comparator);
         return ledgers;
     }
 
@@ -452,11 +556,39 @@ abstract class BKLogPartitionHandler {
                         callback.operationComplete(-1, null);
                         return;
                     }
-                    final List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(children.size());
-                    final AtomicInteger numChildren = new AtomicInteger(children.size());
+
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Got ledger list from {} : {}", ledgerPath, children);
+                    }
+
+                    Set<String> segmentsReceived = new HashSet<String>();
+                    segmentsReceived.addAll(children);
+                    Set<String> segmentsAdded;
+                    Set<String> segmentsRemoved;
+                    synchronized (logSegments) {
+                        Set<String> segmentsCached = logSegments.keySet();
+                        segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
+                        segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
+                        for (String s : segmentsRemoved) {
+                            LogSegmentLedgerMetadata segmentMetadata = removeLogSegmentFromCache(s);
+                            LOG.debug("Removed log segment {} from cache : {}.", s, segmentMetadata);
+                        }
+                    }
+
+                    if (segmentsAdded.isEmpty()) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("No segments added for {}.", getFullyQualifiedName());
+                        }
+
+                        List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator);
+                        callback.operationComplete(BKException.Code.OK, segmentList);
+                        return;
+                    }
+
+                    final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
-                    for (String n: children) {
-                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + n,
+                    for (final String segment: segmentsAdded) {
+                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + segment,
                         new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
                             @Override
                             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
@@ -468,11 +600,11 @@ abstract class BKLogPartitionHandler {
                                         return;
                                     }
                                 } else {
-                                    segments.add(result);
+                                    addLogSegmentToCache(segment, result);
                                 }
                                 if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
-                                    Collections.sort(segments, comparator);
-                                    callback.operationComplete(BKException.Code.OK, segments);
+                                    List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator);
+                                    callback.operationComplete(BKException.Code.OK, segmentList);
                                 }
                             }
                         });
