@@ -24,6 +24,7 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.ZooKeeper;
@@ -86,7 +87,6 @@ public class TestBookKeeperDistributedLogManager {
     public void teardown() throws Exception {
         zkc.close();
     }
-
 
     private void testNonPartitionedWritesInternal(String name, DistributedLogConfiguration conf) throws Exception {
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
@@ -1478,37 +1478,6 @@ public class TestBookKeeperDistributedLogManager {
             dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
-    }
-
-    @Test
-    public void appendOnlyStreams() throws Exception {
-        String name = "distrlog-append-only-streams";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-        byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
-
-        long txid = 1;
-        AppendOnlyStreamWriter writer = dlmwrite.getAppendOnlyStreamWriter();
-        writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
-        writer.write(DLMTestUtil.repeatString("abc", 40).getBytes());
-        writer.force(false);
-        writer.close();
-        AppendOnlyStreamReader reader = dlmreader.getAppendOnlyStreamReader();
-
-        byte[] bytesIn = new byte[byteStream.length];
-        int read = reader.read(bytesIn, 0, 23);
-        assertEquals(23, read);
-        read = reader.read(bytesIn, 23, 31);
-        assertEquals(read, 31);
-        byte[] bytesInTemp = new byte[byteStream.length];
-        read = reader.read(bytesInTemp, 0, byteStream.length);
-        assertEquals(read, byteStream.length - 23 - 31);
-        read = new ByteArrayInputStream(bytesInTemp).read(bytesIn, 23 + 31, byteStream.length - 23 - 31);
-        assertEquals(read, byteStream.length - 23 - 31);
-        assertArrayEquals(bytesIn, byteStream);
-        reader.close();
         dlmreader.close();
         dlmwrite.close();
     }

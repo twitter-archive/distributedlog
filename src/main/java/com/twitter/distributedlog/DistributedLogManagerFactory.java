@@ -30,6 +30,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -398,9 +399,29 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      */
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
+        return createDistributedLogManagerWithSharedClients(nameOfLogStream, null);
+    }
+
+    /**
+     * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
+     * used by the factory. Override whitelisted stream-level configuration settings with settings found in 
+     * <i>streamConfiguration</i>.  
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @param streamConfiguration
+     *          stream configuration overrides.
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
+    public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream, DistributedLogConfiguration streamConfiguration)
+        throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor,
+        DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
+        mergedConfiguration.loadStreamConf(streamConfiguration);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, mergedConfiguration, namespace,
+            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor, 
             channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);

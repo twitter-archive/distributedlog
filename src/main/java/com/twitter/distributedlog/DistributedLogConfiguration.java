@@ -5,10 +5,16 @@ import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.configuration.SystemConfiguration;
+import org.apache.commons.lang.StringUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
 
 public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
@@ -21,7 +27,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             defaultLoader = DistributedLogConfiguration.class.getClassLoader();
         }
     }
-
+    
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
     public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
@@ -209,6 +215,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
     public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
 
+    // Whitelisted stream-level configuration settings.
+    private static final List<String> streamSettings = Arrays.asList(
+        BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
+        BKDL_ENABLE_IMMEDIATE_FLUSH
+    );
+
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -242,6 +254,31 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public void loadConf(Configuration otherConf) {
         addConfiguration(otherConf);
+    }
+
+    /**
+     * Load whitelisted stream configuration from another configuration object
+     *
+     * @param streamConfiguration stream configuration overrides
+     * @return stream configuration
+     */
+    public void loadStreamConf(DistributedLogConfiguration streamConfiguration) {
+        if (null == streamConfiguration) {
+            return;
+        }
+        ArrayList<String> ignoredSettings = new ArrayList<String>();
+        for (Iterator<String> iterator = streamConfiguration.getKeys(); iterator.hasNext(); ) {
+            String setting = iterator.next();
+            if (streamSettings.contains(setting)) {
+                setProperty(setting, streamConfiguration.getProperty(setting));
+            } else {
+                ignoredSettings.add(setting);
+            }
+        }
+        if (LOG.isWarnEnabled()) {
+            LOG.warn("invalid stream configuration override(s): {}", 
+                StringUtils.join(ignoredSettings, ";"));
+        }
     }
 
     /**

@@ -293,7 +293,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             //
             position = 0;
         }
-        return new AppendOnlyStreamWriter(startLogSegmentNonPartitioned(), position);
+        return new AppendOnlyStreamWriter(startAsyncLogSegmentNonPartitioned(), position);
     }
 
     /**
@@ -333,7 +333,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+    public BKUnPartitionedAsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         BKUnPartitionedAsyncLogWriter writer;
         synchronized (this) {
