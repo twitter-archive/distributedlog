@@ -216,12 +216,35 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         public Collection<String> filter(Collection<String> fullList) {
             List<String> result = new ArrayList<String>(fullList.size());
             String lastCompletedLogSegmentName = null;
+            long lastLedgerSequenceNumber = -1L;
             for (String s : fullList) {
                 if (s.startsWith(DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX)) {
                     result.add(s);
                 } else if (s.startsWith(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX)) {
-                    if (lastCompletedLogSegmentName == null || s.compareTo(lastCompletedLogSegmentName) > 0) {
-                        lastCompletedLogSegmentName = s;
+                    String[] parts = s.split("_");
+                    try {
+                        if (2 == parts.length) {
+                            // name: logrecs_<ledger_sequence_number>
+                            long ledgerSequenceNumber = Long.parseLong(parts[1]);
+                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
+                                lastLedgerSequenceNumber = ledgerSequenceNumber;
+                                lastCompletedLogSegmentName = s;
+                            }
+                        } else if (6 == parts.length) {
+                            // name: logrecs_<start_tx_id>_<end_tx_id>_<ledger_sequence_number>_<ledger_id>_<region_id>
+                            long ledgerSequenceNumber = Long.parseLong(parts[3]);
+                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
+                                lastLedgerSequenceNumber = ledgerSequenceNumber;
+                                lastCompletedLogSegmentName = s;
+                            }
+                        } else {
+                            // name: logrecs_<start_tx_id>_<end_tx_id> or any unknown names
+                            // we don't know the ledger sequence from the name, so add it to the list
+                            result.add(s);
+                        }
+                    } catch (NumberFormatException nfe) {
+                        LOG.warn("Unexpected sequence number in log segment {} :", s, nfe);
+                        result.add(s);
                     }
                 } else {
                     LOG.error("Unknown log segment name : {}", s);
