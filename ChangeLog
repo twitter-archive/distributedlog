@@ -1,3 +1,8 @@
+0.2.17
+------
+- Add log segment metadata cache so as to incrementally read metadata changes 
+- Add option to enable per stream logging
+
 0.2.16
 ------
 - Configurable thread count for channel factory
