@@ -17,23 +17,28 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.DLMetadata;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.List;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for setting up bookkeeper ensembles
  * and bringing individual bookies up and down
  */
-class DLMTestUtil {
-    protected static final Log LOG = LogFactory.getLog(DLMTestUtil.class);
+public class DLMTestUtil {
+    protected static final Logger LOG = LoggerFactory.getLogger(DLMTestUtil.class);
     private final static byte[] payloadStatic = repeatString("abc", 512).getBytes();
 
     static String repeatString(String s, int n) {
@@ -42,6 +47,11 @@ class DLMTestUtil {
             ret += s;
         }
         return ret;
+    }
+
+    static void updateBKDLConfig(URI uri, String zkServers, String ledgersPath, boolean sanityCheckTxnID) throws Exception {
+        BKDLConfig bkdlConfig = new BKDLConfig(zkServers, ledgersPath).setSanityCheckTxnID(sanityCheckTxnID);
+        DLMetadata.create(bkdlConfig).update(uri);
     }
 
     static URI createDLMURI(String path) throws Exception {
@@ -58,6 +68,11 @@ class DLMTestUtil {
         return DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
     }
 
+    public static DistributedLogManager createNewDLM(String name, DistributedLogConfiguration conf,
+                                                     URI uri) throws Exception {
+        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri);
+    }
+
     static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,
                                               String name) throws Exception {
         return DistributedLogManagerFactory.createMetadataAccessor(name, createDLMURI("/" + name), conf);
@@ -65,7 +80,23 @@ class DLMTestUtil {
 
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
-        return new BKLogPartitionWriteHandler(path, p.toString(), conf, createDLMURI("/" + path), null, null, null, NullStatsLogger.INSTANCE, "localhost");
+        return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
+                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, null, null,
+                NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
+    }
+
+    public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
+        try {
+            BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            List<LogSegmentLedgerMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
+            LogSegmentLedgerMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
+            LedgerHandle lh = dlm.getBookKeeperClient().get().openLedger(lastSegment.getLedgerId(),
+                    BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+            lh.close();
+        } finally {
+            dlm.close();
+        }
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {
@@ -124,6 +155,14 @@ class DLMTestUtil {
 
     static void verifyLargeLogRecord(byte[] payload) {
         assertArrayEquals(payloadStatic, payload);
+    }
+
+    static LogRecord getEmptyLogRecordInstance(long txId) {
+        return new LogRecord(txId, new byte[0]);
+    }
+
+    static void verifyEmptyLogRecord(LogRecord record) {
+        assert(record.getPayload().length == 0);
     }
 
 }

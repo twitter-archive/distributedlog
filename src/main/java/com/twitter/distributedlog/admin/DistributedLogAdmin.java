@@ -88,6 +88,8 @@ public class DistributedLogAdmin extends Tool {
             super("bind", "bind the bookkeeper environment settings for a given distributedlog instance.");
             options.addOption("l", "bkLedgers", true, "ZooKeeper ledgers path for bookkeeper instance.");
             options.addOption("s", "bkZkServers", true, "ZooKeeper servers used for bookkeeper instance.");
+            options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
+            options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
             options.addOption("f", "force", false, "Force binding without prompt.");
             options.addOption("c", "creation", false, "Whether is it a creation binding.");
             options.addOption("q", "query", false, "Query the bookkeeper bindings");
@@ -121,58 +123,72 @@ public class DistributedLogAdmin extends Tool {
             boolean creation = cmdline.hasOption("c");
             String bkLedgersPath = cmdline.getOptionValue("l");
             String bkZkServers = cmdline.getOptionValue("s");
+            boolean sanityCheckTxnID =
+                    !cmdline.hasOption("i") || Boolean.parseBoolean(cmdline.getOptionValue("i"));
+            boolean encodeRegionID =
+                    cmdline.hasOption("r") && Boolean.parseBoolean(cmdline.getOptionValue("r"));
             URI uri = URI.create(args[0]);
             // resolving the uri to see if there is another bindings in this uri.
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
                     .sessionTimeoutMs(10000).build();
-            BKDLConfig newBKDLConfig = new BKDLConfig(bkZkServers, bkLedgersPath);
-            BKDLConfig bkdlConfig;
             try {
-                bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
-            } catch (IOException ie) {
-                bkdlConfig = null;
-            }
-            if (null == bkdlConfig) {
-                println("No bookkeeper is bound for " + uri);
-            } else {
-                println("There is bookkeeper bound for " + uri + " : ");
-                println("");
-                println(bkdlConfig.toString());
-                println("");
-                if (!isQuery) {
-                    if (newBKDLConfig.equals(bkdlConfig)) {
-                        println("No bookkeeper binding needs to be updated. Quit.");
-                        return 0;
-                    } else {
-                        if (!force && !IOUtils.confirmPrompt("Are you sure to bind " + uri
-                                    + " with new bookkeeper instance :\n" + newBKDLConfig)) {
-                            println("You just gave up. ByeBye.");
+                BKDLConfig newBKDLConfig =
+                        new BKDLConfig(bkZkServers, bkLedgersPath)
+                                .setSanityCheckTxnID(sanityCheckTxnID)
+                                .setEncodeRegionID(encodeRegionID);
+                BKDLConfig bkdlConfig;
+                try {
+                    bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
+                } catch (IOException ie) {
+                    bkdlConfig = null;
+                }
+                if (null == bkdlConfig) {
+                    println("No bookkeeper is bound for " + uri);
+                } else {
+                    println("There is bookkeeper bound for " + uri + " : ");
+                    println("");
+                    println(bkdlConfig.toString());
+                    println("");
+                    if (!isQuery) {
+                        if (newBKDLConfig.equals(bkdlConfig)) {
+                            println("No bookkeeper binding needs to be updated. Quit.");
                             return 0;
+                        } else {
+                            if (!force && !IOUtils.confirmPrompt("Are you sure to bind " + uri
+                                        + " with new bookkeeper instance :\n" + newBKDLConfig)) {
+                                println("You just gave up. ByeBye.");
+                                return 0;
+                            }
                         }
                     }
                 }
-            }
-            if (isQuery) {
-                println("Done.");
+                if (isQuery) {
+                    println("Done.");
+                    return 0;
+                }
+                DLMetadata dlMetadata = DLMetadata.create(newBKDLConfig);
+                if (creation) {
+                    try {
+                        dlMetadata.create(uri);
+                        println("Created binding on " + uri + ".");
+                    } catch (IOException ie) {
+                        println("Failed to create binding on " + uri + " : " + ie.getMessage());
+                    }
+                } else {
+                    try {
+                        dlMetadata.update(uri);
+                        println("Updated binding on " + uri + " : ");
+                        println("");
+                        println(newBKDLConfig.toString());
+                        println("");
+                    } catch (IOException ie) {
+                        println("Failed to update binding on " + uri + " : " + ie.getMessage());
+                    }
+                }
                 return 0;
+            } finally {
+                zkc.close();
             }
-            DLMetadata dlMetadata = DLMetadata.create(newBKDLConfig);
-            if (creation) {
-                try {
-                    dlMetadata.create(uri);
-                    println("Created binding on " + uri + ".");
-                } catch (IOException ie) {
-                    println("Failed to create binding on " + uri + " : " + ie.getMessage());
-                }
-            } else {
-                try {
-                    dlMetadata.update(uri);
-                    println("Updated binding on " + uri + ".");
-                } catch (IOException ie) {
-                    println("Failed to update binding on " + uri + " : " + ie.getMessage());
-                }
-            }
-            return 0;
         }
     }
 

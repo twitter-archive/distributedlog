@@ -42,6 +42,7 @@ import com.google.common.base.Stopwatch;
 class BKPerStreamLogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
+    private final String fullyQualifiedName;
     private final long firstTxId;
     private final int logVersion;
     protected boolean inProgress;
@@ -49,13 +50,15 @@ class BKPerStreamLogReader {
     protected LedgerDataAccessor ledgerDataAccessor;
     protected boolean isExhausted;
     private LogRecord currLogRec;
+    private DLSN startDLSN = null;
     private final boolean dontSkipControl;
     protected final StatsLogger statsLogger;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(final LogSegmentLedgerMetadata metadata, StatsLogger statsLogger) {
+    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentLedgerMetadata metadata, StatsLogger statsLogger) {
+        this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
@@ -70,9 +73,10 @@ class BKPerStreamLogReader {
      * to take a shortcut during recovery, as it doesn't have to read
      * every edit log transaction to find out what the last one is.
      */
-    BKPerStreamLogReader(LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
+    BKPerStreamLogReader(BKLogPartitionHandler handler, LedgerDescriptor desc, LogSegmentLedgerMetadata metadata,
                          long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl, StatsLogger statsLogger)
         throws IOException {
+        this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
@@ -85,8 +89,8 @@ class BKPerStreamLogReader {
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger);
-        this.reader = new LogRecord.Reader(new DataInputStream(
+        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger);
+        this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
                 DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
@@ -113,10 +117,10 @@ class BKPerStreamLogReader {
         return firstTxId;
     }
 
-    public LogRecord readOp(boolean nonBlocking) throws IOException {
+    public synchronized LogRecordWithDLSN readOp(boolean nonBlocking) throws IOException {
         boolean oldValue = lin.isNonBlocking();
         lin.setNonBlocking(nonBlocking);
-        LogRecord toRet = null;
+        LogRecordWithDLSN toRet = null;
         if (!isExhausted) {
             do {
                 toRet = reader.readOp();
@@ -152,21 +156,31 @@ class BKPerStreamLogReader {
      * If this proves to be too expensive, this can be reimplemented
      * with a binary search over bk entries
      */
-    public boolean skipTo(long txId) throws IOException {
+    public synchronized boolean skipTo(long txId) throws IOException {
         isExhausted = !reader.skipTo(txId);
         return !isExhausted;
     }
+
+    public synchronized boolean skipTo(DLSN dlsn) throws IOException {
+        LOG.info("Skip To {}", dlsn);
+        isExhausted = !reader.skipTo(dlsn);
+        return !isExhausted;
+    }
+
 
     /**
      * Input stream implementation which can be used by
      * LogRecord.Reader
      */
-    protected static class LedgerInputStream extends InputStream {
+    protected static class LedgerInputStream extends InputStream implements RecordStream {
         private long readEntries;
         private InputStream entryStream = null;
+        LedgerReadPosition readPosition = null;
+        private long currentSlotId = 0;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
-        private boolean nonBlocking;
+        private final String fullyQualifiedName;
+        private boolean nonBlocking = false;
         private static Counter getWithNoWaitCount = null;
         private static Counter getWithWaitCount = null;
         private static OpStatsLogger getWithNoWaitStat = null;
@@ -180,8 +194,12 @@ class BKPerStreamLogReader {
          * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
-        LedgerInputStream(LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, StatsLogger statsLogger) {
+        LedgerInputStream(String fullyQualifiedName,
+                          LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
+                          long firstBookKeeperEntry, StatsLogger statsLogger)
+            throws IOException {
+            LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
+            this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
@@ -238,7 +256,7 @@ class BKPerStreamLogReader {
                 return null;
             }
 
-            LedgerReadPosition readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(),
+            readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(),
                                                     ledgerDesc.getLedgerSequenceNo(),
                                                     readEntries);
             LedgerEntry e;
@@ -263,6 +281,7 @@ class BKPerStreamLogReader {
 
             ledgerDataAccessor.remove(readPosition);
             readEntries++;
+            currentSlotId = 0;
             return e.getEntryInputStream();
         }
 
@@ -335,6 +354,23 @@ class BKPerStreamLogReader {
             this.ledgerDataAccessor = ledgerDataAccessor;
         }
 
+        @Override
+        public void advanceToNextRecord() {
+            if (null == readPosition) {
+                return;
+            }
+            currentSlotId++;
+        }
+
+        @Override
+        public DLSN getCurrentPosition() {
+            if (null == readPosition) {
+                return DLSN.InvalidDLSN;
+            }
+
+            return new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
+        }
+
         public boolean reachedEndOfLedger() {
             try {
                 long maxEntry = ledgerDataAccessor.getLastAddConfirmed(ledgerDesc);
@@ -344,6 +380,12 @@ class BKPerStreamLogReader {
             }
         }
 
+        @Override
+        public String getName() {
+            return fullyQualifiedName;
+        }
+
+        @Override
         public String toString() {
             return String.format("Next Entry to read: %s", readEntries);
         }

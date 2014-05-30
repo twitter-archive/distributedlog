@@ -4,21 +4,25 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -31,24 +35,48 @@ public class LedgerDataAccessor {
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
-    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
+    private final Counter readAheadAddHits;
+    private final Counter readAheadAddMisses;
+    private final OpStatsLogger readAheadDeliveryLatencyStat;
+    private final OpStatsLogger negativeReadAheadDeliveryLatencyStat;
+    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
+    private final ConcurrentLinkedQueue<LogRecordWithDLSN> readAheadRecords;
+    private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
+    private AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
-
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName) {
-        this(ledgerHandleCache, streamName, NullStatsLogger.INSTANCE);
-    }
+    private final boolean traceDeliveryLatency;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
+        this(ledgerHandleCache, streamName, statsLogger, null, false);
+    }
+
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger,
+                       AsyncNotification notification, boolean traceDeliveryLatency) {
         this.ledgerHandleCache = ledgerHandleCache;
         this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
+        this.readAheadAddHits = readAheadStatsLogger.getCounter("add_hit");
+        this.readAheadAddMisses = readAheadStatsLogger.getCounter("add_miss");
+        this.readAheadDeliveryLatencyStat = readAheadStatsLogger.getOpStatsLogger("delivery_latency");
+        this.negativeReadAheadDeliveryLatencyStat =
+                readAheadStatsLogger.getOpStatsLogger("negative_delivery_latency");
+        this.notification = notification;
+        this.traceDeliveryLatency = traceDeliveryLatency;
+
+        if (null == notification) {
+            readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
+            readAheadRecords = null;
+        } else {
+           readAheadCache = null;
+           readAheadRecords = new ConcurrentLinkedQueue<LogRecordWithDLSN>();
+        }
     }
 
     public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
@@ -66,6 +94,13 @@ public class LedgerDataAccessor {
         readAheadEnabled = enabled;
         readAheadWaitTime = waitTime;
         readAheadBatchSize = batchSize;
+    }
+
+    private void setLastException(IOException exc) {
+        lastException.set(exc);
+        if (!(exc instanceof EndOfStreamException)) {
+            lastException.set(new RetryableReadException(streamName, exc.getMessage(), exc));
+        }
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
@@ -104,6 +139,7 @@ public class LedgerDataAccessor {
                         return null;
                     } else {
                         LOG.trace("Read-ahead readAheadCache hit for non blocking read");
+                        readAheadHits.inc();
                         return value.getLedgerEntry();
                     }
                 } else {
@@ -127,12 +163,12 @@ public class LedgerDataAccessor {
                         readAheadHits.inc();
                         return value.getLedgerEntry();
                     }
-
-                    readAheadMisses.inc();
-                    if ((readAheadMisses.get() % 1000) == 0) {
-                        LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
-                    }
                 }
+            }
+
+            readAheadMisses.inc();
+            if ((readAheadMisses.get() % 1000) == 0) {
+                LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
             }
 
             Enumeration<LedgerEntry> entries
@@ -145,7 +181,9 @@ public class LedgerDataAccessor {
             if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
                 (ledgerDesc.isFenced() &&
                     (bke.getCode() == BKException.Code.NoSuchEntryException))) {
-                throw new LogReadException("Ledger or Entry Not Found In A Closed Ledger");
+                String errorMessage = String.format("Ledger %d Not Found or Entry %d Not Found In Closed Ledger %d",
+                                                    ledgerDesc.getLedgerId(), key.getEntryId(), ledgerDesc.getLedgerId());
+                throw new LogReadException(errorMessage);
             }
             LOG.info("Reached the end of the stream");
             LOG.debug("Encountered exception at end of stream", bke);
@@ -156,7 +194,32 @@ public class LedgerDataAccessor {
         return null;
     }
 
-    public void set(LedgerReadPosition key, LedgerEntry entry) {
+    public LogRecordWithDLSN getNextReadAheadRecord() throws IOException {
+        if (null != lastException.get()) {
+            throw lastException.get();
+        }
+
+        LogRecordWithDLSN record = readAheadRecords.poll();
+
+        if (null != record) {
+            invokeReadAheadCallback();
+        }
+
+        return record;
+    }
+
+    public void set(LedgerReadPosition key, LedgerEntry entry, String reason) {
+        LOG.trace("Set Called");
+        if (null != readAheadCache) {
+            setReadAheadCacheEntry(key, entry);
+        } else {
+            LOG.trace("Calling process");
+            processNewLedgerEntry(key, entry, reason);
+            notification.notifyOnOperationComplete();
+        }
+    }
+
+    private void setReadAheadCacheEntry(LedgerReadPosition key, LedgerEntry entry) {
         // Read Ahead is completing the read after the foreground reader
         // Don't add the entry to the readAheadCache
         if (key.definitelyLessThanOrEqualTo(lastRemovedKey.get())) {
@@ -171,6 +234,9 @@ public class LedgerDataAccessor {
             if (null == value) {
                 readAheadCache.put(key, newValue);
                 value = newValue;
+                readAheadAddMisses.inc();
+            } else {
+                readAheadAddHits.inc();
             }
         }
 
@@ -222,8 +288,12 @@ public class LedgerDataAccessor {
     }
 
     public int getNumCacheEntries() {
-        synchronized(readAheadCache) {
-            return readAheadCache.size();
+        if (null != readAheadCache) {
+            synchronized(readAheadCache) {
+                return readAheadCache.size();
+            }
+        } else {
+            return readAheadRecords.size();
         }
     }
 
@@ -253,6 +323,59 @@ public class LedgerDataAccessor {
         }
     }
 
+    void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
+                               final String reason) {
+        LogRecord.Reader reader = new LogRecord.Reader(new RecordStream() {
+            long slotId = 0;
+
+            @Override
+            public void advanceToNextRecord() {
+                slotId++;
+            }
+
+            @Override
+            public DLSN getCurrentPosition() {
+                return new DLSN(readPosition.getLedgerSequenceNumber(), readPosition.getEntryId(), slotId);
+            }
+
+            @Override
+            public String getName() {
+                return streamName;
+            }
+        }, new DataInputStream(ledgerEntry.getEntryInputStream()), 0);
+
+        try {
+            while(true) {
+                LogRecordWithDLSN record = reader.readOp();
+                if (null == record) {
+                    break;
+                }
+                if (traceDeliveryLatency && !record.isControl()) {
+                    long currentMs = System.currentTimeMillis();
+                    long deliveryMs = currentMs - record.getTransactionId();
+                    if (deliveryMs >= 0) {
+                        readAheadDeliveryLatencyStat.registerSuccessfulEvent(deliveryMs);
+                    } else {
+                        negativeReadAheadDeliveryLatencyStat.registerSuccessfulEvent(-deliveryMs);
+                    }
+                    if (deliveryMs > 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        LOG.warn("Record {} for stream {} took long time to deliver : publish time = {}, available time = {}, delivery time = {}, reason = {}.",
+                                 new Object[] { record.getDlsn(), streamName, record.getTransactionId(), currentMs, deliveryMs, reason });
+                    }
+                }
+                readAheadRecords.add(record);
+                if (lastReadAheadDLSN.compareTo(record.getDlsn()) >= 0) {
+                    LOG.error("Out of order reads last {} : curr {}", lastReadAheadDLSN, record.getDlsn());
+                    throw new LogReadException("Out of order reads");
+                }
+                lastReadAheadDLSN = record.getDlsn();
+            }
+        } catch (IOException exc) {
+            setLastException(exc);
+        }
+    }
+
+
     private synchronized void invokeReadAheadCallback() {
         if (null != readAheadCallback) {
             if (LOG.isTraceEnabled()) {
@@ -263,9 +386,15 @@ public class LedgerDataAccessor {
         }
     }
 
+
+
     public void clear() {
-        synchronized(readAheadCache) {
-            readAheadCache.clear();
+        if (null != readAheadCache) {
+            synchronized(readAheadCache) {
+                readAheadCache.clear();
+            }
+        } else {
+            readAheadRecords.clear();
         }
     }
 

@@ -1,12 +1,13 @@
 package com.twitter.distributedlog;
 
-import java.io.IOException;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class LogEmptyException extends IOException {
+public class LogEmptyException extends DLException {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = -1106184127178002282L;
 
     public LogEmptyException(String message) {
-        super(message);
+        super(StatusCode.LOG_EMPTY, message);
     }
 }

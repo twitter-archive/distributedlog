@@ -1,11 +1,12 @@
 package com.twitter.distributedlog.exceptions;
 
-import java.io.IOException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
-public class EndOfStreamException extends IOException {
-    private static final long serialVersionUID = 1L;
+public class EndOfStreamException extends DLException {
+
+    private static final long serialVersionUID = -6398949401860680263L;
 
     public EndOfStreamException(String message) {
-        super(message);
+        super(StatusCode.END_OF_STREAM, message);
     }
 }

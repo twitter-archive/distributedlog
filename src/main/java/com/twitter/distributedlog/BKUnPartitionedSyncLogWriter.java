@@ -53,4 +53,3 @@ public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase i
         super.abort();
     }
 }
-

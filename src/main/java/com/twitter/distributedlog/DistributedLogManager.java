@@ -17,6 +17,8 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.callback.LogSegmentListener;
+import com.twitter.util.Future;
 import java.io.IOException;
 
 
@@ -28,6 +30,23 @@ import java.io.IOException;
  * this class, which is created when the EditLog is first opened.
  */
 public interface DistributedLogManager extends MetadataAccessor {
+
+    /**
+     * Register <i>listener</i> on log segment updates of this stream.
+     *
+     * @param listener
+     *          listener to receive update log segment list.
+     */
+    public void registerListener(LogSegmentListener listener) throws IOException ;
+
+    /**
+     * Unregister <i>listener</i> on log segment updates from this stream.
+     *
+     * @param listener
+     *          listener to receive update log segment list.
+     */
+    public void unregisterListener(LogSegmentListener listener);
+
     /**
      * Begin writing to multiple partitions of the log stream identified by the name
      *
@@ -41,6 +60,13 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @return the writer interface to generate log records
      */
     public LogWriter startLogSegmentNonPartitioned() throws IOException;
+
+    /**
+     * Begin writing to the log stream identified by the name
+     *
+     * @return the writer interface to generate log records
+     */
+    public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException;
 
     /**
      * Begin appending to the end of the log stream which is being treated as a sequence of bytes
@@ -77,6 +103,14 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogReader getInputStream(long fromTxnId)
         throws IOException;
 
+    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException;
+
+    public LogReader getInputStream(DLSN fromDLSN) throws IOException;
+
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException;
+
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;
+
     /**
      * Get the last log record before the specified transactionId
      *
@@ -98,7 +132,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @return the last log record in the stream
      * @throws IOException if a stream cannot be found.
      */
-    public LogRecord getLastLogRecord(PartitionId partition)
+    public LogRecordWithDLSN getLastLogRecord(PartitionId partition)
         throws IOException;
 
     /**
@@ -107,7 +141,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @return the last log record in the stream
      * @throws IOException if a stream cannot be found.
      */
-    public LogRecord getLastLogRecord()
+    public LogRecordWithDLSN getLastLogRecord()
         throws IOException;
 
 
@@ -144,6 +178,55 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @throws IOException
      */
     public long getLastTxId() throws IOException;
+
+    /**
+     * Get Latest DLSN in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     * @throws IOException
+     */
+    public DLSN getLastDLSN(PartitionId partition) throws IOException;
+
+    /**
+     * Get Latest DLSN in the non partitioned stream
+     *
+     * @return latest transaction id
+     * @throws IOException
+     */
+    public DLSN getLastDLSN() throws IOException;
+
+    /**
+     * Get Latest Transaction Id in the specified partition of the log - async
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    public Future<Long> getLastTxIdAsync(PartitionId partition);
+
+    /**
+     * Get Latest Transaction Id in the non partitioned stream - async
+     *
+     * @return latest transaction id
+     */
+    public Future<Long> getLastTxIdAsync();
+
+
+    /**
+     * Get Latest DLSN in the specified partition of the log - async
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    public Future<DLSN> getLastDLSNAsync(PartitionId partition);
+
+    /**
+     * Get Latest DLSN in the non partitioned stream - async
+     *
+     * @return latest transaction id
+     */
+    public Future<DLSN> getLastDLSNAsync();
+
 
     /**
      * Get the number of log records in the active portion of the stream for the

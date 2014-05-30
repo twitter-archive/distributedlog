@@ -1,33 +1,73 @@
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 public class AppendOnlyStreamWriter implements Closeable {
-    private BKUnPartitionedSyncLogWriter logWriter;
-    private long currentPos;
+    static final Logger LOG = LoggerFactory.getLogger(AppendOnlyStreamWriter.class);
 
-    public AppendOnlyStreamWriter(BKUnPartitionedSyncLogWriter logWriter, long position) {
+    // Use a 1-length array to satisfy Java's inner class reference rules. Use primitive 
+    // type because synchronized block is needed anyway.
+    final long[] syncPos = new long[1];
+    BKUnPartitionedAsyncLogWriter logWriter;
+    long requestPos = 0;
+    
+    public AppendOnlyStreamWriter(BKUnPartitionedAsyncLogWriter logWriter, long pos) {
+        LOG.debug("initialize at position {}", pos);
         this.logWriter = logWriter;
-        this.currentPos = position;
+        this.syncPos[0] = pos;
+        this.requestPos = pos;
     }
 
-    public void write(byte[] data) throws IOException {
-        currentPos += data.length;
-        logWriter.write(new LogRecord(currentPos, data));
+    public Future<DLSN> write(byte[] data) throws IOException {
+        requestPos += data.length;
+        Future<DLSN> writeResult = logWriter.write(new LogRecord(requestPos, data));
+        writeResult.addEventListener(new WriteCompleteListener(data.length));
+        return writeResult;
     }
 
     public void force(boolean metadata) throws IOException {
         logWriter.setReadyToFlush();
-        logWriter.flushAndSync();
+        long pos = logWriter.flushAndSync();
+        synchronized (syncPos) { 
+            syncPos[0] = pos;
+        }
     }
 
     public long position() {
-        return currentPos;
+        synchronized (syncPos) {
+            return syncPos[0];
+        }
     }
 
     @Override
     public void close() throws IOException {
         logWriter.closeAndComplete();
     }
+
+    class WriteCompleteListener implements FutureEventListener<DLSN> {
+        private final long position;
+        public WriteCompleteListener(long position) {
+            this.position = position;
+        }
+        @Override
+        public void onSuccess(DLSN response) {
+            synchronized (syncPos) {
+                if (position > syncPos[0]) {
+                    syncPos[0] = position;
+                }
+            }
+        }
+        @Override
+        public void onFailure(Throwable cause) {
+            // Handled at the layer above
+        }
+    } 
 }

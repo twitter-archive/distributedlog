@@ -24,15 +24,18 @@ public interface LogReader extends Closeable {
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public LogRecord readNext(boolean nonBlocking) throws IOException;
+    public LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException;
 
     /**
      * Read the next numLogRec log records from the stream
      *
+     * @param nonBlocking should the read make blocking calls to the backend or rely on the
+     * readAhead cache
+     * @param numLogRecords
      * @return an operation from the stream or null if at end of stream
      * @throws IOException if there is an error reading from the stream
      */
-    public List<LogRecord> readBulk(boolean shouldBlock, int numLogRecords) throws IOException;
+    public List<LogRecordWithDLSN> readBulk(boolean nonBlocking, int numLogRecords) throws IOException;
 
     /**
      * Register for notifications of changes to background reader when using
@@ -47,6 +50,6 @@ public interface LogReader extends Closeable {
      * Read the last transaction id
      * @return the last transaction Id that was successfully returned or consumed by the reader
      */
-    @Deprecated
-    public long getLastTxId();
+    //@Deprecated
+    //public long getLastTxId();
 }

@@ -17,13 +17,15 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs.Ids;
+import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for storing and reading
@@ -34,12 +36,53 @@ class MaxTxId {
 
     private final ZooKeeperClient zkc;
     private final String path;
+    private final boolean enabled;
 
-    private Stat currentStat;
+    private long currentMax;
 
-    MaxTxId(ZooKeeperClient zkc, String path) {
+    MaxTxId(ZooKeeperClient zkc, String path, boolean enabled,
+            DataWithStat dataWithStat) {
         this.zkc = zkc;
         this.path = path;
+        this.enabled = enabled && null != dataWithStat && null != dataWithStat.getStat();
+        if (this.enabled) {
+            try {
+                this.currentMax = toTxId(dataWithStat.getData());
+            } catch (UnsupportedEncodingException e) {
+                LOG.warn("Invalid txn id stored in {} : e", path, e);
+                this.currentMax = 0L;
+            }
+        } else {
+            this.currentMax = -1L;
+        }
+    }
+
+    String getZkPath() {
+        return path;
+    }
+
+    synchronized void setMaxTxId(long txId) {
+        if (enabled && this.currentMax < txId) {
+            this.currentMax = txId;
+        }
+    }
+
+    static long toTxId(byte[] data) throws UnsupportedEncodingException {
+        String txidString = new String(data, UTF_8);
+        return Long.valueOf(txidString);
+    }
+
+    static byte[] toBytes(long txId) {
+        String txidString = Long.toString(txId);
+        return txidString.getBytes(UTF_8);
+    }
+
+    synchronized byte[] couldStore(long maxTxId) {
+        if (enabled && currentMax < maxTxId) {
+            return toBytes(maxTxId);
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -51,20 +94,14 @@ class MaxTxId {
      * @throws IOException
      */
     synchronized void store(long maxTxId) throws IOException {
-        long currentMax = get();
-        if (currentMax < maxTxId) {
+        if (enabled && currentMax < maxTxId) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Setting maxTxId to " + maxTxId);
             }
             String txidStr = Long.toString(maxTxId);
             try {
-                if (currentStat != null) {
-                    currentStat = zkc.get().setData(path, txidStr.getBytes("UTF-8"),
-                        currentStat.getVersion());
-                } else {
-                    zkc.get().create(path, txidStr.getBytes("UTF-8"),
-                        Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-                }
+                Stat stat = zkc.get().setData(path, txidStr.getBytes("UTF-8"), -1);
+                currentMax = maxTxId;
             } catch (Exception e) {
                 LOG.error("Error writing new MaxTxId value {}", maxTxId, e);
             }
@@ -72,19 +109,7 @@ class MaxTxId {
     }
 
     synchronized long get() throws IOException {
-        try {
-            currentStat = zkc.get().exists(path, false);
-            if (currentStat == null) {
-                return 0;
-            } else {
-                byte[] bytes = zkc.get().getData(path, false, currentStat);
-                String txidString = new String(bytes, "UTF-8");
-                return Long.valueOf(txidString);
-            }
-        } catch (Exception e) {
-            LOG.error("Error reading the max tx id from zk for path {}", path, e);
-        }
-
-        return 0;
+        return currentMax;
     }
+
 }

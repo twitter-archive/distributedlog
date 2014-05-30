@@ -4,8 +4,6 @@ import java.io.IOException;
 
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -17,12 +15,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 public class TestFailureScenarios {
-    static final Log LOG = LogFactory.getLog(TestBookKeeperDistributedLogManager.class);
-
-    private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration().setLockTimeout(10).setLogSegmentNameVersion(0);
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
@@ -72,13 +67,13 @@ public class TestFailureScenarios {
         out.close();
 
 
-        assertNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
-        assertNotNull(zkc.exists(bkdlm.inprogressZNode(1), false));
+        assertNull(zkc.exists(bkdlm.completedLedgerZNode(-1, 1, 100, 1), false));
+        assertNotNull(zkc.exists(bkdlm.inprogressZNode(-1, 1, 1), false));
 
         bkdlm.recoverIncompleteLogSegments();
 
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
-        assertNull(zkc.exists(bkdlm.inprogressZNode(1), false));
+        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(-1, 1, 100, 1), false));
+        assertNull(zkc.exists(bkdlm.inprogressZNode(-1, 1, 1), false));
 
         FailpointUtils.setFailpoint(
             FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate,
@@ -108,22 +103,22 @@ public class TestFailureScenarios {
         FailpointUtils.removeFailpoint(
             FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
 
-        assertNull(zkc.exists(bkdlm.completedLedgerZNode(101, 101), false));
-        assertNotNull(zkc.exists(bkdlm.inprogressZNode(101), false));
+        assertNull(zkc.exists(bkdlm.completedLedgerZNode(-1, 101, 101, 2), false));
+        assertNotNull(zkc.exists(bkdlm.inprogressZNode(-1, 101, 2), false));
 
         bkdlm.close();
         bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-exc-new-segment");
         bkdlm.recoverIncompleteLogSegments();
 
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(101, 101), false));
-        assertNull(zkc.exists(bkdlm.inprogressZNode(101), false));
+        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(-1, 101, 101, 2), false));
+        assertNull(zkc.exists(bkdlm.inprogressZNode(-1, 101, 2), false));
 
     }
 
     @Test
     public void testFailureInComplete() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-failure-complete-ledger");
-        LogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -143,22 +138,27 @@ public class TestFailureScenarios {
             FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
-        bkdlm.completeAndCloseLogSegment(1, 100, 100);
+        bkdlm.completeAndCloseLogSegment(out.getLedgerSequenceNumber(),
+                out.getLedgerHandle().getId(), 1, 100, 100);
 
         FailpointUtils.removeFailpoint(
             FailpointUtils.FailPointName.FP_FinalizeLedgerBeforeDelete);
 
         // both nodes should stay around in the incorrect sequence
-        assertNotNull(zkc.exists(bkdlm.inprogressZNode(1), false));
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
+        assertNotNull(zkc.exists(bkdlm.inprogressZNode(out.getLedgerHandle().getId(),
+                1, out.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(out.getLedgerHandle().getId(),
+                1, 100, out.getLedgerSequenceNumber()), false));
 
         // Make sure that the completionTime will be different
         Thread.sleep(2);
 
         bkdlm.recoverIncompleteLogSegments();
 
-        assertNull(zkc.exists(bkdlm.inprogressZNode(1), false));
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(1, 100), false));
+        assertNull(zkc.exists(bkdlm.inprogressZNode(out.getLedgerHandle().getId(), 1,
+                out.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100,
+                out.getLedgerSequenceNumber()), false));
     }
 
 }

@@ -1,10 +1,10 @@
 package com.twitter.distributedlog;
 
-import com.google.common.base.Stopwatch;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.stats.Counter;
@@ -16,9 +16,12 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(ResumableBKPerStreamLogReader.class);
+
+    private static Counter resumeMisses = null;
+    private static OpStatsLogger resumeHitStat = null;
+    private static OpStatsLogger resumeSetWatcherStat = null;
 
     private final LogSegmentLedgerMetadata metadata;
     private String zkPath;
@@ -28,9 +31,8 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     private boolean shouldResume = true;
     private AtomicBoolean watchSet = new AtomicBoolean(false);
     private AtomicBoolean nodeDeleteNotification = new AtomicBoolean(false);
-    private static Counter resumeMisses = null;
-    private static OpStatsLogger resumeHitStat = null;
-    private static OpStatsLogger resumeSetWatcherStat = null;
+    private long startBkEntry;
+    private boolean openedWithNoRecovery = true;
 
     /**
      * Construct BookKeeper log record input stream.
@@ -39,14 +41,16 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentLedgerMetadata metadata,
+                                  long startBkEntry,
                                   StatsLogger statsLogger) throws IOException {
-        super(metadata, statsLogger);
+        super(ledgerManager, metadata, statsLogger);
         this.metadata = metadata;
         this.ledgerManager = ledgerManager;
         this.zkc = zkc;
         this.zkPath = metadata.getZkPath();
         this.ledgerDataAccessor = ledgerDataAccessor;
         ledgerDescriptor = null;
+        this.startBkEntry = startBkEntry;
 
         // Stats
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
@@ -65,8 +69,24 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         resume(true);
     }
 
+    /**
+     * Construct BookKeeper log record input stream.
+     */
+    ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
+                                  ZooKeeperClient zkc,
+                                  LedgerDataAccessor ledgerDataAccessor,
+                                  LogSegmentLedgerMetadata metadata,
+                                  StatsLogger statsLogger) throws IOException {
+        this(ledgerManager, zkc, ledgerDataAccessor, metadata, 0, statsLogger);
+    }
+
+    public LogSegmentLedgerMetadata getLogSegmentLedgerMetadata() {
+        return metadata;
+    }
+
     synchronized public void resume(boolean shouldReadLAC) throws IOException {
         if (!shouldResume) {
+            resumeMisses.inc();
             return;
         }
 
@@ -98,13 +118,13 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                 resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (InterruptedException ie) {
                 watchSet.set(false);
+                LOG.warn("Unable to setup latch", ie);
                 resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 throw new DLInterruptedException("Interrupted on setup latch : ", ie);
             }
         }
 
         try {
-            long startBkEntry = 0;
             LedgerDescriptor h = ledgerDescriptor;
             if (null == ledgerDescriptor){
                 h = ledgerManager.getHandleCache().openLedger(metadata, !isInProgress());
@@ -132,7 +152,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                     if (shouldReadLAC && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor))) {
                         ledgerManager.getHandleCache().tryReadLastConfirmed(ledgerDescriptor);
                     }
-                    LOG.debug("Advancing Last Add Confirmed {}", ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    LOG.debug("{} : Advancing Last Add Confirmed {}", ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
                 }
             }
 
@@ -163,7 +183,8 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     public void process(WatchedEvent event) {
         if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
             nodeDeleteNotification.set(true);
-            LOG.debug("Node Deleted");
+            LOG.debug("{} Node Deleted", ledgerManager.getFullyQualifiedName());
+            ledgerManager.notifyOnOperationComplete();
             return;
         } else if (event.getType() == Watcher.Event.EventType.None) {
             if (event.getState() == Watcher.Event.KeeperState.SyncConnected) {
@@ -181,11 +202,19 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
     }
 
     synchronized boolean reachedEndOfLogSegment() {
         return ((null != lin) && !inProgress && lin.reachedEndOfLedger());
+    }
+
+    synchronized public DLSN getNextDLSN() {
+        if (null != lin) {
+            return lin.getCurrentPosition();
+        } else {
+            return DLSN.InvalidDLSN;
+        }
     }
 
     @Override

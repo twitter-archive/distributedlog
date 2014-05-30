@@ -45,6 +45,10 @@ public class Utils {
         return (System.currentTimeMillis() - startMsecTime);
     }
 
+    public static boolean randomPercent(int percent) {
+        return (Math.random() * 100) <= percent;
+    }
+
     public static void zkCreateFullPathOptimistic(
         ZooKeeperClient zkc,
         String path,

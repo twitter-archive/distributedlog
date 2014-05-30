@@ -49,6 +49,7 @@ public class LocalDLMEmulator {
     int nextPort = 6000; // next port for additionally created bookies
     private Thread bkthread = null;
     private final String zkEnsemble;
+    private final URI uri;
     int numBookies;
 
     public LocalDLMEmulator(final int numBookies) throws Exception {
@@ -70,6 +71,7 @@ public class LocalDLMEmulator {
     private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
         this.numBookies = numBookies;
         this.zkEnsemble = zkHost + ":" + zkPort;
+        this.uri = URI.create("distributedlog://" + zkEnsemble + DLOG_NAMESPACE);
 
         bkthread = new Thread() {
             public void run() {
@@ -92,7 +94,6 @@ public class LocalDLMEmulator {
         int bookiesUp = checkBookiesUp(numBookies, 10);
         assert (numBookies == bookiesUp);
         // Provision "/messaging/distributedlog" namespace
-        URI uri = URI.create("distributedlog://" + zkEnsemble + DLOG_NAMESPACE);
         DLMetadata.create(new BKDLConfig(zkEnsemble, "/ledgers")).create(uri);
     }
 
@@ -101,6 +102,18 @@ public class LocalDLMEmulator {
             bkthread.interrupt();
             bkthread.join();
         }
+    }
+
+    public String getZkServers() {
+        return zkEnsemble;
+    }
+
+    public String getBkLedgerPath() {
+        return "/ledgers";
+    }
+
+    public URI getUri() {
+        return uri;
     }
 
     public static ZooKeeper connectZooKeeper()

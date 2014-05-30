@@ -3,8 +3,13 @@ package com.twitter.distributedlog;
 import java.io.Serializable;
 import java.util.Comparator;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class LedgerReadPosition {
-    long ledgerId;
+    static final Logger LOG = LoggerFactory.getLogger(LedgerReadPosition.class);
+
+    long ledgerId = DistributedLogConstants.UNRESOLVED_LEDGER_ID;
     long ledgerSequenceNo;
     long entryId;
 
@@ -14,8 +19,25 @@ public class LedgerReadPosition {
         this.entryId = entryId;
     }
 
+    public LedgerReadPosition(final DLSN dlsn) {
+        this(dlsn.getLedgerSequenceNo(), dlsn.getEntryId());
+    }
+
+    public LedgerReadPosition(long ledgerSequenceNo, long entryId) {
+        this.ledgerSequenceNo = ledgerSequenceNo;
+        this.entryId = entryId;
+    }
+
     public long getLedgerId() {
+        if (DistributedLogConstants.UNRESOLVED_LEDGER_ID == ledgerId) {
+            LOG.trace("Ledger Id is not initialized");
+            throw new IllegalStateException("Ledger Id is not initialized");
+        }
         return ledgerId;
+    }
+
+    public long getLedgerSequenceNumber() {
+        return ledgerSequenceNo;
     }
 
     public long getEntryId() {
@@ -29,7 +51,7 @@ public class LedgerReadPosition {
     public void positionOnNewLedger(long ledgerId, long ledgerSequenceNo) {
         this.ledgerId = ledgerId;
         this.ledgerSequenceNo = ledgerSequenceNo;
-        this.entryId = 0;
+        this.entryId = -1;
     }
 
     @Override

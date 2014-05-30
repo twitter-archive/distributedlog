@@ -1,15 +1,28 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.PermitManager;
+import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.distributedlog.zk.DataWithStat;
+import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.util.Future;
+import com.twitter.util.FuturePool;
+
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
+import org.apache.zookeeper.ZooKeeper;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
@@ -18,30 +31,54 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
 
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
 
+    static String getPartitionPath(URI uri, String streamName, String streamIdentifier) {
+        return String.format("%s/%s/%s", uri.getPath(), streamName, streamIdentifier);
+    }
+
+    static void createUnpartitionedStream(DistributedLogConfiguration conf, ZooKeeper zk, URI uri, String streamName) throws IOException {
+        BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
+            conf.getUnpartitionedStreamName()), zk, true, new DataWithStat(), new DataWithStat());
+    }
+
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
+    private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
     private final ScheduledExecutorService executorService;
+    private final ScheduledExecutorService readAheadExecutor;
     private boolean ownExecutor;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private final BookKeeperClient bookKeeperClient;
     private final StatsLogger statsLogger;
+    private LedgerAllocator ledgerAllocator = null;
+    // Log Segment Rolling Manager to control rolling speed
+    private PermitManager logSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
+    // read handler for listener.
+    private BKLogPartitionReadHandler readHandlerForListener = null;
+    private ExecutorServiceFuturePool orderedFuturePool = null;
+    private ExecutorServiceFuturePool readerFuturePool = null;
+    private ExecutorService metadataExecutor = null;
+
+    private static StatsLogger handlerStatsLogger = null;
+    private static OpStatsLogger createWriteHandlerStats = null;
 
     public BKDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                    ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder,
                                    StatsLogger statsLogger) throws IOException {
         this(name, conf, uri, zkcBuilder, bkcBuilder,
-            Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-            null, null, statsLogger);
+                Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+                null, null, null, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -49,12 +86,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
+                                   ScheduledExecutorService readAheadExecutor,
                                    ClientSocketChannelFactory channelFactory,
                                    HashedWheelTimer requestTimer,
                                    StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, zkcBuilder);
         this.conf = conf;
         this.executorService = executorService;
+        this.readAheadExecutor = null == readAheadExecutor ? executorService : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
 
@@ -67,6 +106,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             if (null == bkcBuilder) {
                 // resolve uri
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
+                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
                         .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
@@ -83,6 +123,34 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
         }
+
+        // Stats
+        if (null == handlerStatsLogger) {
+            handlerStatsLogger = statsLogger.scope("handlers");
+            createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
+        }
+    }
+
+    BookKeeperClient getBookKeeperClient() {
+        return bookKeeperClient;
+    }
+
+    @Override
+    public synchronized void registerListener(LogSegmentListener listener) throws IOException {
+        if (null == readHandlerForListener) {
+            readHandlerForListener = createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            readHandlerForListener.registerListener(listener);
+            readHandlerForListener.scheduleGetLedgersTask(true, true);
+        } else {
+            readHandlerForListener.registerListener(listener);
+        }
+    }
+
+    @Override
+    public synchronized void unregisterListener(LogSegmentListener listener) {
+        if (null != readHandlerForListener) {
+            readHandlerForListener.unregisterListener(listener);
+        }
     }
 
     public void checkClosedOrInError(String operation) throws AlreadyClosedException {
@@ -96,7 +164,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(PartitionId partition) throws IOException {
-        return createReadLedgerHandler(partition.toString());
+        return createReadLedgerHandler(partition.toString(), null);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(PartitionId partition) throws IOException {
@@ -104,13 +172,52 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger);
+        return createReadLedgerHandler(streamIdentifier, null);
     }
 
-    synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, statsLogger, clientId);
+    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                          AsyncNotification notification) throws IOException {
+        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, readAheadExecutor,
+                statsLogger, notification);
+    }
+
+    public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
+        return createWriteLedgerHandler(streamIdentifier, null, null);
+    }
+
+    BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier,
+                                                        FuturePool orderedFuturePool,
+                                                        ExecutorService metadataExecutor)
+            throws IOException {
+        Stopwatch stopwatch = new Stopwatch().start();
+        boolean success = false;
+        try {
+            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
+            success = true;
+            return handler;
+        } finally {
+            if (success) {
+                createWriteHandlerStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            } else {
+                createWriteHandlerStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+        }
+    }
+
+    synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier,
+                                                                   FuturePool orderedFuturePool,
+                                                                   ExecutorService metadataExecutor)
+            throws IOException {
+        BKLogPartitionWriteHandler writeHandler =
+            BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, orderedFuturePool, metadataExecutor,
+                ledgerAllocator, statsLogger, clientId, regionId);
+        PermitManager manager = getLogSegmentRollingPermitManager();
+        if (manager instanceof Watcher) {
+            writeHandler.register((Watcher) manager);
+        }
+        return writeHandler;
     }
 
     public String getClientId() {
@@ -119,6 +226,31 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public void setClientId(String clientId) {
         this.clientId = clientId;
+    }
+
+    int getRegionId() {
+        return regionId;
+    }
+
+    void setRegionId(int regionId) {
+        this.regionId = regionId;
+    }
+
+    public synchronized void setLedgerAllocator(LedgerAllocator allocator) {
+        this.ledgerAllocator = allocator;
+    }
+
+    PermitManager getLogSegmentRollingPermitManager() {
+        return logSegmentRollingPermitManager;
+    }
+
+    void setLogSegmentRollingPermitManager(PermitManager manager) {
+        this.logSegmentRollingPermitManager = manager;
+    }
+
+    @VisibleForTesting
+    synchronized void setMetadataExecutor(ExecutorService service) {
+        this.metadataExecutor = service;
     }
 
     /**
@@ -161,7 +293,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             //
             position = 0;
         }
-        return new AppendOnlyStreamWriter(startLogSegmentNonPartitioned(), position);
+        return new AppendOnlyStreamWriter(startAsyncLogSegmentNonPartitioned(), position);
     }
 
     /**
@@ -196,6 +328,33 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
+     * Begin writing to the log stream identified by the name
+     *
+     * @return the writer interface to generate log records
+     */
+    @Override
+    public BKUnPartitionedAsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+        checkClosedOrInError("startLogSegmentNonPartitioned");
+        BKUnPartitionedAsyncLogWriter writer;
+        synchronized (this) {
+            initializeFuturePool(true);
+            ExecutorService executorService = null;
+            if (conf.getRecoverLogSegmentsInBackground()) {
+                if (null == metadataExecutor) {
+                    metadataExecutor = new ThreadPoolExecutor(0, 1, 60, TimeUnit.SECONDS,
+                            new LinkedBlockingQueue<Runnable>(),
+                            new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-metadata-executor-%d").build());
+                }
+                executorService = metadataExecutor;
+            }
+
+            // proactively recover incomplete logsegments for async log writer
+            writer = new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService);
+        }
+        return writer.recover();
+    }
+
+    /**
      * Get the input stream starting with fromTxnId for the specified log
      *
      * @param partition – the partition (stream) within the log to read from
@@ -222,10 +381,43 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromTxnId);
     }
 
+    @Override
+    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException {
+        return getInputStreamInternal(partition.toString(), fromDLSN);
+    }
+
+    @Override
+    public LogReader getInputStream(DLSN fromDLSN) throws IOException {
+        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromDLSN);
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
+        throw new NotYetImplementedException("getAsyncLogReader");
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        return new BKAsyncLogReaderDLSN(this, executorService, conf.getUnpartitionedStreamName(), fromDLSN, statsLogger);
+    }
+
+    /**
+     * Get the input stream starting with fromTxnId for the specified log
+     *
+     * @param streamIdentifier
+     * @param fromTxnId
+     * @return
+     * @throws IOException
+     */
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReader(this, streamIdentifier, fromTxnId, conf);
+        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf, null);
+    }
+
+    LogReader getInputStreamInternal(String streamIdentifier, DLSN dlsn) throws IOException {
+        checkClosedOrInError("getInputStream");
+        return new BKContinuousLogReaderDLSN(this, streamIdentifier, dlsn, conf, null);
     }
 
     /**
@@ -262,7 +454,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @throws java.io.IOException if a stream cannot be found.
      */
     @Override
-    public LogRecord getLastLogRecord(PartitionId partition) throws IOException {
+    public LogRecordWithDLSN getLastLogRecord(PartitionId partition) throws IOException {
         return getLastLogRecordInternal(partition.toString());
     }
 
@@ -273,11 +465,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @throws java.io.IOException if a stream cannot be found.
      */
     @Override
-    public LogRecord getLastLogRecord() throws IOException {
+    public LogRecordWithDLSN getLastLogRecord() throws IOException {
         return getLastLogRecordInternal(conf.getUnpartitionedStreamName());
     }
 
-    private LogRecord getLastLogRecordInternal(String streamIdentifier) throws IOException {
+    private LogRecordWithDLSN getLastLogRecordInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLastLogRecord");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
@@ -325,6 +517,87 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } finally {
             ledgerHandler.close();
         }
+    }
+
+    @Override
+    public DLSN getLastDLSN(PartitionId partition) throws IOException {
+        return getLastDLSNInternal(partition.toString(), false, false);
+    }
+
+    @Override
+    public DLSN getLastDLSN() throws IOException {
+        return getLastDLSNInternal(conf.getUnpartitionedStreamName(), false, false);
+    }
+
+    private DLSN getLastDLSNInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
+        checkClosedOrInError("getLastDLSN");
+        BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
+        try {
+            return ledgerHandler.getLastDLSN(recover, includeEndOfStream);
+        } finally {
+            ledgerHandler.close();
+        }
+    }
+
+    /**
+     * Get Latest Transaction Id in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    @Override
+    public Future<Long> getLastTxIdAsync(PartitionId partition) {
+        return getLastTxIdAsyncInternal(partition.toString());
+    }
+
+    /**
+     * Get Latest Transaction Id in the non partitioned stream
+     *
+     * @return latest transaction id
+     */
+    @Override
+    public Future<Long> getLastTxIdAsync() {
+        return getLastTxIdAsyncInternal(conf.getUnpartitionedStreamName());
+    }
+
+    private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<Long>() {
+            public Long applyE() throws IOException {
+                return getLastTxIdInternal(streamIdentifier, false, false);
+            }
+        });
+    }
+
+
+    /**
+     * Get Latest DLSN in the specified partition of the log
+     *
+     * @param partition - the partition within the log
+     * @return latest transaction id
+     */
+    @Override
+    public Future<DLSN> getLastDLSNAsync(PartitionId partition) {
+        return getLastDLSNAsyncInternal(partition.toString());
+    }
+
+    /**
+     * Get Latest DLSN in the non partitioned stream
+     *
+     * @return latest transaction id
+     */
+    @Override
+    public Future<DLSN> getLastDLSNAsync() {
+        return getLastDLSNAsyncInternal(conf.getUnpartitionedStreamName());
+    }
+
+    private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<DLSN>() {
+            public DLSN applyE() throws IOException {
+                return getLastDLSNInternal(streamIdentifier, false, false);
+            }
+        });
     }
 
     /**
@@ -531,15 +804,24 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public void close() throws IOException {
-        if (ownExecutor) {
-            executorService.shutdown();
-            try {
-                executorService.awaitTermination(5000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                LOG.warn("Interrupted when shutting down scheduler : ", e);
+        synchronized (this) {
+            if (null != readHandlerForListener) {
+                readHandlerForListener.close();
             }
-            executorService.shutdownNow();
-            LOG.info("Stopped BKDL executor service.");
+        }
+        if (ownExecutor) {
+            SchedulerUtils.shutdownScheduler(executorService, 5000, TimeUnit.MILLISECONDS);
+            LOG.info("Stopped BKDL executor service for {}.", name);
+
+            if (executorService != readAheadExecutor) {
+                SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
+                LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
+            }
+        } else {
+            if (null != metadataExecutor) {
+                metadataExecutor.shutdown();
+            }
+            LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
         try {
             bookKeeperClient.release();
@@ -555,7 +837,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             executorService.submit(task);
             return true;
         } catch (RejectedExecutionException ree) {
-            LOG.error("Task {} is rejected : ", ree);
+            LOG.error("Task {} is rejected : ", task, ree);
             return false;
         }
     }
@@ -576,4 +858,30 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return zooKeeperClient.unregister(watcher);
     }
 
+    private void initializeFuturePool(boolean ordered) {
+        // Note for orderedFuturePool:
+        // Single Threaded Future Pool inherently preserves order by tasks one by one
+        //
+        if (ownExecutor) {
+            // ownExecutor is a single threaded thread pool
+            if (null == orderedFuturePool) {
+                // Readers share the same future pool as the orderedFuturePool
+                orderedFuturePool = new ExecutorServiceFuturePool(executorService);
+                readerFuturePool = orderedFuturePool;
+            }
+        } else if (ordered && (null == orderedFuturePool)) {
+            // When we are using a thread pool that was passed from the factory, we can use
+            // the executor service
+            orderedFuturePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+        } else if (!ordered && (null == readerFuturePool)) {
+            // readerFuturePool can just use the executor service that was configured with the DLM
+            readerFuturePool = new ExecutorServiceFuturePool(executorService);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("DLM:%s:%s", getZKPath(), getName());
+    }
 }

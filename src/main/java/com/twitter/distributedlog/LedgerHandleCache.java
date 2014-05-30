@@ -1,11 +1,15 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,10 +31,35 @@ public class LedgerHandleCache {
 
     private final BookKeeperClient bkc;
     private final String digestpw;
+    private static OpStatsLogger openStats = null;
+    private static OpStatsLogger openNoRecoveryStats = null;
+    private static OpStatsLogger tryReadLastConfirmedStats = null;
+    private static OpStatsLogger readLastConfirmedStats = null;
 
     LedgerHandleCache(BookKeeperClient bkc, String digestpw) {
+        this(bkc, digestpw, NullStatsLogger.INSTANCE);
+    }
+
+    LedgerHandleCache(BookKeeperClient bkc, String digestpw, StatsLogger statsLogger) {
         this.bkc = bkc;
         this.digestpw = digestpw;
+        initializeStats(statsLogger);
+    }
+
+    static synchronized void initializeStats(StatsLogger statsLogger) {
+        // Stats
+        if (openStats == null) {
+            openStats = statsLogger.getOpStatsLogger("open_ledger");
+        }
+        if (openNoRecoveryStats == null) {
+            openNoRecoveryStats = statsLogger.getOpStatsLogger("open_ledger_no_recovery");
+        }
+        if (tryReadLastConfirmedStats == null) {
+            tryReadLastConfirmedStats = statsLogger.getOpStatsLogger("try_read_last_confirmed");
+        }
+        if (readLastConfirmedStats == null) {
+            readLastConfirmedStats = statsLogger.getOpStatsLogger("read_last_confirmed");
+        }
     }
 
     /**
@@ -58,8 +87,8 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
-                                             final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
+    public void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
+                                final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
         final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
         if (null == refhandle) {
@@ -92,9 +121,10 @@ public class LedgerHandleCache {
         }
     }
 
-    public synchronized LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
+    public LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncOpenLedger(metadata, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor ledgerDescriptor) {
@@ -110,7 +140,17 @@ public class LedgerHandleCache {
             throw new IOException("Could not open ledger for " + metadata.getLedgerId(), e);
         }
         if (BKException.Code.OK == syncObject.getrc()) {
+            if (fence) {
+                openStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            } else {
+                openNoRecoveryStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
             return syncObject.getValue();
+        }
+        if (fence) {
+            openStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+        } else {
+            openNoRecoveryStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
         throw BKException.create(syncObject.getrc());
     }
@@ -119,7 +159,7 @@ public class LedgerHandleCache {
         return null == ledgerDescriptor ? null : handlesMap.get(ledgerDescriptor);
     }
 
-    public synchronized void closeLedger(LedgerDescriptor ledgerDesc)
+    public void closeLedger(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
@@ -161,9 +201,30 @@ public class LedgerHandleCache {
         refHandle.handle.asyncTryReadLastConfirmed(callback, ctx);
     }
 
+    public void asyncReadLastConfirmedLongPoll(LedgerDescriptor ledgerDesc, long timeOutInMillis,
+                                          AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readLastConfirmedComplete(BKException.Code.NoSuchLedgerExistsException, -1, ctx);
+            return;
+        }
+        refHandle.handle.asyncReadLastConfirmedLongPoll(timeOutInMillis, callback, ctx);
+    }
+
+    public void asyncReadLastConfirmedAndEntry(LedgerDescriptor ledgerDesc, long timeOutInMillis, boolean parallel,
+                                               AsyncCallback.ReadLastConfirmedAndEntryCallback callback, Object ctx) {
+        RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
+        if (null == refHandle) {
+            callback.readLastConfirmedAndEntryComplete(BKException.Code.NoSuchLedgerExistsException, -1, null, ctx);
+            return;
+        }
+        refHandle.handle.asyncReadLastConfirmedAndEntry(timeOutInMillis, parallel, callback, ctx);
+    }
+
     public void tryReadLastConfirmed(LedgerDescriptor ledgerDesc) throws BKException, InterruptedException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncTryReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object ctx) {
@@ -174,13 +235,15 @@ public class LedgerHandleCache {
         }, null);
         syncObject.block(0);
         if (BKException.Code.OK == syncObject.getrc()) {
+            tryReadLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return;
         }
+        tryReadLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 
-    public synchronized void asyncReadLastConfirmed(LedgerDescriptor ledgerDesc,
-                                                    AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
+    public void asyncReadLastConfirmed(LedgerDescriptor ledgerDesc,
+                                       AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
         RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
         if (null == refHandle) {
             callback.readLastConfirmedComplete(BKException.Code.NoSuchLedgerExistsException, -1, ctx);
@@ -189,10 +252,11 @@ public class LedgerHandleCache {
         refHandle.handle.asyncReadLastConfirmed(callback, ctx);
     }
 
-    public synchronized void readLastConfirmed(LedgerDescriptor ledgerDesc)
+    public void readLastConfirmed(LedgerDescriptor ledgerDesc)
         throws InterruptedException, BKException, IOException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
+        Stopwatch stopwatch = new Stopwatch().start();
         asyncReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object context) {
@@ -203,12 +267,14 @@ public class LedgerHandleCache {
         }, null);
         syncObject.block(0);
         if (BKException.Code.OK == syncObject.getrc()) {
+            readLastConfirmedStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             return;
         }
+        readLastConfirmedStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         throw BKException.create(syncObject.getrc());
     }
 
-    public synchronized void asyncReadEntries(LedgerDescriptor ledgerDesc, long first, long last,
+    public void asyncReadEntries(LedgerDescriptor ledgerDesc, long first, long last,
                                               AsyncCallback.ReadCallback callback, Object ctx) {
         RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);
         if (null == refHandle) {
@@ -218,7 +284,7 @@ public class LedgerHandleCache {
         refHandle.handle.asyncReadEntries(first, last, callback, ctx);
     }
 
-    public synchronized Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
+    public Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
         throws InterruptedException, BKException, IOException {
         final SyncObject<Enumeration<LedgerEntry>> syncObject =
                 new SyncObject<Enumeration<LedgerEntry>>();
@@ -238,7 +304,7 @@ public class LedgerHandleCache {
         throw BKException.create(syncObject.getrc());
     }
 
-    public synchronized long getLength(LedgerDescriptor ledgerDesc) throws IOException {
+    public long getLength(LedgerDescriptor ledgerDesc) throws IOException {
         RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
 
         if (null == refhandle) {

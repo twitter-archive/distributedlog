@@ -1,8 +1,14 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.util.PermitManager;
+
+import com.twitter.util.FuturePool;
+
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,11 +16,12 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 
-public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
+public abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
-    private final BKDistributedLogManager bkDistributedLogManager;
+    protected final BKDistributedLogManager bkDistributedLogManager;
     private final long retentionPeriodInMillis;
     // Used by tests
     private Long minTimestampToKeepOverride = null;
@@ -23,14 +30,12 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     private boolean forceRecovery = false;
     private LogTruncationTask lastTruncationAttempt = null;
     private Watcher sessionExpireWatcher = null;
-    private boolean zkSessionExpired = false;
     protected final DistributedLogConfiguration conf;
 
     public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         this.conf = conf;
         this.bkDistributedLogManager = bkdlm;
         this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
-        sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         LOG.info("Retention Period {}", retentionPeriodInMillis);
     }
 
@@ -49,6 +54,14 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     abstract protected BKPerStreamLogWriter removeCachedLogWriter(String streamIdentifier);
 
     abstract protected Collection<BKPerStreamLogWriter> getCachedLogWriters();
+
+    abstract protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier);
+
+    abstract protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter);
+
+    abstract protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier);
+
+    abstract protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters();
 
     abstract protected void closeAndComplete(boolean shouldThrow) throws IOException;
 
@@ -70,6 +83,13 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
                     LOG.error("Failed to close per stream writer : ", ioe);
                 }
             }
+            for (BKPerStreamLogWriter writer : getAllocatedLogWriters()) {
+                try {
+                    writer.close();
+                } catch (IOException ioe) {
+                    LOG.error("Failed to close allocated per stream writer : ", ioe);
+                }
+            }
             for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
                 try {
                     partitionWriteHandler.close();
@@ -87,13 +107,22 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier, boolean recover) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
-        if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier);
-            cachePartitionHandler(streamIdentifier, ledgerManager);
-        }
+        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null, null);
+        ledgerManager.checkMetadataException();
         if (recover) {
             ledgerManager.recoverIncompleteLogSegments();
+        }
+        return ledgerManager;
+    }
+
+    synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier,
+                                                                                 FuturePool orderedFuturePool,
+                                                                                 ExecutorService metadataExecutor)
+            throws IOException {
+        BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
+        if (null == ledgerManager) {
+            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
+            cachePartitionHandler(streamIdentifier, ledgerManager);
         }
         return ledgerManager;
     }
@@ -103,8 +132,12 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
+        BKPerStreamLogWriter ledgerWriter = getLedgerWriter(streamIdentifier);
+        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */);
+    }
+
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier) throws IOException {
         BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
-        boolean shouldCheckForTruncation = false;
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
@@ -121,16 +154,65 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
             }
         }
 
-        if (null == ledgerWriter) {
-            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId);
-            cacheLogWriter(streamIdentifier, ledgerWriter);
-            shouldCheckForTruncation = true;
-        }
+        return ledgerWriter;
+    }
 
+    synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
+                                                                          String streamIdentifier, long startTxId, boolean bestEffort) throws IOException {
+        boolean shouldCheckForTruncation = false;
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
-        if (ledgerManager.shouldStartNewSegment() || ledgerWriter.shouldStartNewSegment(numRecordsToBeWritten) || forceRolling) {
-            ledgerManager.completeAndCloseLogSegment(ledgerWriter);
-            ledgerWriter = ledgerManager.startLogSegment(startTxId);
+        if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
+            PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
+            try {
+                if (switchPermit.isAllowed()) {
+                    try {
+                        // we switch only when we could allocate a new log segment.
+                        BKPerStreamLogWriter newLedgerWriter = getAllocatedLogWriter(streamIdentifier);
+                        if (null == newLedgerWriter) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
+                                        ledgerManager.getFullyQualifiedName());
+                            }
+                            newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort);
+                            if (null == newLedgerWriter) {
+                                assert (bestEffort);
+                                return null;
+                            }
+
+                            cacheAllocatedLogWriter(streamIdentifier, newLedgerWriter);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
+                                        ledgerManager.getFullyQualifiedName());
+                            }
+                        }
+
+                        // complete the log segment
+                        ledgerManager.completeAndCloseLogSegment(ledgerWriter);
+                        ledgerWriter = newLedgerWriter;
+                        cacheLogWriter(streamIdentifier, ledgerWriter);
+                        removeAllocatedLogWriter(streamIdentifier);
+                        shouldCheckForTruncation = true;
+                    } catch (LockingException le) {
+                        LOG.warn("We lost lock during completeAndClose log segment for {}. Disable ledger rolling until it is recovered : ",
+                                ledgerManager.getFullyQualifiedName(), le);
+                        bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
+                    } catch (ZKException zke) {
+                        if (ZKException.isRetryableZKException(zke)) {
+                            LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
+                                    " Disable ledger rolling until it is recovered : {}", ledgerManager.getFullyQualifiedName(),
+                                    zke.getKeeperExceptionCode());
+                            bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
+                        } else {
+                            throw zke;
+                        }
+                    }
+                }
+            } finally {
+                bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
+            }
+        } else if (null == ledgerWriter) {
+            // if exceptions thrown during initialize we should not catch it.
+            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId, false);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }
@@ -168,11 +250,6 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     }
 
     protected void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (zkSessionExpired) {
-            LOG.error("Executing " + operation + " after losing connection to zookeeper");
-            throw new AlreadyClosedException("Executing " + operation + " after losing connection to zookeeper");
-        }
-
         if (closed) {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
@@ -257,7 +334,7 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
     public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
         checkClosedOrInError("flushAndSync");
 
-        LOG.info("FlushAndSync Started");
+        LOG.debug("FlushAndSync Started");
 
         long highestTransactionId = 0;
 
@@ -280,9 +357,9 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         }
 
         if (writerSet.size() > 0) {
-            LOG.info("FlushAndSync Completed");
+            LOG.debug("FlushAndSync Completed");
         } else {
-            LOG.info("FlushAndSync Completed - Nothing to Flush");
+            LOG.debug("FlushAndSync Completed - Nothing to Flush");
         }
         return highestTransactionId;
     }
@@ -312,8 +389,4 @@ public abstract class BKBaseLogWriter implements ZooKeeperClient.ZooKeeperSessio
         this.forceRecovery = forceRecovery;
     }
 
-    @Override
-    public void notifySessionExpired() {
-        zkSessionExpired = true;
-    }
 }

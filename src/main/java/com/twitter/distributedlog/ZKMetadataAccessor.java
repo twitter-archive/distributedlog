@@ -138,4 +138,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     protected String getZKPath() {
         return String.format("%s/%s", uri.getPath(), name);
     }
+
+    public String getName() {
+        return name;
+    }
 }

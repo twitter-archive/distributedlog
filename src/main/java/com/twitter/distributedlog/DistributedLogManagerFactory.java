@@ -1,12 +1,23 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.callback.NamespaceListener;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.LimitedPermitManager;
+import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
+import com.twitter.distributedlog.util.PermitManager;
+
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
@@ -16,16 +27,21 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class DistributedLogManagerFactory {
+public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Children2Callback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
 
     static interface ZooKeeperClientHandler<T> {
@@ -57,11 +73,17 @@ public class DistributedLogManagerFactory {
         }
     }
 
+    static boolean isReservedStreamName(String name) {
+        return name.startsWith(".");
+    }
+
     private final String clientId;
+    private final int regionId;
     private DistributedLogConfiguration conf;
     private URI namespace;
     private final StatsLogger statsLogger;
-    private final ScheduledExecutorService scheduledExecutorService;
+    private final ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
+    private final ScheduledThreadPoolExecutor readAheadExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     // zk & bk client
@@ -71,6 +93,14 @@ public class DistributedLogManagerFactory {
     private ZooKeeperClient sharedZKClientForBK = null;
     private final BookKeeperClientBuilder bookKeeperClientBuilder;
     private BookKeeperClient bookKeeperClient = null;
+    // ledger allocator
+    private final LedgerAllocator allocator;
+    // log segment rolling permit manager
+    private final PermitManager logSegmentRollingPermitManager;
+    // namespace listener
+    private final AtomicBoolean namespaceWatcherSet = new AtomicBoolean(false);
+    private final CopyOnWriteArraySet<NamespaceListener> namespaceListeners =
+            new CopyOnWriteArraySet<NamespaceListener>();
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -78,20 +108,36 @@ public class DistributedLogManagerFactory {
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
                                         StatsLogger statsLogger) throws IOException, IllegalArgumentException {
-        this(conf, uri, statsLogger, DistributedLogConstants.UNKNOWN_CLIENT_ID);
+        this(conf, uri, statsLogger, DistributedLogConstants.UNKNOWN_CLIENT_ID, DistributedLogConstants.LOCAL_REGION_ID);
     }
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri,
-                                        StatsLogger statsLogger, String clientId) throws IOException, IllegalArgumentException {
+                                        StatsLogger statsLogger, String clientId, int regionId)
+            throws IOException, IllegalArgumentException {
         validateConfAndURI(conf, uri);
         this.conf = conf;
         this.namespace = uri;
         this.statsLogger = statsLogger;
         this.clientId = clientId;
-        this.scheduledExecutorService = Executors.newScheduledThreadPool(
+        this.regionId = regionId;
+        this.scheduledThreadPoolExecutor = new MonitoredScheduledThreadPoolExecutor(
                 conf.getNumWorkerThreads(),
-                new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
+                new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build(),
+                statsLogger.scope("factory").scope("thread_pool"),
+                conf.getTraceReadAheadDeliveryLatency()
         );
+        if (conf.getNumReadAheadWorkerThreads() > 0) {
+            this.readAheadExecutor = new MonitoredScheduledThreadPoolExecutor(
+                    conf.getNumReadAheadWorkerThreads(),
+                    new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-readahead-executor-%d").build(),
+                    statsLogger.scope("factory").scope("readahead_thread_pool"),
+                    conf.getTraceReadAheadDeliveryLatency()
+            );
+            LOG.info("Created dedicated readahead executor : threads = {}", conf.getNumReadAheadWorkerThreads());
+        } else {
+            this.readAheadExecutor = this.scheduledThreadPoolExecutor;
+            LOG.info("Used shared executor for readahead.");
+        }
         this.channelFactory = new NioClientSocketChannelFactory(
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-worker-%d").build()),
@@ -124,6 +170,35 @@ public class DistributedLogManagerFactory {
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
                 .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
+        LOG.info("BookKeeper Client : numIOThreads = {}, numWorkerThreads = {}",
+                 conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads());
+
+        this.logSegmentRollingPermitManager = new LimitedPermitManager(
+                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
+
+        // propagate bkdlConfig to configuration
+        BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+
+        // Build the allocator
+        if (conf.getEnableLedgerAllocatorPool()) {
+            String poolName = conf.getLedgerAllocatorPoolName();
+            if (null == poolName) {
+                LOG.error("No ledger allocator pool name specified when enabling ledger allocator pool.");
+                throw new IOException("No ledger allocator name specified when enabling ledger allocator pool.");
+            }
+            String rootPath = uri.getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE + "/" + poolName;
+            getBookKeeperClientBuilder();
+            allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(rootPath, conf.getLedgerAllocatorPoolCoreSize(), conf,
+                sharedZKClientForDL, getBookKeeperClient());
+            if (null != allocator) {
+                allocator.start();
+            }
+            LOG.info("Created ledger allocator pool under {} with size {}.", rootPath, conf.getLedgerAllocatorPoolCoreSize());
+        } else {
+            allocator = null;
+        }
+
+        LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
 
     synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
@@ -167,6 +242,70 @@ public class DistributedLogManagerFactory {
         });
     }
 
+    private void scheduleTask(Runnable r, long ms) {
+        try {
+            scheduledThreadPoolExecutor.schedule(r, ms, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ree) {
+            LOG.error("Task {} scheduled in {} ms is rejected : ", new Object[] { r, ms, ree });
+        }
+    }
+
+    public DistributedLogManagerFactory registerNamespaceListener(NamespaceListener listener) {
+        if (namespaceListeners.add(listener) && namespaceWatcherSet.compareAndSet(false, true)) {
+            watchNamespaceChanges();
+        }
+        return this;
+    }
+
+    @Override
+    public void run() {
+        watchNamespaceChanges();
+    }
+
+    private void watchNamespaceChanges() {
+        try {
+            sharedZKClientForDL.get().getChildren(namespace.getPath(), this, this, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        } catch (InterruptedException e) {
+            LOG.warn("Interrupted on watching namespace changes for {} : ", namespace, e);
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        }
+    }
+
+    @Override
+    public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+        if (KeeperException.Code.OK.intValue() == rc) {
+            LOG.info("Received updated streams under {} : {}", namespace, children);
+            List<String> result = new ArrayList<String>(children.size());
+            for (String s : children) {
+                if (isReservedStreamName(s)) {
+                    continue;
+                }
+                result.add(s);
+            }
+            for (NamespaceListener listener : namespaceListeners) {
+                listener.onStreamsChanged(result);
+            }
+        } else {
+            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        if (event.getType() == Event.EventType.None) {
+            if (event.getState() == Event.KeeperState.Expired) {
+                scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
+            }
+            return;
+        }
+        if (event.getType() == Event.EventType.NodeChildrenChanged) {
+            // watch namespace changes again.
+            watchNamespaceChanges();
+        }
+    }
+
     /**
      * Create a DistributedLogManager as <i>nameOfLogStream</i>.
      *
@@ -185,7 +324,7 @@ public class DistributedLogManagerFactory {
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            null, null, scheduledExecutorService, channelFactory, requestTimer, statsLogger);
+            null, null, scheduledThreadPoolExecutor, readAheadExecutor, channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -238,8 +377,12 @@ public class DistributedLogManagerFactory {
             .requestTimer(requestTimer).statsLogger(statsLogger);
 
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            sharedZKClientBuilderForDL, bookKeeperClientBuilder, scheduledExecutorService, channelFactory, requestTimer, statsLogger);
+                sharedZKClientBuilderForDL, bookKeeperClientBuilder, scheduledThreadPoolExecutor, readAheadExecutor,
+                channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setRegionId(regionId);
+        distLogMgr.setLedgerAllocator(allocator);
+        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;
     }
 
@@ -256,10 +399,34 @@ public class DistributedLogManagerFactory {
      */
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
+        return createDistributedLogManagerWithSharedClients(nameOfLogStream, null);
+    }
+
+    /**
+     * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
+     * used by the factory. Override whitelisted stream-level configuration settings with settings found in 
+     * <i>streamConfiguration</i>.  
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @param streamConfiguration
+     *          stream configuration overrides.
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
+    public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream, DistributedLogConfiguration streamConfiguration)
+        throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledExecutorService, channelFactory, requestTimer, statsLogger);
+        DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
+        mergedConfiguration.loadStreamConf(streamConfiguration);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, mergedConfiguration, namespace,
+            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor, 
+            channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
+        distLogMgr.setRegionId(regionId);
+        distLogMgr.setLedgerAllocator(allocator);
+        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
         return distLogMgr;
     }
 
@@ -298,7 +465,7 @@ public class DistributedLogManagerFactory {
     }
 
     private static void validateInput(DistributedLogConfiguration conf, URI uri, String nameOfStream)
-        throws IllegalArgumentException {
+        throws IllegalArgumentException, InvalidStreamNameException {
         validateConfAndURI(conf, uri);
         validateName(nameOfStream);
     }
@@ -316,9 +483,12 @@ public class DistributedLogManagerFactory {
         }
     }
 
-    private static void validateName(String nameOfStream) {
+    private static void validateName(String nameOfStream) throws InvalidStreamNameException {
         if (nameOfStream.contains("/")) {
-            throw new IllegalArgumentException("Stream Name contains invalid characters");
+            throw new InvalidStreamNameException(nameOfStream, "Stream Name contains invalid characters");
+        }
+        if (isReservedStreamName(nameOfStream)) {
+            throw new InvalidStreamNameException(nameOfStream, "Stream Name is reserved");
         }
     }
 
@@ -424,7 +594,14 @@ public class DistributedLogManagerFactory {
             if (currentStat == null) {
                 return new LinkedList<String>();
             }
-            return zkc.get().getChildren(namespaceRootPath, false);
+            List<String> children = zkc.get().getChildren(namespaceRootPath, false);
+            List<String> result = new ArrayList<String>(children.size());
+            for (String child : children) {
+                if (!isReservedStreamName(child)) {
+                    result.add(child);
+                }
+            }
+            return result;
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + namespaceRootPath, ie);
             throw new IOException("Interrupted while deleting " + namespaceRootPath, ie);
@@ -457,6 +634,9 @@ public class DistributedLogManagerFactory {
             }
             List<String> children = zkc.get().getChildren(namespaceRootPath, false);
             for(String child: children) {
+                if (isReservedStreamName(child)) {
+                    continue;
+                }
                 String zkPath = String.format("%s/%s", namespaceRootPath, child);
                 currentStat = zkc.get().exists(zkPath, false);
                 if (currentStat == null) {
@@ -475,24 +655,49 @@ public class DistributedLogManagerFactory {
         return result;
     }
 
+    public static void createUnpartitionedStreams(final DistributedLogConfiguration conf, final URI uri,
+                                                  final List<String> streamNames)
+        throws IOException, IllegalArgumentException {
+        withZooKeeperClient(new ZooKeeperClientHandler<Void>() {
+            @Override
+            public Void handle(ZooKeeperClient zkc) throws IOException {
+                for (String s : streamNames) {
+                    try {
+                        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, s);
+                    } catch (InterruptedException e) {
+                        LOG.error("Interrupted on creating unpartitioned stream {} : ", s, e);
+                        return null;
+                    }
+                }
+                return null;
+            }
+        }, conf, uri);
+    }
+
     /**
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
     public void close() {
-        scheduledExecutorService.shutdown();
+        scheduledThreadPoolExecutor.shutdown();
         LOG.info("Executor Service Stopped.");
-        try {
-            BookKeeperClient bkc = getBookKeeperClient();
-            if (null != bkc) {
-                bkc.release();
-            }
-            sharedZKClientForDL.close();
-
-            if (null != sharedZKClientForBK) {
-                sharedZKClientForBK.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Exception while closing distributed log manager factory", e);
+        if (scheduledThreadPoolExecutor != readAheadExecutor) {
+            readAheadExecutor.shutdown();
+            LOG.info("ReadAhead Executor Service Stopped.");
+        }
+        if (null != allocator) {
+            allocator.close(false);
+            LOG.info("Ledger Allocator stopped.");
+        }
+        // force closing all bk/zk clients to avoid zookeeper threads not being
+        // shutdown due to any reference count issue, which make the factory still
+        // holding locks w/o releasing ownerships.
+        BookKeeperClient bkc = getBookKeeperClient();
+        if (null != bkc) {
+            bkc.release(true);
+        }
+        sharedZKClientForDL.close(true);
+        if (null != sharedZKClientForBK) {
+            sharedZKClientForBK.close(true);
         }
         channelFactory.releaseExternalResources();
         requestTimer.stop();

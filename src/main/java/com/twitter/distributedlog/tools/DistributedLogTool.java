@@ -1,12 +1,23 @@
 package com.twitter.distributedlog.tools;
 
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.PartitionId;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -14,9 +25,12 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.configuration.ConfigurationException;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -111,6 +125,49 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    class DeleteAllocatorPoolCommand extends PerDLCommand {
+
+        DeleteAllocatorPoolCommand() {
+            super("delete_allocator_pool", "Delete allocator pool for a given distributedlog instance");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            String rootPath = getUri().getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE;
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).buildNew();
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+            BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog_tool").build();
+            try {
+                List<String> pools = zkc.get().getChildren(rootPath, false);
+                if (IOUtils.confirmPrompt("Are u sure to delete allocator pools : " + pools)) {
+                    for (String pool : pools) {
+                        String poolPath = rootPath + "/" + pool;
+                        LedgerAllocator allocator =
+                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc);
+                        if (null == allocator) {
+                            println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
+                        } else {
+                            allocator.delete();
+                            println("Deleted allocator pool : " + poolPath + " .");
+                        }
+                    }
+                }
+            } finally {
+                bkc.release();
+                zkc.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "delete_allocator_pool";
+        }
+    }
+
     class ListCommand extends PerDLCommand {
 
         boolean printMetadata = false;
@@ -178,6 +235,114 @@ public class DistributedLogTool extends Tool {
                 println(stream);
             }
             println("--------------------------------");
+        }
+    }
+
+    class TruncateCommand extends PerDLCommand {
+
+        int numThreads = 1;
+        String streamPrefix = null;
+        boolean deleteStream = false;
+        boolean force = false;
+
+        TruncateCommand() {
+            super("truncate", "truncate streams under a given dl uri");
+            options.addOption("t", "threads", true, "Number threads to do truncation");
+            options.addOption("f", "filter", true, "Stream filter by prefix");
+            options.addOption("d", "delete", false, "Delete Stream");
+            options.addOption("x", "force", false, "Force execute");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("t")) {
+                numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
+            }
+            if (cmdline.hasOption("f")) {
+                streamPrefix = cmdline.getOptionValue("f");
+            }
+            if (cmdline.hasOption("d")) {
+                deleteStream = true;
+            }
+            force = cmdline.hasOption("x");
+        }
+
+        @Override
+        protected String getUsage() {
+            return "truncate [options]";
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory =
+                    new DistributedLogManagerFactory(getConf(), getUri());
+            int rc = truncateStreams(factory);
+            System.exit(rc);
+            return rc;
+        }
+
+        private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
+            Collection<String> streamCollection = factory.enumerateAllLogsInNamespace();
+            final List<String> streams = new ArrayList<String>();
+            if (null != streamPrefix) {
+                for (String s : streamCollection) {
+                    if (s.startsWith(streamPrefix)) {
+                        streams.add(s);
+                    }
+                }
+            } else {
+                streams.addAll(streamCollection);
+            }
+            if (0 == streams.size()) {
+                return 0;
+            }
+            println("Streams : " + streams);
+            if (!force && !IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
+                return 0;
+            }
+            numThreads = Math.min(streams.size(), numThreads);
+            final int numStreamsPerThreads = streams.size() / numThreads;
+            Thread[] threads = new Thread[numThreads];
+            for (int i = 0; i < numThreads; i++) {
+                final int tid = i;
+                threads[i] = new Thread("Truncate-" + i) {
+                    @Override
+                    public void run() {
+                        try {
+                            truncateStreams(factory, streams, tid, numStreamsPerThreads);
+                            println("Thread " + tid + " finished.");
+                        } catch (IOException e) {
+                            println("Thread " + tid + " quits with exception : " + e.getMessage());
+                        }
+                    }
+                };
+                threads[i].start();
+            }
+            for (int i = 0; i < numThreads; i++) {
+                threads[i].join();
+            }
+            return 0;
+        }
+
+        private void truncateStreams(DistributedLogManagerFactory factory, List<String> streams,
+                                     int tid, int numStreamsPerThreads) throws IOException {
+            int startIdx = tid * numStreamsPerThreads;
+            int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
+            for (int i = startIdx; i < endIdx; i++) {
+                String s = streams.get(i);
+                DistributedLogManager dlm =
+                        factory.createDistributedLogManagerWithSharedClients(s);
+                try {
+                    if (deleteStream) {
+                        dlm.delete();
+                    } else {
+                        dlm.purgeLogsOlderThan(Long.MAX_VALUE);
+                    }
+                } finally {
+                    dlm.close();
+                }
+            }
         }
     }
 
@@ -287,11 +452,91 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    class CreateCommand extends PerDLCommand {
+
+        final List<String> streams = new ArrayList<String>();
+
+        CreateCommand() {
+            super("create", "create streams under a given namespace");
+            options.addOption("r", "prefix", true, "Prefix of stream name. E.g. 'QuantumLeapTest-'.");
+            options.addOption("e", "expression", true, "Expression to generate stream suffix. " +
+                              "Currently we support range 'x-y', list 'x,y,z' and name 'xyz'");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            String streamPrefix = null;
+            String streamExpression = null;
+            if (cmdline.hasOption("r")) {
+                streamPrefix = cmdline.getOptionValue("r");
+            }
+            if (cmdline.hasOption("e")) {
+                streamExpression = cmdline.getOptionValue("e");
+            }
+            if (null == streamPrefix || null == streamExpression) {
+                throw new ParseException("Please specify stream prefix & expression.");
+            }
+            // parse the stream expression
+            if (streamExpression.contains("-")) {
+                // a range expression
+                String[] parts = streamExpression.split("-");
+                if (parts.length != 2) {
+                    throw new ParseException("Invalid stream index range : " + streamExpression);
+                }
+                try {
+                    int start = Integer.parseInt(parts[0]);
+                    int end = Integer.parseInt(parts[1]);
+                    if (start > end) {
+                        throw new ParseException("Invalid stream index range : " + streamExpression);
+                    }
+                    for (int i = start; i <= end; i++) {
+                        streams.add(streamPrefix + i);
+                    }
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid stream index range : " + streamExpression);
+                }
+            } else if (streamExpression.contains(",")) {
+                // a list expression
+                String[] parts = streamExpression.split(",");
+                try {
+                    for (String part : parts) {
+                        int idx = Integer.parseInt(part);
+                        streams.add(streamPrefix + idx);
+                    }
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid stream suffix list : " + streamExpression);
+                }
+            } else {
+                streams.add(streamPrefix + streamExpression);
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            if (streams.isEmpty()) {
+                println("Nothing to create.");
+                return 0;
+            }
+            if (!IOUtils.confirmPrompt("Are u going to create streams : " + streams)) {
+                return 0;
+            }
+            DistributedLogManagerFactory.createUnpartitionedStreams(getConf(), getUri(), streams);
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "create [options]";
+        }
+    }
+
     class DumpCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
         boolean printHex = false;
         Long fromTxnId = null;
+        DLSN fromDLSN = null;
         int count = 100;
 
         DumpCommand() {
@@ -299,6 +544,9 @@ public class DistributedLogTool extends Tool {
             options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("x", "hex", false, "Print record in hex format");
             options.addOption("o", "offset", true, "Txn ID to start dumping.");
+            options.addOption("n", "seqno", true, "Sequence Number to start dumping");
+            options.addOption("e", "eid", true, "Entry ID to start dumping");
+            options.addOption("t", "slot", true, "Slot to start dumping");
             options.addOption("l", "limit", true, "Number of entries to dump. Default is 100.");
         }
 
@@ -330,6 +578,30 @@ public class DistributedLogTool extends Tool {
                     throw new ParseException("Negative count found : " + count);
                 }
             }
+            if (cmdline.hasOption("n")) {
+                long seqno;
+                try {
+                    seqno = Long.parseLong(cmdline.getOptionValue("n"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid sequence number " + cmdline.getOptionValue("n"));
+                }
+                long eid;
+                if (cmdline.hasOption("e")) {
+                    eid = Long.parseLong(cmdline.getOptionValue("e"));
+                } else {
+                    eid = 0;
+                }
+                long slot;
+                if (cmdline.hasOption("t")) {
+                    slot = Long.parseLong(cmdline.getOptionValue("t"));
+                } else {
+                    slot = 0;
+                }
+                fromDLSN = new DLSN(seqno, eid, slot);
+            }
+            if (null == fromTxnId && null == fromDLSN) {
+                throw new ParseException("No start Txn/DLSN is specified.");
+            }
         }
 
         @Override
@@ -340,9 +612,21 @@ public class DistributedLogTool extends Tool {
                 LogReader reader;
                 try {
                     if (null == partitionId) {
-                        reader = dlm.getInputStream(fromTxnId);
+                        DLSN lastDLSN = dlm.getLastDLSNAsync().get();
+                        println("Last DLSN : " + lastDLSN);
+                        if (null == fromDLSN) {
+                            reader = dlm.getInputStream(fromTxnId);
+                        } else {
+                            reader = dlm.getInputStream(fromDLSN);
+                        }
                     } else {
-                        reader = dlm.getInputStream(partitionId, fromTxnId);
+                        DLSN lastDLSN = dlm.getLastDLSNAsync(partitionId).get();
+                        println("Last DLSN : " + lastDLSN);
+                        if (null == fromDLSN) {
+                            reader = dlm.getInputStream(partitionId, fromTxnId);
+                        } else {
+                            reader = dlm.getInputStream(partitionId, fromDLSN);
+                        }
                     }
                 } catch (LogEmptyException lee) {
                     println("No stream found to dump records.");
@@ -382,8 +666,14 @@ public class DistributedLogTool extends Tool {
 
         private void dumpRecord(LogRecord record) {
             println("------------------------------------------------");
-            println("Record (txn = " + record.getTransactionId() + ", bytes = "
-                    + record.getPayload().length + ")");
+            if (record instanceof LogRecordWithDLSN) {
+                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                        + record.getPayload().length + ", dlsn = "
+                        + ((LogRecordWithDLSN) record).getDlsn() + ")");
+            } else {
+                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                        + record.getPayload().length + ")");
+            }
             println("");
             if (printHex) {
                 println(Hex.encodeHexString(record.getPayload()));
@@ -400,10 +690,13 @@ public class DistributedLogTool extends Tool {
 
     public DistributedLogTool() {
         super();
+        addCommand(new CreateCommand());
         addCommand(new ListCommand());
         addCommand(new DumpCommand());
         addCommand(new ShowCommand());
         addCommand(new DeleteCommand());
+        addCommand(new DeleteAllocatorPoolCommand());
+        addCommand(new TruncateCommand());
     }
 
     @Override

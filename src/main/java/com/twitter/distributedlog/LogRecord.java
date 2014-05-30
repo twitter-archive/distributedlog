@@ -51,7 +51,7 @@ public class LogRecord {
     /**
      * This empty constructor can only be called from Reader#readOp.
      */
-    private LogRecord() {
+    protected LogRecord() {
         this.txid = 0;
         this.metadata = 0;
     }
@@ -67,7 +67,7 @@ public class LogRecord {
     }
 
     void setCount(int count) {
-        assert(count > 0);
+        assert(count > 0 || isControl());
         metadata = metadata | (((long)count) << LOGRECORD_METADATA_COUNT_SHIFT);
     }
 
@@ -114,7 +114,7 @@ public class LogRecord {
         return new ByteArrayInputStream(payload);
     }
 
-    private void readPayload(DataInputStream in, int logVersion) throws IOException {
+    protected void readPayload(DataInputStream in, int logVersion) throws IOException {
         int length = in.readInt();
         if (length < 0) {
             throw new EOFException("Log Record is corrupt: Negative length " + length);
@@ -128,11 +128,11 @@ public class LogRecord {
         out.write(payload);
     }
 
-    private void setTransactionId(long txid) {
+    protected void setTransactionId(long txid) {
         this.txid = txid;
     }
 
-    private void setMetadata(long metadata) {
+    protected void setMetadata(long metadata) {
         this.metadata = metadata;
     }
 
@@ -183,6 +183,7 @@ public class LogRecord {
      * from the persistent
       */
     static class Reader {
+        private final RecordStream recordStream;
         private final DataInputStream in;
         private final int logVersion;
         private static final int SKIP_BUFFER_SIZE = 512;
@@ -192,8 +193,9 @@ public class LogRecord {
          *
          * @param in The stream to read from.
          */
-        public Reader(DataInputStream in, int logVersion) {
+        public Reader(RecordStream recordStream, DataInputStream in, int logVersion) {
             this.logVersion = logVersion;
+            this.recordStream = recordStream;
             this.in = in;
         }
 
@@ -206,13 +208,26 @@ public class LogRecord {
          * @return the operation read from the stream, or null at the end of the file
          * @throws IOException on error.
          */
-        public LogRecord readOp() throws IOException {
+        public LogRecordWithDLSN readOp() throws IOException {
             try {
                 long metadata = in.readLong();
-                LogRecord nextRecordInStream = new LogRecord();
+                // Reading the first 8 bytes positions the record stream on the correct log record
+                // By this time all components of the DLSN are valid so this is where we shoud
+                // retrieve the currentDLSN and advance to the next
+                // Given that there are 20 bytes following the read position of the previous call
+                // to readLong, we should not have moved ahead in the stream.
+                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition());
                 nextRecordInStream.setMetadata(metadata);
+                recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
                 nextRecordInStream.readPayload(in, logVersion);
+                if (LOG.isTraceEnabled()) {
+                    if (nextRecordInStream.isControl()) {
+                        LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+                    } else {
+                        LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+                    }
+                }
                 return nextRecordInStream;
             } catch (EOFException eof) {
                 // Expected
@@ -222,14 +237,31 @@ public class LogRecord {
         }
 
         public boolean skipTo(long txId) throws IOException {
+            return skipTo(txId, null);
+        }
+
+        public boolean skipTo(DLSN dlsn) throws IOException {
+            return skipTo(null, dlsn);
+        }
+
+        private boolean skipTo(Long txId, DLSN dlsn) throws IOException {
+            LOG.debug("SkipTo");
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
                 in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
                 try {
                     in.readLong();
+                    if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
+                        }
+                        in.reset();
+                        found = true;
+                        break;
+                    }
                     long currTxId = in.readLong();
-                    if (currTxId >= txId) {
+                    if ((null != txId) && (currTxId >= txId)) {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Found position {} beyond {}", currTxId, txId);
                         }
@@ -254,8 +286,9 @@ public class LogRecord {
                         read += bytesToRead;
                     }
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Skipped Record with TxId {}", currTxId);
+                        LOG.trace("Skipped Record with TxId {} DLSN {}", currTxId, recordStream.getCurrentPosition());
                     }
+                    recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
                     LOG.debug("Skip encountered end of file Exception", eof);
                     break;

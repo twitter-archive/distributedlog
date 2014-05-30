@@ -36,7 +36,6 @@ public class ZooKeeperClientBuilder {
     // retry executor thread count
     private int retryThreadCount = 1;
 
-
     // Cached ZooKeeper Client
     private ZooKeeperClient cachedClient = null;
 

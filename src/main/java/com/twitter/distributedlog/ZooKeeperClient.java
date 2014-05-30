@@ -25,6 +25,8 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -34,7 +36,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 
 
 /**
@@ -50,6 +51,8 @@ public class ZooKeeperClient {
      * Indicates an error connecting to a zookeeper cluster.
      */
     public static class ZooKeeperConnectionException extends IOException {
+        private static final long serialVersionUID = 6682391687004819361L;
+
         public ZooKeeperConnectionException(String message) {
             super(message);
         }
@@ -69,7 +72,7 @@ public class ZooKeeperClient {
         }
     }
 
-    private static final Logger LOG = Logger.getLogger(ZooKeeperClient.class.getName());
+    private static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClient.class.getName());
 
     private final int sessionTimeoutMs;
     private final int defaultConnectionTimeoutMs;
@@ -313,10 +316,12 @@ public class ZooKeeperClient {
     public synchronized void closeInternal() {
         if (zooKeeper != null) {
             try {
+                LOG.info("Closing zookeeper client.");
                 zooKeeper.close();
+                LOG.info("Closed zookeeper client.");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                LOG.warning("Interrupted trying to close zooKeeper");
+                LOG.warn("Interrupted trying to close zooKeeper");
             } finally {
                 zooKeeper = null;
                 sessionState = null;
@@ -328,9 +333,18 @@ public class ZooKeeperClient {
      * Closes the connection when the reference count drops to zero
      * Subsequent attempts to {@link #get} will fail
      */
-    public synchronized void close() {
+    public void close() {
+        close(false);
+    }
+
+    /**
+     * TODO: force close is a temp solution. we need to figure out ref count leaking.
+     * {@link https://jira.twitter.biz/browse/PUBSUB-2232}
+     */
+    public synchronized void close(boolean force) {
         int refs = refCount.decrementAndGet();
-        if (refs == 0) {
+        if (refs == 0 || force) {
+            LOG.info("Close zookeeper client : ref = {}, force = {}.", refs, force);
             closeInternal();
         }
     }

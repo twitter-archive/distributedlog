@@ -165,8 +165,20 @@ public abstract class Tool {
     protected void printToolUsage() {
         println("Usage: " + getName() + " <command>");
         println("");
+        int maxKeyLength = 0;
+        for (String key : commands.keySet()) {
+            if (key.length() > maxKeyLength) {
+                maxKeyLength = key.length();
+            }
+        }
+        maxKeyLength += 2;
         for (Map.Entry<String, Command> entry : commands.entrySet()) {
-            println("\t"  + entry.getKey() + "\t: " + entry.getValue().getDescription());
+            String spaces = "";
+            int numSpaces = maxKeyLength - entry.getKey().length();
+            for (int i = 0; i < numSpaces; i++) {
+                spaces += " ";
+            }
+            println("\t"  + entry.getKey() + spaces + ": " + entry.getValue().getDescription());
         }
         println("");
     }

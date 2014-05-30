@@ -1,60 +1,58 @@
-0.2.17
-------
-- Add log segment metadata cache so as to incrementally read metadata changes 
-- Add option to enable per stream logging
+0.3.15
+----
+- Merge changes from master back to AsyncLogReader
+- Write Control Record for Heartbeat
+- Fixes for proxy shutdown
+- Fixes for duplicated log segments
 
-0.2.16
-------
-- Configurable thread count for channel factory
-- Configurable number of threads for ZK retry
-- Allow sharing ZK client for distributed log across all streams while having a separate BK Client per stream
-- Allow sharing ZK client across several BK Clients
-- Idle Reader Trace Improvements
-- Idle Reader Exception based on configurable threshold
-
-0.2.15
-------
-- Resilience to connection failures in read last add confirmed calls (polling)
-- Fix unbalanced lock release
-- Handle interrupted exception in the read ahead thread
-- Complete the log segment while closing the writer gracefully
-- Logging to detect reader stalls
-
-0.2.14
-------
-- Make non blocking reads robust
-- LinkedHashMap for read ahead cache
-- Disallow hierarchical names
-- Guava 16 Upgrade
-- New BookKeeper version 4.2.11-TWTTR-NETTY
-- Notification of new records for non blocking readers
-
-0.2.12
-------
-- Eliminate redundant repositioning at the legder boundary
-- getWithWait should fetch entries without wait if they are before the read ahead point
-- Optimize resume and eliminate redundant object creation
-- Add an option to disable record counts
-
-0.2.11
-------
-- Allow specifying the number of threads used by BookKeeper Client
-- Share Channel Socket Factory
-- Fix the handling of the watch on resume
-- Require calls in the Reader to be synchronized
-
-0.2.10
-------
-- Diagnostics and IllegalState Exception
-- Non Blocking Reads
-- Handle Read Ahead cache full
-- Exit Read Ahead after non-retryable error
-- Remove redundant ZK access in resumable reader 
-
-0.2.9
+0.3.12
 -----
-- Exclude Control Log Records from getLastTxId
-- Add new method getLastLogRecord
-- Add support to count the number of log records in the stream
-- Propagate InterruptedException to the client
-- ZK Client Fixes
+- Additional stats on readers/read ahead
+- Fixes for proxy restarts
+- Fixes for bookie restarts
+
+0.3.11
+-----
+- Remove blocking calls in the async reader
+- Additional Stats
+- New Finagle Settings for the proxy
+
+0.3.10
+-----
+- New BKC Release (Preliminary changes for region aware placement and reordering)
+- Twitter DNS Resolver
+- Initial DLSN
+
+0.3.9
+-----
+- Upgrade Guava 16
+- Change stats to micro seconds
+- Read Last Add Confirmed Long Polling
+- Piggyback one entry with LAC
+
+0.3.8
+-----
+- Ledger Allocation
+- BKLogPartitionWriteHandler optimizations
+- Flag to enable/disable sanity checking txn id
+- Flag to check and create stream if not exists
+- Throttling ledger rolling speed in DL
+- Resilient to zookeeper exception in writer path
+- TryReadLastAddConfirmed support
+- Retryable ZooKeeper Client
+- Region ID support for log segment
+- Namespace & LogSegment Listener
+- Monitor Service
+- LogSegment Filter
+- Recovery in background
+
+0.3.7
+-----
+- New bookkeeper release
+- Async getLastDLSN
+- Fix for non blocking readers
+- Changes from master upto 0.2.12 
+
+0.3.6
+-----
+- Expose DistributedLog Client Builder in Proxy Builder                                                      
