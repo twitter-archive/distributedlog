@@ -2,6 +2,8 @@ package com.twitter.distributedlog;
 
 import com.google.common.collect.Sets;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,33 +15,24 @@ import static org.junit.Assert.*;
 
 public class TestLogSegmentFilter {
 
-    private static String completedLedgerZNodeNameWithVersion(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
-        return String.format("%s_%018d_%018d_%018d_v%dl%d_%04d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
-                             firstTxId, lastTxId, ledgerSeqNo, DistributedLogConstants.LOGSEGMENT_NAME_VERSION, ledgerId, 1);
-    }
-
-    private static String completedLedgerZNodeNameWithTxID(long firstTxId, long lastTxId) {
-        return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, firstTxId, lastTxId);
-    }
-
-    private static String completedLedgerZNodeNameWithLedgerSequenceNumber(long ledgerSeqNo) {
-        return String.format("%s_%018d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo);
-    }
+    static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentFilter.class);
 
     @Test
     public void testWriteFilter() {
         Set<String> expectedFilteredSegments = new HashSet<String>();
         List<String> segments = new ArrayList<String>();
         for (int i = 1; i <= 5; i++) {
-            segments.add(completedLedgerZNodeNameWithVersion(i, (i - 1) * 100, i * 100 - 1, i));
+            segments.add(DLMTestUtil.completedLedgerZNodeNameWithVersion(i, (i - 1) * 100, i * 100 - 1, i));
         }
         for (int i = 6; i <= 10; i++) {
-            String segmentName = completedLedgerZNodeNameWithLedgerSequenceNumber(i);
+            String segmentName = DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i);
             segments.add(segmentName);
-            expectedFilteredSegments.add(segmentName);
+            if (i == 10) {
+                expectedFilteredSegments.add(segmentName);
+            }
         }
         for (int i = 11; i <= 15; i++) {
-            String segmentName = completedLedgerZNodeNameWithTxID((i - 1) * 100, i * 100 - 1);
+            String segmentName = DLMTestUtil.completedLedgerZNodeNameWithTxID((i - 1) * 100, i * 100 - 1);
             segments.add(segmentName);
             expectedFilteredSegments.add(segmentName);
         }
@@ -51,6 +44,7 @@ public class TestLogSegmentFilter {
         expectedFilteredSegments.add(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX + "_1_2_3_4_5_6_7_8_9");
 
         Collection<String> filteredCollection = BKLogPartitionWriteHandler.WRITE_HANDLE_FILTER.filter(segments);
+        LOG.info("Filter log segments {} to {}.", segments, filteredCollection);
         assertEquals(expectedFilteredSegments.size(), filteredCollection.size());
 
         Set<String> filteredSegments = Sets.newHashSet(filteredCollection);
