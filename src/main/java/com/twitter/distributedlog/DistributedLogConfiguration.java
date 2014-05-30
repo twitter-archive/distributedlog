@@ -275,7 +275,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
                 ignoredSettings.add(setting);
             }
         }
-        if (LOG.isWarnEnabled()) {
+        if (LOG.isWarnEnabled() && !ignoredSettings.isEmpty()) {
             LOG.warn("invalid stream configuration override(s): {}", 
                 StringUtils.join(ignoredSettings, ";"));
         }
