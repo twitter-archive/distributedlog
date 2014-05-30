@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.util.Future;
 import java.io.IOException;
+import java.util.List;
 
 
 /**
@@ -30,6 +31,14 @@ import java.io.IOException;
  * this class, which is created when the EditLog is first opened.
  */
 public interface DistributedLogManager extends MetadataAccessor {
+
+    /**
+     * Get log segments.
+     *
+     * @return log segments
+     * @throws IOException
+     */
+    public List<LogSegmentLedgerMetadata> getLogSegments() throws IOException;
 
     /**
      * Register <i>listener</i> on log segment updates of this stream.

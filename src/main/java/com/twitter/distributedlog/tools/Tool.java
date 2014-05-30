@@ -88,7 +88,7 @@ public abstract class Tool {
         }
     }
 
-    class HelpCommand implements Command {
+    public class HelpCommand implements Command {
 
         @Override
         public String getName() {

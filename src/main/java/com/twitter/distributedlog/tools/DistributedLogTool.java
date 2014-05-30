@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.tools;
 
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DLSN;
@@ -11,18 +12,25 @@ import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.Pair;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.configuration.ConfigurationException;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.ZooDefs;
 
 import java.io.File;
 import java.io.IOException;
@@ -30,17 +38,43 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import static com.google.common.base.Charsets.UTF_8;
 
 public class DistributedLogTool extends Tool {
 
+    static final List<String> EMPTY_LIST = Lists.newArrayList();
+
+    static int compareByCompletionTime(long time1, long time2) {
+        return time1 > time2 ? 1 : (time1 < time2 ? -1 : 0);
+    }
+
+    static final Comparator<LogSegmentLedgerMetadata> LOGSEGMENT_COMPARATOR_BY_TIME = new Comparator<LogSegmentLedgerMetadata>() {
+        @Override
+        public int compare(LogSegmentLedgerMetadata o1, LogSegmentLedgerMetadata o2) {
+            if (o1.isInProgress() && o2.isInProgress()) {
+                return compareByCompletionTime(o1.getFirstTxId(), o2.getFirstTxId());
+            } else if (!o1.isInProgress() && !o2.isInProgress()) {
+                return compareByCompletionTime(o1.getCompletionTime(), o2.getCompletionTime());
+            } else if (o1.isInProgress() && !o2.isInProgress()) {
+                return compareByCompletionTime(o1.getFirstTxId(), o2.getCompletionTime());
+            } else {
+                return compareByCompletionTime(o1.getCompletionTime(), o2.getFirstTxId());
+            }
+        }
+    };
+
     /**
      * Per DL Command, which parses basic options. e.g. uri.
      */
-    abstract class PerDLCommand extends OptsCommand {
+    protected abstract class PerDLCommand extends OptsCommand {
 
         protected Options options = new Options();
         protected final DistributedLogConfiguration dlConf;
@@ -235,6 +269,195 @@ public class DistributedLogTool extends Tool {
                 println(stream);
             }
             println("--------------------------------");
+        }
+    }
+
+    class InspectCommand extends PerDLCommand {
+
+        int numThreads = 1;
+        String streamPrefix = null;
+        boolean printInprogressOnly = false;
+        boolean dumpEntries = false;
+        boolean orderByTime = false;
+        boolean printStreamsOnly = false;
+
+        InspectCommand() {
+            super("inspect", "Inspect streams under a given dl uri to find any potential corruptions");
+            options.addOption("t", "threads", true, "Number threads to do inspection.");
+            options.addOption("f", "filter", true, "Stream filter by prefix");
+            options.addOption("i", "inprogress", false, "Print inprogress log segments only");
+            options.addOption("d", "dump", false, "Dump entries of inprogress log segments");
+            options.addOption("ot", "orderbytime", false, "Order the log segments by completion time");
+            options.addOption("pso", "print-stream-only", false, "Print streams only");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("t")) {
+                numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
+            }
+            if (cmdline.hasOption("f")) {
+                streamPrefix = cmdline.getOptionValue("f");
+            }
+            printInprogressOnly = cmdline.hasOption("i");
+            dumpEntries = cmdline.hasOption("d");
+            orderByTime = cmdline.hasOption("ot");
+            printStreamsOnly = cmdline.hasOption("pso");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory =
+                    new DistributedLogManagerFactory(getConf(), getUri());
+            try {
+                SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates =
+                        new TreeMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>>();
+                inspectStreams(factory, corruptedCandidates);
+                System.out.println("Corrupted Candidates : ");
+                if (printStreamsOnly) {
+                    System.out.println(corruptedCandidates.keySet());
+                    return 0;
+                }
+                for (Map.Entry<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
+                    System.out.println(entry.getKey() + " : \n");
+                    List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(entry.getValue().size());
+                    for (Pair<LogSegmentLedgerMetadata, List<String>> pair : entry.getValue()) {
+                        segments.add(pair.getFirst());
+                        System.out.println("\t - " + pair.getFirst());
+                        if (printInprogressOnly && dumpEntries) {
+                            int i = 0;
+                            for (String entryData : pair.getLast()) {
+                                System.out.println("\t" + i + "\t: " + entryData);
+                                ++i;
+                            }
+                        }
+                    }
+                    System.out.println();
+                }
+                return 0;
+            } finally {
+                factory.close();
+            }
+        }
+
+        private void inspectStreams(final DistributedLogManagerFactory factory,
+                                    final SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
+                throws Exception {
+            Collection<String> streamCollection = factory.enumerateAllLogsInNamespace();
+            final List<String> streams = new ArrayList<String>();
+            if (null != streamPrefix) {
+                for (String s : streamCollection) {
+                    if (s.startsWith(streamPrefix)) {
+                        streams.add(s);
+                    }
+                }
+            } else {
+                streams.addAll(streamCollection);
+            }
+            if (0 == streams.size()) {
+                return;
+            }
+            println("Streams : " + streams);
+            if (!IOUtils.confirmPrompt("Are u sure to inspect " + streams.size() + " streams")) {
+                return;
+            }
+            numThreads = Math.min(streams.size(), numThreads);
+            final int numStreamsPerThreads = streams.size() / numThreads;
+            Thread[] threads = new Thread[numThreads];
+            for (int i = 0; i < numThreads; i++) {
+                final int tid = i;
+                threads[i] = new Thread("Inspect-" + i) {
+                    @Override
+                    public void run() {
+                        try {
+                            inspectStreams(factory, streams, tid, numStreamsPerThreads, corruptedCandidates);
+                            println("Thread " + tid + " finished.");
+                        } catch (Exception e) {
+                            println("Thread " + tid + " quits with exception : " + e.getMessage());
+                        }
+                    }
+                };
+                threads[i].start();
+            }
+            for (int i = 0; i < numThreads; i++) {
+                threads[i].join();
+            }
+        }
+
+        private void inspectStreams(DistributedLogManagerFactory factory, List<String> streams,
+                                    int tid, int numStreamsPerThreads,
+                                    SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates) throws Exception {
+            int startIdx = tid * numStreamsPerThreads;
+            int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
+            for (int i = startIdx; i < endIdx; i++) {
+                String s = streams.get(i);
+                BookKeeperClient bkc = factory.getBookKeeperClientBuilder().build();
+                DistributedLogManager dlm =
+                        factory.createDistributedLogManagerWithSharedClients(s);
+                try {
+                    List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+                    if (segments.size() <= 1) {
+                        continue;
+                    }
+                    LogSegmentLedgerMetadata firstSegment = segments.get(0);
+                    long lastSeqNo = firstSegment.getLedgerSequenceNumber();
+                    boolean isCandidate = false;
+                    for (int j = 1; j < segments.size(); j++) {
+                        LogSegmentLedgerMetadata nextSegment = segments.get(j);
+                        if (lastSeqNo + 1 != nextSegment.getLedgerSequenceNumber()) {
+                            isCandidate = true;
+                            break;
+                        }
+                        ++lastSeqNo;
+                    }
+                    if (isCandidate) {
+                        if (orderByTime) {
+                            Collections.sort(segments, LOGSEGMENT_COMPARATOR_BY_TIME);
+                        }
+                        List<Pair<LogSegmentLedgerMetadata, List<String>>> ledgers =
+                                new ArrayList<Pair<LogSegmentLedgerMetadata, List<String>>>();
+                        for (LogSegmentLedgerMetadata segment : segments) {
+                            List<String> dumpedEntries = new ArrayList<String>();
+                            if (segment.isInProgress()) {
+                                LedgerHandle lh = bkc.get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
+                                                                                 dlConf.getBKDigestPW().getBytes(UTF_8));
+                                try {
+                                    long lac = lh.readLastConfirmed();
+                                    segment.setLastEntryId(lac);
+                                    if (printInprogressOnly && dumpEntries && lac >= 0) {
+                                        Enumeration<LedgerEntry> entries = lh.readEntries(0L, lac);
+                                        while (entries.hasMoreElements()) {
+                                            LedgerEntry entry = entries.nextElement();
+                                            dumpedEntries.add(new String(entry.getEntry(), UTF_8));
+                                        }
+                                    }
+                                } finally {
+                                    lh.close();
+                                }
+                            }
+                            if (printInprogressOnly) {
+                                if (segment.isInProgress()) {
+                                    ledgers.add(Pair.of(segment, dumpedEntries));
+                                }
+                            } else {
+                                ledgers.add(Pair.of(segment, EMPTY_LIST));
+                            }
+                        }
+                        synchronized (corruptedCandidates) {
+                            corruptedCandidates.put(s, ledgers);
+                        }
+                    }
+                } finally {
+                    dlm.close();
+                    bkc.release();
+                }
+            }
+        }
+
+        @Override
+        protected String getUsage() {
+            return "inspect [options]";
         }
     }
 
@@ -437,7 +660,7 @@ public class DistributedLogTool extends Tool {
         @Override
         protected int runCmd() throws Exception {
             DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                getStreamName(), getConf(), getUri());
+                    getStreamName(), getConf(), getUri());
             try {
                 dlm.delete();
             } finally {
@@ -688,6 +911,123 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    /**
+     * Per Ledger Command, which parse common options for per ledger. e.g. ledger id.
+     */
+    abstract class PerLedgerCommand extends PerDLCommand {
+
+        protected long ledgerId;
+
+        protected PerLedgerCommand(String name, String description) {
+            super(name, description);
+            options.addOption("l", "ledger", true, "Ledger ID");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (!cmdline.hasOption("l")) {
+                throw new ParseException("No ledger provided.");
+            }
+            ledgerId = Long.parseLong(cmdline.getOptionValue("l"));
+        }
+
+        protected long getLedgerID() {
+            return ledgerId;
+        }
+    }
+
+    class ReadLastConfirmedCommand extends PerLedgerCommand {
+
+        ReadLastConfirmedCommand() {
+            super("readlac", "read last add confirmed for a given ledger");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).build();
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                            .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog").build();
+                try {
+                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
+                            dlConf.getBKDigestPW().getBytes(UTF_8));
+                    try {
+                        long lac = lh.readLastConfirmed();
+                        println("LastAddConfirmed: " + lac);
+                    } finally {
+                        lh.close();
+                    }
+                } finally {
+                    bkc.release();
+                }
+            } finally {
+                zkc.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "readlac [options]";
+        }
+    }
+
+    class ReadEntriesCommand extends PerLedgerCommand {
+
+        ReadEntriesCommand() {
+            super("readentries", "read entries for a given ledger");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).build();
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                        .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog").build();
+                try {
+                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
+                            dlConf.getBKDigestPW().getBytes(UTF_8));
+                    try {
+                        long lac = lh.readLastConfirmed();
+                        if (lac >= 0) {
+                            Enumeration<LedgerEntry> entries = lh.readEntries(0L, lac);
+                            int i = 0;
+                            System.out.println("Entries:");
+                            while (entries.hasMoreElements()) {
+                                LedgerEntry entry = entries.nextElement();
+                                System.out.println("\t" + i + "\t: " + new String(entry.getEntry(), UTF_8));
+                                ++i;
+                            }
+                        } else {
+                            System.out.println("No entries.");
+                        }
+                    } finally {
+                        lh.close();
+                    }
+                } finally {
+                    bkc.release();
+                }
+            } finally {
+                zkc.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "readentries [options]";
+        }
+    }
+
     public DistributedLogTool() {
         super();
         addCommand(new CreateCommand());
@@ -697,6 +1037,9 @@ public class DistributedLogTool extends Tool {
         addCommand(new DeleteCommand());
         addCommand(new DeleteAllocatorPoolCommand());
         addCommand(new TruncateCommand());
+        addCommand(new InspectCommand());
+        addCommand(new ReadLastConfirmedCommand());
+        addCommand(new ReadEntriesCommand());
     }
 
     @Override

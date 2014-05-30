@@ -201,7 +201,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
 
-    synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
+    public ZooKeeperClient getSharedZKClientForDL() {
+        return sharedZKClientForDL;
+    }
+
+    public synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
         if (null == bookKeeperClient) {
             // get a reference of shared bookkeeper client
             try {
@@ -217,7 +221,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return bookKeeperClientBuilder;
     }
 
-    synchronized BookKeeperClient getBookKeeperClient() {
+    public synchronized BookKeeperClient getBookKeeperClient() {
         return bookKeeperClient;
     }
 
@@ -404,8 +408,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     /**
      * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
-     * used by the factory. Override whitelisted stream-level configuration settings with settings found in 
-     * <i>streamConfiguration</i>.  
+     * used by the factory. Override whitelisted stream-level configuration settings with settings found in
+     * <i>streamConfiguration</i>.
      *
      * @param nameOfLogStream
      *          name of log stream.
@@ -421,7 +425,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
         mergedConfiguration.loadStreamConf(streamConfiguration);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, mergedConfiguration, namespace,
-            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor, 
+            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor,
             channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);

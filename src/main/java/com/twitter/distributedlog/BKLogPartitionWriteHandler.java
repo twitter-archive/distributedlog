@@ -77,7 +77,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        StatsLogger statsLogger,
                                                                        String clientId,
                                                                        int regionId) throws IOException {
-        if (ZK_VERSION.getVersion().equals("3.3")) {
+        if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
                     executorService, orderedFuturePool, metadataExecutor, ledgerAllocator, false, statsLogger, clientId, regionId);
         } else {
@@ -250,7 +250,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     LOG.error("Unknown log segment name : {}", s);
                 }
             }
-            if (result.isEmpty() && null != lastCompletedLogSegmentName) {
+            if (null != lastCompletedLogSegmentName) {
                 result.add(lastCompletedLogSegmentName);
             }
             if (LOG.isTraceEnabled()) {

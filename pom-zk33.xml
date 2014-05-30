@@ -176,6 +176,7 @@
             <exclude>**/bk/LedgerAllocatorPool.java</exclude>
             <exclude>**/bk/SimpleLedgerAllocator.java</exclude>
             <exclude>**/BKLogPartitionWriteHandlerZK34.java</exclude>
+            <exclude>**/metadata/ZkMetadataUpdater34.java</exclude>
           </excludes>
           <testExcludes>
             <exclude>**/bk/**Allocator**</exclude>

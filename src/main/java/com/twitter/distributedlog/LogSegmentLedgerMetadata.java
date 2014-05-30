@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -40,6 +41,52 @@ import static com.google.common.base.Charsets.UTF_8;
  */
 public class LogSegmentLedgerMetadata {
     static final Logger LOG = LoggerFactory.getLogger(LogSegmentLedgerMetadata.class);
+
+    /**
+     * Mutator to mutate the metadata of a log segment. This mutator is going to create
+     * a new instance of the log segment metadata without changing the existing one.
+     */
+    public static class Mutator {
+
+        private final LogSegmentLedgerMetadata original;
+
+        private long ledgerSequenceNumber;
+        private String zkPath;
+
+        Mutator(LogSegmentLedgerMetadata original) {
+            this.original = original;
+            this.ledgerSequenceNumber = original.getLedgerSequenceNumber();
+            this.zkPath = original.getZkPath();
+        }
+
+        public Mutator setLedgerSequenceNumber(long seqNo) {
+            this.ledgerSequenceNumber = seqNo;
+            return this;
+        }
+
+        public Mutator setZkPath(String zkPath) {
+            this.zkPath = zkPath;
+            return this;
+        }
+
+        public LogSegmentLedgerMetadata build() {
+            return new LogSegmentLedgerMetadata(
+                    zkPath,
+                    original.getVersion(),
+                    original.getLedgerId(),
+                    original.getFirstTxId(),
+                    original.getLastTxId(),
+                    original.getCompletionTime(),
+                    original.isInProgress(),
+                    original.getRecordCount(),
+                    ledgerSequenceNumber,
+                    original.getLastEntryId(),
+                    original.getLastSlotId(),
+                    original.getRegionId()
+            );
+        }
+
+    }
 
     private String zkPath;
     private final long ledgerId;
@@ -216,31 +263,31 @@ public class LogSegmentLedgerMetadata {
         this.regionId = regionId;
     }
 
-    String getZkPath() {
+    public String getZkPath() {
         return zkPath;
     }
 
-    String getZNodeName() {
+    public String getZNodeName() {
         return new File(zkPath).getName();
     }
 
-    long getFirstTxId() {
+    public long getFirstTxId() {
         return firstTxId;
     }
 
-    long getLastTxId() {
+    public long getLastTxId() {
         return lastTxId;
     }
 
-    long getCompletionTime() {
+    public long getCompletionTime() {
         return completionTime;
     }
 
-    long getLedgerId() {
+    public long getLedgerId() {
         return ledgerId;
     }
 
-    long getLedgerSequenceNumber() {
+    public long getLedgerSequenceNumber() {
         return lastDLSN.getLedgerSequenceNo();
     }
 
@@ -252,11 +299,17 @@ public class LogSegmentLedgerMetadata {
         return lastDLSN.getEntryId();
     }
 
+    @VisibleForTesting
+    public LogSegmentLedgerMetadata setLastEntryId(long entryId) {
+        lastDLSN = new DLSN(lastDLSN.getLedgerSequenceNo(), entryId, lastDLSN.getSlotId());
+        return this;
+    }
+
     public long getLastSlotId() {
         return lastDLSN.getSlotId();
     }
 
-    DLSN getLastDLSN() {
+    public DLSN getLastDLSN() {
         return lastDLSN;
     }
 
@@ -268,7 +321,7 @@ public class LogSegmentLedgerMetadata {
         return regionId;
     }
 
-    boolean isInProgress() {
+    public boolean isInProgress() {
         return this.inprogress;
     }
 
@@ -282,7 +335,7 @@ public class LogSegmentLedgerMetadata {
         return this.completionTime;
     }
 
-    static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path, int targetVersion)
+    public static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path, int targetVersion)
         throws IOException, KeeperException.NoNodeException {
         try {
             Stat stat = new Stat();
@@ -301,8 +354,8 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    static void read(ZooKeeperClient zkc, String path, final int targetVersion,
-                     final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
+    public static void read(ZooKeeperClient zkc, String path, final int targetVersion,
+                            final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
         try {
             zkc.get().getData(path, false, new AsyncCallback.DataCallback() {
                 @Override
@@ -416,7 +469,7 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    protected String getFinalisedData() {
+    public String getFinalisedData() {
         return getFinalisedData(version, inprogress, ledgerId, firstTxId, lastTxId,
                                 getLedgerSequenceNumber(), getLastEntryId(), getLastSlotId(),
                                 regionId, recordCount, completionTime);
@@ -460,7 +513,7 @@ public class LogSegmentLedgerMetadata {
         this.zkPath = path;
     }
 
-    void write(ZooKeeperClient zkc, String path)
+    public void write(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NodeExistsException {
         this.zkPath = path;
         String finalisedData = getFinalisedData();
@@ -546,5 +599,9 @@ public class LogSegmentLedgerMetadata {
             ", ledgerSequenceNumber:" + getLedgerSequenceNumber() +
             ", lastEntryId:" + getLastEntryId() +
             ", lastSlotId:" + getLastSlotId() + "]";
+    }
+
+    public Mutator mutator() {
+        return new Mutator(this);
     }
 }
