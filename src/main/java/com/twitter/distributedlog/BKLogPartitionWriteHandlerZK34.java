@@ -208,15 +208,13 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             }
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf,
                 lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
-        } catch (Exception exc) {
+        } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed
             // to be best effort, we can retry this later
             if (bestEffort && !wroteInprogressZnode) {
                 return null;
-            } else if (exc instanceof IOException) {
-                throw (IOException) exc;
             } else {
-                throw new IOException("Error creating new log segment", exc);
+                throw exc;
             }
         }
     }

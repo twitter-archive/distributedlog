@@ -498,9 +498,7 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             final DistributedLogManagerFactory factory =
                     new DistributedLogManagerFactory(getConf(), getUri());
-            int rc = truncateStreams(factory);
-            System.exit(rc);
-            return rc;
+            return truncateStreams(factory);
         }
 
         private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {

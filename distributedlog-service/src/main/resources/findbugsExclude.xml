@@ -20,4 +20,10 @@
     <!-- generated code, we can't be held responsible for findbugs in it //-->
     <Class name="~com\.twitter\.distributedlog\.thrift.*" />
   </Match>
+  <Match>
+    <!-- it is safe to cast exception here. //-->
+    <Class name="com.twitter.distributedlog.service.DistributedLogServiceImpl$Stream$2" />
+    <Method name="onFailure" />
+    <Bug pattern="BC_UNCONFIRMED_CAST" />
+  </Match>
 </FindBugsFilter>

@@ -651,28 +651,6 @@ abstract class BKLogPartitionHandler implements Watcher {
         return lastRecord;
     }
 
-    // Ledgers Related Functions
-    // ***Note***
-    // Caching of log segment metadata assumes that the data contained in the ZNodes for individual
-    // log segments is never updated after creation i.e we never call setData. A log segment
-    // is finalized by creating a new ZNode and deleting the in progress node. This code will have
-    // to change if we change the behavior
-
-    private List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator) {
-        List<LogSegmentLedgerMetadata> segmentsToReturn;
-        synchronized (logSegments) {
-            segmentsToReturn = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-            for (String name : logSegments.keySet()) {
-                segmentsToReturn.add(logSegments.get(name));
-            }
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Cached log segments : {}", segmentsToReturn);
-            }
-        }
-        Collections.sort(segmentsToReturn, comparator);
-        return segmentsToReturn;
-    }
-    
     protected void setLastLedgerRollingTimeMillis(long rollingTimeMillis) {
         if (lastLedgerRollingTimeMillis < rollingTimeMillis) {
             lastLedgerRollingTimeMillis = rollingTimeMillis;
@@ -684,6 +662,11 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     // Ledgers Related Functions
+    // ***Note***
+    // Caching of log segment metadata assumes that the data contained in the ZNodes for individual
+    // log segments is never updated after creation i.e we never call setData. A log segment
+    // is finalized by creating a new ZNode and deleting the in progress node. This code will have
+    // to change if we change the behavior
 
     private List<LogSegmentLedgerMetadata> getCachedLedgerList(Comparator comparator, LogSegmentFilter segmentFilter) {
         List<LogSegmentLedgerMetadata> segmentsToReturn;

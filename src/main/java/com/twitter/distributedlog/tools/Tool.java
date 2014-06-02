@@ -173,12 +173,12 @@ public abstract class Tool {
         }
         maxKeyLength += 2;
         for (Map.Entry<String, Command> entry : commands.entrySet()) {
-            String spaces = "";
+            StringBuilder spacesBuilder = new StringBuilder();
             int numSpaces = maxKeyLength - entry.getKey().length();
             for (int i = 0; i < numSpaces; i++) {
-                spaces += " ";
+                spacesBuilder.append(" ");
             }
-            println("\t"  + entry.getKey() + spaces + ": " + entry.getValue().getDescription());
+            println("\t"  + entry.getKey() + spacesBuilder.toString() + ": " + entry.getValue().getDescription());
         }
         println("");
     }

@@ -309,6 +309,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     public IOException closeInternal(boolean attemptFlush, boolean enforceLock) {
+        synchronized (this) {
+            if (closed) {
+                return null;
+            }
+            closed = true;
+        }
+
         IOException throwExc = null;
         // Cancel the periodic flush schedule first
         // The task is allowed to exit gracefully
@@ -339,7 +346,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         }
 
         closeLedgerHandle(0);
-        closed = true;
         lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         return throwExc;
@@ -563,7 +569,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 } catch (Exception exc) {
                     shouldFlushControl.addAndGet(preFlushCounter);
                     preFlushCounter = 0;
-                    throw new FlushException("Flush encountered an error while writing data to the backend", lastTxId, lastTxIdAcknowledged, exc);
+                    throw new FlushException("Flush encountered an error while writing data to the backend", getLastTxId(), lastTxIdAcknowledged, exc);
                 }
             }
 
@@ -577,7 +583,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 flushAndSyncInternal();
             } catch (Exception exc) {
                 shouldFlushControl.addAndGet(preFlushCounter);
-                throw new FlushException("Flush encountered an error while writing data to backend", lastTxId, lastTxIdAcknowledged, exc);
+                throw new FlushException("Flush encountered an error while writing data to backend", getLastTxId(), getLastTxIdAcknowledged(), exc);
             } finally {
                 preFlushCounter = 0;
             }
@@ -612,11 +618,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         try {
             waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
-            throw new FlushException("Wait for Flush Interrupted", lastTxId, lastTxIdAcknowledged, ie);
+            throw new FlushException("Wait for Flush Interrupted", getLastTxId(), getLastTxIdAcknowledged(), ie);
         }
 
         if (!waitSuccessful) {
-            throw new FlushException("Flush request timed out", lastTxId, lastTxIdAcknowledged);
+            throw new FlushException("Flush request timed out", getLastTxId(), getLastTxIdAcknowledged());
         }
 
         synchronized (this) {
@@ -814,8 +820,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         return (numRecords > (Integer.MAX_VALUE - recordCount));
     }
 
-    public long getLastTxId() {
+    public synchronized long getLastTxId() {
         return lastTxId;
+    }
+
+    synchronized long getLastTxIdAcknowledged() {
+        return lastTxIdAcknowledged;
     }
 
     public int getRecordCount() {
