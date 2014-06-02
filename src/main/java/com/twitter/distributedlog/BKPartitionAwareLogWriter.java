@@ -12,8 +12,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.util.Pair;
-
 class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwareLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKPartitionAwareLogWriter.class);
     private final HashMap<String, BKPerStreamLogWriter> partitionToWriter;

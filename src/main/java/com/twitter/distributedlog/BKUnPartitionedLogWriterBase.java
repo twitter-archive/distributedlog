@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedList;
 
-import com.twitter.distributedlog.util.Pair;
 import com.google.common.annotations.VisibleForTesting;
 
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {

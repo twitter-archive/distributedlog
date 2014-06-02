@@ -22,12 +22,12 @@ import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.util.Pair;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -438,7 +438,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
             if (l.isInProgress()) {
                 try {
-                    long lastTxId = readLastTxIdInLedger(l, false).getFirst();
+                    long lastTxId = readLastTxIdInLedger(l, false).getLeft();
                     if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {

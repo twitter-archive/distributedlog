@@ -19,7 +19,6 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.util.Pair;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -29,8 +28,7 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.configuration.ConfigurationException;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.File;
 import java.io.IOException;
@@ -323,11 +321,11 @@ public class DistributedLogTool extends Tool {
                     System.out.println(entry.getKey() + " : \n");
                     List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(entry.getValue().size());
                     for (Pair<LogSegmentLedgerMetadata, List<String>> pair : entry.getValue()) {
-                        segments.add(pair.getFirst());
-                        System.out.println("\t - " + pair.getFirst());
+                        segments.add(pair.getLeft());
+                        System.out.println("\t - " + pair.getLeft());
                         if (printInprogressOnly && dumpEntries) {
                             int i = 0;
-                            for (String entryData : pair.getLast()) {
+                            for (String entryData : pair.getRight()) {
                                 System.out.println("\t" + i + "\t: " + entryData);
                                 ++i;
                             }

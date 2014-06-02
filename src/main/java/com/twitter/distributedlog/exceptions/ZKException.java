@@ -4,6 +4,9 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
 
+/**
+ * TODO: move ZKException to distributedlog-protocol
+ */
 public class ZKException extends DLException {
 
     private static final long serialVersionUID = 7542748595054923600L;

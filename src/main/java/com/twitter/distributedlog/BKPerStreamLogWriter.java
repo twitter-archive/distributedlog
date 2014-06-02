@@ -412,12 +412,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     synchronized private Future<DLSN> writeUserRecord(LogRecord record) throws IOException {
         if (closed) {
-            throw new WriteException(fullyQualifiedLogSegment, BKException.Code.LedgerClosedException);
+            throw new WriteException(fullyQualifiedLogSegment, BKException.getMessage(BKException.Code.LedgerClosedException));
         }
 
         if (BKException.Code.OK != transmitResult.get()) {
             // Failfast if the stream already encountered error with safe retry on the client
-            throw new WriteException(fullyQualifiedLogSegment, transmitResult.get());
+            throw new WriteException(fullyQualifiedLogSegment, BKException.getMessage(transmitResult.get()));
         }
 
         if (streamEnded) {
