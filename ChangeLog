@@ -1,3 +1,9 @@
+0.3.16
+----
+- Fix Write Filter
+- Tools to fix inprogress log segments with lower sequence number
+- Split DL Modules
+
 0.3.15
 ----
 - Merge changes from master back to AsyncLogReader
