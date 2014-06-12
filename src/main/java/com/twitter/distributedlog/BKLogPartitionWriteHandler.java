@@ -132,6 +132,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     // stub for allocation path. (used by zk34)
     protected final String allocationPath;
     protected final DataWithStat allocationData;
+    protected final MaxLedgerSequenceNo maxLedgerSequenceNo;
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
     protected FuturePool orderedFuturePool;
@@ -384,9 +385,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         // lockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat maxTxIdData = new DataWithStat();
         allocationData = new DataWithStat();
+        final DataWithStat ledgersData = new DataWithStat();
 
         if (conf.getCreateStreamIfNotExists() || ownAllocator) {
-
             final ZooKeeper zk;
             try {
                 zk = zooKeeperClient.get();
@@ -395,8 +396,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new DLInterruptedException("Failed to initialize zookeeper client", e);
             }
 
-            createStreamIfNotExists(partitionRootPath, zk, ownAllocator, allocationData, maxTxIdData);
+            createStreamIfNotExists(partitionRootPath, zk, ownAllocator, allocationData, maxTxIdData, ledgersData);
+        } else {
+            getLedgersData(ledgersData);
         }
+
+        maxLedgerSequenceNo = new MaxLedgerSequenceNo(ledgersData);
 
         // Schedule fetching ledgers list in background before we access it.
         // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
@@ -453,7 +458,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     static void createStreamIfNotExists(final String partitionRootPath,
                                         final ZooKeeper zk, final boolean ownAllocator,
                                         final DataWithStat allocationData,
-                                        final DataWithStat maxTxIdData) throws IOException {
+                                        final DataWithStat maxTxIdData,
+                                        final DataWithStat ledgersData) throws IOException {
         final String ledgerPath = partitionRootPath + "/ledgers";
         final String maxTxIdPath = partitionRootPath + "/maxtxid";
         final String lockPath = partitionRootPath + "/lock";
@@ -462,7 +468,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // lockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat lockData = new DataWithStat();
-        final DataWithStat ledgersData = new DataWithStat();
         final DataWithStat versionData = new DataWithStat();
 
         final CountDownLatch initializeLatch = new CountDownLatch(1);
@@ -591,6 +596,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (IllegalArgumentException iae) {
             throw new UnexpectedException("Invalid partition " + partitionRootPath, iae);
         }
+    }
+
+    protected void getLedgersData(final DataWithStat ledgersData) throws IOException {
+        // nop: for zk33 write handler, we don't need this ledgers data
     }
 
     void checkMetadataException() throws IOException {
@@ -742,6 +751,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
             maxTxId.store(txId);
             addLogSegmentToCache(inprogressZnodeName, l);
+            LOG.info("Created inprogress log segment {} for {} : {}",
+                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName,
                 conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
         } catch (Exception e) {
@@ -961,6 +972,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                         + " but data doesn't match");
                 }
             }
+            LOG.info("Created {} for completing segment {} for {} : {}",
+                     new Object[] { nameForCompletedLedger, ledgerSeqNo, getFullyQualifiedName(), l });
+
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
 
@@ -969,6 +983,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
 
             zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
+            LOG.info("Deleted {} for completing segment {} for {} : {}",
+                    new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), l });
+
             removeLogSegmentToCache(inprogressZnodeName);
             addLogSegmentToCache(nameForCompletedLedger, l);
         } catch (InterruptedException e) {
