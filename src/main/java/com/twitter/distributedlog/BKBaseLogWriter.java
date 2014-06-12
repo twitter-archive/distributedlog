@@ -157,6 +157,11 @@ public abstract class BKBaseLogWriter {
         return ledgerWriter;
     }
 
+    synchronized boolean shouldShartNewSegment(BKPerStreamLogWriter ledgerWriter, String streamIdentifier) throws IOException {
+        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
+        return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
+    }
+
     synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
                                                                           String streamIdentifier, long startTxId, boolean bestEffort) throws IOException {
         boolean shouldCheckForTruncation = false;

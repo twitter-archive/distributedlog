@@ -144,6 +144,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private final AtomicInteger outstandingRequests;
     private final int transmissionThreshold;
     protected final LedgerHandle lh;
+    private final Object syncLock = new Object();
     private CountDownLatch syncLatch;
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
@@ -593,10 +594,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         }
     }
 
-    private synchronized CountDownLatch getSyncLatch() {
-        return syncLatch;
-    }
-
     private void checkWriteLock() throws LockingException {
         if (enforceLock) {
             lock.checkWriteLock(false, DistributedReentrantLock.LockReason.PERSTREAMWRITER);
@@ -611,12 +608,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         synchronized (this) {
             txIdToBePersisted = lastTxIdFlushed;
-            syncLatch = new CountDownLatch(outstandingRequests.get());
+        }
+
+        CountDownLatch latch;
+        synchronized (syncLock) {
+            latch = syncLatch = new CountDownLatch(outstandingRequests.get());
         }
 
         boolean waitSuccessful;
         try {
-            waitSuccessful = getSyncLatch().await(flushTimeoutSeconds, TimeUnit.SECONDS);
+            waitSuccessful = latch.await(flushTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
             throw new FlushException("Wait for Flush Interrupted", getLastTxId(), getLastTxIdAcknowledged(), ie);
         }
@@ -625,7 +626,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             throw new FlushException("Flush request timed out", getLastTxId(), getLastTxIdAcknowledged());
         }
 
-        synchronized (this) {
+        synchronized (syncLock) {
             syncLatch = null;
         }
 
@@ -711,6 +712,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         assert (ctx instanceof BKTransmitPacket);
         final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
 
+        // notify the waiters before callback, otherwise, it might block flush
+        CountDownLatch l;
+        synchronized (syncLock) {
+            outstandingRequests.decrementAndGet();
+            l = syncLatch;
+        }
+        if (l != null) {
+            l.countDown();
+        }
+
         if (null != orderedFuturePool) {
             orderedFuturePool.apply(new Function0<Void>() {
                 public Void apply() {
@@ -727,11 +738,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                                               final long entryId,
                                               final int rc) {
         synchronized (this) {
-            outstandingRequests.decrementAndGet();
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 LOG.warn("Log segment {}: Tried to set transmit result to ({}) but is already ({})",
                     new Object[] {fullyQualifiedLogSegment, rc, transmitResult.get()});
-                if (!transmitPacket.isControl) {
+                if (!transmitPacket.isControl()) {
                     transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
                 }
             } else {
@@ -753,7 +763,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-
         transmitPacket.processTransmitComplete(entryId, transmitResult.get());
 
         synchronized (this) {
@@ -761,10 +770,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 if (lastDLSN.compareTo(transmitPacket.getLastDLSN()) < 0) {
                     lastDLSN = transmitPacket.getLastDLSN();
                 }
-            }
-            CountDownLatch l = syncLatch;
-            if (l != null) {
-                l.countDown();
             }
         }
     }
