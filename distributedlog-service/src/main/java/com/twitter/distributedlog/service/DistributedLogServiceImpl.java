@@ -231,7 +231,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
                     @Override
                     public WriteResponse apply(DLSN value) {
-                        return writeResponse(successResponseHeader()).setDlsn(value.serialize());
+                        return writeResponse(successResponseHeader()).setDlsn(value.serialize(dlsnVersion));
                     }
                 }).addEventListener(this);
             } else {
@@ -363,7 +363,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
                     @Override
                     public WriteResponse apply(DLSN value) {
-                        return writeResponse(successResponseHeader()).setDlsn(value.serialize());
+                        return writeResponse(successResponseHeader()).setDlsn(value.serialize(dlsnVersion));
                     }
                 }).addEventListener(this);
             } else {
@@ -927,6 +927,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     // per streams stats
     private final StatsLogger perStreamStatLogger;
 
+    private final byte dlsnVersion;
     private final String clientId;
     private final ServerMode serverMode;
     private final ScheduledExecutorService executorService;
@@ -937,6 +938,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             throws IOException {
         // Configuration.
         this.dlConfig = dlConf;
+        // by default, we generate version0 dlsn for backward compatability. the proxy server
+        // would update to generate version1 dlsn after all clients updates to use latest version.
+        this.dlsnVersion = dlConf.getByte("server_dlsn_version", DLSN.VERSION0);
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.DURABLE.toString()));
         int serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
         int serverPort = dlConf.getInt("server_port", 0);
