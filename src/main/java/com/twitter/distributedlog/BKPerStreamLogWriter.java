@@ -100,7 +100,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 nextSlotId++;
             }
             promiseList.clear();
-            lastDLSN = new DLSN(ledgerSequenceNo, entryId, nextSlotId-1);
+
         }
 
         private void cancelPromises(int transmitResult) {
@@ -120,7 +120,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        public DLSN getLastDLSN() {
+        public DLSN markTransmitComplete(long entryId, int transmitResult) {
+            if (transmitResult == BKException.Code.OK) {
+                lastDLSN = new DLSN(ledgerSequenceNo, entryId, promiseList.size() - 1);
+            }
             return lastDLSN;
         }
 
@@ -718,9 +721,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             outstandingRequests.decrementAndGet();
             l = syncLatch;
         }
-        if (l != null) {
-            l.countDown();
-        }
 
         if (null != orderedFuturePool) {
             orderedFuturePool.apply(new Function0<Void>() {
@@ -731,6 +731,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             });
         } else {
             addCompleteDeferredProcessing(transmitPacket, entryId, rc);
+        }
+
+        if (l != null) {
+            l.countDown();
         }
     }
 
@@ -761,17 +765,15 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                     }
                 }
             }
-        }
-
-        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
-
-        synchronized (this) {
+            DLSN lastDLSNInPacket = transmitPacket.markTransmitComplete(entryId, transmitResult.get());
+            // update last dlsn before satisifying future
             if (BKException.Code.OK == transmitResult.get() && !transmitPacket.isControl()) {
-                if (lastDLSN.compareTo(transmitPacket.getLastDLSN()) < 0) {
-                    lastDLSN = transmitPacket.getLastDLSN();
+                if (null != lastDLSNInPacket && lastDLSN.compareTo(lastDLSNInPacket) < 0) {
+                    lastDLSN = lastDLSNInPacket;
                 }
             }
         }
+        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
     }
 
     public synchronized int getAverageTransmitSize() {
