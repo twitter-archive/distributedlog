@@ -4,6 +4,8 @@ import org.apache.bookkeeper.shims.Version;
 
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.distributedlog.exceptions.InternalServerException;
+
 public class DistributedLogConstants {
     public static final long INVALID_TXID = -999;
     public static final long EMPTY_LEDGER_TX_ID = -99;
@@ -25,6 +27,7 @@ public class DistributedLogConstants {
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final long UNRESOLVED_LEDGER_ID = -1;
     public static final long LATENCY_WARN_THRESHOLD_IN_MILLIS = TimeUnit.SECONDS.toMillis(1);
+    public static final int DL_INTERRUPTED_EXCEPTION_RESULT_CODE = Integer.MIN_VALUE + 1;
 
     public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
     // log segment prefix

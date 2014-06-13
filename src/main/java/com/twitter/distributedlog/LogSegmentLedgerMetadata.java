@@ -361,23 +361,23 @@ public class LogSegmentLedgerMetadata {
                 @Override
                 public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
                     if (KeeperException.Code.OK.intValue() != rc) {
-                        callback.operationComplete(BKException.Code.ZKException, null);
+                        callback.operationComplete(rc, null);
                         return;
                     }
                     try {
                         LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
-                        callback.operationComplete(BKException.Code.OK, metadata);
+                        callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
                     } catch (IOException ie) {
                         // as we don't have return code for distributedlog. for now, we leveraged bk
                         // exception code.
-                        callback.operationComplete(BKException.Code.IncorrectParameterException, null);
+                        callback.operationComplete(KeeperException.Code.BADARGUMENTS.intValue(), null);
                     }
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            callback.operationComplete(BKException.Code.ZKException, null);
+            callback.operationComplete(KeeperException.Code.OPERATIONTIMEOUT.intValue(), null);
         } catch (InterruptedException e) {
-            callback.operationComplete(BKException.Code.InterruptedException, null);
+            callback.operationComplete(DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE, null);
         }
     }
 

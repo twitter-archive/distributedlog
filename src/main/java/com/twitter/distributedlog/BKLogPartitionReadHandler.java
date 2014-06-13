@@ -689,10 +689,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 submit(new Runnable() {
                     @Override
                     public void run() {
-                        if (BKException.Code.OK != rc) {
-                            LOG.debug("ZK Exception {} while reading ledger list", rc);
+                        if (KeeperException.Code.OK.intValue() != rc) {
+                            LOG.info("ZK Exception {} while reading ledger list", rc);
                             reInitializeMetadata = true;
-                            handleException(ReadAheadPhase.GET_LEDGERS, rc);
+                            if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
+                                handleException(ReadAheadPhase.GET_LEDGERS, BKException.Code.InterruptedException);
+                            } else {
+                                handleException(ReadAheadPhase.GET_LEDGERS, BKException.Code.ZKException);
+                            }
                             return;
                         }
                         ledgerList = result;

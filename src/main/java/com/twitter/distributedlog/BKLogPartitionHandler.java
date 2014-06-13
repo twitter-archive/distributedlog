@@ -159,7 +159,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         @Override
         public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
             this.rc = rc;
-            if (BKException.Code.OK == rc) {
+            if (KeeperException.Code.OK.intValue() == rc) {
                 LOG.debug("Updated ledgers list for {} : {}", path, logSegmentLedgerMetadatas);
             }
             countDownLatch.countDown();
@@ -204,7 +204,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
         @Override
         public void operationComplete(int rc, List<LogSegmentLedgerMetadata > logSegmentLedgerMetadatas) {
-            if (BKException.Code.OK == rc) {
+            if (KeeperException.Code.OK.intValue() == rc) {
                 LOG.debug("Updated ledgers list : {}", path, logSegmentLedgerMetadatas);
             } else {
                 executorService.schedule(this, conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
@@ -799,7 +799,12 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (rc == KeeperException.Code.OK) {
                 forceGetListStat.registerSuccessfulEvent(elapsedMicros);
                 break;
-            } else if((rc != KeeperException.Code.SESSIONEXPIRED) &&
+            // NONODE exception is possible in two cases
+            // 1. A log segment was deleted by truncation between the call to getChildren and read
+            // attempt on the znode corresponding to the segment
+            // 2. In progress segment has been completed => inprogress ZNode does not exist
+            } else if((rc != KeeperException.Code.NONODE) &&
+                (rc != KeeperException.Code.SESSIONEXPIRED) &&
                 (rc != KeeperException.Code.CONNECTIONLOSS) &&
                 (rc != KeeperException.Code.SESSIONMOVED)) {
                 forceGetListStat.registerFailedEvent(elapsedMicros);
@@ -934,7 +939,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             };
             zooKeeperClient.get().getChildren(ledgerPath, watcher, new AsyncCallback.Children2Callback() {
                 @Override
-                public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+                public void processResult(final int rc, final String path, final Object ctx, final List<String> children, final Stat stat) {
                     if (KeeperException.Code.OK.intValue() != rc) {
                         callback.operationComplete(rc, null);
                         return;
@@ -965,7 +970,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                         }
 
                         List<LogSegmentLedgerMetadata> segmentList = getCachedLedgerList(comparator, segmentFilter);
-                        callback.operationComplete(BKException.Code.OK, segmentList);
+                        callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
                         notifyUpdatedLogSegments(segmentList);
                         if (!segmentsRemoved.isEmpty()) {
                             notifyOnOperationComplete();
@@ -993,7 +998,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                     }
                                     if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
                                         List<LogSegmentLedgerMetadata> segmentList =
-                                                getCachedLedgerList(comparator, segmentFilter);
+                                            getCachedLedgerList(comparator, segmentFilter);
                                         callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
                                         notifyUpdatedLogSegments(segmentList);
                                         notifyOnOperationComplete();
