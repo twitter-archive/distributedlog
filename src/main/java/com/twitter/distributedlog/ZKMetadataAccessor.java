@@ -49,6 +49,16 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     }
 
     /**
+     * Get the name of the stream managed by this log manager
+     *
+     * @return streamName
+     */
+    @Override
+    public String getStreamName() {
+        return name;
+    }
+
+    /**
      * Creates or update the metadata stored at the node associated with the
      * name and URI
      * @param metadata opaque metadata to be stored for the node

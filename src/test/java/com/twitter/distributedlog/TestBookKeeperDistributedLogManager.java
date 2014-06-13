@@ -1486,6 +1486,7 @@ public class TestBookKeeperDistributedLogManager {
     public void testMetadataAccessor() throws Exception {
         String name = "distrlog-metadata-accessor";
         MetadataAccessor metadata = DLMTestUtil.createNewMetadataAccessor(conf, name);
+        assertEquals(name, metadata.getStreamName());
         metadata.createOrUpdateMetadata(name.getBytes());
         assertEquals(name, new String(metadata.getMetadata()));
         metadata.deleteMetadata();

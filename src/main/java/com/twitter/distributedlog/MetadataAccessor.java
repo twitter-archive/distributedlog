@@ -4,6 +4,12 @@ import java.io.Closeable;
 import java.io.IOException;
 
 public interface MetadataAccessor extends Closeable {
+    /**
+     * Get the name of the stream managed by this log manager
+     * @return streamName
+     */
+    public String getStreamName();
+
     public void createOrUpdateMetadata(byte[] metadata) throws IOException;
 
     public void deleteMetadata() throws IOException;
