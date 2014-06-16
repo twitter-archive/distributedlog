@@ -8,6 +8,7 @@ import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
@@ -69,6 +70,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
     private ExecutorService metadataExecutor = null;
+    private final AlertStatsLogger alertStatsLogger;
 
     private static StatsLogger handlerStatsLogger = null;
     private static OpStatsLogger createWriteHandlerStats = null;
@@ -129,6 +131,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             handlerStatsLogger = statsLogger.scope("handlers");
             createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
         }
+
+        this.alertStatsLogger = new AlertStatsLogger(statsLogger, name);
     }
 
     BookKeeperClient getBookKeeperClient() {
@@ -893,5 +897,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public String toString() {
         return String.format("DLM:%s:%s", getZKPath(), getName());
+    }
+
+    public void raiseAlert(String msg, Object... args) {
+        alertStatsLogger.raise(msg, args);
     }
 }
