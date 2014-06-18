@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.util.Future;
@@ -41,6 +42,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private Stopwatch scheduleDelayStopwatch;
     private final DLSN startDLSN;
     private boolean readAheadStarted = false;
+    private int lastCount = 0;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -242,14 +244,23 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 }
 
                 if (null != record) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("{} : Satisfied promise with record {}", bkLedgerManager.getFullyQualifiedName(), record.getTransactionId());
-                    }
-                    Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
-                    if (null != promise) {
-                        Stopwatch stopwatch = new Stopwatch().start();
-                        promise.setValue(record);
-                        futureSatisfyLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                    // Verify that the count is contiguous and monotonically increasing
+                    //
+                    if ((1 != record.getCount()) && (0 != lastCount) &&
+                        (record.getCount() != (lastCount + 1))) {
+                        bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
+                        setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));
+                    } else {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} : Satisfied promise with record {}", bkLedgerManager.getFullyQualifiedName(), record.getTransactionId());
+                        }
+                        Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
+                        if (null != promise) {
+                            Stopwatch stopwatch = new Stopwatch().start();
+                            lastCount = record.getCount();
+                            promise.setValue(record);
+                            futureSatisfyLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                        }
                     }
                 } else {
                     if (0 == scheduleCountLocal) {
