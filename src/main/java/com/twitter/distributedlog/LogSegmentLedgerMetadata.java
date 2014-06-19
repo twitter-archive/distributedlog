@@ -157,7 +157,8 @@ public class LogSegmentLedgerMetadata {
     static final int REGION_SHIFT = 28;
     static final long MAX_REGION_ID = 0xfL;
     static final long REGION_MASK = 0x00000000f0000000L;
-    static final long METADATA_VERSION_MASK = 0x000000000fffffffL;
+    static final long UNUSED_BITS_MASK = 0x000000000fffff00L;
+    static final long METADATA_VERSION_MASK = 0x00000000000000ffL;
 
     LogSegmentLedgerMetadata(String zkPath,
                              int version,
