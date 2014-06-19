@@ -260,6 +260,13 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                             lastCount = record.getCount();
                             promise.setValue(record);
                             futureSatisfyLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                        } else {
+                            // We should never get here as we should have exited the loop if
+                            // pendingRequests were empty
+                            bkDistributedLogManager.raiseAlert("Unexpected condition at dlsn = {}",
+                                record.getDlsn());
+                            setLastException(
+                                new DLIllegalStateException("Unexpected condition at dlsn = " + record.getDlsn()));
                         }
                     }
                 } else {
