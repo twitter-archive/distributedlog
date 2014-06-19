@@ -27,7 +27,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             defaultLoader = DistributedLogConfiguration.class.getClassLoader();
         }
     }
-    
+
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
     public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
@@ -115,6 +115,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
     public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
 
+    public static final String BKDL_ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
+    public static final double BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
+
     public static final String BKDL_ZK_NUM_RETRIES = "zkNumRetries";
     public static final int BKDL_ZK_NUM_RETRIES_DEFAULT = 3;
 
@@ -142,6 +145,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
     public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
+
+    public static final String BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT = "bkcZKRequestRateLimit";
+    public static final double BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
 
     public static final String BKDL_BKCLIENT_ZK_NUM_RETRIES = "bkcZKNumRetries";
     public static final int BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT = 3;
@@ -276,7 +282,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             }
         }
         if (LOG.isWarnEnabled() && !ignoredSettings.isEmpty()) {
-            LOG.warn("invalid stream configuration override(s): {}", 
+            LOG.warn("invalid stream configuration override(s): {}",
                 StringUtils.join(ignoredSettings, ";"));
         }
     }
@@ -616,6 +622,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get zookeeper access rate limit.
+     *
+     * @return zookeeper access rate limit.
+     */
+    public double getZKRequestRateLimit() {
+        return this.getDouble(BKDL_ZK_REQUEST_RATE_LIMIT, BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT);
+    }
+
+    /**
      * Get num of retries for zookeeper client.
      *
      * @return num of retries of zookeeper client.
@@ -642,6 +657,17 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public int getZKRetryBackoffMaxMillis() {
         return this.getInt(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS,
                            BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set zookeeper access rate limit
+     *
+     * @param requestRateLimit
+     *          zookeeper access rate limit
+     */
+    public DistributedLogConfiguration setZKRequestRateLimit(double requestRateLimit) {
+        setProperty(BKDL_ZK_REQUEST_RATE_LIMIT, requestRateLimit);
+        return this;
     }
 
     /**
@@ -970,6 +996,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
         setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
+        return this;
+    }
+
+    /**
+     * Get zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     * @return zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     */
+    public double getBKClientZKRequestRateLimit() {
+        return this.getDouble(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT,
+                              BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     *
+     * @param rateLimit
+     *          zookeeper access rate limit
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setBKClientZKRequestRateLimit(double rateLimit) {
+        setProperty(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT, rateLimit);
         return this;
     }
 
@@ -1351,7 +1398,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the method that read-ahead's should use to get read last confirmed.
      *
-     * @param enabled
+     * @param option
      *          flag to set the read-ahead's option for read last confirmed.
      * @return configuration instance.
      */

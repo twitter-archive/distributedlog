@@ -65,6 +65,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .uri(namespace)
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getZKRequestRateLimit())
                 .buildNew();
         try {
             return handler.handle(zkc);
@@ -156,6 +157,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.sharedZKClientBuilderForDL = ZooKeeperClientBuilder.newBuilder()
             .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
             .retryThreadCount(conf.getZKClientNumberRetryThreads())
+            .requestRateLimit(conf.getZKRequestRateLimit())
             .uri(uri)
             .retryPolicy(retryPolicy)
             .statsLogger(statsLogger)
@@ -363,6 +365,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             this.sharedZKClientBuilderForBK = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getZKRequestRateLimit())
                 .uri(namespace)
                 .retryPolicy(retryPolicy)
                 .statsLogger(statsLogger)

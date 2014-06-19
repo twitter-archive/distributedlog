@@ -249,6 +249,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                         .uri(uri)
                         .statsLogger(statsLogger)
                         .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                        .requestRateLimit(conf.getZKRequestRateLimit())
                         .buildNew(false);
             }
             this.zooKeeperClient = zkcBuilder.build();

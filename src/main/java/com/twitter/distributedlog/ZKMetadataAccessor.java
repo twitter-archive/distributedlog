@@ -39,7 +39,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                .uri(uri).retryPolicy(retryPolicy).buildNew(false);
+                .requestRateLimit(conf.getZKRequestRateLimit()).uri(uri).retryPolicy(retryPolicy)
+                .buildNew(false);
         } else {
             this.zooKeeperClientBuilder = zkcBuilder;
         }

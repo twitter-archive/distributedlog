@@ -22,7 +22,7 @@
     </snapshotRepository>
   </distributionManagement>
   <properties>
-    <bookkeeper.version>4.2.17-TWTTR-NETTY</bookkeeper.version>
+    <bookkeeper.version>4.2.18-TWTTR-NETTY</bookkeeper.version>
   </properties>
   <dependencies>
     <dependency>

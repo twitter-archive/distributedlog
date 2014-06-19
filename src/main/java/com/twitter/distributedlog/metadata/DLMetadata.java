@@ -88,6 +88,7 @@ public class DLMetadata {
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getZKRequestRateLimit())
                 .uri(uri)
                 .buildNew(false).build();
         byte[] data = serialize();
@@ -118,6 +119,7 @@ public class DLMetadata {
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getZKRequestRateLimit())
                 .uri(uri)
                 .buildNew(false).build();
         byte[] data = serialize();
@@ -140,6 +142,7 @@ public class DLMetadata {
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getZKRequestRateLimit())
                 .uri(uri)
                 .build();
         byte[] data = new byte[0];

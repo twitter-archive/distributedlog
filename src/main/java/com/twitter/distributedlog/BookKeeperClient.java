@@ -42,6 +42,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setZkTimeout(conf.getBKClientZKSessionTimeoutMilliSeconds());
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
         bkConfig.setEnsemblePlacementPolicy(RegionAwareEnsemblePlacementPolicy.class);
+        bkConfig.setZkRequestRateLimit(conf.getBKClientZKRequestRateLimit());
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
         this.bkc = BookKeeper.newBuilder()
@@ -71,7 +72,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                         conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
             }
             this.zkc = new ZooKeeperClient(zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers(),
-                                           retryPolicy, statsLogger.scope("bkc_zkc"), conf.getZKClientNumberRetryThreads());
+                                           retryPolicy, statsLogger.scope("bkc_zkc"), conf.getZKClientNumberRetryThreads(),
+                                           conf.getBKClientZKRequestRateLimit());
             this.ownZK = true;
             registerExpirationHandler = conf.getBKClientZKNumRetries() <= 0;
         } else {

@@ -85,7 +85,7 @@ public class ZooKeeperClient {
     private final RetryPolicy retryPolicy;
     private final StatsLogger statsLogger;
     private final int retryThreadCount;
-
+    private final double requestRateLimit;
 
     private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
 
@@ -102,11 +102,11 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1);
+        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0);
     }
 
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
-                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount) {
+                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit) {
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
@@ -114,6 +114,7 @@ public class ZooKeeperClient {
         this.retryPolicy = retryPolicy;
         this.statsLogger = statsLogger;
         this.retryThreadCount = retryThreadCount;
+        this.requestRateLimit = requestRateLimit;
     }
 
     /**
@@ -192,8 +193,15 @@ public class ZooKeeperClient {
 
         ZooKeeper zk;
         try {
-            zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.createConnectedZooKeeperClient(
-                    zooKeeperServers, sessionTimeoutMs, watchers, retryPolicy, statsLogger, retryThreadCount);
+            zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.newBuilder()
+                    .connectString(zooKeeperServers)
+                    .sessionTimeoutMs(sessionTimeoutMs)
+                    .watchers(watchers)
+                    .operationRetryPolicy(retryPolicy)
+                    .statsLogger(statsLogger)
+                    .retryThreadCount(retryThreadCount)
+                    .requestRateLimit(requestRateLimit)
+                    .build();
         } catch (KeeperException e) {
             throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
         } catch (IOException e) {
