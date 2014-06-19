@@ -859,14 +859,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             completeAndCloseLogSegment(
                     inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
                     writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
-                    writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
         }
 
         @Override
         public String toString() {
             return String.format("CompleteWriterOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
                     writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
-                    writer.getRecordCount(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
+                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
         }
     }
 
@@ -1087,7 +1087,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
             if (null != record) {
                 endTxId = record.getTransactionId();
-                recordCount = record.getCount();
+                recordCount = record.getPositionWithinLogSegment();
                 lastEntryId = record.getDlsn().getEntryId();
                 lastSlotId = record.getDlsn().getSlotId();
             }

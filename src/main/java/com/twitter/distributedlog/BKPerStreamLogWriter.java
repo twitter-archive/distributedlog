@@ -175,7 +175,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private boolean enforceLock = true;
     private boolean closed = true;
     private final boolean enableRecordCounts;
-    private int recordCount = 0;
+    private int positionWithinLogSegment = 0;
     private final long ledgerSequenceNumber;
     private final DistributedLogConfiguration conf;
     private final ScheduledExecutorService executorService;
@@ -445,7 +445,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         // Internally generated log records don't increment the count
         // writeInternal will always set a count regardless of whether it was
         // incremented or not.
-        recordCount++;
+        positionWithinLogSegment++;
         Future<DLSN> future = writeInternal(record);
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
@@ -478,7 +478,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         if (enableRecordCounts) {
             // Set the count here. The caller would appropriately increment it
             // if this log record is to be counted
-            record.setCount(recordCount);
+            record.setPositionWithinLogSegment(positionWithinLogSegment);
         }
 
         writer.writeOp(record);
@@ -824,7 +824,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
 
     public boolean shouldStartNewSegment(int numRecords) {
-        return (numRecords > (Integer.MAX_VALUE - recordCount));
+        return (numRecords > (Integer.MAX_VALUE - positionWithinLogSegment));
     }
 
     public synchronized long getLastTxId() {
@@ -835,8 +835,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         return lastTxIdAcknowledged;
     }
 
-    public int getRecordCount() {
-        return recordCount;
+    public int getPositionWithinLogSegment() {
+        return positionWithinLogSegment;
     }
 
     public DLSN getLastDLSN() {

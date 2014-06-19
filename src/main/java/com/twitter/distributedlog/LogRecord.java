@@ -40,8 +40,8 @@ public class LogRecord {
     private byte[] payload;
 
     static final long LOGRECORD_METADATA_FLAGS_MASK = 0xffff;
-    static final long LOGRECORD_METADATA_COUNT_MASK = 0x0000ffffffff0000L;
-    static final int LOGRECORD_METADATA_COUNT_SHIFT = 16;
+    static final long LOGRECORD_METADATA_POSITION_MASK = 0x0000ffffffff0000L;
+    static final int LOGRECORD_METADATA_POSITION_SHIFT = 16;
     static final long LOGRECORD_METADATA_UNUSED_MASK = 0xffff000000000000L;
 
 
@@ -66,16 +66,16 @@ public class LogRecord {
         return txid;
     }
 
-    void setCount(int count) {
-        assert(count > 0 || isControl());
-        metadata = metadata | (((long)count) << LOGRECORD_METADATA_COUNT_SHIFT);
+    void setPositionWithinLogSegment(int positionWithinLogSegment) {
+        assert(positionWithinLogSegment > 0 || isControl());
+        metadata = metadata | (((long) positionWithinLogSegment) << LOGRECORD_METADATA_POSITION_SHIFT);
     }
 
-    int getCount() {
-        long ret = (metadata & LOGRECORD_METADATA_COUNT_MASK) >> LOGRECORD_METADATA_COUNT_SHIFT;
+    int getPositionWithinLogSegment() {
+        long ret = (metadata & LOGRECORD_METADATA_POSITION_MASK) >> LOGRECORD_METADATA_POSITION_SHIFT;
         if (ret < 0 || ret > Integer.MAX_VALUE) {
             throw new IllegalArgumentException
-                (ret + " count should never exceed max integer value");
+                (ret + " position should never exceed max integer value");
         }
         return (int) ret;
     }

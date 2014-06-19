@@ -391,7 +391,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (l.isInProgress()) {
                 LogRecord record = recoverLastRecordInLedger(l, false, false, false, false);
                 if (null != record) {
-                    count += record.getCount();
+                    count += record.getPositionWithinLogSegment();
                 }
             } else {
                 count += l.getRecordCount();

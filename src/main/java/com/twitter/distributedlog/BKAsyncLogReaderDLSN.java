@@ -42,7 +42,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private Stopwatch scheduleDelayStopwatch;
     private final DLSN startDLSN;
     private boolean readAheadStarted = false;
-    private int lastCount = 0;
+    private int lastPosition = 0;
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
@@ -246,8 +246,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 if (null != record) {
                     // Verify that the count is contiguous and monotonically increasing
                     //
-                    if ((1 != record.getCount()) && (0 != lastCount) &&
-                        (record.getCount() != (lastCount + 1))) {
+                    if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
+                        (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
                         bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
                         setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));
                     } else {
@@ -257,7 +257,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         Promise<LogRecordWithDLSN> promise = pendingRequests.poll();
                         if (null != promise) {
                             Stopwatch stopwatch = new Stopwatch().start();
-                            lastCount = record.getCount();
+                            lastPosition = record.getPositionWithinLogSegment();
                             promise.setValue(record);
                             futureSatisfyLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                         } else {
