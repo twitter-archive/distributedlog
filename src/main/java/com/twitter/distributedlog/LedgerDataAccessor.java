@@ -3,13 +3,11 @@ package com.twitter.distributedlog;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -325,25 +323,7 @@ public class LedgerDataAccessor {
 
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
                                final String reason) {
-        LogRecord.Reader reader = new LogRecord.Reader(new RecordStream() {
-            long slotId = 0;
-
-            @Override
-            public void advanceToNextRecord() {
-                slotId++;
-            }
-
-            @Override
-            public DLSN getCurrentPosition() {
-                return new DLSN(readPosition.getLedgerSequenceNumber(), readPosition.getEntryId(), slotId);
-            }
-
-            @Override
-            public String getName() {
-                return streamName;
-            }
-        }, new DataInputStream(ledgerEntry.getEntryInputStream()), 0);
-
+        LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(), ledgerEntry);
         try {
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();
