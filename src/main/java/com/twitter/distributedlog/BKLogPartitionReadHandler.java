@@ -554,9 +554,24 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             submit(this);
         }
 
+        Runnable addRTEHandler(final Runnable runnable) {
+            return new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        runnable.run();
+                    } catch (RuntimeException rte) {
+                        LOG.error("ReadAhead on stream {} encountered runtime exception", getFullyQualifiedName(), rte);
+                        setReadAheadError();
+                        throw rte;
+                    }
+                }
+            };
+        }
+
         void submit(Runnable runnable) {
             try {
-                readAheadExecutor.submit(runnable);
+                readAheadExecutor.submit(addRTEHandler(runnable));
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
@@ -565,7 +580,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private void schedule(Runnable runnable, long timeInMillis) {
             try {
                 readAheadWorkerWaits.inc();
-                readAheadExecutor.schedule(runnable, timeInMillis, TimeUnit.MILLISECONDS);
+                readAheadExecutor.schedule(addRTEHandler(runnable), timeInMillis, TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
