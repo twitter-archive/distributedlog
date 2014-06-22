@@ -39,8 +39,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     protected final ScheduledExecutorService readAheadExecutor;
     private ReadAheadWorker readAheadWorker = null;
-    private boolean readAheadError = false;
-    private boolean readAheadInterrupted = false;
+    private volatile boolean readAheadError = false;
+    private volatile boolean readAheadInterrupted = false;
 
     // stats
     private static Counter readAheadWorkerWaits;
@@ -388,6 +388,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
     public void setReadAheadInterrupted() {
         readAheadInterrupted = true;
+        if (null != notification) {
+            notification.notifyOnError();
+        }
     }
 
 
