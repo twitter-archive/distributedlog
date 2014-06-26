@@ -27,15 +27,15 @@ public class DLSN implements Comparable<DLSN> {
         this.slotId = slotId;
     }
 
-    public long getLedgerSequenceNo() {
+    long getLedgerSequenceNo() {
         return ledgerSequenceNo;
     }
 
-    public long getEntryId() {
+    long getEntryId() {
         return entryId;
     }
 
-    public long getSlotId() {
+    long getSlotId() {
         return slotId;
     }
 

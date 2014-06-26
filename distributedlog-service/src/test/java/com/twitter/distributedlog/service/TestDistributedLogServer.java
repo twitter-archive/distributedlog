@@ -190,7 +190,7 @@ public class TestDistributedLogServer {
         while (null != r) {
             int i = Integer.parseInt(new String(r.getPayload()));
             assertEquals(numRead + 1, i);
-            assertEquals(startEntryId, r.getDlsn().getEntryId());
+            assertEquals(r.getDlsn().compareTo(new DLSN(1, startEntryId, 0)), 0);
             ++numRead;
             ++startEntryId;
             r = reader.readNext(false);

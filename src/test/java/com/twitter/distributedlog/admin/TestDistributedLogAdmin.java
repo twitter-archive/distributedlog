@@ -106,8 +106,8 @@ public class TestDistributedLogAdmin {
         TimeUnit.SECONDS.sleep(2);
 
         DLSN dlsn = readDLM.getLastDLSN();
-        assertEquals(4, dlsn.getLedgerSequenceNo());
-        assertTrue(dlsn.getEntryId() > -1);
+        assertTrue(dlsn.compareTo(new DLSN(5, Long.MIN_VALUE, Long.MIN_VALUE)) < 0);
+        assertTrue(dlsn.compareTo(new DLSN(4, -1, Long.MIN_VALUE)) > 0);
         // there isn't records should be read
         assertNull(reader.readNext(false));
 
@@ -119,8 +119,8 @@ public class TestDistributedLogAdmin {
         TimeUnit.SECONDS.sleep(2);
 
         dlsn = readDLM.getLastDLSN();
-        assertEquals(4, dlsn.getLedgerSequenceNo());
-        assertTrue(dlsn.getEntryId() > -1);
+        assertTrue(dlsn.compareTo(new DLSN(5, Long.MIN_VALUE, Long.MIN_VALUE)) < 0);
+        assertTrue(dlsn.compareTo(new DLSN(4, -1, Long.MIN_VALUE)) > 0);
         // there isn't records should be read
         assertNull(reader.readNext(false));
 
@@ -143,8 +143,8 @@ public class TestDistributedLogAdmin {
 
         dlsn = readDLM.getLastDLSN();
         LOG.info("LastDLSN after fix inprogress segment : {}", dlsn);
-        assertEquals(6, dlsn.getLedgerSequenceNo());
-        assertTrue(dlsn.getEntryId() > -1);
+        assertTrue(dlsn.compareTo(new DLSN(7, Long.MIN_VALUE, Long.MIN_VALUE)) < 0);
+        assertTrue(dlsn.compareTo(new DLSN(6, -1, Long.MIN_VALUE)) > 0);
         assertEquals(5 * 10, numTrans);
 
         reader.close();
