@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.callback.LogSegmentListener;
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Future;
 import java.io.IOException;
 import java.util.List;
@@ -318,4 +319,21 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @throws IOException if purging fails
      */
     public void purgeLogsOlderThan(long minTxIdToKeep) throws IOException;
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param subscriberId - Application specific Id associated with the subscriber
+     * @return Subscription state store
+     */
+    public SubscriptionStateStore getSubscriptionStateStore(String subscriberId);
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param partition - the partition within the log stream
+     * @param subscriberId - Application specific Id associated with the subscriber
+     * @return Subscription state store
+     */
+    public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId);
 }

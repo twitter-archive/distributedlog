@@ -24,6 +24,8 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.util.Await;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -1491,6 +1493,27 @@ public class TestBookKeeperDistributedLogManager {
         assertEquals(name, new String(metadata.getMetadata()));
         metadata.deleteMetadata();
         assertEquals(null, metadata.getMetadata());
+    }
+
+    @Test
+    public void testSubscriptionStateStore() throws Exception {
+        String name = "distrlog-subscription-state";
+        String subscriberId = "defaultSubscriber";
+        DLSN commitPosition0 = new DLSN(4, 33, 5);
+        DLSN commitPosition1 = new DLSN(4, 34, 5);
+        DLSN commitPosition2 = new DLSN(5, 34, 5);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        SubscriptionStateStore store = dlm.getSubscriptionStateStore(subscriberId);
+        assertEquals(Await.result(store.getLastCommitPosition()), DLSN.InitialDLSN);
+        Await.result(store.advanceCommitPosition(commitPosition1));
+        assertEquals(Await.result(store.getLastCommitPosition()), commitPosition1);
+        Await.result(store.advanceCommitPosition(commitPosition0));
+        assertEquals(Await.result(store.getLastCommitPosition()), commitPosition1);
+        Await.result(store.advanceCommitPosition(commitPosition2));
+        assertEquals(Await.result(store.getLastCommitPosition()), commitPosition2);
+        SubscriptionStateStore store1 = dlm.getSubscriptionStateStore(subscriberId);
+        assertEquals(Await.result(store1.getLastCommitPosition()), commitPosition2);
     }
 
     private long writeAndMarkEndOfStream(DistributedLogManager dlm, long txid) throws Exception {

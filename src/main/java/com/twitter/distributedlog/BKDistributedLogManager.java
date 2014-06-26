@@ -9,6 +9,8 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
@@ -901,5 +903,40 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public void raiseAlert(String msg, Object... args) {
         alertStatsLogger.raise(msg, args);
+    }
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param subscriberId - Application specific Id associated with the subscriber
+     * @return Subscription state store
+     */
+    @Override
+    public SubscriptionStateStore getSubscriptionStateStore(String subscriberId) {
+        return getSubscriptionStateStoreInternal(conf.getUnpartitionedStreamName(), subscriberId);
+    }
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param partition - the partition within the log stream
+     * @param subscriberId - Application specific Id associated with the subscriber
+     * @return Subscription state store
+     */
+    @Override
+    public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId) {
+        return getSubscriptionStateStoreInternal(partition.toString(), subscriberId);
+    }
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param streamIdentifier - Identifier associated with the stream
+     * @param subscriberId - Application specific Id associated with the subscriber
+     * @return Subscription state store
+     */
+    private SubscriptionStateStore getSubscriptionStateStoreInternal(String streamIdentifier, String subscriberId) {
+        return new ZKSubscriptionStateStore(zooKeeperClient,
+            String.format("%s/subscribers/%s", getPartitionPath(uri, name, streamIdentifier), subscriberId));
     }
 }
