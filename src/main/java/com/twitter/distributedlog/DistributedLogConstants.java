@@ -28,6 +28,7 @@ public class DistributedLogConstants {
     public static final long UNRESOLVED_LEDGER_ID = -1;
     public static final long LATENCY_WARN_THRESHOLD_IN_MILLIS = TimeUnit.SECONDS.toMillis(1);
     public static final int DL_INTERRUPTED_EXCEPTION_RESULT_CODE = Integer.MIN_VALUE + 1;
+    public static final int ZK_CONNECTION_EXCEPTION_RESULT_CODE = Integer.MIN_VALUE + 2;
 
     public static final String ALLOCATION_POOL_NODE = ".allocation_pool";
     // log segment prefix
