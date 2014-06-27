@@ -7,6 +7,7 @@ import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
+import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
@@ -207,15 +208,17 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public Future<DLSN> write(final LogRecord record) {
-        return orderedFuturePool.apply(new ExceptionalFunction0<BKPerStreamLogWriter>() {
-            public BKPerStreamLogWriter applyE() throws IOException {
-                return getPerStreamLogWriter(record, false, false);
-            }
-        }).flatMap(new Function<BKPerStreamLogWriter, Future<DLSN>>() {
-            public Future<DLSN> apply(BKPerStreamLogWriter w) {
+        // IMPORTANT: Continuations (flatMap, map, etc.) applied to a completed future are NOT guaranteed 
+        // to run inline/synchronously. For example if the current thread is already running some 
+        // continuation, any new applied continuations will be run only after the current continuation 
+        // completes. Thus it is NOT safe to replace the single flattened future pool block below with 
+        // the flatMap alternative, "futurePool { getWriter } flatMap { asyncWrite }".
+        return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
+            public Future<DLSN> applyE() throws IOException {
+                BKPerStreamLogWriter w = getPerStreamLogWriter(record, false, false);
                 return asyncWrite(w, record);
             }
-        });
+        }));
     }
 
     @VisibleForTesting

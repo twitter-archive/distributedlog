@@ -29,7 +29,7 @@ public class AppendOnlyStreamWriter implements Closeable {
     public Future<DLSN> write(byte[] data) throws IOException {
         requestPos += data.length;
         Future<DLSN> writeResult = logWriter.write(new LogRecord(requestPos, data));
-        writeResult.addEventListener(new WriteCompleteListener(data.length));
+        writeResult.addEventListener(new WriteCompleteListener(requestPos));
         return writeResult;
     }
 

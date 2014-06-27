@@ -156,4 +156,29 @@ public class TestAppendOnlyStreamWriter {
         reader.close();
         dlmreader.close();
     } 
+
+    @Test
+    public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
+        String name = "distrlog-append-only-streams-async-no-fsync";
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setPeriodicFlushFrequencyMilliSeconds(10*1000);
+        conf.setImmediateFlushEnabled(false);
+
+        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
+        byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
+        
+        AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
+        assertEquals(writer.position(), 0);
+        
+        Future<DLSN> dlsnFuture = writer.write(byteStream);
+        Await.result(dlsnFuture, Duration.fromSeconds(10));
+        assertEquals(writer.position(), 33);
+
+        dlsnFuture = writer.write(byteStream);
+        Await.result(dlsnFuture, Duration.fromSeconds(10));
+        assertEquals(writer.position(), 66);
+
+        writer.close();
+        dlmwriter.close();
+    } 
 }
