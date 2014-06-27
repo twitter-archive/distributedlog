@@ -1,7 +1,10 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
+
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.BKExceptionStatsLogger;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -41,6 +44,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private ReadAheadWorker readAheadWorker = null;
     private volatile boolean readAheadError = false;
     private volatile boolean readAheadInterrupted = false;
+    private final AlertStatsLogger alertStatsLogger;
 
     // stats
     private static Counter readAheadWorkerWaits;
@@ -93,12 +97,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      BookKeeperClientBuilder bkcBuilder,
                                      ScheduledExecutorService executorService,
                                      ScheduledExecutorService readAheadExecutor,
+                                     AlertStatsLogger alertStatsLogger,
                                      StatsLogger statsLogger,
                                      AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
               statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
 
         this.readAheadExecutor = readAheadExecutor;
+        this.alertStatsLogger = alertStatsLogger;
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
         ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger,
                 notification, conf.getTraceReadAheadDeliveryLatency());
@@ -433,6 +439,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         else if (readAheadError) {
             throw new LogReadException("ReadAhead Thread encountered exceptions");
         }
+    }
+
+    public void raiseAlert(String msg, Object... args) {
+        alertStatsLogger.raise(msg, args);
     }
 
     public LogRecordWithDLSN getNextReadAheadRecord() throws IOException {
@@ -904,23 +914,54 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 bkLedgerManager.getHandleCache().closeLedger(currentLH);
                                 inProgressChanged = false;
                                 currentLH = null;
-                            } else if (nextReadPosition.getEntryId() > bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH)) {
-                                if (LOG.isTraceEnabled()) {
-                                    LOG.trace("Past the last Add Confirmed in ledger {} for {}", currentMetadata, fullyQualifiedName);
-                                }
-                                bkLedgerManager.getHandleCache().closeLedger(currentLH);
-                                currentLH = null;
-                                currentMetadata = null;
-                                if (currentMetadataIndex + 1 < ledgerList.size()) {
-                                    currentMetadata = ledgerList.get(++currentMetadataIndex);
-                                    if (LOG.isTraceEnabled()) {
-                                        LOG.trace("Moving read position to a new ledger {} for {}.",
-                                                currentMetadata, fullyQualifiedName);
+                            } else {
+                                long lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
+                                if (nextReadPosition.getEntryId() > lastAddConfirmed) {
+                                    // Its possible that the last entryId does not account for the control
+                                    // log record, but the lastAddConfirmed should never be short of the
+                                    // last entry id; else we maybe missing an entry
+                                    if (lastAddConfirmed < currentMetadata.getLastEntryId()) {
+                                        bkLedgerManager.raiseAlert("Unexpected last entry id during read ahead; {} , {}",
+                                            currentMetadata, lastAddConfirmed);
+                                        setReadAheadError();
+                                    } else {
+                                        // This disconnect will only surface during repositioning and
+                                        // will not silently miss records; therefore its safe to not halt
+                                        // reading, but we should print a warning for easy diagnosis
+                                        if (lastAddConfirmed > (currentMetadata.getLastEntryId() + 1)) {
+                                            LOG.warn("Metadata {} is corrupt for stream {}, lastAddConfirmed {}",
+                                                    new Object[] {currentMetadata, getFullyQualifiedName(), lastAddConfirmed});
+                                        }
+
+                                        if (LOG.isTraceEnabled()) {
+                                            LOG.trace("Past the last Add Confirmed in ledger {} for {}", currentMetadata, fullyQualifiedName);
+                                        }
+                                        bkLedgerManager.getHandleCache().closeLedger(currentLH);
+                                        LogSegmentLedgerMetadata oldMetadata = currentMetadata;
+                                        currentLH = null;
+                                        currentMetadata = null;
+                                        if (currentMetadataIndex + 1 < ledgerList.size()) {
+                                            currentMetadata = ledgerList.get(++currentMetadataIndex);
+                                            if (currentMetadata.getLedgerSequenceNumber() != (oldMetadata.getLedgerSequenceNumber() + 1)) {
+                                                // We should never get here as we should have exited the loop if
+                                                // pendingRequests were empty
+                                                bkLedgerManager.raiseAlert("Unexpected condition during read ahead; {} , {}",
+                                                    currentMetadata, oldMetadata);
+                                                setReadAheadError();
+                                            } else {
+                                                if (LOG.isTraceEnabled()) {
+                                                    LOG.trace("Moving read position to a new ledger {} for {}.",
+                                                        currentMetadata, fullyQualifiedName);
+                                                }
+                                                nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
+                                            }
+                                        }
                                     }
-                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
                                 }
                             }
-                            next.process(BKException.Code.OK);
+                            if (!readAheadError) {
+                                next.process(BKException.Code.OK);
+                            }
                         } catch (InterruptedException ie) {
                             LOG.debug("Interrupted while repositioning", ie);
                             handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.InterruptedException);

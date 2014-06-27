@@ -194,7 +194,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
                                                                           AsyncNotification notification) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, readAheadExecutor,
+                zooKeeperClientBuilder, bookKeeperClientBuilder, executorService, readAheadExecutor, alertStatsLogger,
                 statsLogger, notification);
     }
 
