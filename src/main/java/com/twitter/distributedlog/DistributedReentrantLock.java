@@ -17,12 +17,12 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -41,9 +41,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
@@ -70,7 +72,9 @@ class DistributedReentrantLock {
 
     private final AtomicInteger lockCount = new AtomicInteger(0);
     private final AtomicIntegerArray lockAcqTracker;
-    private final DistributedLock internalLock;
+    private DistributedLock internalLock;
+    private final ZooKeeperClient zooKeeperClient;
+    private final String clientId;
     private final long lockTimeout;
     private boolean logUnbalancedWarning = true;
 
@@ -116,7 +120,9 @@ class DistributedReentrantLock {
         this.executorService = executorService;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
-        this.internalLock = new DistributedLock(zkc, lockPath, clientId);
+        this.zooKeeperClient = zkc;
+        this.clientId = clientId;
+        this.internalLock = new DistributedLock(this.zooKeeperClient, this.lockPath, this.clientId);
         this.lockAcqTracker = new AtomicIntegerArray(LockReason.MAXREASON.value);
 
         if (null == lockStatsLogger) {
@@ -189,7 +195,7 @@ class DistributedReentrantLock {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            doRelease(reason);
+            doRelease(reason, false);
             success = true;
         } finally {
             if (success) {
@@ -200,12 +206,17 @@ class DistributedReentrantLock {
         }
     }
 
-    void doRelease(LockReason reason) {
+    void doRelease(LockReason reason, boolean exceptionOnUnbalancedHandling) {
         LOG.trace("Lock Release {}, {}", lockPath, reason);
         int perReasonLockCount = lockAcqTracker.decrementAndGet(reason.value);
         if ((perReasonLockCount < 0) && logUnbalancedWarning) {
             LOG.warn("Unbalanced lock handling for {} type {}, lockCount is {} ",
                 new Object[]{lockPath, reason, perReasonLockCount});
+            if (exceptionOnUnbalancedHandling) {
+                throw new IllegalStateException(
+                    String.format("Unbalanced lock handling for %s type %s, lockCount is %s",
+                        lockPath, reason, perReasonLockCount));
+            }
         }
         if (lockCount.decrementAndGet() <= 0) {
             if (logUnbalancedWarning && (lockCount.get() < 0)) {
@@ -224,20 +235,77 @@ class DistributedReentrantLock {
         }
     }
 
-    public synchronized boolean checkWriteLock(boolean acquiresync, LockReason reason) throws LockingException {
-        if (!haveLock()) {
+    public boolean checkWriteLock(boolean acquiresync, LockReason reason) throws LockingException {
+        Future<?> futureToWaitFor = null;
+        synchronized(this) {
+            if (haveLock()) {
+                return false;
+            }
+
+            // If we have already errored out, throw right away
             if (null != asyncLockAcquireException) {
                 throw asyncLockAcquireException;
             }
+
             // We may have just lost the lock because of a ZK session timeout
             // not necessarily because someone else acquired the lock.
             // In such cases just try to reacquire. If that fails, it will throw
-            if (acquiresync) {
-                acquire(reason);
-            } else {
-                asyncLockAcquire(reason);
+            if (null == asyncLockAcquireFuture) {
+                asyncLockAcquireFuture = executorService.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            synchronized(DistributedReentrantLock.this) {
+                                // Cleanup the old lock
+                                internalLock.cleanup(false);
+                                // Create a new lock
+                                internalLock = new DistributedLock(zooKeeperClient, lockPath, clientId);
+                                asyncLockAcquireException = null;
+                            }
+                            if (!internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS)) {
+                                LOG.error("Failed to acquire lock within timeout {} : ", lockPath);
+                                throw new LockingException(lockPath, "Failed to acquire lock within timeout");
+                            }
+                        } catch (LockingException exc) {
+                            synchronized(DistributedReentrantLock.this) {
+                                asyncLockAcquireException = exc;
+                            }
+                        } catch (RuntimeException rte) {
+                            synchronized(DistributedReentrantLock.this) {
+                                asyncLockAcquireException = new LockingException(lockPath, "RuntimeException while trying to acquire lock", rte);
+                            }
+                        } finally {
+                            synchronized(DistributedReentrantLock.this) {
+                                asyncLockAcquireFuture = null;
+                            }
+                        }
+                    }
+                });
             }
-            return true;
+
+            if (acquiresync) {
+                futureToWaitFor = asyncLockAcquireFuture;
+            }
+        }
+        if (null != futureToWaitFor) {
+            try {
+                futureToWaitFor.get();
+            } catch (InterruptedException ie) {
+                LOG.error("Interrupted Exception while trying to acquire lock {} : ", lockPath, ie);
+                throw new LockingException(lockPath, "Interrupted Exception while trying to acquire lock", ie);
+            } catch (ExecutionException ee) {
+                if (ee.getCause() instanceof LockingException) {
+                    throw (LockingException)(ee.getCause());
+                } else {
+                    LOG.error("Execution Exception while trying to acquire lock {} : ", lockPath, ee);
+                    throw new LockingException(lockPath, "Execution Exception while trying to acquire lock", ee);
+                }
+            }
+
+            // Check that the task did not fail to reacquire
+            if (null != asyncLockAcquireException) {
+                throw asyncLockAcquireException;
+            }
         }
 
         return false;
@@ -262,24 +330,9 @@ class DistributedReentrantLock {
         this.asyncLockAcquireException = e;
     }
 
-    private synchronized void asyncLockAcquire(final LockReason reason) {
-        if (null == asyncLockAcquireFuture) {
-            asyncLockAcquireFuture = executorService.submit(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        setAsyncLockAcquireException(null);
-                        acquire(reason);
-                    } catch (LockingException exc) {
-                        setAsyncLockAcquireException(exc);
-                    } finally {
-                        synchronized (this) {
-                            asyncLockAcquireFuture = null;
-                        }
-                    }
-                }
-            });
-        }
+    @VisibleForTesting
+    DistributedLock getInternalLock() {
+        return internalLock;
     }
 
     static class DeleteCallback implements AsyncCallback.VoidCallback {
@@ -309,7 +362,7 @@ class DistributedReentrantLock {
      * TODO: two different versions of zookeeper.
      * TODO: When science upgrades to ZK 3.4.X we should remove this
      */
-    private static class DistributedLock {
+    static class DistributedLock {
 
         private final ZooKeeperClient zkClient;
         private final String lockPath;
