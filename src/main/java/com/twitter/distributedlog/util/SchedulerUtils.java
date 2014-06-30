@@ -11,6 +11,9 @@ public class SchedulerUtils {
     static final Logger logger = LoggerFactory.getLogger(SchedulerUtils.class);
 
     public static void shutdownScheduler(ExecutorService service, long timeout, TimeUnit timeUnit) {
+        if (null == service) {
+            return;
+        }
         service.shutdown();
         try {
             service.awaitTermination(timeout, timeUnit);

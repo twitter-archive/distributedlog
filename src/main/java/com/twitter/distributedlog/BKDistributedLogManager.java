@@ -112,7 +112,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
                 BKDLConfig.propagateConfiguration(bkdlConfig, conf);
                 this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", name))
+                        .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("bk:%s:dlm_shared", name))
                         .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
             } else {
                 this.bookKeeperClientBuilder = bkcBuilder;
@@ -834,9 +834,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
             }
         } else {
-            if (null != metadataExecutor) {
-                metadataExecutor.shutdown();
+            if (null != orderedFuturePool) {
+                SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), 5000, TimeUnit.MILLISECONDS);
+                LOG.info("Stopped Ordered Future Pool for {}.", name);
             }
+            SchedulerUtils.shutdownScheduler(metadataExecutor, 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
         try {

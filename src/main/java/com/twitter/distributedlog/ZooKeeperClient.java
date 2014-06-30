@@ -74,6 +74,7 @@ public class ZooKeeperClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClient.class.getName());
 
+    private final String name;
     private final int sessionTimeoutMs;
     private final int defaultConnectionTimeoutMs;
     private final String zooKeeperServers;
@@ -102,11 +103,12 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this(sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0);
+        this("default", sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0);
     }
 
-    ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
+    ZooKeeperClient(String name, int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
                     RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit) {
+        this.name = name;
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
@@ -165,7 +167,7 @@ public class ZooKeeperClient {
 
         // This indicates that the client was explictly closed
         if (0 == refCount.get()) {
-            throw new ZooKeeperConnectionException("Client has already been closed");
+            throw new ZooKeeperConnectionException("Client " + name + " has already been closed");
         }
 
         if (zooKeeper == null) {
@@ -222,7 +224,7 @@ public class ZooKeeperClient {
                     case None:
                         switch (event.getState()) {
                             case Expired:
-                                LOG.info("Zookeeper session expired. Event: " + event);
+                                LOG.info("Zookeeper {} 's session expired. Event: {}", name, event);
                                 closeInternal();
                                 break;
                             case SyncConnected:
@@ -254,13 +256,13 @@ public class ZooKeeperClient {
             if (!connected.await(connectionTimeoutMs, TimeUnit.MILLISECONDS)) {
                 closeInternal();
                 throw new TimeoutException("Timed out waiting for a ZK connection after "
-                    + connectionTimeoutMs);
+                    + connectionTimeoutMs + " for client " + name);
             }
         } else {
             try {
                 connected.await();
             } catch (InterruptedException ex) {
-                LOG.info("Interrupted while waiting to connect to zooKeeper");
+                LOG.info("Interrupted while waiting to connect to zooKeeper {} : ", name, ex);
                 closeInternal();
                 throw ex;
             }
@@ -324,12 +326,12 @@ public class ZooKeeperClient {
     public synchronized void closeInternal() {
         if (zooKeeper != null) {
             try {
-                LOG.info("Closing zookeeper client.");
+                LOG.info("Closing zookeeper client {}.", name);
                 zooKeeper.close();
-                LOG.info("Closed zookeeper client.");
+                LOG.info("Closed zookeeper client {}.", name);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                LOG.warn("Interrupted trying to close zooKeeper");
+                LOG.warn("Interrupted trying to close zooKeeper {} : ", name, e);
             } finally {
                 zooKeeper = null;
                 sessionState = null;
@@ -352,7 +354,8 @@ public class ZooKeeperClient {
     public synchronized void close(boolean force) {
         int refs = refCount.decrementAndGet();
         if (refs == 0 || force) {
-            LOG.info("Close zookeeper client : ref = {}, force = {}.", refs, force);
+            LOG.info("Close zookeeper client {} : ref = {}, force = {}.",
+                     new Object[] { name, refs, force });
             closeInternal();
         }
     }

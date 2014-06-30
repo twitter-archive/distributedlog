@@ -13,7 +13,6 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 public class ZKMetadataAccessor implements MetadataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(ZKMetadataAccessor.class);
     protected final String name;
@@ -37,6 +36,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                     conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
             }
             this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
+                .name(String.format("dlzk:%s:dlm_shared", name))
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit()).uri(uri).retryPolicy(retryPolicy)

@@ -21,6 +21,8 @@ public class ZooKeeperClientBuilder {
         return new ZooKeeperClientBuilder();
     }
 
+    // name
+    private String name = "default";
     // whether to build new client
     private boolean buildNew = false;
     // sessionTimeoutMs
@@ -42,6 +44,17 @@ public class ZooKeeperClientBuilder {
     private ZooKeeperClient cachedClient = null;
 
     private ZooKeeperClientBuilder() {}
+
+    /**
+     * Set zookeeper client name
+     *
+     * @param name zookeeper client name
+     * @return zookeeper client builder
+     */
+    public synchronized ZooKeeperClientBuilder name(String name) {
+        this.name = name;
+        return this;
+    }
 
     /**
      * Set zookeeper session timeout in milliseconds.
@@ -206,6 +219,7 @@ public class ZooKeeperClientBuilder {
     private ZooKeeperClient buildClient() {
         validateParameters();
         return new ZooKeeperClient(
+                name,
                 sessionTimeoutMs,
                 conectionTimeoutMs,
                 zkServers,

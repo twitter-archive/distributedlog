@@ -10,6 +10,7 @@ import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.PermitManager;
 
+import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -30,7 +31,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +62,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                                              DistributedLogConfiguration conf,
                                              URI namespace) throws IOException {
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .name(String.format("dlzk:%s:factory_static", namespace))
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .uri(namespace)
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
@@ -154,7 +155,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 conf.getZKRetryBackoffStartMillis(),
                 conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
         }
+        String zkcName = String.format("dlzk:%s:factory_shared", namespace);
         this.sharedZKClientBuilderForDL = ZooKeeperClientBuilder.newBuilder()
+            .name(zkcName)
             .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
             .retryThreadCount(conf.getZKClientNumberRetryThreads())
             .requestRateLimit(conf.getZKRequestRateLimit())
@@ -162,18 +165,25 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             .retryPolicy(retryPolicy)
             .statsLogger(statsLogger)
             .buildNew(conf.getSeparateZKClients());
-        LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
-            " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),
-            conf.getZKRetryBackoffStartMillis(), conf.getZKRetryBackoffMaxMillis() });
         this.sharedZKClientForDL = this.sharedZKClientBuilderForDL.build();
+        LOG.info("Created shared zooKeeper client {}: numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
+                 + " maxRetryBackoff = {}.", new Object[] { zkcName, conf.getZKNumRetries(),
+                conf.getZKSessionTimeoutMilliseconds(), conf.getZKRetryBackoffStartMillis(),
+                conf.getZKRetryBackoffMaxMillis() });
+
         // Resolve uri to get bk dl config
         BKDLConfig bkdlConfig = resolveBKDLConfig();
         // Build bookkeeper client
+        String bkcName = String.format("bk:%s:factory_shared", namespace);
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-                .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", namespace))
-                .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
-        LOG.info("BookKeeper Client : numIOThreads = {}, numWorkerThreads = {}",
-                 conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads());
+                .name(bkcName)
+                .dlConfig(conf)
+                .bkdlConfig(bkdlConfig)
+                .channelFactory(channelFactory)
+                .requestTimer(requestTimer)
+                .statsLogger(statsLogger);
+        LOG.info("Shared BookKeeper Client {} : numIOThreads = {}, numWorkerThreads = {}",
+                 new Object[] { bkcName, conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads() });
 
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
                 conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
@@ -363,6 +373,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             }
 
             this.sharedZKClientBuilderForBK = ZooKeeperClientBuilder.newBuilder()
+                .name(String.format("bkzk:%s:factory_shared", namespace))
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
@@ -379,7 +390,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         BKDLConfig bkdlConfig = resolveBKDLConfig();
         // Build bookkeeper client
         BookKeeperClientBuilder bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-            .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("%s:shared", nameOfLogStream))
+            .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("bk:%s:dlm_shared", nameOfLogStream))
             .zkc(sharedZKClientForBK).channelFactory(channelFactory)
             .requestTimer(requestTimer).statsLogger(statsLogger);
 
@@ -685,10 +696,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
     public void close() {
-        scheduledThreadPoolExecutor.shutdown();
+        SchedulerUtils.shutdownScheduler(scheduledThreadPoolExecutor, 5000, TimeUnit.MILLISECONDS);
         LOG.info("Executor Service Stopped.");
         if (scheduledThreadPoolExecutor != readAheadExecutor) {
-            readAheadExecutor.shutdown();
+            SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
             LOG.info("ReadAhead Executor Service Stopped.");
         }
         if (null != allocator) {
@@ -707,6 +718,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             sharedZKClientForBK.close(true);
         }
         channelFactory.releaseExternalResources();
+        LOG.info("Release external resources used by channel factory.");
         requestTimer.stop();
+        LOG.info("Stopped request timer");
     }
 }
