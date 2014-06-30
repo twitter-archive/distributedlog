@@ -28,6 +28,7 @@
     <module>distributedlog-core-zk33</module>
     <module>distributedlog-proxy-zk33</module>
     <module>distributedlog-service-zk33</module>
+    <module>distributedlog-benchmark</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
