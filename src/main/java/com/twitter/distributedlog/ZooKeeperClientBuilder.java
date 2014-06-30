@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
@@ -113,7 +114,7 @@ public class ZooKeeperClientBuilder {
      * @return builder.
      */
     public synchronized ZooKeeperClientBuilder uri(URI uri) {
-        this.zkServers = uri.getAuthority().replace(";", ",");
+        this.zkServers = DLUtils.getZKServersFromDLUri(uri);
         return this;
     }
 

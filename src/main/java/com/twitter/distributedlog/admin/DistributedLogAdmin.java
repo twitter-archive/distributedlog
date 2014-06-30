@@ -12,6 +12,7 @@ import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.tools.DistributedLogTool;
+import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
@@ -235,7 +236,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             if (cmdline.hasOption("dlzw")) {
                 dlZkServersForWriter = cmdline.getOptionValue("dlzw");
             } else {
-                dlZkServersForWriter = uri.getAuthority().replace(";", ",");
+                dlZkServersForWriter = DLUtils.getZKServersFromDLUri(uri);
             }
             if (cmdline.hasOption("dlzr")) {
                 dlZkServersForReader = cmdline.getOptionValue("dlzr");
@@ -340,8 +341,8 @@ public class DistributedLogAdmin extends DistributedLogTool {
         protected int runCmd() throws Exception {
             final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
             try {
-                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedZKClientForDL()) :
-                        ZkMetadataUpdater.createMetadataUpdater(factory.getSharedZKClientForDL());
+                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()) :
+                        ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL());
                 System.out.println("List of streams : ");
                 System.out.println(streams);
                 if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {

@@ -5,6 +5,8 @@ import java.net.URI;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.CreateMode;
@@ -16,39 +18,82 @@ import org.slf4j.LoggerFactory;
 public class ZKMetadataAccessor implements MetadataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(ZKMetadataAccessor.class);
     protected final String name;
-    protected boolean zkcClosed = true;
+    protected boolean closed = true;
     protected final URI uri;
-    protected final ZooKeeperClientBuilder zooKeeperClientBuilder;
-    protected final ZooKeeperClient zooKeeperClient;
+    // zookeeper clients
+    // NOTE: The actual zookeeper client is initialized lazily when it is referenced by
+    //       {@link com.twitter.distributedlog.ZooKeeperClient#get()}. So it is safe to
+    //       keep builders and their client wrappers here, as they will be used when
+    //       instantiating readers or writers.
+    protected final ZooKeeperClientBuilder writerZKCBuilder;
+    protected final ZooKeeperClient writerZKC;
+    protected final ZooKeeperClientBuilder readerZKCBuilder;
+    protected final ZooKeeperClient readerZKC;
 
     public ZKMetadataAccessor(String name,
                               DistributedLogConfiguration conf,
                               URI uri,
-                              ZooKeeperClientBuilder zkcBuilder) {
+                              ZooKeeperClientBuilder writerZKCBuilder,
+                              ZooKeeperClientBuilder readerZKCBuilder) {
         this.name = name;
         this.uri = uri;
 
-        if (null == zkcBuilder) {
+        if (null == writerZKCBuilder) {
             RetryPolicy retryPolicy = null;
             if (conf.getZKNumRetries() > 0) {
                 retryPolicy = new BoundExponentialBackoffRetryPolicy(
                     conf.getZKRetryBackoffStartMillis(),
                     conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
             }
-            this.zooKeeperClientBuilder = ZooKeeperClientBuilder.newBuilder()
-                .name(String.format("dlzk:%s:dlm_shared", name))
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                .requestRateLimit(conf.getZKRequestRateLimit())
-                .uri(uri)
-                .retryPolicy(retryPolicy)
-                .buildNew(false);
+            this.writerZKCBuilder = ZooKeeperClientBuilder.newBuilder()
+                    .name(String.format("dlzk:%s:dlm_writer_shared", name))
+                    .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                    .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                    .requestRateLimit(conf.getZKRequestRateLimit())
+                    .uri(uri)
+                    .retryPolicy(retryPolicy)
+                    .buildNew(false);
         } else {
-            this.zooKeeperClientBuilder = zkcBuilder;
+            this.writerZKCBuilder = writerZKCBuilder;
         }
+        this.writerZKC = this.writerZKCBuilder.build();
 
-        zooKeeperClient = this.zooKeeperClientBuilder.build();
-        zkcClosed = false;
+        if (null == readerZKCBuilder) {
+            String zkServersForWriter = DLUtils.getZKServersFromDLUri(uri);
+            String zkServersForReader;
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.writerZKC, uri);
+                zkServersForReader = bkdlConfig.getDlZkServersForReader();
+            } catch (IOException e) {
+                LOG.warn("Error on resolving dl metadata bindings for {} : ", uri, e);
+                zkServersForReader = zkServersForWriter;
+            }
+            if (zkServersForReader.equals(zkServersForWriter)) {
+                LOG.info("Used same zookeeper servers '{}' for both writers and readers for {}.",
+                         zkServersForWriter, name);
+                this.readerZKCBuilder = this.writerZKCBuilder;
+            } else {
+                RetryPolicy retryPolicy = null;
+                if (conf.getZKNumRetries() > 0) {
+                    retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                        conf.getZKRetryBackoffStartMillis(),
+                        conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
+                }
+                this.readerZKCBuilder = ZooKeeperClientBuilder.newBuilder()
+                        .name(String.format("dlzk:%s:dlm_reader_shared", name))
+                        .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                        .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                        .requestRateLimit(conf.getZKRequestRateLimit())
+                        .zkServers(zkServersForReader)
+                        .retryPolicy(retryPolicy)
+                        .buildNew(false);
+            }
+        } else {
+            this.readerZKCBuilder = readerZKCBuilder;
+        }
+        readerZKC = this.readerZKCBuilder.build();
+
+        closed = false;
     }
 
     /**
@@ -74,17 +119,17 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         String zkPath = getZKPath();
         LOG.debug("Setting application specific metadata on {}", zkPath);
         try {
-            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
+            Stat currentStat = writerZKC.get().exists(zkPath, false);
             if (currentStat == null) {
                 if (metadata.length > 0) {
-                    Utils.zkCreateFullPathOptimistic(zooKeeperClient,
+                    Utils.zkCreateFullPathOptimistic(writerZKC,
                         zkPath,
                         metadata,
                         ZooDefs.Ids.OPEN_ACL_UNSAFE,
                         CreateMode.PERSISTENT);
                 }
             } else {
-                zooKeeperClient.get().setData(zkPath, metadata, currentStat.getVersion());
+                writerZKC.get().setData(zkPath, metadata, currentStat.getVersion());
             }
         } catch (InterruptedException ie) {
             throw new DLInterruptedException("Interrupted on creating or updating container metadata", ie);
@@ -115,11 +160,11 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         String zkPath = getZKPath();
         LOG.debug("Getting application specific metadata from {}", zkPath);
         try {
-            Stat currentStat = zooKeeperClient.get().exists(zkPath, false);
+            Stat currentStat = readerZKC.get().exists(zkPath, false);
             if (currentStat == null) {
                 return null;
             } else {
-                return zooKeeperClient.get().getData(zkPath, false, currentStat);
+                return readerZKC.get().getData(zkPath, false, currentStat);
             }
         } catch (InterruptedException ie) {
             throw new DLInterruptedException("Error reading the max tx id from zk", ie);
@@ -134,16 +179,22 @@ public class ZKMetadataAccessor implements MetadataAccessor {
      */
     @Override
     public void close() throws IOException {
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        }
         try {
-            zooKeeperClient.close();
+            writerZKC.close();
+            readerZKC.close();
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager", e);
         }
-        zkcClosed = true;
     }
 
-    public void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (zkcClosed) {
+    public synchronized void checkClosedOrInError(String operation) throws AlreadyClosedException {
+        if (closed) {
             throw new AlreadyClosedException("Executing " + operation + " on already closed ZKMetadataAccessor");
         }
     }

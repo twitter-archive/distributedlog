@@ -1,11 +1,13 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.PermitManager;
@@ -88,13 +90,27 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final ScheduledThreadPoolExecutor readAheadExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
-    // zk & bk client
-    private final ZooKeeperClientBuilder sharedZKClientBuilderForDL;
-    private final ZooKeeperClient sharedZKClientForDL;
-    private ZooKeeperClientBuilder sharedZKClientBuilderForBK;
-    private ZooKeeperClient sharedZKClientForBK = null;
-    private final BookKeeperClientBuilder bookKeeperClientBuilder;
-    private BookKeeperClient bookKeeperClient = null;
+    // zookeeper clients
+    // NOTE: The actual zookeeper client is initialized lazily when it is referenced by
+    //       {@link com.twitter.distributedlog.ZooKeeperClient#get()}. So it is safe to
+    //       keep builders and their client wrappers here, as they will be used when
+    //       instantiating readers or writers.
+    private final ZooKeeperClientBuilder sharedWriterZKCBuilderForDL;
+    private final ZooKeeperClient sharedWriterZKCForDL;
+    private final ZooKeeperClientBuilder sharedReaderZKCBuilderForDL;
+    private final ZooKeeperClient sharedReaderZKCForDL;
+    private ZooKeeperClientBuilder sharedWriterZKCBuilderForBK = null;
+    private ZooKeeperClient sharedWriterZKCForBK = null;
+    private ZooKeeperClientBuilder sharedReaderZKCBuilderForBK = null;
+    private ZooKeeperClient sharedReaderZKCForBK = null;
+    // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
+    //       {@link com.twitter.distributedlog.BookKeeperClient#get()}. So it is safe to
+    //       keep builders and their client wrappers here, as they will be used when
+    //       instantiating readers or writers.
+    private final BookKeeperClientBuilder writerBKCBuilder;
+    private final BookKeeperClient writerBKC;
+    private final BookKeeperClientBuilder readerBKCBuilder;
+    private final BookKeeperClient readerBKC;
     // ledger allocator
     private final LedgerAllocator allocator;
     // log segment rolling permit manager
@@ -148,43 +164,49 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),
             conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
             conf.getTimeoutTimerNumTicks());
-        // Build zookeeper client
-        RetryPolicy retryPolicy = null;
-        if (conf.getZKNumRetries() > 0) {
-            retryPolicy = new BoundExponentialBackoffRetryPolicy(
-                conf.getZKRetryBackoffStartMillis(),
-                conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
-        }
-        String zkcName = String.format("dlzk:%s:factory_shared", namespace);
-        this.sharedZKClientBuilderForDL = ZooKeeperClientBuilder.newBuilder()
-            .name(zkcName)
-            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-            .retryThreadCount(conf.getZKClientNumberRetryThreads())
-            .requestRateLimit(conf.getZKRequestRateLimit())
-            .uri(uri)
-            .retryPolicy(retryPolicy)
-            .statsLogger(statsLogger)
-            .buildNew(conf.getSeparateZKClients());
-        this.sharedZKClientForDL = this.sharedZKClientBuilderForDL.build();
-        LOG.info("Created shared zooKeeper client {}: numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
-                 + " maxRetryBackoff = {}.", new Object[] { zkcName, conf.getZKNumRetries(),
-                conf.getZKSessionTimeoutMilliseconds(), conf.getZKRetryBackoffStartMillis(),
-                conf.getZKRetryBackoffMaxMillis() });
+
+        // Build zookeeper client for writers
+        this.sharedWriterZKCBuilderForDL = createDLZKClientBuilder(
+                String.format("dlzk:%s:factory_writer_shared", namespace),
+                conf,
+                DLUtils.getZKServersFromDLUri(uri),
+                statsLogger);
+        this.sharedWriterZKCForDL = this.sharedWriterZKCBuilderForDL.build();
 
         // Resolve uri to get bk dl config
         BKDLConfig bkdlConfig = resolveBKDLConfig();
-        // Build bookkeeper client
-        String bkcName = String.format("bk:%s:factory_shared", namespace);
-        this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-                .name(bkcName)
-                .dlConfig(conf)
-                .zkServers(bkdlConfig.getBkZkServersForWriter())
-                .ledgersPath(bkdlConfig.getBkLedgersPath())
-                .channelFactory(channelFactory)
-                .requestTimer(requestTimer)
-                .statsLogger(statsLogger);
-        LOG.info("Shared BookKeeper Client {} : numIOThreads = {}, numWorkerThreads = {}",
-                 new Object[] { bkcName, conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads() });
+
+        // Build zookeeper client for readers
+        if (bkdlConfig.getDlZkServersForWriter().equals(bkdlConfig.getDlZkServersForReader())) {
+            this.sharedReaderZKCBuilderForDL = this.sharedWriterZKCBuilderForDL;
+        } else {
+            this.sharedReaderZKCBuilderForDL = createDLZKClientBuilder(
+                    String.format("dlzk:%s:factory_reader_shared", namespace),
+                    conf,
+                    DLUtils.getZKServersFromDLUri(uri),
+                    statsLogger);
+        }
+        this.sharedReaderZKCForDL = this.sharedReaderZKCBuilderForDL.build();
+
+        // Build bookkeeper client for writers
+        this.writerBKCBuilder = createBKCBuilder(
+                String.format("bk:%s:factory_writer_shared", namespace),
+                conf,
+                bkdlConfig.getBkZkServersForWriter(),
+                bkdlConfig.getBkLedgersPath());
+        this.writerBKC = this.writerBKCBuilder.build();
+
+        // Build bookkeeper client for readers
+        if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
+            this.readerBKCBuilder = this.writerBKCBuilder;
+        } else {
+            this.readerBKCBuilder = createBKCBuilder(
+                    String.format("bk:%s:factory_reader_shared", namespace),
+                    conf,
+                    bkdlConfig.getBkZkServersForReader(),
+                    bkdlConfig.getBkLedgersPath());
+        }
+        this.readerBKC = this.readerBKCBuilder.build();
 
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
                 conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
@@ -200,9 +222,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 throw new IOException("No ledger allocator name specified when enabling ledger allocator pool.");
             }
             String rootPath = uri.getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE + "/" + poolName;
-            getBookKeeperClientBuilder();
             allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(rootPath, conf.getLedgerAllocatorPoolCoreSize(), conf,
-                sharedZKClientForDL, getBookKeeperClient());
+                sharedWriterZKCForDL, writerBKC);
             if (null != allocator) {
                 allocator.start();
             }
@@ -214,20 +235,84 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
 
-    public ZooKeeperClient getSharedZKClientForDL() {
-        return sharedZKClientForDL;
-    }
-
-    public synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
-        if (null == bookKeeperClient) {
-            // get a reference of shared bookkeeper client
-            bookKeeperClient = bookKeeperClientBuilder.build();
+    private static ZooKeeperClientBuilder createDLZKClientBuilder(String zkcName,
+                                                                DistributedLogConfiguration conf,
+                                                                String zkServers,
+                                                                StatsLogger statsLogger) {
+        RetryPolicy retryPolicy = null;
+        if (conf.getZKNumRetries() > 0) {
+            retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                conf.getZKRetryBackoffStartMillis(),
+                conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
         }
-        return bookKeeperClientBuilder;
+        ZooKeeperClientBuilder builder = ZooKeeperClientBuilder.newBuilder()
+            .name(zkcName)
+            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+            .retryThreadCount(conf.getZKClientNumberRetryThreads())
+            .requestRateLimit(conf.getZKRequestRateLimit())
+            .zkServers(zkServers)
+            .retryPolicy(retryPolicy)
+            .statsLogger(statsLogger)
+            .buildNew(conf.getSeparateZKClients());
+        LOG.info("Created shared zooKeeper client builder {}: zkServers = {}, numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
+                 + " maxRetryBackoff = {}.", new Object[] { zkcName, zkServers, conf.getZKNumRetries(),
+                conf.getZKSessionTimeoutMilliseconds(), conf.getZKRetryBackoffStartMillis(),
+                conf.getZKRetryBackoffMaxMillis() });
+        return builder;
     }
 
-    public synchronized BookKeeperClient getBookKeeperClient() {
-        return bookKeeperClient;
+    private static ZooKeeperClientBuilder createBKZKClientBuilder(String zkcName,
+                                                                  DistributedLogConfiguration conf,
+                                                                  String zkServers,
+                                                                  StatsLogger statsLogger) {
+        RetryPolicy retryPolicy = null;
+        if (conf.getZKNumRetries() > 0) {
+            retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                    conf.getBKClientZKRetryBackoffStartMillis(),
+                    conf.getBKClientZKRetryBackoffMaxMillis(),
+                    conf.getBKClientZKNumRetries());
+        }
+        ZooKeeperClientBuilder builder = ZooKeeperClientBuilder.newBuilder()
+                .name(zkcName)
+                .sessionTimeoutMs(conf.getBKClientZKSessionTimeoutMilliSeconds())
+                .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                .requestRateLimit(conf.getBKClientZKRequestRateLimit())
+                .zkServers(zkServers)
+                .retryPolicy(retryPolicy)
+                .statsLogger(statsLogger)
+                .buildNew(conf.getSeparateZKClients());
+        LOG.info("Created shared zooKeeper client builder {}: zkServers = {}, numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
+                + " maxRetryBackoff = {}.", new Object[] { zkcName, zkServers, conf.getBKClientZKNumRetries(),
+                conf.getBKClientZKSessionTimeoutMilliSeconds(), conf.getBKClientZKRetryBackoffStartMillis(),
+                conf.getBKClientZKRetryBackoffMaxMillis() });
+        return builder;
+    }
+
+    private BookKeeperClientBuilder createBKCBuilder(String bkcName,
+                                                     DistributedLogConfiguration conf,
+                                                     String zkServers,
+                                                     String ledgersPath) {
+        BookKeeperClientBuilder builder = BookKeeperClientBuilder.newBuilder()
+                .name(bkcName)
+                .dlConfig(conf)
+                .zkServers(zkServers)
+                .ledgersPath(ledgersPath)
+                .channelFactory(channelFactory)
+                .requestTimer(requestTimer)
+                .statsLogger(statsLogger);
+        LOG.info("Created shared client builder {} : zkServers = {}, ledgersPath = {}, numIOThreads = {}, numWorkerThreads = {}",
+                 new Object[] { bkcName, zkServers, ledgersPath, conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads() });
+        return builder;
+    }
+
+    @VisibleForTesting
+    public ZooKeeperClient getSharedWriterZKCForDL() {
+        return sharedWriterZKCForDL;
+    }
+
+    @VisibleForTesting
+    public BookKeeperClientBuilder getReaderBKCBuilder() {
+        return readerBKCBuilder;
     }
 
     /**
@@ -239,7 +324,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @throws IOException
      */
     private <T> T withZooKeeperClient(ZooKeeperClientHandler<T> handler) throws IOException {
-        return handler.handle(sharedZKClientForDL);
+        return handler.handle(sharedWriterZKCForDL);
     }
 
     private BKDLConfig resolveBKDLConfig() throws IOException {
@@ -273,7 +358,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     private void watchNamespaceChanges() {
         try {
-            sharedZKClientForDL.get().getChildren(namespace.getPath(), this, this, null);
+            sharedReaderZKCForDL.get().getChildren(namespace.getPath(), this, this, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
         } catch (InterruptedException e) {
@@ -330,10 +415,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @throws IOException
      * @throws IllegalArgumentException
      */
+    @Deprecated
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            null, null, scheduledThreadPoolExecutor, readAheadExecutor, channelFactory, requestTimer, statsLogger);
+            null, null, null, null, scheduledThreadPoolExecutor, readAheadExecutor, channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -357,42 +443,60 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      */
     public DistributedLogManager createDistributedLogManagerWithSharedZK(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
-        if(null == this.sharedZKClientForBK) {
-            RetryPolicy retryPolicy = null;
-            if (conf.getZKNumRetries() > 0) {
-                retryPolicy = new BoundExponentialBackoffRetryPolicy(
-                    conf.getZKRetryBackoffStartMillis(),
-                    conf.getZKRetryBackoffMaxMillis(), conf.getZKNumRetries());
-            }
-
-            this.sharedZKClientBuilderForBK = ZooKeeperClientBuilder.newBuilder()
-                .name(String.format("bkzk:%s:factory_shared", namespace))
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                .requestRateLimit(conf.getZKRequestRateLimit())
-                .uri(namespace)
-                .retryPolicy(retryPolicy)
-                .statsLogger(statsLogger)
-                .buildNew(conf.getSeparateZKClients());
-            LOG.info("ZooKeeper Client : numRetries = {}, sessionTimeout = {}, retryBackoff = {}," +
-                " maxRetryBackoff = {}.", new Object[] { conf.getZKNumRetries(), conf.getZKSessionTimeoutMilliseconds(),
-                conf.getZKRetryBackoffStartMillis(), conf.getZKRetryBackoffMaxMillis() });
-            this.sharedZKClientForBK = this.sharedZKClientBuilderForBK.build();
-        }
-
         BKDLConfig bkdlConfig = resolveBKDLConfig();
-        // Build bookkeeper client
-        BookKeeperClientBuilder bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
+        ZooKeeperClient writerZKC;
+        ZooKeeperClient readerZKC;
+        synchronized (this) {
+            if (null == this.sharedWriterZKCForBK) {
+                this.sharedWriterZKCBuilderForBK = createBKZKClientBuilder(
+                        String.format("bkzk:%s:factory_writer_shared", namespace),
+                        conf,
+                        bkdlConfig.getBkZkServersForWriter(),
+                        statsLogger);
+                this.sharedWriterZKCForBK = this.sharedWriterZKCBuilderForBK.build();
+            }
+            if (null == this.sharedReaderZKCForBK) {
+                if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
+                    this.sharedReaderZKCBuilderForBK = this.sharedWriterZKCBuilderForBK;
+                } else {
+                    this.sharedReaderZKCBuilderForBK = createBKZKClientBuilder(
+                            String.format("bkzk:%s:factory_reader_shared", namespace),
+                            conf,
+                            bkdlConfig.getBkZkServersForReader(),
+                            statsLogger);
+                }
+                this.sharedReaderZKCForBK = this.sharedReaderZKCBuilderForBK.build();
+            }
+            writerZKC = this.sharedWriterZKCForBK;
+            readerZKC = this.sharedReaderZKCForBK;
+        }
+        // Build bookkeeper clients
+        BookKeeperClientBuilder writerBKCBuilder = BookKeeperClientBuilder.newBuilder()
                 .dlConfig(conf)
-                .name(String.format("bk:%s:dlm_shared", nameOfLogStream))
-                .zkc(sharedZKClientForBK)
+                .name(String.format("bk:%s:dlm_writer_shared", nameOfLogStream))
+                .zkc(writerZKC)
                 .ledgersPath(bkdlConfig.getBkLedgersPath())
                 .channelFactory(channelFactory)
                 .requestTimer(requestTimer)
                 .statsLogger(statsLogger);
+        BookKeeperClientBuilder readerBKCBuilder;
+        if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
+            readerBKCBuilder = writerBKCBuilder;
+        } else {
+            readerBKCBuilder = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(conf)
+                    .name(String.format("bk:%s:dlm_reader_shared", nameOfLogStream))
+                    .zkc(readerZKC)
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .channelFactory(channelFactory)
+                    .requestTimer(requestTimer)
+                    .statsLogger(statsLogger);
+        }
 
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-                sharedZKClientBuilderForDL, bookKeeperClientBuilder, scheduledThreadPoolExecutor, readAheadExecutor,
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
+                nameOfLogStream, conf, namespace,
+                sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
+                writerBKCBuilder, readerBKCBuilder, scheduledThreadPoolExecutor, readAheadExecutor,
                 channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
@@ -435,9 +539,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
         mergedConfiguration.loadStreamConf(streamConfiguration);
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, mergedConfiguration, namespace,
-            sharedZKClientBuilderForDL, getBookKeeperClientBuilder(), scheduledThreadPoolExecutor, readAheadExecutor,
-            channelFactory, requestTimer, statsLogger);
+        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
+                nameOfLogStream, mergedConfiguration, namespace,
+                sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
+                writerBKCBuilder, readerBKCBuilder,
+                scheduledThreadPoolExecutor, readAheadExecutor,
+                channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
@@ -447,7 +554,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);
-        return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace, sharedZKClientBuilderForDL);
+        return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace, sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL);
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -475,6 +582,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         });
     }
 
+    @Deprecated
     public static DistributedLogManager createDistributedLogManager(String name, URI uri) throws IOException, IllegalArgumentException {
         return createDistributedLogManager(name, new DistributedLogConfiguration(), uri);
     }
@@ -507,6 +615,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         }
     }
 
+    @Deprecated
     public static DistributedLogManager createDistributedLogManager(
             String name,
             DistributedLogConfiguration conf,
@@ -516,6 +625,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 NullStatsLogger.INSTANCE);
     }
 
+    @Deprecated
     public static DistributedLogManager createDistributedLogManager(
             String name,
             DistributedLogConfiguration conf,
@@ -527,6 +637,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 BookKeeperClientBuilder.newBuilder().bkc(bkc), NullStatsLogger.INSTANCE);
     }
 
+    @Deprecated
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                                                                     ZooKeeperClient zkc, BookKeeperClient bkc, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
@@ -534,13 +645,15 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 BookKeeperClientBuilder.newBuilder().bkc(bkc).statsLogger(statsLogger), statsLogger);
     }
 
+    @Deprecated
     public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
                 ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, bkcBuilder, statsLogger);
+        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, zkcBuilder, bkcBuilder, bkcBuilder, statsLogger);
     }
 
+    @Deprecated
     public static MetadataAccessor createMetadataAccessor(
             String name,
             URI uri,
@@ -549,6 +662,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return createMetadataAccessor(name, uri, conf, (ZooKeeperClientBuilder) null);
     }
 
+    @Deprecated
     public static MetadataAccessor createMetadataAccessor(
             String name,
             URI uri,
@@ -558,6 +672,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return createMetadataAccessor(name, uri, conf, ZooKeeperClientBuilder.newBuilder().zkc(zkc));
     }
 
+    @Deprecated
     public static MetadataAccessor createMetadataAccessor(
             String name,
             URI uri,
@@ -565,9 +680,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             ZooKeeperClientBuilder zkcBuilder)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder);
+        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder);
     }
-
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {
@@ -706,13 +820,23 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         // force closing all bk/zk clients to avoid zookeeper threads not being
         // shutdown due to any reference count issue, which make the factory still
         // holding locks w/o releasing ownerships.
-        BookKeeperClient bkc = getBookKeeperClient();
-        if (null != bkc) {
-            bkc.release(true);
+        writerBKC.release(true);
+        readerBKC.release(true);
+        sharedWriterZKCForDL.close(true);
+        sharedReaderZKCForDL.close(true);
+
+        // Close shared zookeeper clients for bk
+        ZooKeeperClient writerZKC;
+        ZooKeeperClient readerZKC;
+        synchronized (this) {
+            writerZKC = sharedWriterZKCForBK;
+            readerZKC = sharedReaderZKCForBK;
         }
-        sharedZKClientForDL.close(true);
-        if (null != sharedZKClientForBK) {
-            sharedZKClientForBK.close(true);
+        if (null != writerZKC) {
+            writerZKC.close(true);
+        }
+        if (null != readerZKC) {
+            readerZKC.close(true);
         }
         channelFactory.releaseExternalResources();
         LOG.info("Release external resources used by channel factory.");

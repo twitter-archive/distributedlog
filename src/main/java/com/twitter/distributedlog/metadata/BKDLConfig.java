@@ -5,6 +5,7 @@ import com.google.common.base.Objects;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.thrift.BKDLConfigFormat;
+import com.twitter.distributedlog.util.DLUtils;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TJSONProtocol;
 import org.apache.thrift.transport.TMemoryBuffer;
@@ -68,8 +69,8 @@ public class BKDLConfig implements DLConfig {
      * Construct a empty config with given <i>uri</i>.
      */
     BKDLConfig(URI uri) {
-        this(uri.getAuthority().replace(";", ","),
-             uri.getAuthority().replace(";", ","),
+        this(DLUtils.getZKServersFromDLUri(uri),
+             DLUtils.getZKServersFromDLUri(uri),
              null, null, null);
     }
 

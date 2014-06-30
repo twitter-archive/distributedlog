@@ -81,26 +81,26 @@ public class TestZkMetadataResolver {
     @Test(timeout = 60000)
     public void testResolve() throws Exception {
         DLMetadata dlMetadata = DLMetadata.create(bkdlConfig);
-        dlMetadata.create(createURI("/messaging/distributedlog"));
+        dlMetadata.create(createURI("/messaging/distributedlog-testresolve"));
         DLMetadata dlMetadata2 = DLMetadata.create(bkdlConfig2);
-        dlMetadata2.create(createURI("/messaging/distributedlog/child"));
+        dlMetadata2.create(createURI("/messaging/distributedlog-testresolve/child"));
         assertEquals(dlMetadata,
-                resolver.resolve(createURI("/messaging/distributedlog")));
+                resolver.resolve(createURI("/messaging/distributedlog-testresolve")));
         assertEquals(dlMetadata2,
-                resolver.resolve(createURI("/messaging/distributedlog/child")));
+                resolver.resolve(createURI("/messaging/distributedlog-testresolve/child")));
         assertEquals(dlMetadata2,
-                resolver.resolve(createURI("/messaging/distributedlog/child/unknown")));
-        Utils.zkCreateFullPathOptimistic(zkc, "/messaging/distributedlog/child/child2", new byte[0],
+                resolver.resolve(createURI("/messaging/distributedlog-testresolve/child/unknown")));
+        Utils.zkCreateFullPathOptimistic(zkc, "/messaging/distributedlog-testresolve/child/child2", new byte[0],
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         assertEquals(dlMetadata2,
-                resolver.resolve(createURI("/messaging/distributedlog/child/child2")));
+                resolver.resolve(createURI("/messaging/distributedlog-testresolve/child/child2")));
     }
 
     @Test(timeout = 60000)
     public void testEncodeRegionID() throws Exception {
         DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
 
-        URI uri = createURI("/messaging/distributedlog/dl1");
+        URI uri = createURI("/messaging/distributedlog-testencoderegionid/dl1");
         DLMetadata meta1 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers"));
         meta1.create(uri);
         BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);

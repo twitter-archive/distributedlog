@@ -394,7 +394,7 @@ public class DistributedLogTool extends Tool {
             int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
             for (int i = startIdx; i < endIdx; i++) {
                 String s = streams.get(i);
-                BookKeeperClient bkc = factory.getBookKeeperClientBuilder().build();
+                BookKeeperClient bkc = factory.getReaderBKCBuilder().build();
                 DistributedLogManager dlm =
                         factory.createDistributedLogManagerWithSharedClients(s);
                 try {

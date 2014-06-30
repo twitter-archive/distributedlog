@@ -494,6 +494,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param separateZKClients
      *          Use separate ZK Clients
      */
+    @Deprecated
     public DistributedLogConfiguration setSeparateZKClients(boolean separateZKClients) {
         setProperty(BKDL_SEPARATE_ZK_CLIENT, separateZKClients);
         return this;
@@ -504,6 +505,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return if should use separate ZK Clients
      */
+    @Deprecated
     public boolean getSeparateZKClients() {
         return getBoolean(BKDL_SEPARATE_ZK_CLIENT, BKDL_SEPARATE_ZK_CLIENT_DEFAULT);
     }

@@ -96,14 +96,14 @@ public class TestLedgerHandleCache {
 
     @Test(timeout = 60000)
     public void testOpenLedgerWhenZkClosed() throws Exception {
-        ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder().name("zkc-openledger-when-zk-closed")
                 .zkServers(zkServers).sessionTimeoutMs(10000).build();
-        BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("newBkc")
+        BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("bkc-openledger-when-zk-closed")
                 .zkc(newZkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
         try {
-            LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkClosed".getBytes(UTF_8));
+            LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkcClosed".getBytes(UTF_8));
             lh.close();
-            newZkc.close();
+            newZkc.close(true);
             LedgerHandleCache cache = new LedgerHandleCache(newBkc, "zkcClosed");
             // open ledger after zkc closed
             try {

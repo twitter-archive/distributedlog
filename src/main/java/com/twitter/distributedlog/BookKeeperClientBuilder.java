@@ -1,15 +1,10 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.zookeeper.KeeperException;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
-
-import java.io.IOException;
 
 /**
  * Builder to build bookkeeper client.
@@ -172,7 +167,7 @@ public class BookKeeperClientBuilder {
         Preconditions.checkNotNull(ledgersPath, "Missing Ledgers Root Path.");
     }
 
-    public synchronized BookKeeperClient build() throws IOException {
+    public synchronized BookKeeperClient build() {
         if (null == cachedClient) {
             cachedClient = buildClient();
         } else {
@@ -181,14 +176,8 @@ public class BookKeeperClientBuilder {
         return cachedClient;
     }
 
-    private BookKeeperClient buildClient() throws IOException {
+    private BookKeeperClient buildClient() {
         validateParameters();
-        try {
-            return new BookKeeperClient(dlConfig, name, zkServers, zkc, ledgersPath, channelFactory, requestTimer, statsLogger);
-        } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted on building bookkeeper client " + name + " : ", e);
-        } catch (KeeperException e) {
-            throw new ZKException("Failed on building bookkeeper client " + name + " : ", e);
-        }
+        return new BookKeeperClient(dlConfig, name, zkServers, zkc, ledgersPath, channelFactory, requestTimer, statsLogger);
     }
 }
