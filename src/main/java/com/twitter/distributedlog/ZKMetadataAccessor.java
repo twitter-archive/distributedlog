@@ -39,7 +39,9 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                 .name(String.format("dlzk:%s:dlm_shared", name))
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                .requestRateLimit(conf.getZKRequestRateLimit()).uri(uri).retryPolicy(retryPolicy)
+                .requestRateLimit(conf.getZKRequestRateLimit())
+                .uri(uri)
+                .retryPolicy(retryPolicy)
                 .buildNew(false);
         } else {
             this.zooKeeperClientBuilder = zkcBuilder;

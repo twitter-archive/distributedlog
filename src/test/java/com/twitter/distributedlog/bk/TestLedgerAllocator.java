@@ -6,7 +6,6 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -38,6 +37,9 @@ import static org.junit.Assert.fail;
 
 public class TestLedgerAllocator {
 
+    private static final String zkServers = "127.0.0.1:7000";
+    private static final String ledgersPath = "/ledgers";
+
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
     static int numBookies = 3;
@@ -45,7 +47,6 @@ public class TestLedgerAllocator {
     private ZooKeeperClient zkc;
     private BookKeeperClient bkc;
     private DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
-    private BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "/ledgers");
 
     @BeforeClass
     public static void setupBookkeeper() throws Exception {
@@ -61,7 +62,7 @@ public class TestLedgerAllocator {
     }
 
     private URI createURI(String path) {
-        return URI.create("distributedlog://127.0.0.1:7000" + path);
+        return URI.create("distributedlog://" + zkServers + path);
     }
 
     @Before
@@ -69,7 +70,7 @@ public class TestLedgerAllocator {
         zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
                 .sessionTimeoutMs(10000).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
-                .dlConfig(dlConf).bkdlConfig(bkdlConfig).zkc(zkc).build();
+                .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
     }
 
     @After

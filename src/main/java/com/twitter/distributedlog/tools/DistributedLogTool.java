@@ -168,10 +168,14 @@ public class DistributedLogTool extends Tool {
             String rootPath = getUri().getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE;
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).buildNew();
+                    .uri(getUri()).build();
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
             BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                    .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog_tool").build();
+                    .dlConfig(getConf())
+                    .zkServers(bkdlConfig.getBkZkServersForWriter())
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .name("dlog_tool")
+                    .build();
             try {
                 List<String> pools = zkc.get().getChildren(rootPath, false);
                 if (IOUtils.confirmPrompt("Are u sure to delete allocator pools : " + pools)) {
@@ -948,7 +952,11 @@ public class DistributedLogTool extends Tool {
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
                 BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
                 BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                            .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog").build();
+                        .dlConfig(getConf())
+                        .zkServers(bkdlConfig.getBkZkServersForReader())
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
                 try {
                     LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
                             dlConf.getBKDigestPW().getBytes(UTF_8));
@@ -988,7 +996,11 @@ public class DistributedLogTool extends Tool {
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
                 BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
                 BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(getConf()).bkdlConfig(bkdlConfig).name("dlog").build();
+                        .dlConfig(getConf())
+                        .zkServers(bkdlConfig.getBkZkServersForReader())
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
                 try {
                     LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
                             dlConf.getBKDigestPW().getBytes(UTF_8));

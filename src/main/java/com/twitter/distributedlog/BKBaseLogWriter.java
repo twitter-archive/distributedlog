@@ -8,8 +8,6 @@ import com.twitter.util.FuturePool;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +27,6 @@ public abstract class BKBaseLogWriter {
     private boolean forceRolling = false;
     private boolean forceRecovery = false;
     private LogTruncationTask lastTruncationAttempt = null;
-    private Watcher sessionExpireWatcher = null;
     protected final DistributedLogConfiguration conf;
 
     public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
@@ -74,31 +71,27 @@ public abstract class BKBaseLogWriter {
      */
     public void closeNoThrow() {
         closed = true;
-        try {
-            waitForTruncation();
-            for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
-                try {
-                    writer.close();
-                } catch (IOException ioe) {
-                    LOG.error("Failed to close per stream writer : ", ioe);
-                }
+        waitForTruncation();
+        for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
+            try {
+                writer.close();
+            } catch (IOException ioe) {
+                LOG.error("Failed to close per stream writer : ", ioe);
             }
-            for (BKPerStreamLogWriter writer : getAllocatedLogWriters()) {
-                try {
-                    writer.close();
-                } catch (IOException ioe) {
-                    LOG.error("Failed to close allocated per stream writer : ", ioe);
-                }
+        }
+        for (BKPerStreamLogWriter writer : getAllocatedLogWriters()) {
+            try {
+                writer.close();
+            } catch (IOException ioe) {
+                LOG.error("Failed to close allocated per stream writer : ", ioe);
             }
-            for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
-                try {
-                    partitionWriteHandler.close();
-                } catch (IOException ioe) {
-                    LOG.error("Failed to close writer handler : ", ioe);
-                }
+        }
+        for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
+            try {
+                partitionWriteHandler.close();
+            } catch (IOException ioe) {
+                LOG.error("Failed to close writer handler : ", ioe);
             }
-        } finally {
-            bkDistributedLogManager.unregister(sessionExpireWatcher);
         }
     }
 

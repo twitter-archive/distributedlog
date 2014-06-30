@@ -67,7 +67,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .uri(namespace)
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
-                .buildNew();
+                .build();
         try {
             return handler.handle(zkc);
         } finally {
@@ -178,7 +178,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
                 .name(bkcName)
                 .dlConfig(conf)
-                .bkdlConfig(bkdlConfig)
+                .zkServers(bkdlConfig.getBkZkServersForWriter())
+                .ledgersPath(bkdlConfig.getBkLedgersPath())
                 .channelFactory(channelFactory)
                 .requestTimer(requestTimer)
                 .statsLogger(statsLogger);
@@ -220,15 +221,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public synchronized BookKeeperClientBuilder getBookKeeperClientBuilder() throws IOException {
         if (null == bookKeeperClient) {
             // get a reference of shared bookkeeper client
-            try {
-                bookKeeperClient = bookKeeperClientBuilder.build();
-            } catch (InterruptedException ie) {
-                LOG.error("Interrupted while building bookkeeper client", ie);
-                throw new IOException("Error building bookkeeper client", ie);
-            } catch (KeeperException ke) {
-                LOG.error("Error building bookkeeper client", ke);
-                throw new IOException("Error building bookkeeper client", ke);
-            }
+            bookKeeperClient = bookKeeperClientBuilder.build();
         }
         return bookKeeperClientBuilder;
     }
@@ -390,9 +383,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         BKDLConfig bkdlConfig = resolveBKDLConfig();
         // Build bookkeeper client
         BookKeeperClientBuilder bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-            .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("bk:%s:dlm_shared", nameOfLogStream))
-            .zkc(sharedZKClientForBK).channelFactory(channelFactory)
-            .requestTimer(requestTimer).statsLogger(statsLogger);
+                .dlConfig(conf)
+                .name(String.format("bk:%s:dlm_shared", nameOfLogStream))
+                .zkc(sharedZKClientForBK)
+                .ledgersPath(bkdlConfig.getBkLedgersPath())
+                .channelFactory(channelFactory)
+                .requestTimer(requestTimer)
+                .statsLogger(statsLogger);
 
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
                 sharedZKClientBuilderForDL, bookKeeperClientBuilder, scheduledThreadPoolExecutor, readAheadExecutor,

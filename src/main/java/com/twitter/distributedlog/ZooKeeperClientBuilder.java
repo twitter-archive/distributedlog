@@ -187,15 +187,6 @@ public class ZooKeeperClientBuilder {
     }
 
     /**
-     * Build a new zookeeper client.
-     *
-     * @return new zookeeper client.
-     */
-    public ZooKeeperClient buildNew() {
-        return build(true);
-    }
-
-    /**
      * Build a zookeeper client. If <i>forceNew</i> is true, a new
      * ZooKeeper client is created.
      *

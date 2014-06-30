@@ -50,9 +50,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                      DLSN startDLSN,
                                      StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
         this.executorService = executorService;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, this);
+        sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
@@ -164,9 +164,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         cancelAllPendingReads(new RetryableReadException(
             bkLedgerManager.getFullyQualifiedName(), "Reader was closed"));
 
+        bkLedgerManager.unregister(sessionExpireWatcher);
         bkLedgerManager.close();
-
-        bkDistributedLogManager.unregister(sessionExpireWatcher);
     }
 
     private void cancelAllPendingReads(Throwable throwExc) {

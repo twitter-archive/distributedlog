@@ -1,6 +1,5 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -32,7 +31,8 @@ public class TestLedgerHandleCache {
     static final Logger LOG = LoggerFactory.getLogger(TestLedgerHandleCache.class);
 
     protected static DistributedLogConfiguration dlConf = new DistributedLogConfiguration().setLockTimeout(10);
-    protected static BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "/ledgers");
+    protected static String zkServers = "127.0.0.1:7000";
+    protected static String ledgersPath = "/ledgers";
     private static ZooKeeperServerShim zks;
     private static LocalDLMEmulator bkutil;
     static int numBookies = 3;
@@ -56,9 +56,9 @@ public class TestLedgerHandleCache {
     @Before
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
-                .zkServers("127.0.0.1:7000").sessionTimeoutMs(10000).build();
+                .zkServers(zkServers).sessionTimeoutMs(10000).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
-                .zkc(zkc).bkdlConfig(bkdlConfig).dlConfig(dlConf).build();
+                .zkc(zkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
     }
 
     @After
@@ -70,7 +70,7 @@ public class TestLedgerHandleCache {
     @Test(timeout = 60000)
     public void testOpenLedgerWhenBkcClosed() throws Exception {
         BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("newBkc")
-                .zkc(zkc).bkdlConfig(bkdlConfig).dlConfig(dlConf).build();
+                .zkc(zkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
         LedgerHandleCache cache = new LedgerHandleCache(newBkc, "bkcClosed");
         // closed the bkc
         newBkc.release();
@@ -97,9 +97,9 @@ public class TestLedgerHandleCache {
     @Test(timeout = 60000)
     public void testOpenLedgerWhenZkClosed() throws Exception {
         ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder()
-                .zkServers("127.0.0.1:7000").sessionTimeoutMs(10000).build();
+                .zkServers(zkServers).sessionTimeoutMs(10000).build();
         BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("newBkc")
-                .zkc(newZkc).bkdlConfig(bkdlConfig).dlConfig(dlConf).build();
+                .zkc(newZkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
         try {
             LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkClosed".getBytes(UTF_8));
             lh.close();

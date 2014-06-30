@@ -6,7 +6,6 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -21,9 +20,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.ConcurrentModificationException;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,6 +30,9 @@ import static org.junit.Assert.*;
 
 public class TestLedgerAllocatorPool {
 
+    private static final String zkServers = "127.0.0.1:7000";
+    private static final String ledgersPath = "/ledgers";
+
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
     static int numBookies = 3;
@@ -40,7 +40,6 @@ public class TestLedgerAllocatorPool {
     private ZooKeeperClient zkc;
     private BookKeeperClient bkc;
     private DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
-    private BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1", "/ledgers");
 
     @BeforeClass
     public static void setupBookKeeper() throws Exception {
@@ -56,7 +55,7 @@ public class TestLedgerAllocatorPool {
     }
 
     private URI createURI(String path) {
-        return URI.create("distributedlog://127.0.0.1:7000" + path);
+        return URI.create("distributedlog://" + zkServers + path);
     }
 
     @Before
@@ -64,7 +63,7 @@ public class TestLedgerAllocatorPool {
         zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
                 .sessionTimeoutMs(10000).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
-                .dlConfig(dlConf).bkdlConfig(bkdlConfig).zkc(zkc).build();
+                .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
     }
 
     @After

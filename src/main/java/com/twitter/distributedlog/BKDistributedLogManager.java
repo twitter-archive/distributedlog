@@ -101,32 +101,29 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
 
-        try {
-            // Distributed Log Manager always creates a zookeeper connection to
-            // handle session expiration
-            // Bookkeeper client is only created if separate BK clients option is
-            // not specified
-            // ZK client should be initialized in the super class
-            if (null == bkcBuilder) {
-                // resolve uri
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
-                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
-                this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(conf).bkdlConfig(bkdlConfig).name(String.format("bk:%s:dlm_shared", name))
-                        .channelFactory(channelFactory).requestTimer(requestTimer).statsLogger(statsLogger);
-            } else {
-                this.bookKeeperClientBuilder = bkcBuilder;
-            }
-            bookKeeperClient = this.bookKeeperClientBuilder.build();
-
-            closed = false;
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while accessing ZK", ie);
-            throw new DLInterruptedException("Error initializing zk", ie);
-        } catch (KeeperException ke) {
-            LOG.error("Error accessing entry in zookeeper", ke);
-            throw new IOException("Error initializing zk", ke);
+        // Distributed Log Manager always creates a zookeeper connection to
+        // handle session expiration
+        // Bookkeeper client is only created if separate BK clients option is
+        // not specified
+        // ZK client should be initialized in the super class
+        if (null == bkcBuilder) {
+            // resolve uri
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zooKeeperClient, uri);
+            BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+            this.bookKeeperClientBuilder = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(conf)
+                    .name(String.format("bk:%s:dlm_shared", name))
+                    .zkServers(bkdlConfig.getBkZkServersForWriter())
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .channelFactory(channelFactory)
+                    .requestTimer(requestTimer)
+                    .statsLogger(statsLogger);
+        } else {
+            this.bookKeeperClientBuilder = bkcBuilder;
         }
+        bookKeeperClient = this.bookKeeperClientBuilder.build();
+
+        closed = false;
 
         // Stats
         if (null == handlerStatsLogger) {
@@ -734,7 +731,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         String zkPath = getZKPath();
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
-            ZooKeeperClient zkc = zooKeeperClientBuilder.buildNew();
+            ZooKeeperClient zkc = zooKeeperClientBuilder.build();
             try {
                 LOG.info("Delete the path associated with the log {}, ZK Path", name, zkPath);
                 ZKUtil.deleteRecursive(zkc.get(), zkPath);
@@ -774,7 +771,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private List<String> getStreamsWithinALog() throws IOException {
         List<String> partitions;
         String zkPath = getZKPath();
-        ZooKeeperClient zkc = zooKeeperClientBuilder.buildNew();
+        ZooKeeperClient zkc = zooKeeperClientBuilder.build();
         try {
             if (zkc.get().exists(zkPath, false) == null) {
                 LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
@@ -858,18 +855,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             LOG.error("Task {} is rejected : ", task, ree);
             return false;
         }
-    }
-
-    public Watcher registerExpirationHandler(final ZooKeeperClient.ZooKeeperSessionExpireNotifier onExpired) {
-        if (conf.getZKNumRetries() > 0) {
-            return new Watcher() {
-                @Override
-                public void process(WatchedEvent event) {
-                    // nop
-                }
-            };
-        }
-        return zooKeeperClient.registerExpirationHandler(onExpired);
     }
 
     public boolean unregister(Watcher watcher) {

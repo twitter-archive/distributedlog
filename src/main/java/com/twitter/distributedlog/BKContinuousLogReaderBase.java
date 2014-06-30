@@ -47,7 +47,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         this.readAheadEnabled = conf.getEnableReadAhead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
         this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();
-        sessionExpireWatcher = bkDistributedLogManager.registerExpirationHandler(this);
+        sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
     }
 
     /**
@@ -57,15 +57,12 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
      */
     @Override
     public synchronized void close() throws IOException {
-        try {
-            if (null != currentReader) {
-                currentReader.close();
-            }
-            if (null != bkLedgerManager) {
-                bkLedgerManager.close();
-            }
-        } finally {
-            bkDistributedLogManager.unregister(sessionExpireWatcher);
+        if (null != currentReader) {
+            currentReader.close();
+        }
+        if (null != bkLedgerManager) {
+            bkLedgerManager.unregister(sessionExpireWatcher);
+            bkLedgerManager.close();
         }
     }
 

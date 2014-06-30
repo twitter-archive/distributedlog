@@ -1,7 +1,8 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
-import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
@@ -26,12 +27,15 @@ public class BookKeeperClientBuilder {
 
     // client name
     private String name = null;
-    // zookeeper client
-    private ZooKeeperClient zkc = null;
     // dl config
     private DistributedLogConfiguration dlConfig = null;
-    // bkdl config
-    private BKDLConfig bkdlConfig = null;
+    // bookkeeper settings
+    // zookeeper client
+    private ZooKeeperClient zkc = null;
+    // or zookeeper servers
+    private String zkServers = null;
+    // ledgers path
+    private String ledgersPath = null;
     // statsLogger
     private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
     // client channel factory
@@ -60,24 +64,7 @@ public class BookKeeperClientBuilder {
     }
 
     /**
-     * <i>bkdlConfig</i> used to configure bookkeeper. It is different with
-     * {@link #dlConfig(DistributedLogConfiguration)}. {@link BKDLConfig} is
-     * used to store state-full configurations (e.g. zkServers & ledgersPath),
-     * while {@link DistributedLogConfiguration} is used to store state-less
-     * configurations (e.g. timeout).
-     *
-     * @param bkdlConfig
-     *          bkdl config.
-     * @return builder
-     */
-    public synchronized BookKeeperClientBuilder bkdlConfig(BKDLConfig bkdlConfig) {
-        this.bkdlConfig = bkdlConfig;
-        return this;
-    }
-
-    /**
      * <i>dlConfig</i> used to configure bookkeeper client.
-     * @see {@link #bkdlConfig(BKDLConfig)}
      *
      * @param dlConfig
      *          distributedlog config.
@@ -89,14 +76,44 @@ public class BookKeeperClientBuilder {
     }
 
     /**
-     * Set the zkc used to build bookkeeper client.
+     * Set the zkc used to build bookkeeper client. If a zookeeper client is provided in this
+     * method, bookkeeper client will use it rather than creating a brand new one.
      *
      * @param zkc
      *          zookeeper client.
      * @return builder
+     * @see #zkServers(String)
      */
     public synchronized BookKeeperClientBuilder zkc(ZooKeeperClient zkc) {
         this.zkc = zkc;
+        return this;
+    }
+
+    /**
+     * Set the zookeeper servers that bookkeeper client would connect to. If no zookeeper client
+     * is provided by {@link #zkc(ZooKeeperClient)}, bookkeeper client will use the given string
+     * to create a brand new zookeeper client.
+     *
+     * @param zkServers
+     *          zookeeper servers that bookkeeper client would connect to.
+     * @return builder
+     * @see #zkc(ZooKeeperClient)
+     */
+    public synchronized BookKeeperClientBuilder zkServers(String zkServers) {
+        this.zkServers = zkServers;
+        return this;
+    }
+
+    /**
+     * Set the ledgers path that bookkeeper client is going to access.
+     *
+     * @param ledgersPath
+     *          ledgers path
+     * @return builder
+     * @see org.apache.bookkeeper.conf.ClientConfiguration#getZkLedgersRootPath()
+     */
+    public synchronized BookKeeperClientBuilder ledgersPath(String ledgersPath) {
+        this.ledgersPath = ledgersPath;
         return this;
     }
 
@@ -151,11 +168,11 @@ public class BookKeeperClientBuilder {
     private void validateParameters() {
         Preconditions.checkNotNull(name, "Missing client name.");
         Preconditions.checkNotNull(dlConfig, "Missing DistributedLog Configuration.");
-        Preconditions.checkNotNull(bkdlConfig, "Missing BKDL Config.");
+        Preconditions.checkArgument(null == zkc || null == zkServers, "Missing zookeeper setting.");
+        Preconditions.checkNotNull(ledgersPath, "Missing Ledgers Root Path.");
     }
 
-    public synchronized BookKeeperClient build()
-            throws InterruptedException, IOException, KeeperException {
+    public synchronized BookKeeperClient build() throws IOException {
         if (null == cachedClient) {
             cachedClient = buildClient();
         } else {
@@ -164,9 +181,14 @@ public class BookKeeperClientBuilder {
         return cachedClient;
     }
 
-    private BookKeeperClient buildClient()
-            throws InterruptedException, IOException, KeeperException {
+    private BookKeeperClient buildClient() throws IOException {
         validateParameters();
-        return new BookKeeperClient(dlConfig, bkdlConfig, zkc, name, channelFactory, requestTimer, statsLogger);
+        try {
+            return new BookKeeperClient(dlConfig, name, zkServers, zkc, ledgersPath, channelFactory, requestTimer, statsLogger);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on building bookkeeper client " + name + " : ", e);
+        } catch (KeeperException e) {
+            throw new ZKException("Failed on building bookkeeper client " + name + " : ", e);
+        }
     }
 }

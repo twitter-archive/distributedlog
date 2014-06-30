@@ -242,33 +242,30 @@ abstract class BKLogPartitionHandler implements Watcher {
         ledgerPath = partitionRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
 
-        try {
-            if (null == zkcBuilder) {
-                zkcBuilder = ZooKeeperClientBuilder.newBuilder()
-                        .name(String.format("dlzk:%s:handler_dedicated", name))
-                        .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                        .uri(uri)
-                        .statsLogger(statsLogger)
-                        .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                        .requestRateLimit(conf.getZKRequestRateLimit())
-                        .buildNew(false);
-            }
-            this.zooKeeperClient = zkcBuilder.build();
-            LOG.debug("Using ZK Path {}", partitionRootPath);
-            if (null == bkcBuilder) {
-                // resolve uri
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
-                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
-                bkcBuilder = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(conf).bkdlConfig(bkdlConfig)
-                        .name(String.format("bk:%s:handler_dedicated", name)).statsLogger(statsLogger);
-            }
-            this.bookKeeperClient = bkcBuilder.build();
-        } catch (KeeperException e) {
-            throw new IOException("Error initializing bookkeeper client", e);
-        } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted initializing bookkeeper client", ie);
+        if (null == zkcBuilder) {
+            zkcBuilder = ZooKeeperClientBuilder.newBuilder()
+                    .name(String.format("dlzk:%s:handler_dedicated", name))
+                    .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                    .uri(uri)
+                    .statsLogger(statsLogger)
+                    .retryThreadCount(conf.getZKClientNumberRetryThreads())
+                    .requestRateLimit(conf.getZKRequestRateLimit())
+                    .buildNew(false);
         }
+        this.zooKeeperClient = zkcBuilder.build();
+        LOG.debug("Using ZK Path {}", partitionRootPath);
+        if (null == bkcBuilder) {
+            // resolve uri
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
+            BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+            bkcBuilder = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(conf)
+                    .name(String.format("bk:%s:handler_dedicated", name))
+                    .zkServers(bkdlConfig.getBkZkServersForWriter())
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .statsLogger(statsLogger);
+        }
+        this.bookKeeperClient = bkcBuilder.build();
 
         // Stats
         StatsLogger segmentsLogger = statsLogger.scope("logsegments");
@@ -1040,6 +1037,24 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (null != notification) {
             notification.notifyOnOperationComplete();
         }
+    }
+
+    // ZooKeeper Watchers
+
+    Watcher registerExpirationHandler(final ZooKeeperClient.ZooKeeperSessionExpireNotifier onExpired) {
+        if (conf.getZKNumRetries() > 0) {
+            return new Watcher() {
+                @Override
+                public void process(WatchedEvent event) {
+                    // nop
+                }
+            };
+        }
+        return zooKeeperClient.registerExpirationHandler(onExpired);
+    }
+
+    boolean unregister(Watcher watcher) {
+        return zooKeeperClient.unregister(watcher);
     }
 
 }
