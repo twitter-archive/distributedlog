@@ -19,8 +19,12 @@ import static org.junit.Assert.fail;
 
 public class TestDLMetadata {
 
-    private static final BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "ledgers");
-    private static final BKDLConfig bkdlConfig2 = new BKDLConfig("127.0.0.1:7000", "ledgers2");
+    private static final BKDLConfig bkdlConfig =
+            new BKDLConfig("127.0.0.1:7000", "127.0.0.1:7000",
+                           "127.0.0.1:7000", "127.0.0.1:7000", "ledgers");
+    private static final BKDLConfig bkdlConfig2 =
+            new BKDLConfig("127.0.0.1:7001", "127.0.0.1:7002",
+                           "127.0.0.1:7003", "127.0.0.1:7004", "ledgers2");
 
     private ZooKeeper zkc;
     private static ZooKeeperServerShim zks;
@@ -51,20 +55,21 @@ public class TestDLMetadata {
 
     @Test(timeout = 60000)
     public void testBadMetadata() throws Exception {
+        URI uri = createURI("/");
         try {
-            DLMetadata.deserialize(new byte[0]);
+            DLMetadata.deserialize(uri, new byte[0]);
             fail("Should fail to deserialize invalid metadata");
         } catch (IOException ie) {
             // expected
         }
         try {
-            DLMetadata.deserialize(new DLMetadata("unknown", bkdlConfig).serialize());
+            DLMetadata.deserialize(uri, new DLMetadata("unknown", bkdlConfig).serialize());
             fail("Should fail to deserialize due to unknown dl type.");
         } catch (IOException ie) {
             // expected
         }
         try {
-            DLMetadata.deserialize(new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig, 9999).serialize());
+            DLMetadata.deserialize(uri, new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig, 9999).serialize());
             fail("Should fail to deserialize due to invalid version.");
         } catch (IOException ie) {
             // expected
@@ -74,7 +79,7 @@ public class TestDLMetadata {
         byte[] badData = new byte[data.length - 3];
         System.arraycopy(data, 0, badData, 0, badData.length);
         try {
-            DLMetadata.deserialize(badData);
+            DLMetadata.deserialize(uri, badData);
             fail("Should fail to deserialize truncated data.");
         } catch (IOException ie) {
             // expected
@@ -83,8 +88,9 @@ public class TestDLMetadata {
 
     @Test(timeout = 60000)
     public void testGoodMetadata() throws Exception {
+        URI uri = createURI("/");
         byte[] data = new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig).serialize();
-        DLMetadata deserailized = DLMetadata.deserialize(data);
+        DLMetadata deserailized = DLMetadata.deserialize(uri, data);
         assertEquals(bkdlConfig, deserailized.getDLConfig());
     }
 
@@ -97,10 +103,11 @@ public class TestDLMetadata {
         } catch (IllegalArgumentException e) {
             // expected
         }
-        metadata.create(createURI("/metadata"));
+        URI uri = createURI("/metadata");
+        metadata.create(uri);
         // create on existed path
         try {
-            metadata.create(createURI("/metadata"));
+            metadata.create(uri);
             fail("Should fail when create on existed path");
         } catch (IOException e) {
             // expected
@@ -113,11 +120,71 @@ public class TestDLMetadata {
             // expected
         }
         byte[] data = zkc.getData("/metadata", false, new Stat());
-        assertEquals(bkdlConfig, DLMetadata.deserialize(data).getDLConfig());
+        assertEquals(bkdlConfig, DLMetadata.deserialize(uri, data).getDLConfig());
         // update on existed path
         DLMetadata newMetadata = new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig2);
         newMetadata.update(createURI("/metadata"));
         byte[] newData = zkc.getData("/metadata", false, new Stat());
-        assertEquals(bkdlConfig2, DLMetadata.deserialize(newData).getDLConfig());
+        assertEquals(bkdlConfig2, DLMetadata.deserialize(uri, newData).getDLConfig());
+    }
+
+    @Test(timeout = 60000)
+    public void testMetadataWithoutDLZKServers() throws Exception {
+        testMetadataWithOrWithoutZkServers(
+                "/metadata-without-dlzk-servers",
+                null, null, "127.0.0.1:7003", "127.0.0.1:7004",
+                "127.0.0.1:7000", "127.0.0.1:7000", "127.0.0.1:7003", "127.0.0.1:7004");
+    }
+
+    @Test(timeout = 60000)
+    public void testMetadataWithoutDLZKServersForRead() throws Exception {
+        testMetadataWithOrWithoutZkServers(
+                "/metadata-without-dlzk-servers-for-read",
+                "127.0.0.1:7001", null, "127.0.0.1:7003", "127.0.0.1:7004",
+                "127.0.0.1:7001", "127.0.0.1:7001", "127.0.0.1:7003", "127.0.0.1:7004");
+    }
+
+    @Test(timeout = 60000)
+    public void testMetadataWithoutBKZKServersForRead() throws Exception {
+        testMetadataWithOrWithoutZkServers(
+                "/metadata-without-bkzk-servers-for-read",
+                "127.0.0.1:7001", null, "127.0.0.1:7003", null,
+                "127.0.0.1:7001", "127.0.0.1:7001", "127.0.0.1:7003", "127.0.0.1:7003");
+    }
+
+    private void testMetadataWithOrWithoutZkServers(
+            String metadataPath,
+            String dlZkServersForWriter, String dlZkServersForReader,
+            String bkZkServersForWriter, String bkZkServersForReader,
+            String expectedDlZkServersForWriter, String expectedDlZkServersForReader,
+            String expectedBkZkServersForWriter, String expectedBkZkServersForReader
+    ) throws Exception {
+        BKDLConfig bkdlConfig = new BKDLConfig(dlZkServersForWriter, dlZkServersForReader,
+                                               bkZkServersForWriter, bkZkServersForReader, "ledgers");
+        BKDLConfig expectedBKDLConfig =
+                new BKDLConfig(expectedDlZkServersForWriter, expectedDlZkServersForReader,
+                               expectedBkZkServersForWriter, expectedBkZkServersForReader, "ledgers");
+        URI uri = createURI(metadataPath);
+        DLMetadata metadata = new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig);
+        metadata.create(uri);
+        // read serialized metadata
+        byte[] data = zkc.getData(metadataPath, false, new Stat());
+        assertEquals(expectedBKDLConfig, DLMetadata.deserialize(uri, data).getDLConfig());
+    }
+
+    @Test(timeout = 60000)
+    public void testMetadataMissingRequiredFields() throws Exception {
+        BKDLConfig bkdlConfig = new BKDLConfig(null, null, null, null, "ledgers");
+        URI uri = createURI("/metadata-missing-fields");
+        DLMetadata metadata = new DLMetadata(DLMetadata.BK_DL_TYPE, bkdlConfig);
+        metadata.create(uri);
+        // read serialized metadata
+        byte[] data = zkc.getData("/metadata-missing-fields", false, new Stat());
+        try {
+            DLMetadata.deserialize(uri, data);
+            fail("Should fail on deserializing metadata missing fields");
+        } catch (IOException ioe) {
+            // expected
+        }
     }
 }

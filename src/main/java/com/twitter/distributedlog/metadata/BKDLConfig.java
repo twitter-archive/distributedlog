@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.metadata;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Objects;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.thrift.BKDLConfigFormat;
@@ -55,28 +56,74 @@ public class BKDLConfig implements DLConfig {
         cachedDLConfigs.clear();
     }
 
-    private String zkServers;
+    private String bkZkServersForWriter;
+    private String bkZkServersForReader;
     private String bkLedgersPath;
     private boolean sanityCheckTxnID = true;
     private boolean encodeRegionID = false;
+    private String dlZkServersForWriter;
+    private String dlZkServersForReader;
 
     /**
-     * Construct a empty config.
+     * Construct a empty config with given <i>uri</i>.
      */
-    BKDLConfig() {
-        this(null, null);
+    BKDLConfig(URI uri) {
+        this(uri.getAuthority().replace(";", ","),
+             uri.getAuthority().replace(";", ","),
+             null, null, null);
     }
 
-    public BKDLConfig(String zkServers, String bkLedgersPath) {
-        this.zkServers = zkServers;
+    /**
+     * The caller should make sure both dl and bk use same zookeeper server.
+     *
+     * @param zkServers
+     *          zk servers used for both dl and bk.
+     * @param ledgersPath
+     *          ledgers path.
+     */
+    @VisibleForTesting
+    public BKDLConfig(String zkServers, String ledgersPath) {
+        this(zkServers, zkServers, zkServers, zkServers, ledgersPath);
+    }
+
+    public BKDLConfig(String dlZkServersForWriter,
+                      String dlZkServersForReader,
+                      String bkZkServersForWriter,
+                      String bkZkServersForReader,
+                      String bkLedgersPath) {
+        this.dlZkServersForWriter = dlZkServersForWriter;
+        this.dlZkServersForReader = dlZkServersForReader;
+        this.bkZkServersForWriter = bkZkServersForWriter;
+        this.bkZkServersForReader = bkZkServersForReader;
         this.bkLedgersPath = bkLedgersPath;
     }
 
     /**
-     * @return zk servers used for bk
+     * @return zk servers used for bk for writers
      */
-    public String getZkServers() {
-        return zkServers;
+    public String getBkZkServersForWriter() {
+        return bkZkServersForWriter;
+    }
+
+    /**
+     * @return zk servers used for bk for readers
+     */
+    public String getBkZkServersForReader() {
+        return bkZkServersForReader;
+    }
+
+    /**
+     * @return zk servers used for dl for writers
+     */
+    public String getDlZkServersForWriter() {
+        return dlZkServersForWriter;
+    }
+
+    /**
+     * @return zk servers used for dl for readers
+     */
+    public String getDlZkServersForReader() {
+        return dlZkServersForReader;
     }
 
     /**
@@ -126,8 +173,9 @@ public class BKDLConfig implements DLConfig {
 
     @Override
     public int hashCode() {
-        return (null == zkServers ? 0 : zkServers.hashCode()) * 13 +
-                (null == bkLedgersPath ? 0 : bkLedgersPath.hashCode());
+        return Objects.hashCode(bkZkServersForWriter, bkZkServersForReader,
+                                dlZkServersForWriter, dlZkServersForReader,
+                                bkLedgersPath);
     }
 
     @Override
@@ -136,23 +184,13 @@ public class BKDLConfig implements DLConfig {
             return false;
         }
         BKDLConfig another = (BKDLConfig) o;
-        boolean res;
-        if (zkServers == null) {
-            res = another.zkServers == null;
-        } else {
-            res = zkServers.equals(another.zkServers);
-        }
-        if (!res) {
-            return false;
-        }
-        if (bkLedgersPath == null) {
-            res = another.bkLedgersPath == null;
-        } else {
-            res = bkLedgersPath.equals(another.bkLedgersPath);
-        }
-        return res
-                && sanityCheckTxnID == another.sanityCheckTxnID
-                && encodeRegionID == another.encodeRegionID;
+        return Objects.equal(bkZkServersForWriter, another.bkZkServersForWriter) &&
+               Objects.equal(bkZkServersForReader, another.bkZkServersForReader) &&
+               Objects.equal(dlZkServersForWriter, another.dlZkServersForWriter) &&
+               Objects.equal(dlZkServersForReader, another.dlZkServersForReader) &&
+               Objects.equal(bkLedgersPath, another.bkLedgersPath) &&
+               sanityCheckTxnID == another.sanityCheckTxnID &&
+               encodeRegionID == another.encodeRegionID;
     }
 
     @Override
@@ -163,8 +201,17 @@ public class BKDLConfig implements DLConfig {
     @Override
     public String serialize() {
         BKDLConfigFormat configFormat = new BKDLConfigFormat();
-        if (null != zkServers) {
-            configFormat.setBkZkServers(zkServers);
+        if (null != bkZkServersForWriter) {
+            configFormat.setBkZkServers(bkZkServersForWriter);
+        }
+        if (null != bkZkServersForReader) {
+            configFormat.setBkZkServersForReader(bkZkServersForReader);
+        }
+        if (null != dlZkServersForWriter) {
+            configFormat.setDlZkServersForWriter(dlZkServersForWriter);
+        }
+        if (null != dlZkServersForReader) {
+            configFormat.setDlZkServersForReader(dlZkServersForReader);
         }
         if (null != bkLedgersPath) {
             configFormat.setBkLedgersPath(bkLedgersPath);
@@ -199,13 +246,35 @@ public class BKDLConfig implements DLConfig {
             throw new IOException("Failed to deserialize data '" +
                     new String(data, UTF_8) + "' : ", e);
         }
+        // bookkeeper cluster settings
         if (configFormat.isSetBkZkServers()) {
-            zkServers = configFormat.getBkZkServers();
+            bkZkServersForWriter = configFormat.getBkZkServers();
+        }
+        if (configFormat.isSetBkZkServersForReader()) {
+            bkZkServersForReader = configFormat.getBkZkServersForReader();
+        } else {
+            bkZkServersForReader = bkZkServersForWriter;
         }
         if (configFormat.isSetBkLedgersPath()) {
             bkLedgersPath = configFormat.getBkLedgersPath();
         }
+        // dl zookeeper cluster settings
+        if (configFormat.isSetDlZkServersForWriter()) {
+            dlZkServersForWriter = configFormat.getDlZkServersForWriter();
+        }
+        if (configFormat.isSetDlZkServersForReader()) {
+            dlZkServersForReader = configFormat.getDlZkServersForReader();
+        } else {
+            dlZkServersForReader = dlZkServersForWriter;
+        }
+        // dl settings
         sanityCheckTxnID = !configFormat.isSetSanityCheckTxnID() || configFormat.isSanityCheckTxnID();
         encodeRegionID = configFormat.isSetEncodeRegionID() && configFormat.isEncodeRegionID();
+
+        // Validate the settings
+        if (null == bkZkServersForWriter || null == bkZkServersForReader || null == bkLedgersPath ||
+            null == dlZkServersForWriter || null == dlZkServersForReader) {
+            throw new IOException("Missing zk/bk settings in BKDL Config : " + new String(data, UTF_8));
+        }
     }
 }

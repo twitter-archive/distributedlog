@@ -71,7 +71,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                         conf.getBKClientZKRetryBackoffStartMillis(),
                         conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
             }
-            this.zkc = new ZooKeeperClient(name + ":zk", zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getZkServers(),
+            this.zkc = new ZooKeeperClient(name + ":zk", zkSessionTimeout, 2 * zkSessionTimeout, bkdlConfig.getBkZkServersForWriter(),
                                            retryPolicy, statsLogger.scope("bkc_zkc"), conf.getZKClientNumberRetryThreads(),
                                            conf.getBKClientZKRequestRateLimit());
             this.ownZK = true;

@@ -12,7 +12,6 @@ import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.tools.DistributedLogTool;
-import com.twitter.distributedlog.tools.Tool;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
@@ -178,7 +177,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
         BindCommand() {
             super("bind", "bind the bookkeeper environment settings for a given distributedlog instance.");
             options.addOption("l", "bkLedgers", true, "ZooKeeper ledgers path for bookkeeper instance.");
-            options.addOption("s", "bkZkServers", true, "ZooKeeper servers used for bookkeeper instance.");
+            options.addOption("s", "bkZkServers", true, "ZooKeeper servers used for bookkeeper for writers.");
+            options.addOption("bkzr", "bkZkServersForReader", true, "ZooKeeper servers used for bookkeeper for readers.");
+            options.addOption("dlzw", "dlZkServersForWriter", true, "ZooKeeper servers used for distributedlog for writers.");
+            options.addOption("dlzr", "dlZkServersForReader", true, "ZooKeeper servers used for distributedlog for readers.");
             options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
             options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
             options.addOption("f", "force", false, "Force binding without prompt.");
@@ -213,18 +215,41 @@ public class DistributedLogAdmin extends DistributedLogTool {
             boolean force = cmdline.hasOption("f");
             boolean creation = cmdline.hasOption("c");
             String bkLedgersPath = cmdline.getOptionValue("l");
-            String bkZkServers = cmdline.getOptionValue("s");
+            String bkZkServersForWriter = cmdline.getOptionValue("s");
             boolean sanityCheckTxnID =
                     !cmdline.hasOption("i") || Boolean.parseBoolean(cmdline.getOptionValue("i"));
             boolean encodeRegionID =
                     cmdline.hasOption("r") && Boolean.parseBoolean(cmdline.getOptionValue("r"));
+
+            String bkZkServersForReader;
+            if (cmdline.hasOption("bkzr")) {
+                bkZkServersForReader = cmdline.getOptionValue("bkzr");
+            } else {
+                bkZkServersForReader = bkZkServersForWriter;
+            }
+
             URI uri = URI.create(args[0]);
+
+            String dlZkServersForWriter;
+            String dlZkServersForReader;
+            if (cmdline.hasOption("dlzw")) {
+                dlZkServersForWriter = cmdline.getOptionValue("dlzw");
+            } else {
+                dlZkServersForWriter = uri.getAuthority().replace(";", ",");
+            }
+            if (cmdline.hasOption("dlzr")) {
+                dlZkServersForReader = cmdline.getOptionValue("dlzr");
+            } else {
+                dlZkServersForReader = dlZkServersForWriter;
+            }
+
             // resolving the uri to see if there is another bindings in this uri.
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
                     .sessionTimeoutMs(10000).build();
             try {
                 BKDLConfig newBKDLConfig =
-                        new BKDLConfig(bkZkServers, bkLedgersPath)
+                        new BKDLConfig(dlZkServersForWriter, dlZkServersForReader,
+                                       bkZkServersForWriter, bkZkServersForReader, bkLedgersPath)
                                 .setSanityCheckTxnID(sanityCheckTxnID)
                                 .setEncodeRegionID(encodeRegionID);
                 BKDLConfig bkdlConfig;

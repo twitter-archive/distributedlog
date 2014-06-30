@@ -158,14 +158,16 @@ public class DLMetadata {
     }
 
     /**
-     * Deserialize dl metadata from a given bytes array.
+     * Deserialize dl metadata of given <i>uri</i> from a given bytes array.
      *
+     * @param uri
+     *          uri that stored dl metadata bindings
      * @param data
      *          bytes of dl metadata
      * @return dl metadata
      * @throws IOException if failed to parse the bytes array
      */
-    public static DLMetadata deserialize(byte[] data) throws IOException {
+    public static DLMetadata deserialize(URI uri, byte[] data) throws IOException {
         String metadata = new String(data, UTF_8);
         LOG.debug("Parsing dl metadata {}.", metadata);
         BufferedReader br = new BufferedReader(new StringReader(metadata));
@@ -187,7 +189,7 @@ public class DLMetadata {
         if (!BK_DL_TYPE.equals(type)) {
             throw new IOException("Invalid DL type : " + type);
         }
-        DLConfig dlConfig = new BKDLConfig();
+        DLConfig dlConfig = new BKDLConfig(uri);
         StringBuilder sb = new StringBuilder();
         String line;
         while (null != (line = br.readLine())) {

@@ -43,7 +43,7 @@ public class ZkMetadataResolver implements MetadataResolver {
                 continue;
             }
             try {
-                return DLMetadata.deserialize(data);
+                return DLMetadata.deserialize(uri, data);
             } catch (IOException ie) {
             }
         }

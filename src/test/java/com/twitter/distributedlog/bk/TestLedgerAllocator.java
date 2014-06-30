@@ -45,7 +45,7 @@ public class TestLedgerAllocator {
     private ZooKeeperClient zkc;
     private BookKeeperClient bkc;
     private DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
-    private BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1", "/ledgers");
+    private BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "/ledgers");
 
     @BeforeClass
     public static void setupBookkeeper() throws Exception {
