@@ -33,7 +33,7 @@ public abstract class BKBaseLogWriter {
         this.conf = conf;
         this.bkDistributedLogManager = bkdlm;
         this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
-        LOG.info("Retention Period {}", retentionPeriodInMillis);
+        LOG.info("Retention Period for {} : {}", bkdlm.getStreamName(), retentionPeriodInMillis);
     }
 
     abstract protected BKLogPartitionWriteHandler getCachedPartitionHandler(String streamIdentifier);

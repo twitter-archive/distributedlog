@@ -203,7 +203,4 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         return String.format("%s/%s", uri.getPath(), name);
     }
 
-    public String getName() {
-        return name;
-    }
 }

@@ -925,7 +925,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public String toString() {
-        return String.format("DLM:%s:%s", getZKPath(), getName());
+        return String.format("DLM:%s:%s", getZKPath(), getStreamName());
     }
 
     public void raiseAlert(String msg, Object... args) {

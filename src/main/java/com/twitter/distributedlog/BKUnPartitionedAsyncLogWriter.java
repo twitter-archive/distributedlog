@@ -138,7 +138,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private BKPerStreamLogWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
                                                        boolean rollLog) throws IOException {
         if (encounteredError) {
-            throw new WriteException(bkDistributedLogManager.getName(), "writer has been closed due to error.");
+            throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
         }
 
         BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
@@ -259,7 +259,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public String getStreamName() {
-        return bkDistributedLogManager.getName();
+        return bkDistributedLogManager.getStreamName();
     }
 
     @Override
