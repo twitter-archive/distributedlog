@@ -206,6 +206,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
     public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
 
+    public static final String BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS = "metadataLatencyWarnThresholdMs";
+    public static final long BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
+
+    public static final String BKDL_DATA_LATENCY_WARN_THRESHOLD_MS = "dataLatencyWarnThresholdMs";
+    public static final long BKDL_DATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
+
     public static final String BKDL_TRACE_READAHEAD_METADATA_CHANGES = "traceReadAheadMetadataChanges";
     public static final boolean BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT = false;
 
@@ -1007,7 +1013,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public double getBKClientZKRequestRateLimit() {
         return this.getDouble(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT,
-                              BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT);
+                BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT);
     }
 
     /**
@@ -1048,7 +1054,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public int getBKClientZKRetryBackoffMaxMillis() {
         return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS,
-                           BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
+                BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
     }
 
     /**
@@ -1448,6 +1454,48 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setTraceReadAheadDeliveryLatency(boolean enabled) {
         setProperty(BKDL_TRACE_READAHEAD_DELIVERY_LATENCY, enabled);
+        return this;
+    }
+
+    /**
+     * Get the warn threshold (in millis) of metadata access latency.
+     *
+     * @return warn threshold of metadata access latency, in millis.
+     */
+    public long getMetadataLatencyWarnThresholdMillis() {
+        return getLong(BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS, BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT);
+    }
+
+    /**
+     * Set the warn threshold of metadata access latency, in millis.
+     *
+     * @param warnThresholdMillis
+     *          warn threshold of metadata access latency, in millis
+     * @return dl configuration
+     */
+    public DistributedLogConfiguration setMetadataLatencyWarnThresholdMillis(long warnThresholdMillis) {
+        setProperty(BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS, warnThresholdMillis);
+        return this;
+    }
+
+    /**
+     * Get the warn threshold (in millis) of data access latency.
+     *
+     * @return warn threshold of data access latency, in millis.
+     */
+    public long getDataLatencyWarnThresholdMillis() {
+        return getLong(BKDL_DATA_LATENCY_WARN_THRESHOLD_MS, BKDL_DATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT);
+    }
+
+    /**
+     * Set the warn threshold of data access latency, in millis.
+     *
+     * @param warnThresholdMillis
+     *          warn threshold of data access latency, in millis
+     * @return dl configuration
+     */
+    public DistributedLogConfiguration setDataLatencyWarnThresholdMillis(long warnThresholdMillis) {
+        setProperty(BKDL_DATA_LATENCY_WARN_THRESHOLD_MS, warnThresholdMillis);
         return this;
     }
 

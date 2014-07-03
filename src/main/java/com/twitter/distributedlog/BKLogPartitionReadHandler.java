@@ -2,7 +2,6 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
 
-import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.BKExceptionStatsLogger;
@@ -106,8 +105,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
-        ledgerDataAccessor = new LedgerDataAccessor(handleCache, getFullyQualifiedName(), statsLogger,
-                notification, conf.getTraceReadAheadDeliveryLatency());
+        ledgerDataAccessor = new LedgerDataAccessor(
+                handleCache, getFullyQualifiedName(), statsLogger, notification,
+                conf.getTraceReadAheadDeliveryLatency(), conf.getDataLatencyWarnThresholdMillis());
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
@@ -519,6 +519,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         final Phase readAheadPhase =
                 new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
 
+        // ReadAhead Status
+        private volatile boolean isCatchingUp = true;
+
         public ReadAheadWorker(String fullyQualifiedName,
                                BKLogPartitionReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
@@ -810,7 +813,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (metadataNotificationTimeMillis > 0) {
                         long metadataReinitializeTimeMillis = System.currentTimeMillis();
                         long elapsedMillisSinceMetadataChanged = metadataReinitializeTimeMillis - metadataNotificationTimeMillis;
-                        if (elapsedMillisSinceMetadataChanged >= DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                        if (elapsedMillisSinceMetadataChanged >= BKLogPartitionReadHandler.this.metadataLatencyWarnThresholdMillis) {
                             LOG.warn("{} reinitialize metadata at {}, which is {} millis after receiving notification at {}.",
                                      new Object[] { getFullyQualifiedName(), metadataReinitializeTimeMillis,
                                                     elapsedMillisSinceMetadataChanged, metadataNotificationTimeMillis});
@@ -854,6 +857,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return;
                         }
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
+                            // the readahead is caught up if current ledger is in progress and read position moves over last add confirmed
+                            if (isCatchingUp) {
+                                isCatchingUp = false;
+                                ledgerDataAccessor.setSuppressDeliveryLatency(false);
+                            }
+
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadPosition, conf.getReadLACOption()});

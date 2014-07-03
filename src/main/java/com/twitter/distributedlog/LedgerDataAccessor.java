@@ -46,14 +46,16 @@ public class LedgerDataAccessor {
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
-    private final boolean traceDeliveryLatency;
+    private final boolean traceDeliveryLatencyEnabled;
+    private volatile boolean suppressDeliveryLatency = true;
+    private final long deliveryLatencyWarnThresholdMillis;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
-        this(ledgerHandleCache, streamName, statsLogger, null, false);
+        this(ledgerHandleCache, streamName, statsLogger, null, false, DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS);
     }
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger,
-                       AsyncNotification notification, boolean traceDeliveryLatency) {
+                       AsyncNotification notification, boolean traceDeliveryLatencyEnabled, long deliveryLatencyWarnThresholdMillis) {
         this.ledgerHandleCache = ledgerHandleCache;
         this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
@@ -66,7 +68,8 @@ public class LedgerDataAccessor {
         this.negativeReadAheadDeliveryLatencyStat =
                 readAheadStatsLogger.getOpStatsLogger("negative_delivery_latency");
         this.notification = notification;
-        this.traceDeliveryLatency = traceDeliveryLatency;
+        this.traceDeliveryLatencyEnabled = traceDeliveryLatencyEnabled;
+        this.deliveryLatencyWarnThresholdMillis = deliveryLatencyWarnThresholdMillis;
 
         if (null == notification) {
             readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
@@ -321,6 +324,10 @@ public class LedgerDataAccessor {
         }
     }
 
+    void setSuppressDeliveryLatency(boolean suppressed) {
+        this.suppressDeliveryLatency = suppressed;
+    }
+
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
                                final String reason) {
         LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(), ledgerEntry);
@@ -330,7 +337,7 @@ public class LedgerDataAccessor {
                 if (null == record) {
                     break;
                 }
-                if (traceDeliveryLatency && !record.isControl()) {
+                if (traceDeliveryLatencyEnabled && !suppressDeliveryLatency && !record.isControl()) {
                     long currentMs = System.currentTimeMillis();
                     long deliveryMs = currentMs - record.getTransactionId();
                     if (deliveryMs >= 0) {
@@ -338,7 +345,7 @@ public class LedgerDataAccessor {
                     } else {
                         negativeReadAheadDeliveryLatencyStat.registerSuccessfulEvent(-deliveryMs);
                     }
-                    if (deliveryMs > 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                    if (deliveryMs > deliveryLatencyWarnThresholdMillis) {
                         LOG.warn("Record {} for stream {} took long time to deliver : publish time = {}, available time = {}, delivery time = {}, reason = {}.",
                                  new Object[] { record.getDlsn(), streamName, record.getTransactionId(), currentMs, deliveryMs, reason });
                     }
@@ -355,7 +362,6 @@ public class LedgerDataAccessor {
         }
     }
 
-
     private synchronized void invokeReadAheadCallback() {
         if (null != readAheadCallback) {
             if (LOG.isTraceEnabled()) {
@@ -365,8 +371,6 @@ public class LedgerDataAccessor {
             readAheadCallback = null;
         }
     }
-
-
 
     public void clear() {
         if (null != readAheadCache) {

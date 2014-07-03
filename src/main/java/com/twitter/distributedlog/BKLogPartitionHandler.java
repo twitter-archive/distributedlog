@@ -131,6 +131,9 @@ abstract class BKLogPartitionHandler implements Watcher {
     // log segment filter
     protected final LogSegmentFilter filter;
 
+    // trace
+    protected final long metadataLatencyWarnThresholdMillis;
+
     // Stats
     private static OpStatsLogger forceGetListStat;
     private static OpStatsLogger getListStat;
@@ -266,6 +269,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                     .statsLogger(statsLogger);
         }
         this.bookKeeperClient = bkcBuilder.build();
+
+        // Traces
+        this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
 
         // Stats
         StatsLogger segmentsLogger = statsLogger.scope("logsegments");
@@ -866,7 +872,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 long elapsedMillis = ts - metadata.getFirstTxId();
                 long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(elapsedMillis);
                 if (elapsedMicroSec > 0) {
-                    if (elapsedMillis > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                    if (elapsedMillis > metadataLatencyWarnThresholdMillis) {
                         LOG.warn("{} received inprogress log segment in {} millis: {}",
                                  new Object[] { getFullyQualifiedName(), elapsedMillis, metadata });
                     }
@@ -878,7 +884,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 long elapsedMillis = ts - metadata.getCompletionTime();
                 long elapsedMicroSec = TimeUnit.MILLISECONDS.toMicros(elapsedMillis);
                 if (elapsedMicroSec > 0) {
-                    if (elapsedMillis > DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS) {
+                    if (elapsedMillis > metadataLatencyWarnThresholdMillis) {
                         LOG.warn("{} received completed log segment in {} millis : {}",
                                  new Object[] { getFullyQualifiedName(), elapsedMillis, metadata });
                     }
