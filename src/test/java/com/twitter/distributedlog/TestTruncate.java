@@ -1,40 +1,20 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import static org.junit.Assert.*;
 
-public class TestTruncate {
+public class TestTruncate extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestTruncate.class);
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
-                    .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
+                .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
 
     @Test
     public void testTruncation() throws Exception {

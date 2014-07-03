@@ -1,18 +1,14 @@
 package com.twitter.distributedlog;
 
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -25,32 +21,14 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
 import static org.junit.Assert.assertEquals;
 
-public class TestDistributedReentrantLock {
+public class TestDistributedReentrantLock extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestAsyncReaderWriter.class);
 
-    protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
-    private ZooKeeperClient zkc;
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
+    private ZooKeeperClient zooKeeperClient;
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zooKeeperClient = ZooKeeperClientBuilder.newBuilder()
             .connectionTimeoutMs(30000)
             .sessionTimeoutMs(30000)
             .uri(DLMTestUtil.createDLMURI(""))
@@ -59,17 +37,17 @@ public class TestDistributedReentrantLock {
 
     @After
     public void teardown() throws Exception {
-        zkc.close();
+        zooKeeperClient.close();
     }
 
     @Test
     public void testLockReacquire() throws Exception {
         String lockPath = "/reacquirePath";
-        Utils.zkCreateFullPathOptimistic(zkc, lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+        Utils.zkCreateFullPathOptimistic(zooKeeperClient, lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
             CreateMode.PERSISTENT);
         String clientId = "lockHolder";
         DistributedReentrantLock lock = new DistributedReentrantLock(Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zkc, lockPath,
+            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zooKeeperClient, lockPath,
             conf.getLockTimeoutMilliSeconds(), clientId, NullStatsLogger.INSTANCE);
         lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
 
@@ -83,7 +61,7 @@ public class TestDistributedReentrantLock {
         assertEquals(lock.getInternalLock().isLockHeld(), true);
 
         DistributedReentrantLock lock2 = new DistributedReentrantLock(Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zkc, lockPath,
+            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zooKeeperClient, lockPath,
             0, clientId + "_2", NullStatsLogger.INSTANCE);
 
         boolean exceptionEncountered = false;
@@ -102,11 +80,11 @@ public class TestDistributedReentrantLock {
     @Test
     public void testLockReacquireMultiple() throws Exception {
         String lockPath = "/reacquirePathMultiple";
-        Utils.zkCreateFullPathOptimistic(zkc, lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+        Utils.zkCreateFullPathOptimistic(zooKeeperClient, lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
             CreateMode.PERSISTENT);
         String clientId = "lockHolder";
         DistributedReentrantLock lock = new DistributedReentrantLock(Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zkc, lockPath,
+            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zooKeeperClient, lockPath,
             conf.getLockTimeoutMilliSeconds(), clientId, NullStatsLogger.INSTANCE);
         lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
@@ -121,7 +99,7 @@ public class TestDistributedReentrantLock {
         assertEquals(lock.getInternalLock().isLockHeld(), true);
 
         DistributedReentrantLock lock2 = new DistributedReentrantLock(Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zkc, lockPath,
+            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zooKeeperClient, lockPath,
             0, clientId + "_2", NullStatsLogger.INSTANCE);
 
         boolean exceptionEncountered = false;
@@ -142,7 +120,7 @@ public class TestDistributedReentrantLock {
         assertEquals(lock.getInternalLock().isLockHeld(), false);
 
         DistributedReentrantLock lock3 = new DistributedReentrantLock(Executors.newScheduledThreadPool(1,
-            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zkc, lockPath,
+            new ThreadFactoryBuilder().setNameFormat("TestLock-executor-%d").build()), zooKeeperClient, lockPath,
             0, clientId + "_3", NullStatsLogger.INSTANCE);
 
         lock3.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);

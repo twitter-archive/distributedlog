@@ -9,13 +9,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
 
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.zookeeper.ZooKeeper;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,41 +18,10 @@ import com.twitter.distributedlog.exceptions.IdleReaderException;
 
 import static org.junit.Assert.assertEquals;
 
-public class TestNonBlockingReads {
+public class TestNonBlockingReads extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestNonBlockingReads.class);
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
-
-    protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
-    private ZooKeeper zkc;
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
-
-    @Before
-    public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", 7000);
-    }
-
-    @After
-    public void teardown() throws Exception {
-        zkc.close();
-    }
-
 
     private void readNonBlocking(DistributedLogManager dlm, boolean notification) throws Exception {
         LogReader reader = dlm.getInputStream(1);

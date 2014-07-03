@@ -1,77 +1,52 @@
 package com.twitter.distributedlog.admin;
 
+import java.net.URI;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.ZooDefs;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.LocalDLMEmulator;
+import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.net.URI;
-import java.util.concurrent.TimeUnit;
+import static org.junit.Assert.*;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
-public class TestDistributedLogAdmin {
+public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestDistributedLogAdmin.class);
 
-    protected static DistributedLogConfiguration conf =
-            new DistributedLogConfiguration().setLockTimeout(10)
-                .setEnableLedgerAllocatorPool(true).setLedgerAllocatorPoolName("test");
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    private ZooKeeperClient zkc;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void shutdownZooKeeper() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
+    private ZooKeeperClient zooKeeperClient;
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().uri(DLMTestUtil.createDLMURI("/"))
-                .sessionTimeoutMs(10000).build();
+    zooKeeperClient = ZooKeeperClientBuilder.newBuilder().uri(DLMTestUtil.createDLMURI("/"))
+                    .sessionTimeoutMs(10000).build();
     }
 
     @After
     public void teardown() throws Exception {
-        zkc.close();
+        zooKeeperClient.close();
     }
+
 
     @Test(timeout = 60000)
     public void testChangeSequenceNumber() throws Exception {
         URI uri = DLMTestUtil.createDLMURI("/dlog_admin");
-        zkc.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
 
         String streamName = "change-sequence-number";

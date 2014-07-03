@@ -1,42 +1,20 @@
 package com.twitter.distributedlog;
 
-import com.twitter.util.FutureEventListener;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.twitter.util.FutureEventListener;
+
 import static org.junit.Assert.*;
 
-public class TestRollLogSegments {
+public class TestRollLogSegments extends TestDistributedLogBase {
     static final Logger logger = LoggerFactory.getLogger(TestRollLogSegments.class);
-
-    protected static DistributedLogConfiguration conf =
-            new DistributedLogConfiguration().setLockTimeout(10);
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numberBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numberBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
 
     private static void ensureOnlyOneInprogressLogSegments(List<LogSegmentLedgerMetadata> segments) throws Exception {
         int numInprogress = 0;

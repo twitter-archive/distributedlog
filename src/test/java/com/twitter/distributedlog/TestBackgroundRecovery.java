@@ -1,14 +1,5 @@
 package com.twitter.distributedlog;
 
-import com.twitter.util.Await;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
@@ -21,31 +12,21 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.twitter.util.Await;
+
 import static org.junit.Assert.*;
 
-public class TestBackgroundRecovery {
+public class TestBackgroundRecovery extends TestDistributedLogBase {
 
     private static Logger logger = LoggerFactory.getLogger(TestBackgroundRecovery.class);
 
     private static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10).setRecoverLogSegmentsInBackground(true)
             .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(20);
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    private static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
 
     static class NopExecutorService implements ExecutorService {
 

@@ -1,57 +1,16 @@
 package com.twitter.distributedlog;
 
+import java.io.ByteArrayInputStream;
+
+import org.junit.Test;
+
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
-import com.twitter.util.FutureEventListener;
-
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.zookeeper.ZooKeeper;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.ByteArrayInputStream;
 
 import static org.junit.Assert.*;
 
-public class TestAppendOnlyStreamWriter {
-
-    protected static DistributedLogConfiguration conf =
-            new DistributedLogConfiguration().setLockTimeout(10);
-    private ZooKeeper zkc;
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
-
-    @Before
-    public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", 7000);
-    }
-
-    @After
-    public void teardown() throws Exception {
-        zkc.close();
-    }
-
+public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     @Test
     public void basicReadAndWriteBehavior() throws Exception {
         String name = "distrlog-append-only-streams-basic";

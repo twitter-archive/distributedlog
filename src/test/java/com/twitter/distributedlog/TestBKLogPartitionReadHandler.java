@@ -1,56 +1,22 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static org.junit.Assert.*;
 
 /**
  * Test {@link BKLogPartitionReadHandler}
  */
-public class TestBKLogPartitionReadHandler {
+public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestBKLogPartitionReadHandler.class);
-
-    protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    private static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupBookkeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownBookkeeper() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
-
-    @Before
-    public void setup() throws Exception {
-    }
-
-    @After
-    public void teardown() throws Exception {
-    }
 
     private void prepareLogSegments(String name, int numSegments, int numEntriesPerSegment) throws Exception {
         BKLogPartitionWriteHandler writer = DLMTestUtil.createNewBKDLM(conf, name);
