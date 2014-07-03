@@ -1,6 +1,9 @@
 package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.service.announcer.Announcer;
+import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
+import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
@@ -30,7 +33,6 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DistributedLogServer implements Runnable {
 
@@ -45,6 +47,7 @@ public class DistributedLogServer implements Runnable {
     private DistributedLogServiceImpl dlService = null;
     private Server server = null;
     private StatsProvider statsProvider = null;
+    private Announcer announcer = null;
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
 
     DistributedLogServer(String[] args) {
@@ -54,6 +57,9 @@ public class DistributedLogServer implements Runnable {
         options.addOption("c", "conf", true, "DistributedLog Configuration File");
         options.addOption("s", "provider", true, "DistributedLog Stats Provider");
         options.addOption("p", "port", true, "DistributedLog Server Port");
+        options.addOption("sp", "stats-port", true, "DistributedLog Stats Port");
+        options.addOption("si", "shard-id", true, "DistributedLog Shard ID");
+        options.addOption("a", "announce", true, "ServerSet Path to Announce");
     }
 
     void printUsage() {
@@ -101,12 +107,29 @@ public class DistributedLogServer implements Runnable {
         }
         logger.info("Starting stats provider : {}", statsProvider.getClass());
         statsProvider.start(dlConf);
+
+        int servicePort = Integer.parseInt(cmdline.getOptionValue("p", "0"));
+        int statsPort = Integer.parseInt(cmdline.getOptionValue("sp", "0"));
+        int shardId = Integer.parseInt(cmdline.getOptionValue("si", "0"));
+
+        if (cmdline.hasOption("a")) {
+            announcer = new ServerSetAnnouncer(
+                    cmdline.getOptionValue("a"),
+                    servicePort,
+                    statsPort,
+                    shardId);
+        } else {
+            announcer = new NOPAnnouncer();
+        }
+
         Pair<DistributedLogServiceImpl, Server>
-            serverPair = runServer(dlConf, uri, statsProvider,
-                  Integer.parseInt(cmdline.getOptionValue("p", "0")),
+            serverPair = runServer(dlConf, uri, statsProvider, servicePort,
                   keepAliveLatch, statsReceiver);
         this.dlService = serverPair.getLeft();
         this.server = serverPair.getRight();
+
+        // announce the service
+        announcer.announce();
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
@@ -151,6 +174,14 @@ public class DistributedLogServer implements Runnable {
      * Close the server.
      */
     public void close() {
+        if (null != announcer) {
+            try {
+                announcer.unannounce();
+            } catch (IOException e) {
+                logger.warn("Error on unannouncing service : ", e);
+            }
+            announcer.close();
+        }
         closeServer(Pair.of(dlService, server));
         if (statsProvider != null) {
             statsProvider.stop();
