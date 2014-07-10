@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,8 +16,9 @@ public class BKContinuousLogReaderTxId extends BKContinuousLogReaderBase impleme
                                      String streamIdentifier,
                                      long startTxId,
                                      final DistributedLogConfiguration conf,
-                                     AsyncNotification notification) throws IOException {
-        super(bkdlm, streamIdentifier, conf, notification);
+                                     AsyncNotification notification,
+                                     StatsLogger statsLogger) throws IOException {
+        super(bkdlm, streamIdentifier, conf, notification, statsLogger);
         this.startTxId = startTxId;
         lastTxId = startTxId - 1;
     }

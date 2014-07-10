@@ -53,6 +53,7 @@ class BKPerStreamLogReader {
     private DLSN startDLSN = null;
     private final boolean dontSkipControl;
     protected final StatsLogger statsLogger;
+    protected boolean enableTrace;
 
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
@@ -64,6 +65,7 @@ class BKPerStreamLogReader {
         this.inProgress = metadata.isInProgress();
         this.statsLogger = statsLogger;
         this.isExhausted = false;
+        this.enableTrace = false;
         this.dontSkipControl = false;
     }
 
@@ -83,13 +85,14 @@ class BKPerStreamLogReader {
         this.dontSkipControl = dontSkipControl;
         this.statsLogger = statsLogger;
         this.isExhausted = false;
+        this.enableTrace = false;
         positionInputStream(desc, ledgerDataAccessor, firstBookKeeperEntry);
     }
 
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger);
+        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger, enableTrace);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
@@ -167,6 +170,12 @@ class BKPerStreamLogReader {
         return !isExhausted;
     }
 
+    public void setEnableTrace(boolean enableTrace) {
+        this.enableTrace = enableTrace;
+        if (null != lin) {
+            lin.setEnableTrace(enableTrace);
+        }
+    }
 
     /**
      * Input stream implementation which can be used by
@@ -186,6 +195,7 @@ class BKPerStreamLogReader {
         private static OpStatsLogger getWithNoWaitStat = null;
         private static OpStatsLogger getWithWaitStat = null;
         private static Counter illegalStateCount = null;
+        private boolean enableTrace = false;
 
         /**
          * Construct ledger input stream
@@ -196,13 +206,14 @@ class BKPerStreamLogReader {
          */
         LedgerInputStream(String fullyQualifiedName,
                           LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, StatsLogger statsLogger)
+                          long firstBookKeeperEntry, StatsLogger statsLogger, boolean enableTrace)
             throws IOException {
             LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
             this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
+            this.enableTrace = enableTrace;
 
             StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
 
@@ -263,7 +274,7 @@ class BKPerStreamLogReader {
             Stopwatch stopwatch = new Stopwatch().start();
             try {
                 getEntryCounter(nonBlocking).inc();
-                e = ledgerDataAccessor.getEntry(ledgerDesc, readPosition, nonBlocking);
+                e = ledgerDataAccessor.getEntry(ledgerDesc, readPosition, nonBlocking, enableTrace);
                 getEntryLatencyStat(nonBlocking).registerSuccessfulEvent(
                     stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (IOException ioe) {
@@ -387,7 +398,11 @@ class BKPerStreamLogReader {
 
         @Override
         public String toString() {
-            return String.format("Next Entry to read: %s", readEntries);
+            return String.format("Next Entry to read: %s, Ledger data accessor %s", readEntries, ledgerDataAccessor);
+        }
+
+        public void setEnableTrace(boolean enableTrace) {
+            this.enableTrace = enableTrace;
         }
     }
 }

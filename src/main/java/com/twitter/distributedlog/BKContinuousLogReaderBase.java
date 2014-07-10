@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import java.io.Closeable;
 import com.google.common.base.Stopwatch;
+import com.google.common.annotations.VisibleForTesting;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -12,7 +13,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.annotations.VisibleForTesting;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.StatsLogger;
 
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
@@ -36,18 +38,27 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Stopwatch idleReaderLastWarnSw = Stopwatch.createStarted();
     private Stopwatch idleReaderLastLogRecordSw = Stopwatch.createStarted();
     private boolean isReaderIdle = false;
+    private boolean enableReaderTrace = false;
 
+    private final Counter idleReaderWarnCounter;
+    private final Counter idleReaderErrorCounter;
 
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      final DistributedLogConfiguration conf,
-                                     AsyncNotification notification) throws IOException {
+                                     AsyncNotification notification,
+                                     StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
         this.readAheadEnabled = conf.getEnableReadAhead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
         this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
+
+        // Stats
+        StatsLogger readerStatsLogger = statsLogger.scope("reader");
+        idleReaderWarnCounter = readerStatsLogger.getCounter("idle_reader_warnings");
+        idleReaderErrorCounter = readerStatsLogger.getCounter("idle_reader_errors");
     }
 
     /**
@@ -87,6 +98,8 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             advancedOnce = createOrPositionReader(nonBlockingReadOperation);
 
             if (null != currentReader) {
+                currentReader.setEnableTrace(enableReaderTrace);
+                enableReaderTrace = false;
 
                 record = currentReader.readOp(nonBlockingReadOperation);
 
@@ -117,6 +130,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         } else {
             long idleDuration = idleReaderLastLogRecordSw.elapsed(TimeUnit.MILLISECONDS);
             if (idleDuration > idleErrorThresholdMillis) {
+                LOG.error("Idle Reader on stream {} for {} ms; Current Reader {}",
+                    new Object[] { bkLedgerManager.getFullyQualifiedName(),
+                        idleDuration, currentReader });
+                bkLedgerManager.dumpReadAheadState(true /*error*/);
+                idleReaderErrorCounter.inc();
                 throw new IdleReaderException("Reader on stream" +
                     bkLedgerManager.getFullyQualifiedName()
                     + "is idle for " + idleDuration +"ms");
@@ -125,14 +143,14 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             // the timer so as to avoid flooding the log with idle reader messages
             else if (idleDuration > idleWarnThresholdMillis &&
                 idleReaderLastWarnSw.elapsed(TimeUnit.MILLISECONDS) > idleWarnThresholdMillis) {
-                if (null == currentReader) {
-                    LOG.warn("Idle Reader on stream {} for {} ms; Current Reader {}",
-                        new Object[] { bkLedgerManager.getFullyQualifiedName(),
-                            idleDuration, currentReader });
-                }
-                bkLedgerManager.dumpReadAheadState();
+                LOG.warn("Idle Reader on stream {} for {} ms; Current Reader {}",
+                    new Object[] { bkLedgerManager.getFullyQualifiedName(),
+                        idleDuration, currentReader });
+                bkLedgerManager.dumpReadAheadState(false /*error*/);
+                idleReaderWarnCounter.inc();
                 idleReaderLastWarnSw.reset().start();
                 isReaderIdle = true;
+                enableReaderTrace = true;
             }
         }
 
@@ -142,13 +160,13 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     protected boolean createOrPositionReader(boolean nonBlocking) throws IOException {
         boolean advancedOnce = false;
         if (null == currentReader) {
-            LOG.debug("Opening reader on partition {}", bkLedgerManager.getFullyQualifiedName());
+            LOG.info("Opening reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             currentReader = getCurrentReader();
             if ((null != currentReader)) {
                 if(readAheadEnabled) {
                     bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors);
                 }
-                LOG.debug("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
+                LOG.info("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             }
             advancedOnce = (currentReader == null);
         } else {

@@ -352,8 +352,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    void dumpReadAheadState() {
-        LOG.warn("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+    void dumpReadAheadState(boolean isError) {
+        if (isError) {
+            LOG.error("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+        } else {
+            LOG.warn("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
+        }
     }
 
     public LedgerHandleCache getHandleCache() {
@@ -562,6 +566,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 ", BKZKExceptions:" + bkcZkExceptions.get() +
                 ", BKUnexpectedExceptions:" + bkcUnExpectedExceptions.get() +
                 ", EncounteredException:" + encounteredException +
+                ", readAheadError:" + readAheadError +
+                ", readAheadInterrupted" + readAheadInterrupted +
                 ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE");
         }
 

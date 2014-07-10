@@ -117,7 +117,7 @@ public class LedgerDataAccessor {
         ledgerHandleCache.closeLedger(ledgerDesc);
     }
 
-    public LedgerEntry getEntry(LedgerDescriptor ledgerDesc, LedgerReadPosition key, boolean nonBlocking)
+    public LedgerEntry getEntry(LedgerDescriptor ledgerDesc, LedgerReadPosition key, boolean nonBlocking, boolean enableTrace)
         throws IOException {
         try {
             boolean shouldWaitForReadAhead = readAheadEnabled;
@@ -137,10 +137,23 @@ public class LedgerDataAccessor {
                         value = readAheadCache.get(key);
                     }
                     if ((null == value) || (null == value.getLedgerEntry())) {
+                        if (enableTrace) {
+                            LOG.info("LedgerDataAccessor {}: Read-ahead miss for non blocking read {}",
+                                toString(), key);
+                        } else {
+                            LOG.trace("LedgerDataAccessor {}: Read-ahead miss for non blocking read {}",
+                                toString(), key);
+                        }
                         return null;
                     } else {
-                        LOG.trace("Read-ahead readAheadCache hit for non blocking read");
                         readAheadHits.inc();
+                        if (enableTrace) {
+                            LOG.info("LedgerDataAccessor {}: Read-ahead readAheadCache hit for non blocking read {}",
+                                toString(), key);
+                        } else {
+                            LOG.trace("LedgerDataAccessor {}: Read-ahead readAheadCache hit for non blocking read {}",
+                                toString(), key);
+                        }
                         return value.getLedgerEntry();
                     }
                 } else {
@@ -396,5 +409,11 @@ public class LedgerDataAccessor {
         public void setLedgerEntry(LedgerEntry value) {
             entry = value;
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s: Last Removed Key: %s, Cache Bytes: %d, Num Cached Entries: %d",
+            streamName, lastRemovedKey.get(), cacheBytes.get(), getNumCacheEntries());
     }
 }
