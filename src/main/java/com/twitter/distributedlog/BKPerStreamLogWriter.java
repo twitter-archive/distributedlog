@@ -559,7 +559,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     public long flushAndSyncPhaseOne() throws
-        LockingException, OwnershipAcquireFailedException, BKTransmitException, FlushException {
+        LockingException, BKTransmitException, FlushException {
         flushAndSyncInternal();
 
         synchronized (this) {

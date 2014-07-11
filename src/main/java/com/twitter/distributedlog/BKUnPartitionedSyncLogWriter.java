@@ -6,7 +6,7 @@ import java.util.List;
 
 public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implements LogWriter {
 
-    public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) throws IOException {
+    public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);
     }
     /**

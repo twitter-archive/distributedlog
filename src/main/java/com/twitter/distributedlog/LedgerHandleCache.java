@@ -253,7 +253,7 @@ public class LedgerHandleCache {
     }
 
     public void readLastConfirmed(LedgerDescriptor ledgerDesc)
-        throws InterruptedException, BKException, IOException {
+        throws InterruptedException, BKException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
         Stopwatch stopwatch = new Stopwatch().start();
@@ -285,7 +285,7 @@ public class LedgerHandleCache {
     }
 
     public Enumeration<LedgerEntry> readEntries(LedgerDescriptor ledgerDesc, long first, long last)
-        throws InterruptedException, BKException, IOException {
+        throws InterruptedException, BKException {
         final SyncObject<Enumeration<LedgerEntry>> syncObject =
                 new SyncObject<Enumeration<LedgerEntry>>();
         syncObject.inc();

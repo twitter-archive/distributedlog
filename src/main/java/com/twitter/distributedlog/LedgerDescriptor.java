@@ -1,15 +1,9 @@
 package com.twitter.distributedlog;
 
-public class LedgerDescriptor {
+class LedgerDescriptor {
     private final long ledgerId;
     private final long ledgerSequenceNo;
     private final boolean fenced;
-
-    public LedgerDescriptor(LedgerDescriptor that) {
-        this.ledgerId = that.ledgerId;
-        this.ledgerSequenceNo = that.ledgerSequenceNo;
-        this.fenced = that.fenced;
-    }
 
     public LedgerDescriptor(long ledgerId, long ledgerSequenceNo, boolean fenced) {
         this.ledgerId = ledgerId;

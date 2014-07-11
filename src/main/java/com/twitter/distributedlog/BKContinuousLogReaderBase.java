@@ -46,10 +46,9 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     public BKContinuousLogReaderBase(BKDistributedLogManager bkdlm,
                                      String streamIdentifier,
                                      final DistributedLogConfiguration conf,
-                                     AsyncNotification notification,
                                      StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, notification);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier);
         this.readAheadEnabled = conf.getEnableReadAhead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
         this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();

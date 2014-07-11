@@ -454,7 +454,7 @@ public class LogSegmentLedgerMetadata {
         String[] parts = new String(data, UTF_8).split(";");
         long version;
         try {
-            version = Long.valueOf(parts[0]) & METADATA_VERSION_MASK;;
+            version = Long.valueOf(parts[0]) & METADATA_VERSION_MASK;
         } catch (Exception exc) {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));

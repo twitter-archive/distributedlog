@@ -91,8 +91,8 @@ public class LedgerDataAccessor {
         this.notification = notification;
     }
 
-    public void setReadAheadEnabled(boolean enabled, int waitTime, int batchSize) {
-        readAheadEnabled = enabled;
+    public void setReadAheadEnabled(int waitTime, int batchSize) {
+        readAheadEnabled = true;
         readAheadWaitTime = waitTime;
         readAheadBatchSize = batchSize;
     }
@@ -113,7 +113,7 @@ public class LedgerDataAccessor {
     }
 
     public void closeLedger(LedgerDescriptor ledgerDesc)
-        throws InterruptedException, BKException, IOException {
+        throws InterruptedException, BKException {
         ledgerHandleCache.closeLedger(ledgerDesc);
     }
 

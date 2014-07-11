@@ -342,7 +342,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 simulateErrors,
                 conf);
             readAheadWorker.start();
-            ledgerDataAccessor.setReadAheadEnabled(true, conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
+            ledgerDataAccessor.setReadAheadEnabled(conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
         }
     }
 

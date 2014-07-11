@@ -1311,7 +1311,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) throws IOException {
+    private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {

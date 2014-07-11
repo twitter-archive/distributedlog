@@ -16,9 +16,8 @@ public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase impleme
                                      String streamIdentifier,
                                      DLSN startDLSN,
                                      final DistributedLogConfiguration conf,
-                                     AsyncNotification notification,
                                      StatsLogger statsLogger) throws IOException {
-        super(bkdlm, streamIdentifier, conf, notification, statsLogger);
+        super(bkdlm, streamIdentifier, conf, statsLogger);
         this.startDLSN = startDLSN;
         lastDLSN = DLSN.InvalidDLSN;
     }

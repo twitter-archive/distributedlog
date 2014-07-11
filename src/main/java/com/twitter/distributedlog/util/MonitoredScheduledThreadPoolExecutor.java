@@ -66,7 +66,6 @@ public class MonitoredScheduledThreadPoolExecutor extends ScheduledThreadPoolExe
         }
     }
 
-    protected final StatsLogger statsLogger;
     protected final boolean traceTaskExecution;
     protected final OpStatsLogger taskExecutionStats;
     protected final OpStatsLogger taskPendingStats;
@@ -76,7 +75,6 @@ public class MonitoredScheduledThreadPoolExecutor extends ScheduledThreadPoolExe
                                                 StatsLogger statsLogger,
                                                 boolean traceTaskExecution) {
         super(corePoolSize, threadFactory);
-        this.statsLogger = statsLogger;
         this.traceTaskExecution = traceTaskExecution;
 
         this.taskPendingStats = statsLogger.getOpStatsLogger("task_pending_time");

@@ -30,7 +30,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     protected final BKDistributedLogManager bkDistributedLogManager;
     protected final BKLogPartitionReadHandler bkLedgerManager;
     private Watcher sessionExpireWatcher = null;
-    private boolean endOfStreamEncountered = false;
     private AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
     private ScheduledExecutorService executorService;
     private ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>> pendingRequests = new ConcurrentLinkedQueue<Promise<LogRecordWithDLSN>>();

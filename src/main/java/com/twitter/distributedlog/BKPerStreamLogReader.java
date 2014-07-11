@@ -134,7 +134,7 @@ class BKPerStreamLogReader {
         return toRet;
     }
 
-    public void close() throws IOException {
+    public void close() {
         try {
             getLedgerDataAccessor().closeLedger(getLedgerDescriptor());
         } catch (Throwable t) {
@@ -206,8 +206,7 @@ class BKPerStreamLogReader {
          */
         LedgerInputStream(String fullyQualifiedName,
                           LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
-                          long firstBookKeeperEntry, StatsLogger statsLogger, boolean enableTrace)
-            throws IOException {
+                          long firstBookKeeperEntry, StatsLogger statsLogger, boolean enableTrace) {
             LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
             this.fullyQualifiedName = fullyQualifiedName;
             this.ledgerDesc = ledgerDesc;
