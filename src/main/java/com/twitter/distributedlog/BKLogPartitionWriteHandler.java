@@ -731,7 +731,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
             String znodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId);
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId,
+                    DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 

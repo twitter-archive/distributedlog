@@ -21,4 +21,20 @@ public interface MetadataUpdater {
      */
     LogSegmentLedgerMetadata changeSequenceNumber(LogSegmentLedgerMetadata segment, long ledgerSeqNo)
             throws IOException;
+
+    /**
+     * Change the truncation status of a <i>log segment</i>
+     *
+     * @param segment
+     *          log segment to change sequence number.
+     * @param isTruncated
+     *          is the segment truncated
+     * @param isPartiallyTruncated
+     *          is the segment partially truncated
+     * @return new log segment
+     * @throws IOException
+     */
+    LogSegmentLedgerMetadata changeTruncationStatus(LogSegmentLedgerMetadata segment,
+                                                    LogSegmentLedgerMetadata.TruncationStatus truncationStatus)
+            throws IOException;
 }

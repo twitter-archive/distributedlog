@@ -21,6 +21,7 @@ public class DistributedLogConstants {
     public static final long LOCK_TIMEOUT_INFINITE = -1;
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";
     public static final int LOCAL_REGION_ID = 0;
+    public static final long LOGSEGMENT_DEFAULT_STATUS = 0;
     public static final int INPUTSTREAM_MARK_LIMIT = 16;
     public static final int FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO = 2;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;

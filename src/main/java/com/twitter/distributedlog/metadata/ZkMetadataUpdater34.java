@@ -24,11 +24,11 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
         try {
             Transaction txn = zkc.get().transaction();
-            // create new log segment
             byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
-            zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             // delete old log segment
             zkc.get().delete(oldSegment.getZkPath(), -1);
+            // create new log segment
+            zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             // commit the transaction
             txn.commit();
         } catch (InterruptedException e) {

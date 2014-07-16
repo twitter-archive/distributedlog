@@ -76,14 +76,14 @@ public class TestLedgerHandleCache {
         newBkc.release();
         // open ledger after bkc closed.
         try {
-            cache.openLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1), false);
+            cache.openLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS), false);
             fail("Should throw IOException if bookkeeper client is closed.");
         } catch (BKException.BKBookieHandleNotAvailableException ie) {
             // expected
         }
         final AtomicInteger rcHolder = new AtomicInteger(0);
         final CountDownLatch latch = new CountDownLatch(1);
-        cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
+        cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor result) {
                 rcHolder.set(rc);
@@ -108,7 +108,8 @@ public class TestLedgerHandleCache {
             // open ledger after zkc closed
             try {
                 cache.openLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId(),
-                        DistributedLogConstants.LOCAL_REGION_ID), false);
+                        DistributedLogConstants.LOCAL_REGION_ID,
+                        DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS), false);
                 fail("Should throw BKException.ZKException if zookeeper client is closed.");
             } catch (BKException.ZKException ze) {
                 // expected
@@ -116,7 +117,8 @@ public class TestLedgerHandleCache {
             final AtomicInteger rcHolder = new AtomicInteger(0);
             final CountDownLatch latch = new CountDownLatch(1);
             cache.asyncOpenLedger(new LogSegmentLedgerMetadata("", 2, lh.getId(), 1, lh.getId(),
-                    DistributedLogConstants.LOCAL_REGION_ID), false,
+                    DistributedLogConstants.LOCAL_REGION_ID,
+                    DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS), false,
                     new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
                 @Override
                 public void operationComplete(int rc, LedgerDescriptor result) {

@@ -191,7 +191,8 @@ public class DLMTestUtil {
     public static LogSegmentLedgerMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
         return new LogSegmentLedgerMetadata(ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
                                             DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                                            ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID);
+                                            ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID,
+                                            DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
     }
 
     public static LogSegmentLedgerMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
@@ -200,7 +201,8 @@ public class DLMTestUtil {
         LogSegmentLedgerMetadata metadata =
                 new LogSegmentLedgerMetadata(ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
                                              DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                                             ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID);
+                                             ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID,
+                                             DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
         metadata.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId);
         return metadata;
     }
@@ -227,6 +229,7 @@ public class DLMTestUtil {
         // Start a log segment with a given ledger seq number.
         writeHandler.lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         writeHandler.startLogSegmentCount.incrementAndGet();
+
         BookKeeperClient bkc = dlm.getWriterBKCBuilder().build();
         try {
             LedgerHandle lh = bkc.get().createLedger(conf.getEnsembleSize(), conf.getWriteQuorumSize(),
@@ -234,7 +237,8 @@ public class DLMTestUtil {
             String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
             String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID);
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID, ledgerSeqNo,
+                    DistributedLogConstants.LOCAL_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
             l.write(dlm.writerZKC, znodePath);
             writeHandler.maxTxId.store(startTxID);
             writeHandler.addLogSegmentToCache(inprogressZnodeName, l);

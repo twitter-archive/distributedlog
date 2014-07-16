@@ -123,4 +123,61 @@ public class TestZkMetadataUpdater {
         assertEquals(5 * 100, segmentChanged.getFirstTxId());
         assertEquals(3L, segmentChanged.getLedgerId());
     }
+
+    @Test
+    public void testChangeTruncationStatus() throws Exception {
+        String ledgerPath = "/ledgers2";
+        zkc.get().create(ledgerPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        Map<Long, LogSegmentLedgerMetadata> completedLogSegments = new HashMap<Long, LogSegmentLedgerMetadata>();
+        // Create 5 completed log segments
+        for (int i = 1; i <= 5; i++) {
+            LogSegmentLedgerMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
+            completedLogSegments.put(((long)i), segment);
+            LOG.info("Create completed segment {} : {}", segment.getZkPath(), segment);
+            segment.write(zkc, segment.getZkPath());
+        }
+
+        Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);
+        assertEquals(5, segmentList.size());
+
+        long segmentToModify = 1L;
+
+        // Dryrun
+        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(zkc);
+        dryrunUpdater.changeTruncationStatus(segmentList.get(segmentToModify), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+
+        segmentList = readLogSegments(ledgerPath);
+        assertEquals(false, segmentList.get(segmentToModify).isTruncated());
+
+        // change truncation for the 1st log segment
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater.changeTruncationStatus(segmentList.get(segmentToModify), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+
+        segmentList = readLogSegments(ledgerPath);
+        assertEquals(true, segmentList.get(segmentToModify).isTruncated());
+        assertEquals(false, segmentList.get(segmentToModify).isPartiallyTruncated());
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater.changeTruncationStatus(segmentList.get(segmentToModify), LogSegmentLedgerMetadata.TruncationStatus.ACTIVE);
+
+        segmentList = readLogSegments(ledgerPath);
+        assertEquals(false, segmentList.get(segmentToModify).isTruncated());
+        assertEquals(false, segmentList.get(segmentToModify).isPartiallyTruncated());
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater.changeTruncationStatus(segmentList.get(segmentToModify), LogSegmentLedgerMetadata.TruncationStatus.PARTIALLY_TRUNCATED);
+
+        segmentList = readLogSegments(ledgerPath);
+        assertEquals(false, segmentList.get(segmentToModify).isTruncated());
+        assertEquals(true, segmentList.get(segmentToModify).isPartiallyTruncated());
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater.changeTruncationStatus(segmentList.get(segmentToModify), LogSegmentLedgerMetadata.TruncationStatus.ACTIVE);
+
+        segmentList = readLogSegments(ledgerPath);
+        assertEquals(false, segmentList.get(segmentToModify).isTruncated());
+        assertEquals(false, segmentList.get(segmentToModify).isPartiallyTruncated());
+
+    }
+
 }

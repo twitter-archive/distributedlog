@@ -80,14 +80,34 @@ public class ZkMetadataUpdater implements MetadataUpdater {
         return newSegment;
     }
 
+    /**
+     * Change the truncation status of a <i>log segment</i>
+     *
+     * @param segment log segment to change sequence number.
+     * @param isTruncated is the segment truncated
+     * @param isPartiallyTruncated is the segment partially truncated
+     * @return new log segment
+     */
+    @Override
+    public LogSegmentLedgerMetadata changeTruncationStatus(LogSegmentLedgerMetadata segment,
+                   LogSegmentLedgerMetadata.TruncationStatus truncationStatus) throws IOException {
+        final LogSegmentLedgerMetadata newSegment = segment.mutator()
+            .setTruncationStatus(truncationStatus)
+            .build();
+        addNewSegmentAndDeleteOldSegment(newSegment, segment);
+        return newSegment;    }
+
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
         try {
-            // create new log segment
             byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
-            zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-            // delete old log segment
-            zkc.get().delete(oldSegment.getZkPath(), -1);
+            if (newSegment.getZkPath().equalsIgnoreCase(oldSegment.getZkPath())) {
+                zkc.get().setData(newSegment.getZkPath(), finalisedData, -1);
+            } else {
+                zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                // delete old log segment
+                zkc.get().delete(oldSegment.getZkPath(), -1);
+            }
         } catch (InterruptedException ie) {
             throw new DLInterruptedException("Interrupted on adding new segment " + newSegment
                     + " and deleting old segment " + oldSegment + " : ", ie);
@@ -96,4 +116,5 @@ public class ZkMetadataUpdater implements MetadataUpdater {
                     + " and deleting old segment " + oldSegment + " : ", ke);
         }
     }
+
 }
