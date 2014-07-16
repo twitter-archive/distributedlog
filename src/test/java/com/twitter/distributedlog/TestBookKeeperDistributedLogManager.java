@@ -17,6 +17,9 @@
  */
 package com.twitter.distributedlog;
 
+
+import java.net.URI;
+
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -36,6 +39,8 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.MetadataUpdater;
+import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Await;
 
@@ -1778,4 +1783,81 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         }
     }
 
+    @Test
+    public void testTruncationValidation() throws Exception {
+        String name = "distrlog-truncation-validation";
+        URI uri = DLMTestUtil.createDLMURI("/" + name);
+        ZooKeeperClient zookeeperClient = ZooKeeperClientBuilder.newBuilder()
+            .uri(uri)
+            .sessionTimeoutMs(10000).build();
+        BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(conf, name);
+
+        long txid = 1;
+        for (long i = 0; i < 3; i++) {
+            long start = txid;
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            }
+
+            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
+
+            writer.closeAndComplete();
+            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(), start, txid - 1,
+                perStreamLogWriter.getLedgerSequenceNumber()), false));
+            blplm.close();
+        }
+
+        {
+            LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assert((record != null) && (record.getDlsn().compareTo(DLSN.InitialDLSN) == 0));
+            reader.close();
+        }
+
+        Map<Long, LogSegmentLedgerMetadata> segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
+                name, conf.getUnpartitionedStreamName())));
+
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater.changeTruncationStatus(segmentList.get(1L), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+
+        {
+            LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assert((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
+            reader.close();
+        }
+
+        {
+            LogReader reader = dlm.getInputStream(1);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assert((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
+            reader.close();
+        }
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater.changeTruncationStatus(segmentList.get(1L), LogSegmentLedgerMetadata.TruncationStatus.ACTIVE);
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater.changeTruncationStatus(segmentList.get(2L), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+
+        {
+            LogReader reader = dlm.getInputStream(1);
+            boolean exceptionEncountered = false;
+            try {
+                LogRecord record = reader.readNext(false);
+                while (null != record) {
+                    record = reader.readNext(false);
+                }
+            } catch (AlreadyTruncatedTransactionException exc) {
+                exceptionEncountered = true;
+            }
+            assert(exceptionEncountered);
+            reader.close();
+        }
+
+        zookeeperClient.close();
+    }
 }

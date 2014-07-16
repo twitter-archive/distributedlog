@@ -43,6 +43,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private ReadAheadWorker readAheadWorker = null;
     private volatile boolean readAheadError = false;
     private volatile boolean readAheadInterrupted = false;
+    private volatile boolean readingFromTruncated = false;
     private final AlertStatsLogger alertStatsLogger;
 
     // stats
@@ -176,6 +177,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         if (doesLogExist()) {
             List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
             for (LogSegmentLedgerMetadata l : segments) {
+                // By default we should skip truncated segments during initial positioning
+                if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
+                    continue;
+                }
+
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {} for {}", l, fromDLSN);
                 }
@@ -264,6 +270,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
             for (int i = 0; i < segments.size(); i++) {
                 LogSegmentLedgerMetadata l = segments.get(i);
+                // By default we should skip truncated segments during initial positioning
+                if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
+                    continue;
+                }
+
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {}", l);
                 }
@@ -403,6 +414,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    public void setReadingFromTruncated() {
+        readingFromTruncated = true;
+        if (null != notification) {
+            notification.notifyOnError();
+        }
+    }
+
 
     public void setNotification(final AsyncNotification notification) {
         // If we are setting a notification, then we must ensure that
@@ -436,12 +454,17 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         ledgerDataAccessor.setNotification(notification);
     }
 
-    public void checkClosedOrInError() throws LogReadException, DLInterruptedException {
-        if (readAheadInterrupted) {
-            throw new DLInterruptedException("ReadAhead Thread was interrupted");
-        }
-        else if (readAheadError) {
-            throw new LogReadException("ReadAhead Thread encountered exceptions");
+    public void checkClosedOrInError() throws LogReadException, DLInterruptedException, AlreadyTruncatedTransactionException {
+        if (readingFromTruncated) {
+            throw new AlreadyTruncatedTransactionException(
+                String.format("%s: Trying to position read ahead a segment that is marked truncated",
+                    getFullyQualifiedName()));
+        } else if (readAheadInterrupted) {
+            throw new DLInterruptedException(String.format("%s: ReadAhead Thread was interrupted",
+                getFullyQualifiedName()));
+        } else if (readAheadError) {
+            throw new LogReadException(String.format("%s: ReadAhead Thread encountered exceptions",
+                getFullyQualifiedName()));
         }
     }
 
@@ -494,6 +517,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final String fullyQualifiedName;
         private final BKLogPartitionReadHandler bkLedgerManager;
         private volatile boolean reInitializeMetadata = true;
+        private final LedgerReadPosition startReadPosition;
         private LedgerReadPosition nextReadPosition;
         private LogSegmentLedgerMetadata currentMetadata = null;
         private int currentMetadataIndex;
@@ -534,7 +558,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                DistributedLogConfiguration conf) {
             this.bkLedgerManager = ledgerManager;
             this.fullyQualifiedName = fullyQualifiedName;
-            this.nextReadPosition = startPosition;
+            this.startReadPosition = new LedgerReadPosition(startPosition);
+            this.nextReadPosition = new LedgerReadPosition(startPosition);
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.simulateErrors = simulateErrors;
             if ((conf.getReadLACOption() >= ReadLACOption.INVALID_OPTION.value) ||
@@ -737,8 +762,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return;
                         }
                         ledgerList = result;
+                        boolean isInitialPositioning = nextReadPosition.definitelyLessThanOrEqualTo(startReadPosition);
                         for (int i = 0; i < ledgerList.size(); i++) {
                             LogSegmentLedgerMetadata l = ledgerList.get(i);
+                            // By default we should skip truncated segments during initial positioning
+                            if (l.isTruncated() &&
+                                isInitialPositioning &&
+                                !conf.getIgnoreTruncationStatus()) {
+                                continue;
+                            }
+
                             if ((l.getLastDLSN().compareTo(
                                 new DLSN(nextReadPosition.getLedgerSequenceNumber(), nextReadPosition.getEntryId(), -1)) >= 0) ||
                                 (l.isInProgress() && l.getLedgerSequenceNumber() == nextReadPosition.getLedgerSequenceNumber())) {
@@ -770,6 +803,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     LOG.info("Moved read position to {} for stream {} at {}.",
                                              new Object[] { nextReadPosition, getFullyQualifiedName(), System.currentTimeMillis() });
                                 }
+
+                                if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
+                                    LOG.error("{}: Trying to position reader on {} when {} is marked truncated",
+                                        new Object[] {getFullyQualifiedName(), nextReadPosition, l});
+                                    setReadingFromTruncated();
+                                    return;
+                                }
+
                                 currentMetadata = l;
                                 currentMetadataIndex = i;
                                 break;

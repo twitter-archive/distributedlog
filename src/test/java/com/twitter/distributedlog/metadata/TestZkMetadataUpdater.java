@@ -59,17 +59,7 @@ public class TestZkMetadataUpdater {
     }
 
     Map<Long, LogSegmentLedgerMetadata> readLogSegments(String ledgerPath) throws Exception {
-        List<String> children = zkc.get().getChildren(ledgerPath, false);
-        LOG.info("Children under {} : {}", ledgerPath, children);
-        Map<Long, LogSegmentLedgerMetadata> segments =
-                new HashMap<Long, LogSegmentLedgerMetadata>(children.size());
-        for (String child : children) {
-            LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child,
-                    DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
-            LOG.info("Read segment {} : {}", child, segment);
-            segments.put(segment.getLedgerSequenceNumber(), segment);
-        }
-        return segments;
+        return DLMTestUtil.readLogSegments(zkc, ledgerPath);
     }
 
     @Test

@@ -220,7 +220,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         zkSessionExpired = true;
     }
 
-    private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException, DLInterruptedException {
+    private void checkClosedOrInError(String operation)
+        throws EndOfStreamException, AlreadyClosedException,
+                LogReadException, DLInterruptedException,
+                AlreadyTruncatedTransactionException {
         if (endOfStreamEncountered) {
             throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
         }

@@ -19,6 +19,13 @@ public class LedgerReadPosition {
         this.entryId = entryId;
     }
 
+    public LedgerReadPosition(LedgerReadPosition that) {
+        this.ledgerId = that.ledgerId;
+        this.ledgerSequenceNo = that.ledgerSequenceNo;
+        this.entryId = that.entryId;
+    }
+
+
     public LedgerReadPosition(final DLSN dlsn) {
         this(dlsn.getLedgerSequenceNo(), dlsn.getEntryId());
     }
@@ -71,8 +78,8 @@ public class LedgerReadPosition {
 
         // When ledgerSequenceNo is equal we cannot definitely say that this
         // position is less than the threshold unless ledgerIds are equal
-        return (this.getLedgerId() == threshold.getLedgerId()) &&
-            (this.getEntryId() <= threshold.getEntryId());
+        return (this.ledgerId == threshold.ledgerId) &&
+            (this.entryId <= threshold.entryId);
     }
 
     /**

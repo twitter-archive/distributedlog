@@ -22,12 +22,15 @@ import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -47,6 +50,20 @@ public class DLMTestUtil {
             ret += s;
         }
         return ret;
+    }
+
+    public static Map<Long, LogSegmentLedgerMetadata> readLogSegments(ZooKeeperClient zkc, String ledgerPath) throws Exception {
+        List<String> children = zkc.get().getChildren(ledgerPath, false);
+        LOG.info("Children under {} : {}", ledgerPath, children);
+        Map<Long, LogSegmentLedgerMetadata> segments =
+            new HashMap<Long, LogSegmentLedgerMetadata>(children.size());
+        for (String child : children) {
+            LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child,
+                DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LOG.info("Read segment {} : {}", child, segment);
+            segments.put(segment.getLedgerSequenceNumber(), segment);
+        }
+        return segments;
     }
 
     static void updateBKDLConfig(URI uri, String zkServers, String ledgersPath, boolean sanityCheckTxnID) throws Exception {
@@ -229,7 +246,6 @@ public class DLMTestUtil {
         // Start a log segment with a given ledger seq number.
         writeHandler.lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         writeHandler.startLogSegmentCount.incrementAndGet();
-
         BookKeeperClient bkc = dlm.getWriterBKCBuilder().build();
         try {
             LedgerHandle lh = bkc.get().createLedger(conf.getEnsembleSize(), conf.getWriteQuorumSize(),

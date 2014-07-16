@@ -92,6 +92,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS = "readerIdleErrorThresholdMillis";
     public static final int BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT = Integer.MAX_VALUE;
 
+    public static final String BKDL_READER_IGNORE_TRUNCATION_STATUS = "ignoreTruncationStatus";
+    public static final boolean BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT = false;
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -579,6 +582,29 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
         return this;
     }
+
+    /**
+     * Set if we should ignore truncation status when reading the records
+     *
+     * @param ignoreTruncationStatus
+     *          if we should ignore truncation status
+     */
+    public DistributedLogConfiguration setIgnoreTruncationStatus(boolean ignoreTruncationStatus) {
+        setProperty(BKDL_READER_IGNORE_TRUNCATION_STATUS, ignoreTruncationStatus);
+        return this;
+    }
+
+    /**
+     * Get if we should ignore truncation status when reading the records
+     *
+     * @return if we should ignore truncation status
+     */
+    public boolean getIgnoreTruncationStatus() {
+        return getBoolean(BKDL_READER_IGNORE_TRUNCATION_STATUS, BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT);
+    }
+
+
+
 
     /**
      * Set if we should enable read ahead
