@@ -21,9 +21,12 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.FailpointUtils;
 
 import com.twitter.util.Function0;
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
@@ -40,8 +43,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -108,6 +113,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 promise.setException(new BKTransmitException("Failed to write to bookkeeper; Error is ("
                     + transmitResult + ") "
                     + BKException.getMessage(transmitResult), transmitResult));
+            }
+            promiseList.clear();
+        }
+
+        private void cancelPromises(Throwable t) {
+            for(Promise<DLSN> promise : promiseList) {
+                promise.setException(t);
             }
             promiseList.clear();
         }
@@ -403,20 +415,96 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     @Override
     synchronized public void write(LogRecord record) throws IOException {
         writeUserRecord(record);
+        flushIfNeeded();
+    }
+
+    // Record failure so we can quickly abort a bulk write.
+    static class FailfastWriteListener implements FutureEventListener<DLSN> {
+        
+        private final AtomicBoolean failed;
+        
+        FailfastWriteListener(AtomicBoolean failed) {
+            this.failed = failed;
+        }
+
+        @Override
+        public void onSuccess(DLSN dlsn) { 
+            /* do nothing */
+        }
+
+        @Override 
+        public void onFailure(Throwable t) { 
+            failed.set(true); 
+        }
     }
 
     synchronized public Future<DLSN> asyncWrite(LogRecord record) {
         try {
+            Future<DLSN> result = null;
             if (record.isControl()) {
                 // write control record.
-                Future<DLSN> result = writeControlLogRecord(record);
+                result = writeControlLogRecord(record);
                 transmit(true);
                 return result;
             }
-            return writeUserRecord(record);
+            result = writeUserRecord(record);
+            flushIfNeeded();
+            return result;
         } catch (IOException ioe) {
             LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
             return Future.exception(ioe);
+        }
+    }
+
+    synchronized public List<Future<DLSN>> asyncWriteBulk(List<LogRecord> records) {
+        AtomicBoolean failed = new AtomicBoolean(false);
+        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(records.size());
+        FailfastWriteListener failfastListener = new FailfastWriteListener(failed); 
+        
+        for (LogRecord record : records) {
+            Future<DLSN> result = null;
+            
+            // Need to be careful to terminate the bulk operation in case a client error occurs.
+            // Ex. some write in the middle of the list may end up being too large, and we must not 
+            // attempt to apply any more writes after said write fails. 
+            try {
+                result = writeUserRecord(record).addEventListener(failfastListener);
+            } catch (IOException ioe) {
+                LOG.error("Encountered exception during bulk write while writing a log record to stream {}", 
+                    fullyQualifiedLogSegment, ioe);
+                result = Future.exception(ioe);
+                failed.set(true);
+            }
+
+            // If we hit any failure we must terminate the bulk write.
+            results.add(result);
+            if (failed.get()) {
+                break;
+            }
+        }
+
+        // Try to flush pending writes. If flush fails here it cancels all pending writes on the 
+        // ordered future pool thread. Whether an error occurred or not earlier its safe to flush here 
+        // again since either we end up flushing all writes prior to the failure, or we fail all pending 
+        // writes. In both cases we haven't violated the requirement that all writes should fail after 
+        // the first failure.  
+        flushIfNeededNoThrow();
+
+        // If results are not fully specified, we hit a failure. Cancel the remaining futures.
+        if (results.size() < records.size()) {
+            assert(failed.get());
+            appendCancelledFutures(results, records.size() - results.size());
+        }
+        
+        return (List) results;
+    }
+
+    private void appendCancelledFutures(List<Future<DLSN>> futures, int count) {
+        final WriteCancelledException cre = 
+            new WriteCancelledException(fullyQualifiedLogSegment);
+        for (int i = 0; i < count; i++) {
+            Future<DLSN> cancelledFuture = Future.exception(cre);
+            futures.add(cancelledFuture);
         }
     }
 
@@ -447,9 +535,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         // incremented or not.
         positionWithinLogSegment++;
         Future<DLSN> future = writeInternal(record);
-        if (outstandingBytes > transmissionThreshold) {
-            setReadyToFlush();
-        }
         return future;
     }
 
@@ -545,6 +630,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     @Override
     synchronized public long setReadyToFlush() throws IOException {
+
+        FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry);
+
         if (transmit(false)) {
             shouldFlushControl.incrementAndGet();
         }
@@ -556,6 +644,37 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     public long flushAndSync() throws IOException {
         flushAndSyncPhaseOne();
         return flushAndSyncPhaseTwo();
+    }
+
+    void flushIfNeededNoThrow() {
+        try {
+            flushIfNeeded();       
+        } catch (IOException ioe) {
+            LOG.error("Encountered exception while flushing log records to stream {}", 
+                fullyQualifiedLogSegment, ioe);
+            cancelPromisesInOrderedFuturePool(ioe);
+        }
+    }
+
+    // Based on transmit buffer size, immediate flush, etc., should we flush the current 
+    // packet now.
+    void flushIfNeeded() throws IOException {
+        if (outstandingBytes > transmissionThreshold) {
+            setReadyToFlush();
+        }       
+    }
+
+    void cancelPromisesInOrderedFuturePool(final IOException ioe) {
+        if (null != orderedFuturePool) {
+            orderedFuturePool.apply(new Function0<Void>() {
+                public Void apply() {
+                    packetCurrent.cancelPromises(ioe);
+                    return null;
+                }
+            });
+        } else {
+            packetCurrent.cancelPromises(ioe);
+        }
     }
 
     public long flushAndSyncPhaseOne() throws
@@ -664,6 +783,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 + " Error code : (" + transmitResult.get()
                 + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
         }
+
         if (packetCurrent.getBuffer().getLength() > 0) {
             BKTransmitPacket packet = packetCurrent;
             packet.setControl(isControl);
@@ -739,8 +859,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     }
 
     private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
-                                              final long entryId,
-                                              final int rc) {
+                                               final long entryId,
+                                               final int rc) {
         synchronized (this) {
             if (!transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 LOG.warn("Log segment {}: Tried to set transmit result to ({}) but is already ({})",

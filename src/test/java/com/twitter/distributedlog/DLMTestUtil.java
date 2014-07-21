@@ -28,6 +28,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,6 +153,11 @@ public class DLMTestUtil {
         return new LogRecord(txId, generatePayload(txId));
     }
 
+    static LogRecord getLogRecordInstance(long txId, int size) {
+        ByteBuffer buf = ByteBuffer.allocate(size);
+        return new LogRecord(txId, buf.array());
+    }
+
     public static void verifyLogRecord(LogRecord record) {
         assertEquals(generatePayload(record.getTransactionId()).length, record.getPayload().length);
         assertArrayEquals(generatePayload(record.getTransactionId()), record.getPayload());
@@ -169,6 +176,22 @@ public class DLMTestUtil {
 
     static LogRecord getLargeLogRecordInstance(long txId) {
         return new LogRecord(txId, payloadStatic);
+    }
+
+    static List<LogRecord> getLargeLogRecordInstanceList(long firstTxId, int count) {
+        List<LogRecord> logrecs = new ArrayList<LogRecord>(count);
+        for (long i = 0; i < count; i++) {
+            logrecs.add(getLargeLogRecordInstance(firstTxId + i));
+        }
+        return logrecs;
+    }
+
+    static List<LogRecord> getLogRecordInstanceList(long firstTxId, int count, int size) {
+        List<LogRecord> logrecs = new ArrayList<LogRecord>(count);
+        for (long i = 0; i < count; i++) {
+            logrecs.add(getLogRecordInstance(firstTxId + i, size));
+        }
+        return logrecs;
     }
 
     static void verifyLargeLogRecord(LogRecord record) {

@@ -13,12 +13,19 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
+
+    static final Logger LOG = LoggerFactory.getLogger(BKUnPartitionedAsyncLogWriter.class);
 
     static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>>
             implements BookkeeperInternalCallbacks.GenericCallback<Void> {
@@ -51,7 +58,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }
     }
 
-    // records pending for roll log segment
+    // Records pending for roll log segment.
     class PendingLogRecord implements FutureEventListener<DLSN> {
 
         final LogRecord record;
@@ -102,10 +109,31 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }
     }
 
+    // Roll the log segment and apply pending results on success.
+    class LogRollingListener implements FutureEventListener<Void> {
+
+        LogRecord lastLogRecord;
+
+        LogRollingListener(LogRecord lastLogRecord) {
+            this.lastLogRecord = lastLogRecord;
+        }
+
+        @Override
+        public void onSuccess(Void value) {
+            rollLogSegmentAndIssuePendingRequests(lastLogRecord);
+        }
+
+        @Override
+        public void onFailure(Throwable cause) {
+            encounteredError = true;
+            errorOutPendingRequests(cause);
+        }
+    }
+
     private final FuturePool orderedFuturePool;
     private LinkedList<PendingLogRecord> pendingRequests = null;
     private boolean encounteredError = false;
-    private boolean shouldPendRequest = false;
+    private boolean queueingRequests = false;
 
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
@@ -141,7 +169,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
         }
 
-        BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
+        BKPerStreamLogWriter writer = getPerStreamLogWriterNoWait(record, bestEffort, rollLog);
         if (null == writer || rollLog) {
             writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
                                                record.getTransactionId(), bestEffort);
@@ -149,37 +177,80 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return writer;
     }
 
+    private BKPerStreamLogWriter getPerStreamLogWriterNoWait(LogRecord record, boolean bestEffort,
+                                                             boolean rollLog) throws IOException {
+        if (encounteredError) {
+            throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
+        }
+
+        return getLedgerWriter(conf.getUnpartitionedStreamName());
+    }
+
+    Future<DLSN> queueRequest(LogRecord record) {
+        PendingLogRecord pendingLogRecord = new PendingLogRecord(record);
+        pendingRequests.add(pendingLogRecord);
+        return pendingLogRecord.promise;
+    }
+
+    List<Future<DLSN>> queueRequests(List<LogRecord> records) {
+        List<Future<DLSN>> pendingResults = new ArrayList<Future<DLSN>>(records.size()); 
+        for (LogRecord record : records) {
+            pendingResults.add(queueRequest(record));
+        }
+        return pendingResults;
+    }
+
+    boolean shouldRollLog(BKPerStreamLogWriter w) {
+        try {
+            return shouldStartNewSegment(w, conf.getUnpartitionedStreamName());
+        } catch (IOException ioe) {
+            return false;
+        }
+    }
+
+    void startQueueingRequests() {
+        assert(null == pendingRequests && false == queueingRequests);
+        pendingRequests = new LinkedList<PendingLogRecord>();
+        queueingRequests = true;
+    }
+
     // for ordering guarantee, we shouldn't send requests to next log segments until
     // previous log segment is done.
     private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record) {
-        if (shouldPendRequest) {
-            PendingLogRecord pendingLogRecord = new PendingLogRecord(record);
-            pendingRequests.add(pendingLogRecord);
-            return pendingLogRecord.promise;
-        }
-
-        boolean shouldRollLog;
-        try {
-            shouldRollLog = shouldShartNewSegment(w, conf.getUnpartitionedStreamName());
-        } catch (IOException ioe) {
-            shouldRollLog = false;
-        }
-        if (shouldRollLog) {
-            pendingRequests = new LinkedList<PendingLogRecord>();
-            shouldPendRequest = true;
+        Future<DLSN> result = null;
+        if (queueingRequests) {
+            result = queueRequest(record);
+        } else if (shouldRollLog(w)) {
             // insert a last record, so when it called back, we will trigger a log segment rolling
+            startQueueingRequests();
             LastPendingLogRecord lastLogRecordInCurrentSegment = new LastPendingLogRecord(record);
             w.asyncWrite(record).addEventListener(lastLogRecordInCurrentSegment);
-            return lastLogRecordInCurrentSegment.promise;
+            result = lastLogRecordInCurrentSegment.promise;
         } else {
-            return w.asyncWrite(record);
+            result = w.asyncWrite(record);
         }
+        return result;
+    }
+
+    private List<Future<DLSN>> asyncWriteBulk(BKPerStreamLogWriter w, List<LogRecord> records) {
+        List<Future<DLSN>> results = null;
+        if (queueingRequests) {
+            results = queueRequests(records);
+        } else if (shouldRollLog(w)) {
+            startQueueingRequests();
+            LogRollingListener logRollingListener = new LogRollingListener(records.get(records.size()-1));
+            results = w.asyncWriteBulk(records);
+            Future$.MODULE$.join(results).voided().addEventListener(logRollingListener);
+        } else {
+            results = w.asyncWriteBulk(records);
+        }
+        return results;
     }
 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
         try {
             BKPerStreamLogWriter writer = getPerStreamLogWriter(record, true, true);
-            shouldPendRequest = false;
+            queueingRequests = false;
             // issue pending requests
             LinkedList<PendingLogRecord> requestsToIssue = pendingRequests;
             pendingRequests = null;
@@ -219,6 +290,25 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 return asyncWrite(w, record);
             }
         }));
+    }
+
+    /**
+     * Write many log records to the stream. The return type here is unfortunate but its a direct result
+     * of having to combine FuturePool and the asyncWriteBulk method which returns a future as well. The 
+     * problem is the List that asyncWriteBulk returns can't be materialized until getPerStreamLogWriter
+     * completes, so it has to be wrapped in a future itself.
+     *
+     * @param record single log record
+     */
+    @Override
+    public Future<List<Future<DLSN>>> writeBulk(final List<LogRecord> records) {
+        return orderedFuturePool.apply(new ExceptionalFunction0<List<Future<DLSN>>>() {
+            public List<Future<DLSN>> applyE() throws IOException {
+                LogRecord firstRecord = records.get(0);
+                BKPerStreamLogWriter w = getPerStreamLogWriter(firstRecord, false, false);
+                return asyncWriteBulk(w, records);
+            }
+        });
     }
 
     @VisibleForTesting

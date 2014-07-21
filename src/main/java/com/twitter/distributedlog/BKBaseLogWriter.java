@@ -150,7 +150,7 @@ public abstract class BKBaseLogWriter {
         return ledgerWriter;
     }
 
-    synchronized boolean shouldShartNewSegment(BKPerStreamLogWriter ledgerWriter, String streamIdentifier) throws IOException {
+    synchronized boolean shouldStartNewSegment(BKPerStreamLogWriter ledgerWriter, String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }

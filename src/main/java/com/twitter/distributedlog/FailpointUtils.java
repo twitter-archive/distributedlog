@@ -7,7 +7,8 @@ class FailpointUtils {
     enum FailPointName {
         FP_StartLogSegmentAfterLedgerCreate,
         FP_StartLogSegmentAfterInProgressCreate,
-        FP_FinalizeLedgerBeforeDelete
+        FP_FinalizeLedgerBeforeDelete,
+        FP_TransmitBeforeAddEntry
     }
 
     enum FailPointActions {

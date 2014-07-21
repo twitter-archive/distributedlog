@@ -54,6 +54,8 @@ enum StatusCode {
     WRITE_EXCEPTION = 514,
     // Stream Unavailable
     STREAM_UNAVAILABLE = 515,
+    // Write cancelled exception
+    WRITE_CANCELLED_EXCEPTION = 516,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

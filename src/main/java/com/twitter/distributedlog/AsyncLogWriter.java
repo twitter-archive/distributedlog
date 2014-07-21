@@ -4,6 +4,7 @@ import com.twitter.util.Future;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.List;
 
 public interface AsyncLogWriter extends Closeable {
     /**
@@ -14,6 +15,14 @@ public interface AsyncLogWriter extends Closeable {
      * or an exception if the write fails
      */
     public Future<DLSN> write(LogRecord record);
+
+    /**
+     * Write log records to the stream in bulk.
+     *
+     * @param records list of log records to be applied in order
+     * @return A Future which contains a list of Future write results. 
+     */
+    public Future<List<Future<DLSN>>> writeBulk(List<LogRecord> records);
 
     /**
      * Truncate the log until <i>dlsn</i>.

@@ -1,5 +1,10 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.FailpointUtils;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
+import com.twitter.distributedlog.exceptions.WriteException;
+
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -14,9 +19,17 @@ import org.slf4j.LoggerFactory;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
+
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class TestAsyncReaderWriter extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestAsyncReaderWriter.class);
@@ -65,6 +78,314 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertEquals(3 * 9, readDlm.getLogRecordCount());
 
         readDlm.close();
+    }
+
+    public <T> void validateFutureFailed(Future<T> future, Class exClass) {
+        try {
+            Await.result(future, Duration.fromSeconds(10));
+        } catch (Exception ex) {
+            assertTrue("exceptions types equal", exClass.isInstance(ex));
+        } 
+    }
+
+    public <T> T validateFutureSucceededAndGetResult(Future<T> future) throws Exception {
+        try {
+            return Await.result(future, Duration.fromSeconds(10));
+        } catch (Exception ex) {
+            fail("unexpected exception " + ex.getClass().getName());
+            throw ex;
+        } 
+    }
+
+    @Test
+    public void testAsyncBulkWritePartialFailureBufferFailure() throws Exception {
+        String name = "distrlog-testAsyncBulkWritePartialFailure";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        final int goodRecs = 10;
+        final List<LogRecord> records = DLMTestUtil.getLargeLogRecordInstanceList(1, goodRecs);
+        records.add(DLMTestUtil.getLogRecordInstance(goodRecs, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1));
+        records.addAll(DLMTestUtil.getLargeLogRecordInstanceList(1, goodRecs));
+        Future<List<Future<DLSN>>> futureResults = writer.writeBulk(records);
+        List<Future<DLSN>> results = validateFutureSucceededAndGetResult(futureResults);
+        
+        // One future returned for each write.
+        assertEquals(2*goodRecs + 1, results.size());
+
+        // First goodRecs are good.
+        for (int i = 0; i < goodRecs; i++) {
+            DLSN dlsn = validateFutureSucceededAndGetResult(results.get(i)); 
+        }
+
+        // First failure is log rec too big.
+        validateFutureFailed(results.get(goodRecs), LogRecordTooLongException.class);
+
+        // Rest are WriteCancelledException. 
+        for (int i = goodRecs+1; i < 2*goodRecs+1; i++) {
+            validateFutureFailed(results.get(i), WriteCancelledException.class);
+        }
+        
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncBulkWriteTotalFailureTransmitFailure() throws Exception {
+        String name = "distrlog-testAsyncBulkWriteTotalFailureDueToTransmitFailure";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        final int batchSize = 100;
+
+        // First entry.
+        long ledgerIndex = 1;
+        long entryIndex = 0; 
+        long slotIndex = 0;
+
+        FailpointUtils.setFailpoint(
+            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry,
+            FailpointUtils.FailPointActions.FailPointAction_Throw
+        );
+
+        // Since we don't hit MAX_TRANSMISSION_SIZE, the failure is triggered on final flush, which 
+        // will enqueue cancel promises task to the ordered future pool. 
+        checkAllSubmittedButFailed(writer, batchSize, 1024, 1);
+
+        FailpointUtils.removeFailpoint(
+            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+        );
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncBulkWriteNoLedgerRollWithPartialFailures() throws Exception {
+        String name = "distrlog-testAsyncBulkWriteNoLedgerRollWithPartialFailures";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        confLocal.setMaxLogSegmentBytes(1024);
+        confLocal.setLogSegmentRollingIntervalMinutes(0);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        // Write one record larger than max seg size. Ledger doesn't roll until next write.
+        int txid = 1;
+        LogRecord record = DLMTestUtil.getLogRecordInstance(txid++, 2048);
+        Future<DLSN> result = writer.write(record);
+        DLSN dlsn = validateFutureSucceededAndGetResult(result);
+        assertEquals(1, dlsn.getLedgerSequenceNo());
+
+        // Write two more via bulk. Ledger doesn't roll because there's a partial failure. 
+        List<LogRecord> records = null;
+        Future<List<Future<DLSN>>> futureResults = null;
+        List<Future<DLSN>> results = null;
+        records = new ArrayList<LogRecord>(2);
+        records.add(DLMTestUtil.getLogRecordInstance(txid++, 2048));
+        records.add(DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1));
+        futureResults = writer.writeBulk(records);
+        results = validateFutureSucceededAndGetResult(futureResults);
+        result = results.get(0);
+        dlsn = validateFutureSucceededAndGetResult(result);
+        assertEquals(1, dlsn.getLedgerSequenceNo());
+
+        // Now writer is in a bad state.
+        records = new ArrayList<LogRecord>(1);
+        records.add(DLMTestUtil.getLogRecordInstance(txid++, 2048));
+        futureResults = writer.writeBulk(records);
+        validateFutureFailed(futureResults, WriteException.class);
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncWritePendingWritesAbortedWhenLedgerRollTriggerFails() throws Exception {
+        String name = "distrlog-testAsyncWritePendingWritesAbortedWhenLedgerRollTriggerFails";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        confLocal.setMaxLogSegmentBytes(1024);
+        confLocal.setLogSegmentRollingIntervalMinutes(0);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        // Write one record larger than max seg size. Ledger doesn't roll until next write.
+        int txid = 1;
+        LogRecord record = DLMTestUtil.getLogRecordInstance(txid++, 2048);
+        Future<DLSN> result = writer.write(record);
+        DLSN dlsn = Await.result(result, Duration.fromSeconds(10));
+        assertEquals(1, dlsn.getLedgerSequenceNo());
+
+        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        result = writer.write(record);
+        validateFutureFailed(result, LogRecordTooLongException.class);
+
+        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        result = writer.write(record);
+        validateFutureFailed(result, WriteException.class);
+
+        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        validateFutureFailed(result, WriteException.class);
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testSimpleAsyncBulkWriteSpanningEntryAndLedger() throws Exception {
+        String name = "distrlog-testSimpleAsyncBulkWriteSpanningEntryAndLedger";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        int batchSize = 100;
+        int recSize = 1024;
+
+        // First entry.
+        long ledgerIndex = 1;
+        long entryIndex = 0; 
+        long slotIndex = 0;
+        long txIndex = 1;
+        checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
+
+        // New entry.
+        entryIndex++;
+        slotIndex = 0;
+        txIndex += batchSize;
+        checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
+        
+        // Roll ledger.
+        ledgerIndex++;
+        entryIndex = 0;
+        slotIndex = 0;
+        txIndex += batchSize;
+        writer.closeAndComplete();
+        writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncBulkWriteSpanningPackets() throws Exception {
+        String name = "distrlog-testAsyncBulkWriteSpanningPackets";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        // First entry.
+        int numTransmissions = 4;
+        int recSize = 10*1024;
+        int batchSize = (numTransmissions*DistributedLogConstants.MAX_TRANSMISSION_SIZE+1)/recSize;
+        long ledgerIndex = 1;
+        long entryIndex = 0;
+        long slotIndex = 0;
+        long txIndex = 1;
+        DLSN dlsn = checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
+        assertEquals(4, dlsn.getEntryId());
+        assertEquals(1, dlsn.getLedgerSequenceNo());
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncBulkWriteSpanningPacketsWithTransmitFailure() throws Exception {
+        String name = "distrlog-testAsyncBulkWriteSpanningPacketsWithTransmitFailure";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        // First entry.
+        int numTransmissions = 4;
+        int recSize = 10*1024;
+        int batchSize = (numTransmissions*DistributedLogConstants.MAX_TRANSMISSION_SIZE+1)/recSize;
+        long ledgerIndex = 1;
+        long entryIndex = 0;
+        long slotIndex = 0;
+        long txIndex = 1;
+
+        DLSN dlsn = checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
+        assertEquals(4, dlsn.getEntryId());
+        assertEquals(1, dlsn.getLedgerSequenceNo());
+
+        FailpointUtils.setFailpoint(
+            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry,
+            FailpointUtils.FailPointActions.FailPointAction_Throw
+        );
+
+        checkAllSubmittedButFailed(writer, batchSize, recSize, 1);
+
+        FailpointUtils.removeFailpoint(
+            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+        );
+
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    private DLSN checkAllSucceeded(BKUnPartitionedAsyncLogWriter writer,
+                                   int batchSize,
+                                   int recSize, 
+                                   long ledgerIndex,
+                                   long entryIndex, 
+                                   long slotIndex,
+                                   long txIndex) throws Exception {
+
+        List<LogRecord> records = DLMTestUtil.getLogRecordInstanceList(txIndex, batchSize, recSize);
+        Future<List<Future<DLSN>>> futureResults = writer.writeBulk(records);
+        assertNotNull(futureResults);
+        List<Future<DLSN>> results = Await.result(futureResults, Duration.fromSeconds(10));
+        assertNotNull(results);
+        assertEquals(results.size(), records.size());
+        long prevEntryId = 0;
+        DLSN lastDlsn = null;
+        for (Future<DLSN> result : results) {
+            DLSN dlsn = Await.result(result, Duration.fromSeconds(10));
+            lastDlsn = dlsn;
+            
+            // If we cross a transmission boundary, slot id gets reset.
+            if (dlsn.getEntryId() > prevEntryId) {
+                slotIndex = 0;
+            }
+            assertEquals(ledgerIndex, dlsn.getLedgerSequenceNo());
+            assertEquals(slotIndex, dlsn.getSlotId());
+            slotIndex++;
+            prevEntryId = dlsn.getEntryId();
+        } 
+        return lastDlsn;    
+    }
+
+    private void checkAllSubmittedButFailed(BKUnPartitionedAsyncLogWriter writer,
+                                            int batchSize,
+                                            int recSize,
+                                            long txIndex) throws Exception {
+
+        List<LogRecord> records = DLMTestUtil.getLogRecordInstanceList(txIndex, batchSize, recSize);
+        Future<List<Future<DLSN>>> futureResults = writer.writeBulk(records);
+        assertNotNull(futureResults);
+        List<Future<DLSN>> results = Await.result(futureResults, Duration.fromSeconds(10));
+        assertNotNull(results);
+        assertEquals(results.size(), records.size());
+        for (Future<DLSN> result : results) {
+            validateFutureFailed(result, IOException.class);
+        }
     }
 
     @Test
