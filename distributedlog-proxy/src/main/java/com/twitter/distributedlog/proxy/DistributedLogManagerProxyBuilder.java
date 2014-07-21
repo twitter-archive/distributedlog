@@ -14,6 +14,8 @@ import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
 
+import java.util.List;
+
 public class DistributedLogManagerProxyBuilder {
 
     private String _name = null;
@@ -111,6 +113,12 @@ public class DistributedLogManagerProxyBuilder {
         @Override
         public Future<DLSN> write(LogRecord record) {
             return client.write(name, ByteBuffer.wrap(record.getPayload()));
+        }
+
+        @Override
+        public Future<List<Future<DLSN>>> writeBulk(List<LogRecord> record) {
+            // not supported
+            return Future.exception(new UnsupportedOperationException());
         }
 
         @Override
