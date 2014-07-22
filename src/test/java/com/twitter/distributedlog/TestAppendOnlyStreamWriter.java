@@ -8,9 +8,14 @@ import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.junit.Assert.*;
 
 public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
+    static final Logger LOG = LoggerFactory.getLogger(TestAppendOnlyStreamWriter.class);
+
     @Test
     public void basicReadAndWriteBehavior() throws Exception {
         String name = "distrlog-append-only-streams-basic";
@@ -44,7 +49,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     
     @Test
     public void writeFutureDoesNotCompleteUntilWritePersisted() throws Exception {
-        String name = "distrlog-append-only-streams-async-success";
+        String name = "distrlog-writeFutureDoesNotCompleteUntilWritePersisted";
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(Integer.MAX_VALUE);
         conf.setImmediateFlushEnabled(false);
@@ -59,9 +64,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         Future<DLSN> dlsnFuture = writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
         
-        // This won't impact flakiness, it just increases the probability that the writer will complete the 
-        // future if something's wrong.
-        Thread.sleep(100);
+        // Temp solution for PUBSUB-2555. The real problem is the fsync completes before writes are submitted, so 
+        // it never takes effect. 
+        Thread.sleep(1000);
         assertFalse(dlsnFuture.isDefined());
         writer.force(false);
         // Must not throw.
@@ -75,7 +80,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         assertEquals(31, read);
         reader.close();
         dlmreader.close();
-    } 
+    }
 
     @Test
     public void positionUpdatesOnlyAfterWriteCompletion() throws Exception {
@@ -117,26 +122,49 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     } 
 
     @Test
-    public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
-        String name = "distrlog-append-only-streams-async-no-fsync";
+    public void positionDoesntUpdateBeforeWriteCompletion() throws Exception {
+        String name = "distrlog-positionDoesntUpdateBeforeWriteCompletion";
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
-        conf.setPeriodicFlushFrequencyMilliSeconds(10*1000);
+        
+        // Long flush time, but we don't wait for it.
+        conf.setPeriodicFlushFrequencyMilliSeconds(100*1000);
         conf.setImmediateFlushEnabled(false);
+        conf.setOutputBufferSize(1024*1024);
 
         DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
         
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
-        assertEquals(writer.position(), 0);
-        
+        assertEquals(0, writer.position());
+
+        // Much much less than the flush time, small enough not to slow down tests too much, just 
+        // gives a little more confidence. 
+        Thread.sleep(500);
         Future<DLSN> dlsnFuture = writer.write(byteStream);
-        Await.result(dlsnFuture, Duration.fromSeconds(10));
-        assertEquals(writer.position(), 33);
+        assertEquals(0, writer.position());
+        
+        writer.close();
+        dlmwriter.close();
+    } 
 
-        dlsnFuture = writer.write(byteStream);
-        Await.result(dlsnFuture, Duration.fromSeconds(10));
-        assertEquals(writer.position(), 66);
+    @Test
+    public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
+        String name = "distrlog-positionUpdatesOnlyAfterWriteCompletionWithoutFsync";
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setPeriodicFlushFrequencyMilliSeconds(1*1000);
+        conf.setImmediateFlushEnabled(false);
+        conf.setOutputBufferSize(1024*1024);
 
+        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
+        byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
+        
+        AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
+        assertEquals(0, writer.position());
+        
+        // Wait 10, but will be done in 1.
+        Await.result(writer.write(byteStream), Duration.fromSeconds(10));
+        assertEquals(33, writer.position());
+        
         writer.close();
         dlmwriter.close();
     } 
