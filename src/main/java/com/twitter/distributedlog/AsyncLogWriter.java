@@ -17,12 +17,15 @@ public interface AsyncLogWriter extends Closeable {
     public Future<DLSN> write(LogRecord record);
 
     /**
-     * Write log records to the stream in bulk.
+     * Write log records to the stream in bulk. Each future in the list represents the result of 
+     * one write operation. The size of the result list is equal to the size of the input list. 
+     * Buffers are written in order, and the list of result futures has the same order.
      *
-     * @param records list of log records to be applied in order
-     * @return A Future which contains a list of Future write results. 
+     * @param record set of log records
+     * @return A Future which contains a list of Future DLSNs if the record was successfully written
+     * or an exception if the operation fails. 
      */
-    public Future<List<Future<DLSN>>> writeBulk(List<LogRecord> records);
+    public Future<List<Future<DLSN>>> writeBulk(List<LogRecord> record);
 
     /**
      * Truncate the log until <i>dlsn</i>.

@@ -81,6 +81,12 @@ struct WriteResponse {
     2: optional string dlsn;
 }
 
+// Bulk write response
+struct BulkWriteResponse {
+    1: required ResponseHeader header;
+    2: optional list<WriteResponse> writeResponses;
+}
+
 // Write Context
 struct WriteContext {
     1: optional set<string> triedHosts;
@@ -100,6 +106,8 @@ service DistributedLogService {
     WriteResponse write(string stream, binary data);
 
     WriteResponse writeWithContext(string stream, binary data, WriteContext ctx);
+
+    BulkWriteResponse writeBulkWithContext(string stream, list<binary> data, WriteContext ctx);
 
     WriteResponse truncate(string stream, string dlsn, WriteContext ctx);
 

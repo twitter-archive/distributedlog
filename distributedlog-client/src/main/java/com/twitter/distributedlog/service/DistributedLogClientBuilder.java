@@ -9,7 +9,9 @@ import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
@@ -47,8 +49,12 @@ import scala.runtime.AbstractFunction1;
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -387,7 +393,6 @@ public class DistributedLogClientBuilder {
         abstract class StreamOp implements TimerTask {
             final String stream;
 
-            final Promise<WriteResponse> result = new Promise<WriteResponse>();
             final AtomicInteger tries = new AtomicInteger(0);
             final WriteContext ctx = new WriteContext();
             final Stopwatch stopwatch;
@@ -426,7 +431,7 @@ public class DistributedLogClientBuilder {
                 }
             }
 
-            abstract Future<WriteResponse> sendRequest(ServiceWithClient sc);
+            abstract Future<ResponseHeader> sendRequest(ServiceWithClient sc);
 
             void doSend(SocketAddress address) {
                 ctx.addToTriedHosts(address.toString());
@@ -434,18 +439,16 @@ public class DistributedLogClientBuilder {
                 sendWriteRequest(address, this);
             }
 
-            void complete(WriteResponse response) {
+            void complete() {
                 stopwatch.stop();
                 successLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 redirectStat.add(tries.get());
-                result.setValue(response);
             }
 
             void fail(Throwable t) {
                 stopwatch.stop();
                 failureLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 redirectStat.add(tries.get());
-                result.setException(t);
             }
 
             @Override
@@ -458,7 +461,146 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        class WriteOp extends StreamOp {
+        class BulkWriteOp extends StreamOp {
+
+            final List<ByteBuffer> data;
+            final ArrayList<Promise<DLSN>> results;
+
+            BulkWriteOp(final String name, final List<ByteBuffer> data) {
+                super(name);
+                this.data = data;
+                
+                // This could take a while (relatively speaking) for very large inputs. We probably don't want 
+                // to go so large for other reasons though.
+                this.results = new ArrayList<Promise<DLSN>>(data.size());
+                for (int i = 0; i < data.size(); i++) {
+                    this.results.add(new Promise<DLSN>());
+                } 
+            }
+
+            @Override
+            Future<ResponseHeader> sendRequest(ServiceWithClient sc) {
+                return sc.service.writeBulkWithContext(stream, data, ctx).addEventListener(new FutureEventListener<BulkWriteResponse>() {
+                    @Override
+                    public void onSuccess(BulkWriteResponse response) {
+                        // For non-success case, the ResponseHeader handler (the caller) will handle it.
+                        // Note success in this case means no finagle errors have occurred (such as finagle connection issues).
+                        // In general code != SUCCESS means there's some error reported by dlog service. The caller will handle such 
+                        // errors. 
+                        if (response.getHeader().getCode() == StatusCode.SUCCESS) {
+                            BulkWriteOp.this.complete(response);
+                            if (response.getWriteResponses().size() == 0 && data.size() > 0) {
+                                logger.error("non-empty bulk write got back empty response without failure for stream {}", stream);
+                            }
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        // Handled by the ResponseHeader listener (attached by the caller).
+                    }
+                }).map(new AbstractFunction1<BulkWriteResponse, ResponseHeader>() {
+                    @Override
+                    public ResponseHeader apply(BulkWriteResponse response) {
+                        // We need to return the ResponseHeader to the caller's listener to process DLOG errors.
+                        return response.getHeader();
+                    }
+                });
+            }
+
+
+            void complete(BulkWriteResponse bulkWriteResponse) {
+                super.complete();
+                Iterator<WriteResponse> writeResponseIterator = bulkWriteResponse.getWriteResponses().iterator();
+                Iterator<Promise<DLSN>> resultIterator = results.iterator();
+                
+                // Fill in errors from thrift responses.
+                while (resultIterator.hasNext() && writeResponseIterator.hasNext()) {
+                    Promise<DLSN> result = resultIterator.next();
+                    WriteResponse writeResponse = writeResponseIterator.next();
+                    if (StatusCode.SUCCESS == writeResponse.getHeader().getCode()) {
+                        result.setValue(DLSN.deserialize(writeResponse.getDlsn()));
+                    } else {
+                        result.setException(DLException.of(writeResponse.getHeader()));
+                    }
+                } 
+                
+                // Should never happen, but just in case so there's some record.
+                if (bulkWriteResponse.getWriteResponses().size() != data.size()) {
+                    logger.error("wrong number of results, response = {} records = ", bulkWriteResponse.getWriteResponses().size(), data.size());
+                } 
+            }
+
+            @Override
+            void fail(Throwable t) {
+
+                // StreamOp.fail is called to fail the overall request. In case of BulkWriteOp we take the request level 
+                // exception to apply to the first write. In fact for request level exceptions no request has ever been 
+                // attempted, but logically we associate the error with the first write.
+                super.fail(t);
+                Iterator<Promise<DLSN>> resultIterator = results.iterator();
+
+                // Fail the first write with the batch level failure.
+                if (resultIterator.hasNext()) {
+                    Promise<DLSN> result = resultIterator.next();
+                    result.setException(t);
+                } 
+
+                // Fail the remaining writes as cancelled requests. 
+                while (resultIterator.hasNext()) {
+                    Promise<DLSN> result = resultIterator.next();
+                    result.setException(new CancelledRequestException());
+                }
+            }
+
+            List<Future<DLSN>> result() {
+                return (List) results;
+            }
+        }
+
+        abstract class AbstractWriteOp extends StreamOp {
+            
+            final Promise<WriteResponse> result = new Promise<WriteResponse>();
+
+            AbstractWriteOp(final String name) {
+                super(name);
+            }
+
+            void complete(WriteResponse response) {
+                super.complete();
+                result.setValue(response);
+            }
+
+            @Override
+            void fail(Throwable t) {
+                super.fail(t);
+                result.setException(t);
+            }
+
+            @Override
+            Future<ResponseHeader> sendRequest(ServiceWithClient sc) {
+                return this.sendWriteRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
+                    @Override
+                    public void onSuccess(WriteResponse response) {
+                        if (response.getHeader().getCode() == StatusCode.SUCCESS) {
+                            AbstractWriteOp.this.complete(response); 
+                        }
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        // handled by the ResponseHeader listener
+                    }
+                }).map(new AbstractFunction1<WriteResponse, ResponseHeader>() {
+                    @Override
+                    public ResponseHeader apply(WriteResponse response) {
+                        return response.getHeader();
+                    }
+                });
+            }
+
+            abstract Future<WriteResponse> sendWriteRequest(ServiceWithClient sc);
+        } 
+
+        class WriteOp extends AbstractWriteOp {
 
             final ByteBuffer data;
 
@@ -468,7 +610,7 @@ public class DistributedLogClientBuilder {
             }
 
             @Override
-            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+            Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
                 return sc.service.writeWithContext(stream, data, ctx);
             }
 
@@ -482,7 +624,7 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        class TruncateOp extends StreamOp {
+        class TruncateOp extends AbstractWriteOp {
             final DLSN dlsn;
 
             TruncateOp(String name, DLSN dlsn) {
@@ -491,7 +633,7 @@ public class DistributedLogClientBuilder {
             }
 
             @Override
-            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+            Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
                 return sc.service.truncate(stream, dlsn.serialize(), ctx);
             }
 
@@ -505,14 +647,14 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        class ReleaseOp extends StreamOp {
+        class ReleaseOp extends AbstractWriteOp {
 
             ReleaseOp(String name) {
                 super(name);
             }
 
             @Override
-            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+            Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
                 return sc.service.release(stream, ctx);
             }
 
@@ -526,14 +668,14 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        class DeleteOp extends StreamOp {
+        class DeleteOp extends AbstractWriteOp {
 
             DeleteOp(String name) {
                 super(name);
             }
 
             @Override
-            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+            Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
                 return sc.service.delete(stream, ctx);
             }
 
@@ -547,14 +689,14 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        class HeartbeatOp extends StreamOp {
+        class HeartbeatOp extends AbstractWriteOp {
 
             HeartbeatOp(String name) {
                 super(name);
             }
 
             @Override
-            Future<WriteResponse> sendRequest(ServiceWithClient sc) {
+            Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
                 return sc.service.heartbeat(stream, ctx);
             }
 
@@ -742,6 +884,17 @@ public class DistributedLogClientBuilder {
         }
 
         @Override
+        public List<Future<DLSN>> writeBulk(String stream, List<ByteBuffer> data) {
+            if (data.size() > 0) {
+                final BulkWriteOp op = new BulkWriteOp(stream, data);
+                sendRequest(op);
+                return op.result();
+            } else {
+                return Collections.emptyList();
+            }
+        }
+
+        @Override
         public Future<Boolean> truncate(String stream, DLSN dlsn) {
             final TruncateOp op = new TruncateOp(stream, dlsn);
             sendRequest(op);
@@ -800,21 +953,20 @@ public class DistributedLogClientBuilder {
             final ServiceWithClient sc = buildClient(addr);
             final long startTimeNanos = System.nanoTime();
             // write the request to that host.
-            op.sendRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
+            op.sendRequest(sc).addEventListener(new FutureEventListener<ResponseHeader>() {
                 @Override
-                public void onSuccess(WriteResponse response) {
+                public void onSuccess(ResponseHeader header) {
                     if (logger.isDebugEnabled()) {
-                        logger.debug("Received response {}", response);
+                        logger.debug("Received response; header: {}", header); 
                     }
-                    getResponseCounter(response.getHeader().getCode()).incr();
-                    proxySuccessLatencyStat.add(elapsedMicroSec(startTimeNanos));
-                    switch (response.getHeader().getCode()) {
+                    getResponseCounter(header.getCode()).incr();
+                    proxySuccessLatencyStat.add(elapsedMicroSec(startTimeNanos)); 
+                    switch (header.getCode()) {
                         case SUCCESS:
                             updateOwnership(op.stream, addr);
-                            op.complete(response);
-                            break;
+                            break; 
                         case FOUND:
-                            handleRedirectResponse(response, op, addr);
+                            handleRedirectResponse(header, op, addr);
                             break;
                         // for responses that indicate the requests definitely failed,
                         // we should fail them immediately (e.g. BAD_REQUEST, TOO_LARGE_RECORD, METADATA_EXCEPTION)
@@ -826,8 +978,8 @@ public class DistributedLogClientBuilder {
                         case END_OF_STREAM:
                         case TRANSACTION_OUT_OF_ORDER:
                         case INVALID_STREAM_NAME:
-                            logger.error("Failed to write request to {} : {}", op.stream, response);
-                            op.fail(DLException.of(response.getHeader()));
+                            logger.error("Failed to write request to {} : {}", op.stream, header); 
+                            op.fail(DLException.of(header));
                             break;
                         case SERVICE_UNAVAILABLE:
                             // service is unavailable, remove it out of routing service
@@ -904,10 +1056,10 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        void handleRedirectResponse(WriteResponse response, StreamOp op, SocketAddress curAddr) {
+        void handleRedirectResponse(ResponseHeader header, StreamOp op, SocketAddress curAddr) {
             SocketAddress ownerAddr = null;
-            if (response.getHeader().isSetLocation()) {
-                String owner = response.getHeader().getLocation();
+            if (header.isSetLocation()) {
+                String owner = header.getLocation();
                 try {
                     ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
                     // we are receiving a redirect request to same host. this indicates that the proxy

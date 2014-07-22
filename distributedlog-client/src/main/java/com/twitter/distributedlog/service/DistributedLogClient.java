@@ -4,6 +4,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 public interface DistributedLogClient {
     /**
@@ -16,6 +17,20 @@ public interface DistributedLogClient {
      * @return a future representing a sequence id returned for this write.
      */
     Future<DLSN> write(String stream, ByteBuffer data);
+
+    /**
+     * Write <i>data</i> in bulk to a given <i>stream</i>. Return a list of
+     * Future dlsns, one for each submitted buffer. In the event of a partial
+     * failure--ex. some specific buffer write fails, all subsequent writes 
+     * will also fail. 
+     *
+     * @param stream
+     *          Stream Name.
+     * @param data
+     *          Data to write.
+     * @return a list of futures, one for each submitted buffer.
+     */
+    List<Future<DLSN>> writeBulk(String stream, List<ByteBuffer> data);
 
     /**
      * Truncate the stream to a given <i>dlsn</i>.

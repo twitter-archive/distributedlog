@@ -13,6 +13,7 @@ import com.twitter.finagle.thrift.ClientId;
 import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 import java.util.List;
 

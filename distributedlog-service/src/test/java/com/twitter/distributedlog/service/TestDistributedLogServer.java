@@ -2,15 +2,21 @@ package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.thrift.ClientId$;
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -24,7 +30,9 @@ import org.slf4j.LoggerFactory;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -156,6 +164,187 @@ public class TestDistributedLogServer {
         dlm.close();
     }
 
+    private void runSimpleBulkWriteTest(int writeCount) throws Exception {
+        String name = String.format("dlserver-bulk-write-%d", writeCount);
+
+        routingService.addHost(name, localAddress);
+
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>(writeCount);
+        for (long i = 1; i <= writeCount; i++) {
+            writes.add(ByteBuffer.wrap(("" + i).getBytes()));
+        }
+
+        logger.debug("Write {} entries to stream {}.", writeCount, name);
+        List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
+        assertEquals(futures.size(), writeCount);
+        for (Future<DLSN> future : futures) {
+            // No throw == pass.
+            DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
+        }
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        LogReader reader = dlm.getInputStream(1);
+        int numRead = 0;
+        LogRecord r = reader.readNext(false);
+        while (null != r) {
+            int i = Integer.parseInt(new String(r.getPayload()));
+            assertEquals(numRead + 1, i);
+            ++numRead;
+            r = reader.readNext(false);
+        }
+        assertEquals(writeCount, numRead);
+        reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWrite() throws Exception {
+        runSimpleBulkWriteTest(100);
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteSingleWrite() throws Exception {
+        runSimpleBulkWriteTest(1);
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteEmptyList() throws Exception {
+        String name = String.format("dlserver-bulk-write-%d", 0);
+        
+        routingService.addHost(name, localAddress);
+
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
+        List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
+
+        assertEquals(0, futures.size());
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteNullArg() throws Exception {
+
+        String name = String.format("dlserver-bulk-write-%s", "null");
+
+        routingService.addHost(name, localAddress);
+
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
+        writes.add(null);
+
+        try {        
+            List<Future<DLSN>> futureResult = dlClient.writeBulk(name, writes);
+            fail("should not have succeeded");
+        } catch (NullPointerException npe) {
+            ; // expected
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteEmptyBuffer() throws Exception {
+        String name = String.format("dlserver-bulk-write-%s", "empty");
+        
+        routingService.addHost(name, localAddress);
+
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
+        writes.add(ByteBuffer.wrap(("").getBytes()));
+        writes.add(ByteBuffer.wrap(("").getBytes()));
+        List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
+        assertEquals(2, futures.size());
+        for (Future<DLSN> future : futures) {
+            // No throw == pass
+            DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
+        }
+    }
+
+    void failDueToWrongException(Exception ex) {
+        logger.info("testBulkWritePartialFailure: ", ex);
+        fail(String.format("failed with wrong exception %s", ex.getClass().getName()));   
+    }
+
+    int validateAllFailedAsCancelled(List<Future<DLSN>> futures, int start, int finish) {
+        int failed = 0;
+        for (int i = start; i < finish; i++) {
+            Future<DLSN> future = futures.get(i);
+            try {
+                DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
+                fail("future should have failed!");
+            } catch (DLException cre) {
+                ++failed;
+            } catch (Exception ex) {
+                failDueToWrongException(ex);
+            }
+        }
+        return failed;
+    }
+
+    void validateFailedAsLogRecordTooLong(Future<DLSN> future) {
+        try {
+            DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
+            fail("should have failed");
+        } catch (DLException dle) {
+            assertEquals(StatusCode.TOO_LARGE_RECORD, dle.getCode());
+        } catch (Exception ex) {
+            failDueToWrongException(ex);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWritePartialFailure() throws Exception {
+        String name = String.format("dlserver-bulk-write-%s", "partial-failure");
+        
+        routingService.addHost(name, localAddress);
+
+        final int writeCount = 100;
+
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>(writeCount*2 + 1);
+        for (long i = 1; i <= writeCount; i++) {
+            writes.add(ByteBuffer.wrap(("" + i).getBytes()));
+        }
+        // Too big, will cause partial failure.
+        ByteBuffer buf = ByteBuffer.allocate(DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        writes.add(buf);
+        for (long i = 1; i <= writeCount; i++) {
+            writes.add(ByteBuffer.wrap(("" + i).getBytes()));
+        }
+
+        // Count succeeded.
+        List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
+        int succeeded = 0;
+        for (int i = 0; i < writeCount; i++) {
+            Future<DLSN> future = futures.get(i);
+            try {
+                DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
+                ++succeeded;
+            } catch (Exception ex) {
+                failDueToWrongException(ex);
+            }
+        }
+
+        validateFailedAsLogRecordTooLong(futures.get(writeCount));
+        int failed = validateAllFailedAsCancelled(futures, writeCount+1, futures.size());
+
+        assertEquals(writeCount, succeeded);
+        assertEquals(writeCount, failed);
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteTotalFailureFirstWriteFailed() throws Exception {
+        String name = String.format("dlserver-bulk-write-%s", "first-write-failed");
+
+        routingService.addHost(name, localAddress);
+
+        final int writeCount = 100;
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>(writeCount + 1);
+        ByteBuffer buf = ByteBuffer.allocate(DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        writes.add(buf);
+        for (long i = 1; i <= writeCount; i++) {
+            writes.add(ByteBuffer.wrap(("" + i).getBytes()));
+        }
+        
+        List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
+        validateFailedAsLogRecordTooLong(futures.get(0));
+        int failed = validateAllFailedAsCancelled(futures, 1, futures.size()); 
+        assertEquals(writeCount, failed);
+    }
+    
     @Test(timeout = 60000)
     public void testHeartbeat() throws Exception {
         String name = "dlserver-heartbeat";
