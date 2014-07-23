@@ -105,6 +105,9 @@ public class DistributedLogServer implements Runnable {
             String providerClass = cmdline.getOptionValue("s");
             statsProvider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
         }
+        // !!! For Ostrich, it registered some non-daemon threads in ServiceTracker. If we don't stop
+        //     service tracker, the proxy will just hang during shutdown.
+        dlConf.setProperty("shouldShutdownServiceTracker", true);
         logger.info("Starting stats provider : {}", statsProvider.getClass());
         statsProvider.start(dlConf);
 
