@@ -61,13 +61,18 @@ public class LogSegmentLedgerMetadata {
 
         private long ledgerSequenceNumber;
         private String zkPath;
+        private DLSN lastDLSN;
+        private long lastTxId;
+        private int recordCount;
         private long status;
-        private boolean partiallyTruncated;
 
         Mutator(LogSegmentLedgerMetadata original) {
             this.original = original;
             this.ledgerSequenceNumber = original.getLedgerSequenceNumber();
             this.zkPath = original.getZkPath();
+            this.lastDLSN = original.getLastDLSN();
+            this.lastTxId = original.getLastTxId();
+            this.recordCount = original.getRecordCount();
             this.status = original.getStatus();
         }
 
@@ -78,6 +83,26 @@ public class LogSegmentLedgerMetadata {
 
         public Mutator setZkPath(String zkPath) {
             this.zkPath = zkPath;
+            return this;
+        }
+
+        public Mutator setLastDLSN(DLSN dlsn) {
+            this.lastDLSN = dlsn;
+            return this;
+        }
+
+        public Mutator setLastTxId(long txId) {
+            this.lastTxId = txId;
+            return this;
+        }
+
+        public Mutator setLastEntryId(long entryId) {
+            this.lastDLSN = new DLSN(lastDLSN.getLedgerSequenceNo(), entryId, lastDLSN.getSlotId());
+            return this;
+        }
+
+        public Mutator setRecordCount(LogRecord record) {
+            this.recordCount = record.getPositionWithinLogSegment();
             return this;
         }
 
@@ -93,13 +118,13 @@ public class LogSegmentLedgerMetadata {
                     original.getVersion(),
                     original.getLedgerId(),
                     original.getFirstTxId(),
-                    original.getLastTxId(),
+                    lastTxId,
                     original.getCompletionTime(),
                     original.isInProgress(),
-                    original.getRecordCount(),
+                    recordCount,
                     ledgerSequenceNumber,
-                    original.getLastEntryId(),
-                    original.getLastSlotId(),
+                    lastDLSN.getEntryId(),
+                    lastDLSN.getSlotId(),
                     original.getRegionId(),
                     status
             );
@@ -373,6 +398,21 @@ public class LogSegmentLedgerMetadata {
 
     public boolean isInProgress() {
         return this.inprogress;
+    }
+
+    @VisibleForTesting
+    public boolean isDLSNinThisSegment(DLSN dlsn) {
+        return dlsn.getLedgerSequenceNo() == getLedgerSequenceNumber();
+    }
+
+    @VisibleForTesting
+    public boolean isRecordPositionWithinSegmentScope(LogRecord record) {
+        return record.getPositionWithinLogSegment() <= getRecordCount();
+    }
+
+    @VisibleForTesting
+    public boolean isRecordLastPositioninThisSegment(LogRecord record) {
+        return record.getPositionWithinLogSegment() == getRecordCount();
     }
 
     long finalizeLedger(long newLastTxId, int recordCount, long lastEntryId, long lastSlotId) {

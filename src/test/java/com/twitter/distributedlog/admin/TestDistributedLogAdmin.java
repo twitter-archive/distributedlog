@@ -45,7 +45,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testChangeSequenceNumber() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/dlog_admin");
+        URI uri = DLMTestUtil.createDLMURI("/change-sequence-number");
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
 

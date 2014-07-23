@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
+
 public class LogRecordWithDLSN extends LogRecord {
     private final DLSN dlsn;
 
@@ -8,6 +10,12 @@ public class LogRecordWithDLSN extends LogRecord {
      */
     LogRecordWithDLSN(DLSN dlsn) {
         super();
+        this.dlsn = dlsn;
+    }
+
+    @VisibleForTesting
+    LogRecordWithDLSN(DLSN dlsn, long txid, byte[] data) {
+        super(txid, data);
         this.dlsn = dlsn;
     }
 

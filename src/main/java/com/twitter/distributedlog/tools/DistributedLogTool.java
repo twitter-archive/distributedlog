@@ -419,14 +419,15 @@ public class DistributedLogTool extends Tool {
                         }
                         List<Pair<LogSegmentLedgerMetadata, List<String>>> ledgers =
                                 new ArrayList<Pair<LogSegmentLedgerMetadata, List<String>>>();
-                        for (LogSegmentLedgerMetadata segment : segments) {
+                        for (LogSegmentLedgerMetadata seg : segments) {
+                            LogSegmentLedgerMetadata segment = seg;
                             List<String> dumpedEntries = new ArrayList<String>();
                             if (segment.isInProgress()) {
                                 LedgerHandle lh = bkc.get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
                                                                                  dlConf.getBKDigestPW().getBytes(UTF_8));
                                 try {
                                     long lac = lh.readLastConfirmed();
-                                    segment.setLastEntryId(lac);
+                                    segment = segment.mutator().setLastEntryId(lac).build();
                                     if (printInprogressOnly && dumpEntries && lac >= 0) {
                                         Enumeration<LedgerEntry> entries = lh.readEntries(0L, lac);
                                         while (entries.hasMoreElements()) {

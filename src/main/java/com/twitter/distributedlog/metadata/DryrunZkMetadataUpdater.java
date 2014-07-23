@@ -12,6 +12,11 @@ public class DryrunZkMetadataUpdater extends ZkMetadataUpdater {
     }
 
     @Override
+    protected void updateSegmentMetadata(LogSegmentLedgerMetadata segment) throws IOException {
+        // nop
+    }
+
+    @Override
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
         // nop

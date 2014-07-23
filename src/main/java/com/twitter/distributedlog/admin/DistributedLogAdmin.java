@@ -1,8 +1,12 @@
 package com.twitter.distributedlog.admin;
 
+import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.ReadUtils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
@@ -13,6 +17,10 @@ import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.tools.DistributedLogTool;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.util.Await;
+import com.twitter.util.Function;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
@@ -23,8 +31,20 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Admin Tool for DistributedLog.
@@ -102,6 +122,267 @@ public class DistributedLogAdmin extends DistributedLogTool {
         } finally {
             dlm.close();
         }
+    }
+
+    private static class LogSegmentCandidate {
+        final LogSegmentLedgerMetadata metadata;
+        final LogRecordWithDLSN lastRecord;
+
+        LogSegmentCandidate(LogSegmentLedgerMetadata metadata, LogRecordWithDLSN lastRecord) {
+            this.metadata = metadata;
+            this.lastRecord = lastRecord;
+        }
+    }
+
+    private static final Comparator<LogSegmentCandidate> LOG_SEGMENT_CANDIDATE_COMPARATOR =
+            new Comparator<LogSegmentCandidate>() {
+                @Override
+                public int compare(LogSegmentCandidate o1, LogSegmentCandidate o2) {
+                    return LogSegmentLedgerMetadata.COMPARATOR.compare(o1.metadata, o2.metadata);
+                }
+            };
+
+    private static class StreamCandidate {
+
+        final String streamName;
+        final SortedSet<LogSegmentCandidate> segmentCandidates =
+                new TreeSet<LogSegmentCandidate>(LOG_SEGMENT_CANDIDATE_COMPARATOR);
+
+        StreamCandidate(String streamName) {
+            this.streamName = streamName;
+        }
+
+        synchronized void addLogSegmentCandidate(LogSegmentCandidate segmentCandidate) {
+            segmentCandidates.add(segmentCandidate);
+        }
+    }
+
+    public static void checkAndRepairDLNamespace(final URI uri,
+                                                 final DistributedLogManagerFactory factory,
+                                                 final MetadataUpdater metadataUpdater,
+                                                 final ExecutorService executorService,
+                                                 final BookKeeperClient bkc,
+                                                 final String digestpw,
+                                                 final boolean verbose,
+                                                 final boolean interactive) throws IOException {
+        checkAndRepairDLNamespace(uri, factory, metadataUpdater, executorService, bkc, digestpw, verbose, interactive, 1);
+    }
+
+    public static void checkAndRepairDLNamespace(final URI uri,
+                                                 final DistributedLogManagerFactory factory,
+                                                 final MetadataUpdater metadataUpdater,
+                                                 final ExecutorService executorService,
+                                                 final BookKeeperClient bkc,
+                                                 final String digestpw,
+                                                 final boolean verbose,
+                                                 final boolean interactive,
+                                                 final int concurrency) throws IOException {
+        Preconditions.checkArgument(concurrency > 0, "Invalid concurrency " + concurrency + " found.");
+        // 0. getting streams under a given uri.
+        Collection<String> streams = factory.enumerateAllLogsInNamespace();
+        if (verbose) {
+            System.out.println("- 0. checking " + streams.size() + " streams under " + uri);
+        }
+        if (streams.size() == 0) {
+            System.out.println("+ 0. nothing to check. quit.");
+            return;
+        }
+        Map<String, StreamCandidate> streamCandidates =
+                checkStreams(factory, streams, executorService, bkc, digestpw, concurrency);
+        if (verbose) {
+            System.out.println("+ 0. " + streamCandidates.size() + " corrupted streams found.");
+        }
+        if (interactive && !IOUtils.confirmPrompt("Are u going to fix all " + streamCandidates.size() + " corrupted streams (Y/N) : ")) {
+            return;
+        }
+        if (verbose) {
+            System.out.println("- 1. repairing " + streamCandidates.size() + " corrupted streams.");
+        }
+        for (StreamCandidate candidate : streamCandidates.values()) {
+            if (!repairStream(metadataUpdater, candidate, verbose, interactive)) {
+                if (verbose) {
+                    System.out.println("* 1. aborted repairing corrupted streams. byebye!");
+                }
+                return;
+            }
+        }
+        if (verbose) {
+            System.out.println("+ 1. repaired " + streamCandidates.size() + " corrupted streams.");
+        }
+    }
+
+    private static Map<String, StreamCandidate> checkStreams(
+            final DistributedLogManagerFactory factory,
+            final Collection<String> streams,
+            final ExecutorService executorService,
+            final BookKeeperClient bkc,
+            final String digestpw,
+            final int concurrency) throws IOException {
+        final LinkedBlockingQueue<String> streamQueue =
+                new LinkedBlockingQueue<String>();
+        streamQueue.addAll(streams);
+        final Map<String, StreamCandidate> candidateMap =
+                new ConcurrentSkipListMap<String, StreamCandidate>();
+        final AtomicInteger numPendingStreams = new AtomicInteger(streams.size());
+        final CountDownLatch doneLatch = new CountDownLatch(1);
+        Runnable checkRunnable = new Runnable() {
+            @Override
+            public void run() {
+                while (!streamQueue.isEmpty()) {
+                    String stream;
+                    try {
+                        stream = streamQueue.take();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    StreamCandidate candidate;
+                    try {
+                        LOG.info("Checking stream {}.", stream);
+                        candidate = checkStream(factory, stream, executorService, bkc, digestpw);
+                        LOG.info("Checked stream {}.", stream);
+                    } catch (IOException e) {
+                        LOG.error("Error on checking stream {} : ", stream, e);
+                        doneLatch.countDown();
+                        break;
+                    }
+                    if (null != candidate) {
+                        candidateMap.put(stream, candidate);
+                    }
+                    if (numPendingStreams.decrementAndGet() == 0) {
+                        doneLatch.countDown();
+                    }
+                }
+            }
+        };
+        Thread[] threads = new Thread[concurrency];
+        for (int i = 0; i < concurrency; i++) {
+            threads[i] = new Thread(checkRunnable, "check-thread-" + i);
+            threads[i].start();
+        }
+        try {
+            doneLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (numPendingStreams.get() != 0) {
+            throw new IOException(numPendingStreams.get() + " streams left w/o checked");
+        }
+        for (int i = 0; i < concurrency; i++) {
+            threads[i].interrupt();
+            try {
+                threads[i].join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return candidateMap;
+    }
+
+    private static StreamCandidate checkStream(
+            final DistributedLogManagerFactory factory,
+            final String streamName,
+            final ExecutorService executorService,
+            final BookKeeperClient bkc,
+            String digestpw) throws IOException {
+        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        try {
+            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            if (segments.isEmpty()) {
+                return null;
+            }
+            List<Future<LogSegmentCandidate>> futures =
+                    new ArrayList<Future<LogSegmentCandidate>>(segments.size());
+            for (LogSegmentLedgerMetadata segment : segments) {
+                futures.add(checkLogSegment(streamName, segment, executorService, bkc, digestpw));
+            }
+            List<LogSegmentCandidate> segmentCandidates;
+            try {
+                segmentCandidates = Await.result(Future.collect(futures));
+            } catch (Exception e) {
+                throw new IOException("Failed on checking stream " + streamName, e);
+            }
+            StreamCandidate streamCandidate = new StreamCandidate(streamName);
+            for (LogSegmentCandidate segmentCandidate: segmentCandidates) {
+                if (null != segmentCandidate) {
+                    streamCandidate.addLogSegmentCandidate(segmentCandidate);
+                }
+            }
+            if (streamCandidate.segmentCandidates.isEmpty()) {
+                return null;
+            }
+            return streamCandidate;
+        } finally {
+            dlm.close();
+        }
+    }
+
+    private static Future<LogSegmentCandidate> checkLogSegment(
+            final String streamName,
+            final LogSegmentLedgerMetadata metadata,
+            final ExecutorService executorService,
+            final BookKeeperClient bkc,
+            final String digestpw) {
+        if (metadata.isInProgress()) {
+            return Future.value(null);
+        }
+
+        return ReadUtils.asyncReadLastRecord(
+                streamName,
+                metadata,
+                true,
+                false,
+                true,
+                4,
+                16,
+                new AtomicInteger(0),
+                executorService,
+                bkc,
+                digestpw
+        ).map(new Function<LogRecordWithDLSN, LogSegmentCandidate>() {
+            @Override
+            public LogSegmentCandidate apply(LogRecordWithDLSN record) {
+                if (null != record &&
+                    (record.getDlsn().compareTo(metadata.getLastDLSN()) > 0 ||
+                     record.getTransactionId() > metadata.getLastTxId() ||
+                     !metadata.isRecordPositionWithinSegmentScope(record))) {
+                    return new LogSegmentCandidate(metadata, record);
+                } else {
+                    return null;
+                }
+            }
+        });
+    }
+
+    private static boolean repairStream(MetadataUpdater metadataUpdater,
+                                        StreamCandidate streamCandidate,
+                                        boolean verbose,
+                                        boolean interactive) throws IOException {
+        if (verbose) {
+            System.out.println("Stream " + streamCandidate.streamName + " : ");
+            for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
+                System.out.println("  " + segmentCandidate.metadata.getLedgerSequenceNumber()
+                        + " : metadata = " + segmentCandidate.metadata + ", last dlsn = "
+                        + segmentCandidate.lastRecord.getDlsn());
+            }
+            System.out.println("-------------------------------------------");
+        }
+        if (interactive && !IOUtils.confirmPrompt("Are u sure to fix stream " + streamCandidate.streamName + " (Y/N) : ")) {
+            return false;
+        }
+        for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
+            LogSegmentLedgerMetadata newMetadata =
+                    metadataUpdater.updateLastRecord(segmentCandidate.metadata, segmentCandidate.lastRecord);
+            if (verbose) {
+                System.out.println("  Fixed segment " + segmentCandidate.metadata.getLedgerSequenceNumber() + " : ");
+                System.out.println("    old metadata : " + segmentCandidate.metadata);
+                System.out.println("    new metadata : " + newMetadata);
+            }
+        }
+        if (verbose) {
+            System.out.println("-------------------------------------------");
+        }
+        return true;
     }
 
     //
@@ -363,6 +644,63 @@ public class DistributedLogAdmin extends DistributedLogTool {
         }
     }
 
+    class DLCKCommand extends PerDLCommand {
+
+        boolean dryrun = false;
+        boolean verbose = false;
+        boolean force = false;
+        int concurrency = 1;
+
+        DLCKCommand() {
+            super("dlck", "Check and repair a distributedlog namespace");
+            options.addOption("d", "dryrun", false, "Dry run without repairing");
+            options.addOption("v", "verbose", false, "Print verbose messages");
+            options.addOption("f", "force", false, "Force execution without confirmation execution");
+            options.addOption("cy", "concurrency", true, "Concurrency on checking streams");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            dryrun = cmdline.hasOption("d");
+            verbose = cmdline.hasOption("v");
+            force = cmdline.hasOption("f");
+            if (cmdline.hasOption("cy")) {
+                try {
+                    concurrency = Integer.parseInt(cmdline.getOptionValue("cy"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid concurrency value : " + cmdline.getOptionValue("cy"));
+                }
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
+            try {
+                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()) :
+                        ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL());
+                ExecutorService executorService = Executors.newCachedThreadPool();
+                BookKeeperClient bkc = factory.getReaderBKCBuilder().build();
+                try {
+                    checkAndRepairDLNamespace(getUri(), factory, metadataUpdater, executorService,
+                                              bkc, getConf().getBKDigestPW(), verbose, !force, concurrency);
+                } finally {
+                    bkc.release();
+                    SchedulerUtils.shutdownScheduler(executorService, 5, TimeUnit.MINUTES);
+                }
+                return 0;
+            } finally {
+                factory.close();
+            }
+        }
+
+        @Override
+        protected String getUsage() {
+            return "dlck [options]";
+        }
+    }
+
     public DistributedLogAdmin() {
         super();
         commands.clear();
@@ -370,6 +708,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
         addCommand(new BindCommand());
         addCommand(new UnbindCommand());
         addCommand(new RepairSeqNoCommand());
+        addCommand(new DLCKCommand());
     }
 
     @Override

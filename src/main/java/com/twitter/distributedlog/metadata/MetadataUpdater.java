@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.metadata;
 
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 
 import java.io.IOException;
@@ -8,6 +9,19 @@ import java.io.IOException;
  * An updater to update metadata.
  */
 public interface MetadataUpdater {
+
+    /**
+     * Update the log segment metadata with correct last <i>record</i>.
+     *
+     * @param segment
+     *          log segment to update last dlsn.
+     * @param record
+     *          correct last record.
+     * @return new log segment
+     * @throws IOException
+     */
+    LogSegmentLedgerMetadata updateLastRecord(LogSegmentLedgerMetadata segment, LogRecordWithDLSN record)
+            throws IOException;
 
     /**
      * Change ledger sequence number of <i>segment</i> to given <i>ledgerSeqNo</i>.

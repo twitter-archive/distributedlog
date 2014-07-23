@@ -23,7 +23,6 @@ import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +38,7 @@ import java.util.Map;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static com.google.common.base.Charsets.UTF_8;
+import static org.junit.Assert.assertNotNull;
 
 /**
  * Utility class for setting up bookkeeper ensembles
@@ -214,6 +214,12 @@ public class DLMTestUtil {
         assert(record.getPayload().length == 0);
     }
 
+    public static LogRecordWithDLSN getLogRecordWithDLSNInstance(DLSN dlsn, long txId) {
+        LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId));
+        record.setPositionWithinLogSegment((int)txId + 1);
+        return record;
+    }
+
     public static String inprogressZNodeName(long ledgerSeqNo) {
         return String.format("%s_%018d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo);
     }
@@ -297,6 +303,52 @@ public class DLMTestUtil {
                 writer.flushAndSync();
             }
             if (completeLogSegment) {
+                writeHandler.completeAndCloseLogSegment(writer);
+            }
+        } finally {
+            bkc.release();
+        }
+    }
+
+    public static void injectLogSegmentWithLastDLSN(DistributedLogManager manager, DistributedLogConfiguration conf,
+                                                    long ledgerSeqNo, long startTxID, long segmentSize,
+                                                    boolean recordWrongLastDLSN) throws Exception {
+        BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
+        BKLogPartitionWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        // Start a log segment with a given ledger seq number.
+        writeHandler.lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
+        writeHandler.startLogSegmentCount.incrementAndGet();
+        BookKeeperClient bkc = dlm.getReaderBKCBuilder().build();
+        try {
+            LedgerHandle lh = bkc.get().createLedger(conf.getEnsembleSize(), conf.getWriteQuorumSize(),
+                    conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
+            String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
+            String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
+            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID, ledgerSeqNo,
+                    DistributedLogConstants.LOCAL_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+            l.write(dlm.writerZKC, znodePath);
+            writeHandler.maxTxId.store(startTxID);
+            writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
+            BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
+                    conf, lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
+                    writeHandler.orderedFuturePool, writeHandler.statsLogger);
+            long txid = startTxID;
+            DLSN wrongDLSN = null;
+            for (long j = 1; j <= segmentSize; j++) {
+                DLSN dlsn = writer.asyncWrite(DLMTestUtil.getLogRecordInstance(txid++)).get();
+                if (j == (segmentSize - 1)) {
+                    wrongDLSN = dlsn;
+                }
+            }
+            assertNotNull(wrongDLSN);
+            if (recordWrongLastDLSN) {
+                writer.closeToFinalize();
+                writeHandler.completeAndCloseLogSegment(
+                        writeHandler.inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
+                        writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), startTxID + segmentSize - 2,
+                        writer.getPositionWithinLogSegment() - 1, wrongDLSN.getEntryId(), wrongDLSN.getSlotId(), true);
+            } else {
                 writeHandler.completeAndCloseLogSegment(writer);
             }
         } finally {

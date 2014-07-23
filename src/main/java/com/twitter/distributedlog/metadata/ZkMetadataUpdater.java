@@ -1,6 +1,9 @@
 package com.twitter.distributedlog.metadata;
 
+import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -69,15 +72,42 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     @Override
+    public LogSegmentLedgerMetadata updateLastRecord(LogSegmentLedgerMetadata segment, LogRecordWithDLSN record)
+            throws IOException {
+        DLSN dlsn = record.getDlsn();
+        Preconditions.checkState(!segment.isInProgress(), "Updating last dlsn for an inprogress log segment isn't supported.");
+        Preconditions.checkArgument(segment.isDLSNinThisSegment(dlsn),
+                "DLSN " + dlsn + " doesn't belong to segment " + segment);
+        final LogSegmentLedgerMetadata newSegment = segment.mutator()
+                .setLastDLSN(dlsn)
+                .setLastTxId(record.getTransactionId())
+                .setRecordCount(record)
+                .build();
+        updateSegmentMetadata(newSegment);
+        return newSegment;
+    }
+
+    @Override
     public LogSegmentLedgerMetadata changeSequenceNumber(LogSegmentLedgerMetadata segment,
                                                          long ledgerSeqNo) throws IOException {
         final LogSegmentLedgerMetadata newSegment = segment.mutator()
                 .setLedgerSequenceNumber(ledgerSeqNo)
                 .setZkPath(segment.getZkPath().replace(formatLedgerSequenceNumber(segment.getLedgerSequenceNumber()),
-                                                       formatLedgerSequenceNumber(ledgerSeqNo)))
+                        formatLedgerSequenceNumber(ledgerSeqNo)))
                 .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
         return newSegment;
+    }
+
+    protected void updateSegmentMetadata(LogSegmentLedgerMetadata segment) throws IOException {
+        byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
+        try {
+            zkc.get().setData(segment.getZkPath(), finalisedData, -1);
+        } catch (KeeperException e) {
+            throw new ZKException("Failed on updating log segment " + segment, e);
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on updating segment " + segment, e);
+        }
     }
 
     /**
@@ -95,7 +125,8 @@ public class ZkMetadataUpdater implements MetadataUpdater {
             .setTruncationStatus(truncationStatus)
             .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
-        return newSegment;    }
+        return newSegment;
+    }
 
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
