@@ -14,6 +14,7 @@ import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Duration$;
+import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -48,6 +49,7 @@ public class WriterWorker implements Worker {
     final Random random;
     final List<String> streamNames;
     final int numStreams;
+    final int batchSize;
 
     volatile boolean running = true;
 
@@ -61,6 +63,7 @@ public class WriterWorker implements Worker {
                         int writeRate,
                         int writeConcurrency,
                         int messageSizeBytes,
+                        int batchSize,
                         String serverSetPath,
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger) {
@@ -77,9 +80,11 @@ public class WriterWorker implements Worker {
         this.executorService = Executors.newCachedThreadPool();
         this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
+        this.batchSize = batchSize;
+
         // ServerSet
         String[] serverSetParts = StringUtils.split(serverSetPath, '/');
-        Preconditions.checkArgument(serverSetParts.length == 3);
+        Preconditions.checkArgument(serverSetParts.length == 3, "serverset path is malformed: must be role/env/job");
         TwitterServerSet.Service zkService =
                 new TwitterServerSet.Service(serverSetParts[0], serverSetParts[1], serverSetParts[2]);
         zkClient = TwitterServerSet.clientBuilder(zkService).zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS).build();
@@ -100,6 +105,46 @@ public class WriterWorker implements Worker {
         this.zkClient.close();
     }
 
+    private DistributedLogClient buildDlogClient() {
+        return DistributedLogClientBuilder.newBuilder()
+            .clientId(ClientId$.MODULE$.apply("dlog_loadtest_writer"))
+            .clientBuilder(ClientBuilder.get()
+                .hostConnectionLimit(10)
+                .hostConnectionCoresize(10)
+                .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
+                .requestTimeout(Duration$.MODULE$.fromSeconds(2)))
+            .redirectBackoffStartMs(100)
+            .redirectBackoffMaxMs(500)
+            .requestTimeoutMs(2000)
+            .statsReceiver(statsReceiver)
+            .serverSet(serverSet)
+            .name("writer")
+            .build();
+    }
+
+    ByteBuffer buildBuffer(long requestMillis, int messageSizeBytes) {
+        ByteBuffer data;
+        try {
+            data = ByteBuffer.wrap(Utils.generateMessage(requestMillis, messageSizeBytes));
+            return data;
+        } catch (TException e) {
+            LOG.error("Error generating message : ", e);
+            return null;
+        }
+    }
+
+    List<ByteBuffer> buildBufferList(int batchSize, long requestMillis, int messageSizeBytes) {
+        ArrayList<ByteBuffer> bufferList = new ArrayList<ByteBuffer>(batchSize);
+        for (int i = 0; i < batchSize; i++) {
+            ByteBuffer buf = buildBuffer(requestMillis, messageSizeBytes);
+            if (null == buf) {
+                return null;
+            }
+            bufferList.add(buf);
+        }
+        return bufferList;
+    }
+
     class Writer implements Runnable {
 
         final int idx;
@@ -107,43 +152,27 @@ public class WriterWorker implements Worker {
 
         Writer(int idx) {
             this.idx = idx;
-            dlc = DistributedLogClientBuilder.newBuilder()
-                    .clientId(ClientId$.MODULE$.apply("dlog_loadtest_writer"))
-                    .clientBuilder(ClientBuilder.get()
-                        .hostConnectionLimit(10)
-                        .hostConnectionCoresize(10)
-                        .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
-                        .requestTimeout(Duration$.MODULE$.fromSeconds(2)))
-                    .redirectBackoffStartMs(100)
-                    .redirectBackoffMaxMs(500)
-                    .requestTimeoutMs(2000)
-                    .statsReceiver(statsReceiver)
-                    .serverSet(serverSet)
-                    .name("writer")
-                    .build();
+            this.dlc = buildDlogClient();
         }
 
         @Override
         public void run() {
             LOG.info("Started writer {}.", idx);
             while (running) {
-                String streamName = streamNames.get(random.nextInt(numStreams));
                 rateLimiter.acquire();
-                final long requestMillis = System.currentTimeMillis();
 
-                final ByteBuffer data;
-                try {
-                    data = ByteBuffer.wrap(Utils.generateMessage(requestMillis, messageSizeBytes));
-                } catch (TException e) {
-                    LOG.error("Error generating message : ", e);
+                final String streamName = streamNames.get(random.nextInt(numStreams));
+                final long requestMillis = System.currentTimeMillis();
+                final ByteBuffer data = buildBuffer(requestMillis, messageSizeBytes);
+                if (null == data) {
                     break;
                 }
+                
                 dlc.write(streamName, data).addEventListener(new FutureEventListener<DLSN>() {
                     @Override
                     public void onSuccess(DLSN value) {
                         requestStat.registerSuccessfulEvent(System.currentTimeMillis() - requestMillis);
                     }
-
                     @Override
                     public void onFailure(Throwable cause) {
                         LOG.error("Failed to publish : ", cause);
@@ -153,15 +182,62 @@ public class WriterWorker implements Worker {
             }
             dlc.close();
         }
+    }
 
+    class BulkWriter implements Runnable {
+
+        final int idx;
+        final DistributedLogClient dlc;
+
+        BulkWriter(int idx) {
+            this.idx = idx;
+            this.dlc = buildDlogClient();
+        }
+
+        @Override
+        public void run() {
+            LOG.info("Started writer {}.", idx);
+            while (running) {
+                rateLimiter.acquire(batchSize);
+                
+                String streamName = streamNames.get(random.nextInt(numStreams));
+                final long requestMillis = System.currentTimeMillis();
+                final List<ByteBuffer> data = buildBufferList(batchSize, requestMillis, messageSizeBytes);
+                if (null == data) {
+                    break;
+                }
+
+                List<Future<DLSN>> results = dlc.writeBulk(streamName, data);
+                for (Future<DLSN> result : results) {
+                    result.addEventListener(new FutureEventListener<DLSN>() {
+                        @Override
+                        public void onSuccess(DLSN value) {
+                            requestStat.registerSuccessfulEvent(System.currentTimeMillis() - requestMillis);
+                        }
+                        @Override
+                        public void onFailure(Throwable cause) {
+                            LOG.error("Failed to publish : ", cause);
+                            requestStat.registerFailedEvent(System.currentTimeMillis() - requestMillis);
+                        }
+                    });
+                }
+            }
+            dlc.close();
+        }
     }
 
     @Override
     public void run() {
-        LOG.info("Starting writer (rate = {}, concurrency = {}, prefix = {})",
-                 new Object[] { writeRate, writeConcurrency, streamPrefix });
+        LOG.info("Starting writer (rate = {}, concurrency = {}, prefix = {}, batchSize = {})",
+                 new Object[] { writeRate, writeConcurrency, streamPrefix, batchSize });
         for (int i = 0; i < writeConcurrency; i++) {
-            executorService.submit(new Writer(i));
+            Runnable writer = null;
+            if (batchSize > 0) {
+                writer = new BulkWriter(i);
+            } else {
+                writer = new Writer(i);
+            }
+            executorService.submit(writer);
         }
     }
 }

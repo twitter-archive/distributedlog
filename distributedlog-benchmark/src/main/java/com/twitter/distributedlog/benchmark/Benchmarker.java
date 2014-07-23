@@ -38,6 +38,7 @@ public class Benchmarker {
     String mode = null;
     int durationMins = 60;
     URI dlUri = null;
+    int batchSize = 0;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -55,9 +56,11 @@ public class Benchmarker {
         options.addOption("sp", "streamprefix", true, "Stream Prefix");
         options.addOption("sc", "streamcount", true, "Number of Streams");
         options.addOption("ms", "messagesize", true, "Message Size (bytes)");
+        options.addOption("bs", "batchsize", true, "Batch Size");
         options.addOption("r", "rate", true, "Rate limit (requests/second)");
         options.addOption("t", "concurrency", true, "Concurrency (number of threads)");
         options.addOption("m", "mode", true, "Benchmark mode (read/write)");
+        options.addOption("h", "help", false, "Print usage.");
     }
 
     void printUsage() {
@@ -69,6 +72,10 @@ public class Benchmarker {
         logger.info("Running benchmark.");
         BasicParser parser = new BasicParser();
         CommandLine cmdline = parser.parse(options, args);
+        if (cmdline.hasOption("h")) {
+            printUsage();
+            System.exit(0);
+        }
         if (cmdline.hasOption("s")) {
             serversetPath = cmdline.getOptionValue("s");
         }
@@ -99,15 +106,19 @@ public class Benchmarker {
         if (cmdline.hasOption("u")) {
             dlUri = URI.create(cmdline.getOptionValue("u"));
         }
+        if (cmdline.hasOption("bs")) {
+            batchSize = Integer.parseInt(cmdline.getOptionValue("bs"));
+            Preconditions.checkArgument("write" != mode, "batchSize supported only for mode=write");
+        }
         if (cmdline.hasOption("c")) {
             String configFile = cmdline.getOptionValue("c");
             conf.loadConf(new File(configFile).toURI().toURL());
         }
 
-        Preconditions.checkArgument(shardId >= 0);
-        Preconditions.checkArgument(numStreams > 0);
-        Preconditions.checkArgument(durationMins > 0);
-        Preconditions.checkArgument(streamPrefix != null);
+        Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
+        Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
+        Preconditions.checkArgument(durationMins > 0, "durationMins must be > 0");
+        Preconditions.checkArgument(streamPrefix != null, "streamPrefix must be defined");
 
         if (cmdline.hasOption("p")) {
             statsProvider = ReflectionUtils.newInstance(cmdline.getOptionValue("p"), StatsProvider.class);
@@ -145,10 +156,10 @@ public class Benchmarker {
     }
 
     Worker runWriter() {
-        Preconditions.checkArgument(serversetPath != null);
-        Preconditions.checkArgument(msgSize > 0);
-        Preconditions.checkArgument(rate > 0);
-        Preconditions.checkArgument(concurrency > 0);
+        Preconditions.checkArgument(serversetPath != null, "serversetPath is required");
+        Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
+        Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
+        Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
 
         return new WriterWorker(streamPrefix,
                 shardId * numStreams,
@@ -156,6 +167,7 @@ public class Benchmarker {
                 rate,
                 concurrency,
                 msgSize,
+                batchSize,
                 serversetPath,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write")
@@ -163,7 +175,7 @@ public class Benchmarker {
     }
 
     Worker runDLWriter() throws IOException {
-        Preconditions.checkNotNull(dlUri);
+        Preconditions.checkNotNull(dlUri, "dlUri must be defined");
 
         return new DLWriterWorker(conf,
                 dlUri,
