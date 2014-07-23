@@ -63,6 +63,7 @@ public class LogSegmentLedgerMetadata {
         private String zkPath;
         private DLSN lastDLSN;
         private long lastTxId;
+        private long completionTime;
         private int recordCount;
         private long status;
 
@@ -72,6 +73,7 @@ public class LogSegmentLedgerMetadata {
             this.zkPath = original.getZkPath();
             this.lastDLSN = original.getLastDLSN();
             this.lastTxId = original.getLastTxId();
+            this.completionTime = original.getCompletionTime();
             this.recordCount = original.getRecordCount();
             this.status = original.getStatus();
         }
@@ -112,6 +114,11 @@ public class LogSegmentLedgerMetadata {
             return this;
         }
 
+        public Mutator setCompletionTime(long completionTime) {
+            this.completionTime = completionTime;
+            return this;
+        }
+
         public LogSegmentLedgerMetadata build() {
             return new LogSegmentLedgerMetadata(
                     zkPath,
@@ -119,7 +126,7 @@ public class LogSegmentLedgerMetadata {
                     original.getLedgerId(),
                     original.getFirstTxId(),
                     lastTxId,
-                    original.getCompletionTime(),
+                    completionTime,
                     original.isInProgress(),
                     recordCount,
                     ledgerSequenceNumber,

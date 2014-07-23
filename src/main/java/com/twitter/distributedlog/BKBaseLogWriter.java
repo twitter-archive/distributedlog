@@ -3,16 +3,15 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.PermitManager;
-
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 
@@ -254,7 +253,7 @@ public abstract class BKBaseLogWriter {
         }
     }
 
-    static class LogTruncationTask implements Runnable, BookkeeperInternalCallbacks.GenericCallback<Void> {
+    static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentLedgerMetadata>> {
         private final BKLogPartitionWriteHandler ledgerManager;
         private final long minTimestampToKeep;
         private final long sanityCheckThreshold;
@@ -274,11 +273,11 @@ public abstract class BKBaseLogWriter {
 
         @Override
         public void run() {
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Issue purge request to purge logs older than {} for {}.", minTimestampToKeep, ledgerManager.getFullyQualifiedName());
-            }
+            LOG.info("Try to purge logs older than {} for {}.",
+                     minTimestampToKeep, ledgerManager.getFullyQualifiedName());
             running = true;
-            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep, sanityCheckThreshold, this);
+            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep, sanityCheckThreshold)
+                         .addEventListener(this);
         }
 
         public void waitForCompletion() throws InterruptedException {
@@ -288,10 +287,19 @@ public abstract class BKBaseLogWriter {
         }
 
         @Override
-        public void operationComplete(int rc, Void result) {
-            if (BKException.Code.OK != rc) {
-                LOG.warn("Log Truncation Failed with exception : ", BKException.create(rc));
-            }
+        public void onSuccess(List<LogSegmentLedgerMetadata> value) {
+            LOG.info("Purged logs older than {} for {}.",
+                     minTimestampToKeep, ledgerManager.getFullyQualifiedName());
+            complete();
+        }
+
+        @Override
+        public void onFailure(Throwable cause) {
+            LOG.warn("Log Truncation {} Failed with exception : ", toString(), cause);
+            complete();
+        }
+
+        void complete() {
             done = true;
             running = false;
             latch.countDown();

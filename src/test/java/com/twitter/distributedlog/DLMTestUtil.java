@@ -356,4 +356,9 @@ public class DLMTestUtil {
         }
     }
 
+    public static void updateSegmentMetadata(ZooKeeperClient zkc, LogSegmentLedgerMetadata segment) throws Exception {
+        byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
+        zkc.get().setData(segment.getZkPath(), finalisedData, -1);
+    }
+
 }

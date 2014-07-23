@@ -10,15 +10,20 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 
+import com.twitter.util.Await;
+import com.twitter.util.Function;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ZkUtils;
@@ -44,7 +49,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -263,7 +267,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     abstract class MetadataOp implements Runnable {
 
-        Future<?> future = null;
+        java.util.concurrent.Future<?> future = null;
 
         void process() throws IOException {
             if (null != metadataException.get()) {
@@ -1167,54 +1171,61 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         purgeLogsOlderThanInternal(minTxIdToKeep);
     }
 
-    void purgeLogsOlderThanDLSN(final DLSN dlsn, BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
-        scheduleGetAllLedgersTaskIfNeeded();
-        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Purging logs older than {} from {} for {}",
-                    new Object[] { dlsn, logSegments, getFullyQualifiedName() });
-        }
-        List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-        if (DLSN.InvalidDLSN == dlsn) {
-            callback.operationComplete(BKException.Code.OK, null);
-            return;
-        }
-        for (int i = 0; i < logSegments.size() - 1; i++) {
-            LogSegmentLedgerMetadata l = logSegments.get(i);
-            if (!l.isInProgress() && l.getLastDLSN().compareTo(dlsn) < 0) {
-                LOG.info("Deleting log segment {} older than {}.", l, dlsn);
-                purgeList.add(l);
+    Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanDLSN(final DLSN dlsn) {
+        return asyncGetFullLedgerList(false, false).flatMap(
+                new Function<List<LogSegmentLedgerMetadata>, Future<List<LogSegmentLedgerMetadata>>>() {
+            @Override
+            public Future<List<LogSegmentLedgerMetadata>> apply(List<LogSegmentLedgerMetadata> logSegments) {
+                List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+                if (DLSN.InitialDLSN == dlsn) {
+                    return Future.value(purgeList);
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Purging logs older than {} from {} for {}",
+                            new Object[] { dlsn, logSegments, getFullyQualifiedName() });
+                }
+                for (int i = 0; i < logSegments.size() - 1; i++) {
+                    LogSegmentLedgerMetadata l = logSegments.get(i);
+                    if (!l.isInProgress() && l.getLastDLSN().compareTo(dlsn) < 0) {
+                        purgeList.add(l);
+                    }
+                }
+                LOG.info("Deleting log segments older than {} for {} : {}",
+                         new Object[] { dlsn, getFullyQualifiedName(), purgeList });
+                return asyncPurgeLogs(purgeList);
             }
-        }
-        purgeLogs(purgeList, callback);
+        });
     }
 
-    void purgeLogsOlderThanTimestamp(final long minTimestampToKeep, final long sanityCheckThreshold,
-                                     final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
-        assert (minTimestampToKeep < Utils.nowInMillis());
-        scheduleGetAllLedgersTaskIfNeeded();
-        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
-        final List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-        boolean logTimestamp = true;
-        for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
-            LogSegmentLedgerMetadata l = logSegments.get(iterator);
-            if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
-                if (logTimestamp) {
-                    LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
-                    logTimestamp = false;
-                }
-
-                // Something went wrong - leave the ledger around for debugging
-                //
-                if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                    LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
-                } else {
-                    purgeList.add(l);
-                }
-            }
+    Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanTimestamp(
+            final long minTimestampToKeep, final long sanityCheckThreshold) {
+        if (minTimestampToKeep >= Utils.nowInMillis()) {
+            return Future.exception(new IllegalArgumentException(
+                    "Invalid timestamp " + minTimestampToKeep + " to purge logs for " + getFullyQualifiedName()));
         }
-        // purge logs
-        purgeLogs(purgeList, callback);
+        return asyncGetFullLedgerList(false, false).flatMap(
+                new Function<List<LogSegmentLedgerMetadata>, Future<List<LogSegmentLedgerMetadata>>>() {
+            @Override
+            public Future<List<LogSegmentLedgerMetadata>> apply(List<LogSegmentLedgerMetadata> logSegments) {
+                List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+                for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
+                    LogSegmentLedgerMetadata l = logSegments.get(iterator);
+                    if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
+                        // Something went wrong - leave the ledger around for debugging
+                        //
+                        if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
+                            LOG.warn("Found a ledger {} older than {} for {}",
+                                     new Object[] { l, sanityCheckThreshold, getFullyQualifiedName() });
+                        } else {
+                            purgeList.add(l);
+                        }
+                    }
+                }
+                LOG.info("Deleting log segments older than {} for {} : {}",
+                        new Object[] { minTimestampToKeep, getFullyQualifiedName(), purgeList });
+                return asyncPurgeLogs(purgeList);
+            }
+        });
     }
 
     public void purgeLogsOlderThanInternal(long minTxIdToKeep)
@@ -1238,113 +1249,109 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    private void purgeLogs(final List<LogSegmentLedgerMetadata> logs,
-                           final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
-        if (logs.size() == 0) {
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Nothing to purge.");
-            }
-            callback.operationComplete(BKException.Code.OK, null);
-            return;
-        }
+    private Future<List<LogSegmentLedgerMetadata>> asyncPurgeLogs(
+            final List<LogSegmentLedgerMetadata> logs) {
         if (LOG.isTraceEnabled()) {
-            LOG.trace("Purging logs : {}.", logs);
+            LOG.trace("Purging logs for {} : {}", getFullyQualifiedName(), logs);
         }
-        final AtomicInteger numLogs = new AtomicInteger(logs.size());
-        final BookkeeperInternalCallbacks.GenericCallback<Void> deleteCallback =
-                new BookkeeperInternalCallbacks.GenericCallback<Void>() {
-                    @Override
-                    public void operationComplete(int rc, Void result) {
-                        // we don't really care about the delete result right now
-                        if (numLogs.decrementAndGet() == 0) {
-                            callback.operationComplete(BKException.Code.OK, null);
-                        }
-                    }
-                };
-        for (LogSegmentLedgerMetadata l : logs) {
-            deleteLedgerAndMetadata(l, deleteCallback);
-        }
+        return FutureUtils.processList(logs,
+                new Function<LogSegmentLedgerMetadata, Future<LogSegmentLedgerMetadata>>() {
+            @Override
+            public Future<LogSegmentLedgerMetadata> apply(LogSegmentLedgerMetadata segment) {
+                return asyncDeleteLedgerAndMetadata(segment);
+            }
+        }, executorService);
     }
 
-    private void deleteLedgerAndMetadata(final LogSegmentLedgerMetadata ledgerMetadata,
-                                         final BookkeeperInternalCallbacks.GenericCallback<Void> callback) {
-        LOG.info("Deleting ledger for {}", ledgerMetadata);
+    private Future<LogSegmentLedgerMetadata> asyncDeleteLedgerAndMetadata(
+            final LogSegmentLedgerMetadata ledgerMetadata) {
+        LOG.info("Deleting ledger {} for {}", ledgerMetadata, getFullyQualifiedName());
+        final Promise<LogSegmentLedgerMetadata> promise = new Promise<LogSegmentLedgerMetadata>();
+        final Stopwatch stopwatch = new Stopwatch().start();
+        promise.addEventListener(new FutureEventListener<LogSegmentLedgerMetadata>() {
+            @Override
+            public void onSuccess(LogSegmentLedgerMetadata segment) {
+                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+        });
         try {
             bookKeeperClient.get().asyncDeleteLedger(ledgerMetadata.getLedgerId(), new AsyncCallback.DeleteCallback() {
                 @Override
                 public void deleteComplete(int rc, Object ctx) {
                     if (BKException.Code.NoSuchLedgerExistsException == rc) {
-                        LOG.warn("No ledger {} found to delete for {}.", ledgerMetadata.getLedgerId(), ledgerMetadata);
-                        callback.operationComplete(rc, null);
+                        LOG.warn("No ledger {} found to delete for {} : {}.",
+                                new Object[]{ledgerMetadata.getLedgerId(), getFullyQualifiedName(),
+                                        ledgerMetadata});
                     } else if (BKException.Code.OK != rc) {
-                        LOG.error("Couldn't delete ledger {} from bookkeeper : ",
-                                ledgerMetadata.getLedgerId(), BKException.create(rc));
-                        callback.operationComplete(rc, null);
+                        BKException bke = BKException.create(rc);
+                        LOG.error("Couldn't delete ledger {} from bookkeeper for {} : ",
+                                new Object[] { ledgerMetadata.getLedgerId(), getFullyQualifiedName(), bke });
+                        promise.setException(bke);
                         return;
                     }
                     // after the ledger is deleted, we delete the metadata znode
-                    try {
-                        zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), -1,
-                            new org.apache.zookeeper.AsyncCallback.VoidCallback() {
-                                @Override
-                                public void processResult(int rc, String path, Object ctx) {
-                                    if (KeeperException.Code.OK.intValue() != rc) {
-                                        LOG.error("Couldn't purge {} : with error {}", ledgerMetadata, KeeperException.Code.get(rc));
-                                        callback.operationComplete(BKException.Code.ZKException, null);
-                                        return;
-                                    }
-                                    // purge log segment
-                                    removeLogSegmentFromCache(ledgerMetadata.getZNodeName());
-                                    callback.operationComplete(BKException.Code.OK, null);
-                                }
-                            }, null);
-                    } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                        LOG.error("Encountered zookeeper connection issue when purging {} : ", ledgerMetadata, e);
-                        callback.operationComplete(BKException.Code.ZKException, null);
-                    } catch (InterruptedException e) {
-                        LOG.error("Interrupted when purging {}.", ledgerMetadata);
-                        callback.operationComplete(BKException.Code.InterruptedException, null);
-                    }
+                    executorService.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            asyncDeleteMetadata(ledgerMetadata, promise);
+                        }
+                    });
                 }
             }, null);
         } catch (IOException e) {
-            callback.operationComplete(BKException.Code.BookieHandleNotAvailableException, null);
+            promise.setException(BKException.create(BKException.Code.BookieHandleNotAvailableException));
         }
+        return promise;
     }
 
-    private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) {
-        Stopwatch stopwatch = new Stopwatch().start();
-        boolean success = false;
+    private void asyncDeleteMetadata(final LogSegmentLedgerMetadata ledgerMetadata,
+                                     final Promise<LogSegmentLedgerMetadata> promise) {
         try {
-            doDeleteLedgerAndMetadata(ledgerMetadata);
-            success = true;
-        } finally {
-            if (success) {
-                deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            } else {
-                deleteOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            }
-        }
-    }
-
-    private void doDeleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata) {
-        final AtomicInteger rcHolder = new AtomicInteger(0);
-        final CountDownLatch latch = new CountDownLatch(1);
-        deleteLedgerAndMetadata(ledgerMetadata, new BookkeeperInternalCallbacks.GenericCallback<Void>() {
-            @Override
-            public void operationComplete(int rc, Void result) {
-                rcHolder.set(rc);
-                latch.countDown();
-            }
-        });
-        try {
-            latch.await();
+            zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), -1,
+                new org.apache.zookeeper.AsyncCallback.VoidCallback() {
+                    @Override
+                    public void processResult(int rc, String path, Object ctx) {
+                        if (KeeperException.Code.NONODE.intValue() == rc) {
+                            LOG.error("No log segment {} found for {}.",
+                                    ledgerMetadata, getFullyQualifiedName());
+                        } else if (KeeperException.Code.OK.intValue() != rc) {
+                            LOG.error("Couldn't purge {} for {}: with error {}",
+                                    new Object[]{ledgerMetadata, getFullyQualifiedName(),
+                                            KeeperException.Code.get(rc)});
+                            promise.setException(BKException.create(BKException.Code.ZKException));
+                            return;
+                        }
+                        // purge log segment
+                        removeLogSegmentFromCache(ledgerMetadata.getZNodeName());
+                        promise.setValue(ledgerMetadata);
+                    }
+                }, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            LOG.error("Encountered zookeeper connection issue when purging {} for {}: ",
+                    new Object[]{ledgerMetadata, getFullyQualifiedName(), e});
+            promise.setException(BKException.create(BKException.Code.ZKException));
         } catch (InterruptedException e) {
-            LOG.error("Interrupted while purging {}", ledgerMetadata);
+            LOG.error("Interrupted when purging {} for {} : ",
+                    new Object[]{ledgerMetadata, getFullyQualifiedName(), e});
+            promise.setException(BKException.create(BKException.Code.ZKException));
         }
-        if (BKException.Code.OK != rcHolder.get()) {
-            LOG.error("Failed to purge {} : ", ledgerMetadata,
-                    BKException.create(rcHolder.get()));
+    }
+
+    private void deleteLedgerAndMetadata(LogSegmentLedgerMetadata ledgerMetadata)
+            throws IOException {
+        try {
+            Await.result(asyncDeleteLedgerAndMetadata(ledgerMetadata));
+        } catch (Exception e) {
+            if (e instanceof IOException) {
+                throw (IOException) e;
+            } else {
+                throw new IOException("Failed to purge " + ledgerMetadata
+                        + " for " + getFullyQualifiedName(), e);
+            }
         }
     }
 

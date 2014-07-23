@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
@@ -11,10 +10,6 @@ import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -25,13 +20,9 @@ import java.util.concurrent.ExecutorService;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
-    static final Logger LOG = LoggerFactory.getLogger(BKUnPartitionedAsyncLogWriter.class);
-
-    static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>>
-            implements BookkeeperInternalCallbacks.GenericCallback<Void> {
+    static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>> {
 
         private final DLSN dlsn;
-        private final Promise<Boolean> promise = new Promise<Boolean>();
 
         TruncationFunction(DLSN dlsn) {
             this.dlsn = dlsn;
@@ -40,22 +31,16 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         @Override
         public Future<Boolean> applyE(BKLogPartitionWriteHandler handler) throws Throwable {
             if (DLSN.InvalidDLSN == dlsn) {
-                promise.setValue(false);
-                return promise;
+                return Future.value(false);
             }
-            handler.purgeLogsOlderThanDLSN(dlsn, this);
-            return promise;
+            return handler.purgeLogsOlderThanDLSN(dlsn).map(new Function<List<LogSegmentLedgerMetadata>, Boolean>() {
+                @Override
+                public Boolean apply(List<LogSegmentLedgerMetadata> logSegments) {
+                    return true;
+                }
+            });
         }
 
-        @Override
-        public void operationComplete(int rc, Void result) {
-            if (BKException.Code.OK == rc) {
-                promise.setValue(true);
-            } else {
-                promise.setException(new MetadataException("Error on purging logs before " + dlsn,
-                        BKException.create(rc)));
-            }
-        }
     }
 
     // Records pending for roll log segment.
