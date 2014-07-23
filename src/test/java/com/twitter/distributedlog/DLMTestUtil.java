@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -32,6 +33,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.Map;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -100,8 +102,10 @@ public class DLMTestUtil {
     static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
         return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
-                path, p.toString(), conf, createDLMURI("/" + path), null, null, null, null, null, null,
-                NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
+                path, p.toString(), conf, createDLMURI("/" + path), null, null,
+                Executors.newScheduledThreadPool(1,
+                        new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
+                null, null, null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
     }
 
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {

@@ -230,6 +230,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
     public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
 
+    public static final String BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "firstNumEntriesEachPerLastRecordScan";
+    public static final int BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 2;
+    public static final String BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "maxNumEntriesPerReadLastRecordScan";
+    public static final int BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 16;
+
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
         BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
@@ -1588,6 +1593,48 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setTimeoutTimerNumTicks(int numTicks) {
         setProperty(BKDL_TIMEOUT_TIMER_NUM_TICKS, numTicks);
+        return this;
+    }
+
+    /**
+     * Number of entries to scan for first scan of reading last record.
+     *
+     * @return number of entries to scan for first scan of reading last record.
+     */
+    public int getFirstNumEntriesPerReadLastRecordScan() {
+        return getInt(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
+    }
+
+    /**
+     * Set number of entries to scan for first scan of reading last record.
+     *
+     * @param numEntries
+     *          number of entries to scan
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setFirstNumEntriesPerReadLastRecordScan(int numEntries) {
+        setProperty(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
+        return this;
+    }
+
+    /**
+     * Max number of entries for each scan to read last record.
+     *
+     * @return max number of entries for each scan to read last record.
+     */
+    public int getMaxNumEntriesPerReadLastRecordScan() {
+        return getInt(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
+    }
+
+    /**
+     * Set max number of entries for each scan to read last record.
+     *
+     * @param numEntries
+     *          number of entries to scan
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setMaxNumEntriesPerReadLastRecordScan(int numEntries) {
+        setProperty(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
         return this;
     }
 }

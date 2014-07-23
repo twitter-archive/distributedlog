@@ -16,6 +16,7 @@ import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 
@@ -52,6 +53,22 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
             conf.getUnpartitionedStreamName()), zk, true, new DataWithStat(), new DataWithStat(), new DataWithStat());
     }
+
+    static final Function<LogRecordWithDLSN, Long> RECORD_2_TXID_FUNCTION =
+            new Function<LogRecordWithDLSN, Long>() {
+                @Override
+                public Long apply(LogRecordWithDLSN record) {
+                    return record.getTransactionId();
+                }
+            };
+
+    static final Function<LogRecordWithDLSN, DLSN> RECORD_2_DLSN_FUNCTION =
+            new Function<LogRecordWithDLSN, DLSN>() {
+                @Override
+                public DLSN apply(LogRecordWithDLSN record) {
+                    return record.getDlsn();
+                }
+            };
 
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
@@ -595,6 +612,23 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    private Future<LogRecordWithDLSN> getLastRecordAsyncInternal(final String streamIdentifier,
+                                                                 final boolean recover,
+                                                                 final boolean includeEndOfStream) {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+            @Override
+            public BKLogPartitionReadHandler applyE() throws IOException {
+                return createReadLedgerHandler(streamIdentifier);
+            }
+        }).flatMap(new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
+            @Override
+            public Future<LogRecordWithDLSN> apply(BKLogPartitionReadHandler ledgerHandler) {
+                return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
+            }
+        });
+    }
+
     /**
      * Get Latest Transaction Id in the specified partition of the log
      *
@@ -617,12 +651,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
-        initializeFuturePool(false);
-        return readerFuturePool.apply(new ExceptionalFunction0<Long>() {
-            public Long applyE() throws IOException {
-                return getLastTxIdInternal(streamIdentifier, false, false);
-            }
-        });
+        return getLastRecordAsyncInternal(streamIdentifier, false, false)
+                .map(RECORD_2_TXID_FUNCTION);
     }
 
 
@@ -648,12 +678,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
-        initializeFuturePool(false);
-        return readerFuturePool.apply(new ExceptionalFunction0<DLSN>() {
-            public DLSN applyE() throws IOException {
-                return getLastDLSNInternal(streamIdentifier, false, false);
-            }
-        });
+        return getLastRecordAsyncInternal(streamIdentifier, false, false)
+                .map(RECORD_2_DLSN_FUNCTION);
     }
 
     /**

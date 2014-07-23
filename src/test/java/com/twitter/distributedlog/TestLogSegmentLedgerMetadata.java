@@ -4,6 +4,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
+import org.apache.zookeeper.KeeperException;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -73,7 +74,7 @@ public class TestLogSegmentLedgerMetadata {
             new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
             @Override
             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
-                if (BKException.Code.OK != rc) {
+                if (KeeperException.Code.OK.intValue() != rc) {
                     LOG.error("Fail to read LogSegmentLedgerMetadata : ", BKException.create(rc));
                 }
                 resultHolder.set(result);

@@ -92,7 +92,6 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         assertEquals((txid - 1), numTrans);
     }
 
-
     @Test
     public void testSimpleWrite() throws Exception {
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, "distrlog-simplewrite");
@@ -1781,6 +1780,52 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             assertEquals(seqno * DEFAULT_SEGMENT_SIZE, m.getLastTxId());
             --seqno;
         }
+    }
+
+    @Test
+    public void testGetLastDLSN() throws Exception {
+        String name = "distrlog-get-last-dlsn";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setFirstNumEntriesPerReadLastRecordScan(2);
+        confLocal.setMaxNumEntriesPerReadLastRecordScan(4);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        long txid = 1;
+        for (int i = 0; i < 10; i++) {
+            LogRecord record = DLMTestUtil.getLogRecordInstance(txid++);
+            record.setControl();
+            writer.writeControlRecord(record).get();
+        }
+
+        try {
+            dlm.getLastDLSN();
+            fail("Should fail on getting last dlsn from an empty log.");
+        } catch (LogEmptyException lee) {
+            // expected
+        }
+
+        writer.closeAndComplete();
+
+        writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        writer.write(DLMTestUtil.getLogRecordInstance(txid++)).get();
+
+        for (int i = 1; i < 10; i++) {
+            LogRecord record = DLMTestUtil.getLogRecordInstance(txid++);
+            record.setControl();
+            writer.write(record).get();
+        }
+
+        assertEquals(new DLSN(2, 0, 0), dlm.getLastDLSN());
+
+        writer.closeAndComplete();
+
+        assertEquals(new DLSN(2, 0, 0), dlm.getLastDLSN());
+
+        writer.close();
+        dlm.close();
     }
 
     @Test

@@ -418,7 +418,7 @@ public class LogSegmentLedgerMetadata {
                         LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
                         callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
                     } catch (IOException ie) {
-                        // as we don't have return code for distributedlog. for now, we leveraged bk
+                        // as we don't have return code for distributedlog. for now, we leveraged zk
                         // exception code.
                         callback.operationComplete(KeeperException.Code.BADARGUMENTS.intValue(), null);
                     }

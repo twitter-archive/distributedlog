@@ -352,7 +352,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                     throw ke;
                 }
             }
-            removeLogSegmentToCache(inprogressZnodeName);
+            removeLogSegmentFromCache(inprogressZnodeName);
             addLogSegmentToCache(nameForCompletedLedger, logSegment);
             LOG.info("Completed {} to {} for {} : {}",
                      new Object[] { inprogressZnodeName, nameForCompletedLedger, getFullyQualifiedName(), logSegment });

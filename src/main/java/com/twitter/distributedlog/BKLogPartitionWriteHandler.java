@@ -987,7 +987,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             LOG.info("Deleted {} for completing segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), l });
 
-            removeLogSegmentToCache(inprogressZnodeName);
+            removeLogSegmentFromCache(inprogressZnodeName);
             addLogSegmentToCache(nameForCompletedLedger, l);
         } catch (InterruptedException e) {
             throw new IOException("Interrupted when finalising stream " + partitionRootPath, e);
@@ -1080,7 +1080,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
             try {
                 LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
-                record = recoverLastRecordInLedger(l, false, true, true, true);
+                record = recoverLastRecordInLedger(l, true, true, true);
                 LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
             } finally {
                 lock.release(DistributedReentrantLock.LockReason.RECOVER);
@@ -1294,7 +1294,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                         return;
                                     }
                                     // purge log segment
-                                    removeLogSegmentToCache(ledgerMetadata.getZNodeName());
+                                    removeLogSegmentFromCache(ledgerMetadata.getZNodeName());
                                     callback.operationComplete(BKException.Code.OK, null);
                                 }
                             }, null);

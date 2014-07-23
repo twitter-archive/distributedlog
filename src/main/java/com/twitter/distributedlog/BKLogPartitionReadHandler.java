@@ -190,7 +190,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     try {
                         // as mostly doGetInputStream is to position on reader, so we disable forwardReading
                         // on readLastTxIdInLedger, then the reader could be positioned in the reader quickly
-                        lastDLSN = readLastTxIdInLedger(l, false).getRight();
+                        lastDLSN = readLastTxIdInLedger(l).getRight();
                     } catch (IOException exc) {
                         lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
                         LOG.info("Reading beyond flush point");
@@ -283,7 +283,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     try {
                         // as mostly doGetInputStream is to position on reader, so we disable forwardReading
                         // on readLastTxIdInLedger, then the reader could be positioned in the reader quickly
-                        lastTxId = readLastTxIdInLedger(l, false).getLeft();
+                        lastTxId = readLastTxIdInLedger(l).getLeft();
                     } catch (DLInterruptedException die) {
                         throw die;
                     } catch (IOException exc) {
