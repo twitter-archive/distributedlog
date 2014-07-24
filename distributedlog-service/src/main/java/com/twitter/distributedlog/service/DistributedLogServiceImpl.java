@@ -203,13 +203,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         void fail(StatusCode code, String message) {
             fail(responseHeader(code, message));
         }
-         
+
         // fail the result with the given response header
         abstract void fail(ResponseHeader header);
     }
 
-    class StreamOpCompletionListener<T> implements FutureEventListener<T> {
-        
+    static class StreamOpCompletionListener<T> implements FutureEventListener<T> {
+
         OpStatsLogger opStatsLogger;
         Promise<T> result;
         Stopwatch stopwatch;
@@ -236,7 +236,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         final List<ByteBuffer> buffers;
         final Promise<BulkWriteResponse> result = new Promise<BulkWriteResponse>();
-        
+
         BulkWriteOp(String stream, List<ByteBuffer> buffers, WriteContext context) {
             super(stream, context, bulkWriteStat);
             this.buffers = buffers;
@@ -244,11 +244,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         public Future<Void> executeOp(AsyncLogWriter writer) {
-            
+
             // Need to convert input buffers to LogRecords.
             List<LogRecord> records = asRecordList(buffers);
             Future<List<Future<DLSN>>> futureList = writer.writeBulk(records);
-            
+
             // Collect into a list of tries to make it easier to extract exception or DLSN.
             Future<List<Try<DLSN>>> writes = asTryList(futureList);
 
@@ -261,7 +261,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         // The reason is that its impossible to make an appropriate decision re retries without
                         // individual buffer failure reasons.
                         List<WriteResponse> writeResponses = new ArrayList<WriteResponse>(results.size());
-                        BulkWriteResponse bulkWriteResponse = 
+                        BulkWriteResponse bulkWriteResponse =
                             new BulkWriteResponse(successResponseHeader()).setWriteResponses(writeResponses);
 
                         // Translate all futures to write responses.
@@ -277,20 +277,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 writeResponses.add(writeResponse);
                             }
                         }
-                        
+
                         return bulkWriteResponse;
                     }
                 }
             );
 
             // FlatMap to void preserves exception without passing on result
-            StreamOpCompletionListener<BulkWriteResponse> completionListener = 
-                new StreamOpCompletionListener<BulkWriteResponse>(opStatsLogger, result, stopwatch); 
+            StreamOpCompletionListener<BulkWriteResponse> completionListener =
+                new StreamOpCompletionListener<BulkWriteResponse>(opStatsLogger, result, stopwatch);
             return response.addEventListener(completionListener).voided();
         }
 
         List<LogRecord> asRecordList(List<ByteBuffer> buffers) {
-            List<LogRecord> records = new ArrayList(buffers.size()); 
+            List<LogRecord> records = new ArrayList(buffers.size());
             for (ByteBuffer buffer : buffers) {
                 byte[] payload = new byte[buffer.remaining()];
                 buffer.get(payload);
@@ -308,7 +308,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             });
         }
 
-        @Override 
+        @Override
         void fail(ResponseHeader header) {
             result.setValue(new BulkWriteResponse(header));
         }
@@ -317,7 +317,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     abstract class AbstractWriteOp extends StreamOp {
 
         final Promise<WriteResponse> result = new Promise<WriteResponse>();
-        
+
         AbstractWriteOp(String stream, WriteContext context, OpStatsLogger statsLogger) {
             super(stream, context, statsLogger);
         }
@@ -325,16 +325,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         public Future<Void> executeOp(AsyncLogWriter writer) {
             // flatMap to void, preserves exception, discards result
-            StreamOpCompletionListener<WriteResponse> completionListener = 
+            StreamOpCompletionListener<WriteResponse> completionListener =
                 new StreamOpCompletionListener<WriteResponse>(opStatsLogger, result, stopwatch);
             return doExecuteOp(writer).addEventListener(completionListener).voided();
         }
 
         abstract Future<WriteResponse> doExecuteOp(AsyncLogWriter writer);
-        
-        @Override 
+
+        @Override
         void fail(ResponseHeader header) {
-            result.setValue(writeResponse(header)); 
+            result.setValue(writeResponse(header));
         }
     }
 

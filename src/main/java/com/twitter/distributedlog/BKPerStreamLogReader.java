@@ -170,7 +170,7 @@ class BKPerStreamLogReader {
         return !isExhausted;
     }
 
-    public void setEnableTrace(boolean enableTrace) {
+    public synchronized void setEnableTrace(boolean enableTrace) {
         this.enableTrace = enableTrace;
         if (null != lin) {
             lin.setEnableTrace(enableTrace);

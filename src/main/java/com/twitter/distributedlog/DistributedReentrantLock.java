@@ -302,9 +302,11 @@ class DistributedReentrantLock {
                 }
             }
 
-            // Check that the task did not fail to reacquire
-            if (null != asyncLockAcquireException) {
-                throw asyncLockAcquireException;
+            synchronized (this) {
+                // Check that the task did not fail to reacquire
+                if (null != asyncLockAcquireException) {
+                    throw asyncLockAcquireException;
+                }
             }
         }
 

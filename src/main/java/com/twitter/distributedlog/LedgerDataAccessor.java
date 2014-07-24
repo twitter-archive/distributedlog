@@ -42,7 +42,7 @@ public class LedgerDataAccessor {
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
     private AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
-    private AsyncNotification notification;
+    private volatile AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
@@ -87,7 +87,7 @@ public class LedgerDataAccessor {
         }
     }
 
-    public synchronized void setNotification(AsyncNotification notification) {
+    public void setNotification(AsyncNotification notification) {
         this.notification = notification;
     }
 
@@ -229,7 +229,10 @@ public class LedgerDataAccessor {
         } else {
             LOG.trace("Calling process");
             processNewLedgerEntry(key, entry, reason);
-            notification.notifyOnOperationComplete();
+            AsyncNotification n = notification;
+            if (null != n) {
+                n.notifyOnOperationComplete();
+            }
         }
     }
 
@@ -263,11 +266,12 @@ public class LedgerDataAccessor {
             value.notifyAll();
         }
 
-        if (null != notification) {
+        AsyncNotification n = notification;
+        if (null != n) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Notification of new entry Stream: {}, LedgerReadPoistion: {}", streamName, key);
             }
-            notification.notifyOnOperationComplete();
+            n.notifyOnOperationComplete();
         }
     }
 
