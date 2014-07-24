@@ -30,6 +30,7 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
     protected final LedgerAllocator ledgerAllocator;
+    protected final boolean ownAllocator;
 
     /**
      * Construct ZK34 based write handler.
@@ -63,8 +64,10 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
             ledgerAllocator.start();
+            ownAllocator = true;
         } else {
             ledgerAllocator = allocator;
+            ownAllocator = false;
         }
     }
 
@@ -369,5 +372,13 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 startLogSegmentCount.decrementAndGet();
             }
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (ownAllocator) {
+            ledgerAllocator.close(true);
+        }
+        super.close();
     }
 }
