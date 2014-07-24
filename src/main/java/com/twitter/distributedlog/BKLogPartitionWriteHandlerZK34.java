@@ -377,7 +377,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
     @Override
     public void close() throws IOException {
         if (ownAllocator) {
-            ledgerAllocator.close(true);
+            ledgerAllocator.close(false);
         }
         super.close();
     }
