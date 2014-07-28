@@ -1,8 +1,9 @@
 package com.twitter.distributedlog;
 
 import java.io.Closeable;
-import com.google.common.base.Stopwatch;
+
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -38,7 +39,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Stopwatch idleReaderLastWarnSw = Stopwatch.createStarted();
     private Stopwatch idleReaderLastLogRecordSw = Stopwatch.createStarted();
     private boolean isReaderIdle = false;
-    private boolean enableReaderTrace = false;
+    private boolean forceBlockingRead = false;
 
     private final Counter idleReaderWarnCounter;
     private final Counter idleReaderErrorCounter;
@@ -94,13 +95,12 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
-            advancedOnce = createOrPositionReader(nonBlockingReadOperation);
+            advancedOnce = createOrPositionReader(nonBlockingReadOperation && !forceBlockingRead);
 
             if (null != currentReader) {
-                currentReader.setEnableTrace(enableReaderTrace);
-                enableReaderTrace = false;
+                currentReader.setEnableTrace(forceBlockingRead);
 
-                record = currentReader.readOp(nonBlockingReadOperation);
+                record = currentReader.readOp(nonBlockingReadOperation && !forceBlockingRead);
 
                 if (null == record) {
                     if (handleEndOfCurrentStream()) {
@@ -115,6 +115,8 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
         }
 
+        forceBlockingRead = false;
+
         if (null != record) {
             if (record.isEndOfStream()) {
                 endOfStreamEncountered = true;
@@ -122,6 +124,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             }
 
             idleReaderLastLogRecordSw.reset().start();
+            idleReaderLastWarnSw.reset().start();
             if (isReaderIdle) {
                 LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
                 isReaderIdle = false;
@@ -149,7 +152,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                 idleReaderWarnCounter.inc();
                 idleReaderLastWarnSw.reset().start();
                 isReaderIdle = true;
-                enableReaderTrace = true;
+                forceBlockingRead = true;
             }
         }
 
@@ -301,5 +304,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             LOG.error("registerNotification encountered exception", exc);
             notifyOnError();
         }
+    }
+
+    @VisibleForTesting
+    void setForceBlockingRead(boolean force) {
+        forceBlockingRead = force;
     }
 }

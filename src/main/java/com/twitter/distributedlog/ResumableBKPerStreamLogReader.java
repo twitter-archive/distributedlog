@@ -5,7 +5,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Stopwatch;
+
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -110,17 +113,22 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                 resumeSetWatcherStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (ZooKeeperClient.ZooKeeperConnectionException exc) {
                 watchSet.set(false);
-                LOG.debug("Error on setup latch due to zookeeper connection issue : ", exc);
+                LOG.warn("Error on setup latch due to zookeeper connection issue : ", exc);
                 resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (KeeperException ke) {
                 watchSet.set(false);
-                LOG.debug("Error on setup latch due to zookeeper exception : ", ke);
+                LOG.warn("Error on setup latch due to zookeeper exception : ", ke);
                 resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             } catch (InterruptedException ie) {
                 watchSet.set(false);
                 LOG.warn("Unable to setup latch", ie);
                 resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 throw new DLInterruptedException("Interrupted on setup latch : ", ie);
+            } catch (RuntimeException exc) {
+                watchSet.set(false);
+                resumeSetWatcherStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                // Outside of a bug we don't expect to be in this state
+                throw new DLIllegalStateException("Unexpected runtime exception encountered", exc);
             }
         }
 
@@ -144,15 +152,28 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
                         ledgerManager.getHandleCache().closeLedger(ledgerDescriptor);
                         h = ledgerManager.getHandleCache().openLedger(metadata, true);
                     }
-                    LOG.debug("{} Reading Last Add Confirmed {} after ledger close", startBkEntry,
-                        ledgerManager.getHandleCache().getLastAddConfirmed(h));
+                    if (enableTrace) {
+                        LOG.info("{}: {} Reading Last Add Confirmed {} after ledger close",
+                            new Object[] {ledgerManager.getFullyQualifiedName(), startBkEntry,
+                                ledgerManager.getHandleCache().getLastAddConfirmed(h)});
+                    } else {
+                        LOG.debug("{}: {} Reading Last Add Confirmed {} after ledger close",
+                            new Object[] {ledgerManager.getFullyQualifiedName(), startBkEntry,
+                                ledgerManager.getHandleCache().getLastAddConfirmed(h)});
+                    }
                     inProgress = false;
                     positionInputStream(h, ledgerDataAccessor, startBkEntry);
                 } else if (isInProgress()) {
                     if (shouldReadLAC && (startBkEntry > ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor))) {
                         ledgerManager.getHandleCache().tryReadLastConfirmed(ledgerDescriptor);
                     }
-                    LOG.debug("{} : Advancing Last Add Confirmed {}", ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    if (enableTrace) {
+                        LOG.info("{}: Advancing Last Add Confirmed {}",
+                            ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    } else {
+                        LOG.debug("{}: Advancing Last Add Confirmed {}",
+                            ledgerManager.getFullyQualifiedName(), ledgerManager.getHandleCache().getLastAddConfirmed(ledgerDescriptor));
+                    }
                 }
             }
 
@@ -183,7 +204,11 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     public void process(WatchedEvent event) {
         if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
             nodeDeleteNotification.set(true);
-            LOG.debug("{} Node Deleted", ledgerManager.getFullyQualifiedName());
+            if (enableTrace) {
+                LOG.info("{}: Node {} Deleted", ledgerManager.getFullyQualifiedName(), event.getPath());
+            } else {
+                LOG.debug("{}: Node {} Deleted", ledgerManager.getFullyQualifiedName(), event.getPath());
+            }
             ledgerManager.notifyOnOperationComplete();
             return;
         } else if (event.getType() == Watcher.Event.EventType.None) {

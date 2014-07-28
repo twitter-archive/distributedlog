@@ -283,8 +283,10 @@ class BKPerStreamLogReader {
             }
 
             if (null == e) {
-                if (nonBlocking) {
-                    LOG.debug("Read Entries {} Max Entry {}, Nothing in the cache", readEntries, maxEntry);
+                if (enableTrace) {
+                    LOG.info("{}: Max Entry {}, getEntry returned null", this, maxEntry);
+                } else if (nonBlocking) {
+                    LOG.debug("{}: Max Entry {}, Nothing in the cache", this, maxEntry);
                 }
                 return null;
             }

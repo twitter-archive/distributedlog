@@ -170,17 +170,29 @@ public class LedgerDataAccessor {
                     synchronized (value) {
                         if (null == value.getLedgerEntry()) {
                             value.wait(readAheadWaitTime);
+                            if (enableTrace) {
+                                LOG.info("LedgerDataAccessor {}: Read-ahead wait for {}",
+                                    toString(), key);
+                            }
                             readAheadWaits.inc();
                         }
                     }
                     if (null != value.getLedgerEntry()) {
                         readAheadHits.inc();
+                        if (enableTrace) {
+                            LOG.info("LedgerDataAccessor {}: Read-ahead cache hit for {}",
+                                toString(), key);
+                        }
                         return value.getLedgerEntry();
                     }
                 }
             }
 
             readAheadMisses.inc();
+            if (enableTrace) {
+                LOG.info("LedgerDataAccessor {}: Read-ahead cache miss for {}",
+                    toString(), key);
+            }
             if ((readAheadMisses.get() % 1000) == 0) {
                 LOG.debug("Read ahead readAheadCache miss {}", readAheadMisses.get());
             }
