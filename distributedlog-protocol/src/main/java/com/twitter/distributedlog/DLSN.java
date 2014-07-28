@@ -133,7 +133,7 @@ public class DLSN implements Comparable<DLSN> {
      *
      * @return the next DLSN
      */
-    DLSN getNextDLSN() {
+    public DLSN getNextDLSN() {
         return new DLSN(ledgerSequenceNo, entryId, slotId + 1);
     }
 
@@ -144,7 +144,7 @@ public class DLSN implements Comparable<DLSN> {
      *
      * @return the next DLSN
      */
-    DLSN positionOnTheNextLedger() {
+    public DLSN positionOnTheNextLedger() {
         return new DLSN(ledgerSequenceNo + 1 , 0, 0);
     }
 }
