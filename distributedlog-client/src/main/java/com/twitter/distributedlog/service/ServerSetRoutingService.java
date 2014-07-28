@@ -144,7 +144,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     @Override
     public void run() {
         try {
-            serverSet.monitor(new DynamicHostSet.HostChangeMonitor<ServiceInstance>() {
+            serverSet.watch(new DynamicHostSet.HostChangeMonitor<ServiceInstance>() {
                 @Override
                 public void onChange(ImmutableSet<ServiceInstance> serviceInstances) {
                     ImmutableSet<ServiceInstance> lastValue = serverSetChange.getAndSet(serviceInstances);

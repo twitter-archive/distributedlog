@@ -19,6 +19,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.CancelledRequestException;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.ConnectionFailedException;
+import com.twitter.finagle.Name;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
@@ -120,9 +121,27 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
-        // this._routingService = new ServerSetRoutingService(serverSet);
         this._routingService = ConsistentHashRoutingService.of(serverSet,
                 NUM_CONSISTENT_HASH_REPLICAS);
+        return this;
+    }
+
+
+    /**
+     * Name to access proxy services.
+     *
+     * @param serverSet
+     *          server set.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
+        if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
+            // We only support serverset based names at the moment
+            throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
+        }
+
+        this._routingService = ConsistentHashRoutingService.of(new NameServerSet(finagleNameStr),
+            NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
 
