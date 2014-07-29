@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -88,7 +89,7 @@ public class ZooKeeperClient {
     private final int retryThreadCount;
     private final double requestRateLimit;
 
-    private final Set<Watcher> watchers = Collections.synchronizedSet(new HashSet<Watcher>());
+    final Set<Watcher> watchers = new CopyOnWriteArraySet<Watcher>();
 
     /**
      * Creates an unconnected client that will lazily attempt to connect on the first call to
@@ -191,8 +192,16 @@ public class ZooKeeperClient {
         Watcher watcher = new Watcher() {
             @Override
             public void process(WatchedEvent event) {
-                for (Watcher watcher : watchers) {
-                    watcher.process(event);
+                try {
+                    for (Watcher watcher : watchers) {
+                        try {
+                            watcher.process(event);
+                        } catch (Throwable t) {
+                            LOG.warn("Encountered unexpected exception from watcher {} : ", watcher, t);
+                        }
+                    }
+                } catch (Throwable t) {
+                    LOG.warn("Encountered unexpected exception when firing watched event {} : ", event, t);
                 }
             }
         };
@@ -242,7 +251,11 @@ public class ZooKeeperClient {
                 }
 
                 for (Watcher watcher : watchers) {
-                    watcher.process(event);
+                    try {
+                        watcher.process(event);
+                    } catch (Throwable t) {
+                        LOG.warn("Encountered unexpected exception from watcher {} : ", watcher, t);
+                    }
                 }
             }
         };
@@ -311,7 +324,9 @@ public class ZooKeeperClient {
      * @param watcher the {@code Watcher to register}
      */
     public void register(Watcher watcher) {
-        watchers.add(watcher);
+        if (null != watcher) {
+            watchers.add(watcher);
+        }
     }
 
     /**
@@ -322,7 +337,7 @@ public class ZooKeeperClient {
      * @return whether the given {@code Watcher} was found and removed from the active set
      */
     public boolean unregister(Watcher watcher) {
-        return watchers.remove(watcher);
+        return null != watcher && watchers.remove(watcher);
     }
 
     /**
