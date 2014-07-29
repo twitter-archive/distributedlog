@@ -15,6 +15,7 @@ public class TestDistributedLogBase {
     protected ZooKeeper zkc;
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;
+    protected static String zkServers;
     static int numBookies = 3;
 
     @BeforeClass
@@ -22,6 +23,7 @@ public class TestDistributedLogBase {
         zks = LocalBookKeeper.runZookeeper(1000, 7000);
         bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
         bkutil.start();
+        zkServers = "127.0.0.1:7000";
     }
 
     @AfterClass

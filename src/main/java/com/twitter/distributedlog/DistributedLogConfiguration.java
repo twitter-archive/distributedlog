@@ -84,6 +84,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
     public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
+    public static final String BKDL_NUM_LOCKSTATE_THREADS = "numLockStateThreads";
 
     // Reader parameters
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
@@ -565,6 +566,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public int getNumReadAheadWorkerThreads() {
         return getInt(BKDL_NUM_READAHEAD_WORKER_THREADS, 0);
+    }
+
+    /**
+     * Set the number of lock state threads used by distributedlog manager factory.
+     *
+     * @param numLockStateThreads
+     *          number of lock state threads used by distributedlog manager factory.
+     * @return configuration
+     */
+    public DistributedLogConfiguration setNumLockStateThreads(int numLockStateThreads) {
+        setProperty(BKDL_NUM_LOCKSTATE_THREADS, numLockStateThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of lock state threads used by distributedlog manager factory.
+     *
+     * @return number of lock state threads used by distributedlog manager factory.
+     */
+    public int getNumLockStateThreads() {
+        return getInt(BKDL_NUM_LOCKSTATE_THREADS, 1);
     }
 
     /**

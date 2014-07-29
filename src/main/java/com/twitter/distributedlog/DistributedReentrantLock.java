@@ -19,19 +19,31 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 
+import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.util.Await;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -41,12 +53,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
@@ -65,9 +72,9 @@ class DistributedReentrantLock {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
-    private final ScheduledExecutorService executorService;
+    private final OrderedSafeExecutor lockStateExecutor;
     private final String lockPath;
-    private Future<?> asyncLockAcquireFuture = null;
+    private Future<String> asyncLockAcquireFuture = null;
     private LockingException asyncLockAcquireException = null;
 
     private final AtomicInteger lockCount = new AtomicInteger(0);
@@ -76,7 +83,9 @@ class DistributedReentrantLock {
     private final ZooKeeperClient zooKeeperClient;
     private final String clientId;
     private final long lockTimeout;
+    private final int lockCreationRetries;
     private boolean logUnbalancedWarning = true;
+    private volatile boolean closed = false;
 
     public enum LockReason {
         WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4), MAXREASON(5);
@@ -87,14 +96,9 @@ class DistributedReentrantLock {
         }
     }
 
-
     private static StatsLogger lockStatsLogger = null;
     private static OpStatsLogger acquireStats = null;
     private static OpStatsLogger releaseStats = null;
-    private static OpStatsLogger prepareStats = null;
-    private static OpStatsLogger checkLockStats = null;
-    private static OpStatsLogger syncDeleteStats = null;
-    private static OpStatsLogger asyncDeleteStats = null;
 
     /**
      * Construct a lock.
@@ -111,19 +115,31 @@ class DistributedReentrantLock {
      * @throws IOException
      */
     DistributedReentrantLock(
-        ScheduledExecutorService executorService,
+        OrderedSafeExecutor lockStateExecutor,
         ZooKeeperClient zkc,
         String lockPath,
         long lockTimeout,
         String clientId,
         StatsLogger statsLogger) throws IOException {
-        this.executorService = executorService;
+        this(lockStateExecutor, zkc, lockPath, lockTimeout, clientId, statsLogger, 0);
+    }
+
+    DistributedReentrantLock(
+            OrderedSafeExecutor lockStateExecutor,
+            ZooKeeperClient zkc,
+            String lockPath,
+            long lockTimeout,
+            String clientId,
+            StatsLogger statsLogger,
+            int lockCreationRetries) throws IOException {
+        this.lockStateExecutor = lockStateExecutor;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
         this.zooKeeperClient = zkc;
         this.clientId = clientId;
-        this.internalLock = new DistributedLock(this.zooKeeperClient, this.lockPath, this.clientId);
+        this.lockCreationRetries = lockCreationRetries;
         this.lockAcqTracker = new AtomicIntegerArray(LockReason.MAXREASON.value);
+        this.internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
 
         if (null == lockStatsLogger) {
             lockStatsLogger = statsLogger.scope("lock");
@@ -133,18 +149,6 @@ class DistributedReentrantLock {
         }
         if (null == releaseStats) {
             releaseStats = lockStatsLogger.getOpStatsLogger("release");
-        }
-        if (null == prepareStats) {
-            prepareStats = lockStatsLogger.getOpStatsLogger("prepare");
-        }
-        if (null == checkLockStats) {
-            checkLockStats = lockStatsLogger.getOpStatsLogger("check_lock");
-        }
-        if (null == syncDeleteStats) {
-            syncDeleteStats = lockStatsLogger.getOpStatsLogger("sync_delete");
-        }
-        if (null == asyncDeleteStats) {
-            asyncDeleteStats = lockStatsLogger.getOpStatsLogger("async_delete");
         }
     }
 
@@ -163,14 +167,31 @@ class DistributedReentrantLock {
         }
     }
 
+    private synchronized void checkLockState() throws LockingException {
+        if (closed) {
+            throw new LockingException(lockPath, "Lock is closed");
+        }
+        if (null != asyncLockAcquireException) {
+            throw asyncLockAcquireException;
+        }
+    }
+
     void doAcquire(LockReason reason) throws LockingException {
         LOG.trace("Lock Acquire {}, {}", lockPath, reason);
+        checkLockState();
         while (true) {
             if (lockCount.get() == 0) {
                 synchronized (this) {
                     if (lockCount.get() > 0) {
                         lockCount.incrementAndGet();
                         break;
+                    }
+                    if (internalLock.isExpiredOrClosed()) {
+                        try {
+                            internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
+                        } catch (IOException e) {
+                            throw new LockingException(lockPath, "Failed to create new internal lock", e);
+                        }
                     }
                     if (internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS)) {
                         lockCount.set(1);
@@ -235,101 +256,46 @@ class DistributedReentrantLock {
         }
     }
 
-    public boolean checkWriteLock(boolean acquiresync, LockReason reason) throws LockingException {
-        Future<?> futureToWaitFor = null;
-        synchronized(this) {
+    /**
+     * Check if hold write lock, if it doesn't, then re-acquire the lock.
+     *
+     * @param acquiresync
+     * @throws LockingException
+     */
+    public void checkWriteLock(boolean acquiresync) throws LockingException {
+        Future<String> futureToWaitFor;
+        synchronized (this) {
             if (haveLock()) {
-                return false;
-            }
-
-            // If we have already errored out, throw right away
-            if (null != asyncLockAcquireException) {
-                throw asyncLockAcquireException;
+                return;
             }
 
             // We may have just lost the lock because of a ZK session timeout
             // not necessarily because someone else acquired the lock.
             // In such cases just try to reacquire. If that fails, it will throw
-            if (null == asyncLockAcquireFuture) {
-                asyncLockAcquireFuture = executorService.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            synchronized(DistributedReentrantLock.this) {
-                                // Cleanup the old lock
-                                internalLock.cleanup(false);
-                                // Create a new lock
-                                internalLock = new DistributedLock(zooKeeperClient, lockPath, clientId);
-                                asyncLockAcquireException = null;
-                            }
-                            if (!internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS)) {
-                                LOG.error("Failed to acquire lock within timeout {} : ", lockPath);
-                                throw new LockingException(lockPath, "Failed to acquire lock within timeout");
-                            }
-                        } catch (LockingException exc) {
-                            synchronized(DistributedReentrantLock.this) {
-                                asyncLockAcquireException = exc;
-                            }
-                        } catch (RuntimeException rte) {
-                            synchronized(DistributedReentrantLock.this) {
-                                asyncLockAcquireException = new LockingException(lockPath, "RuntimeException while trying to acquire lock", rte);
-                            }
-                        } finally {
-                            synchronized(DistributedReentrantLock.this) {
-                                asyncLockAcquireFuture = null;
-                            }
-                        }
-                    }
-                });
-            }
-
-            if (acquiresync) {
-                futureToWaitFor = asyncLockAcquireFuture;
-            }
+            futureToWaitFor = reacquireLock(true);
         }
-        if (null != futureToWaitFor) {
+
+        if (null != futureToWaitFor && acquiresync) {
             try {
-                futureToWaitFor.get();
-            } catch (InterruptedException ie) {
-                LOG.error("Interrupted Exception while trying to acquire lock {} : ", lockPath, ie);
-                throw new LockingException(lockPath, "Interrupted Exception while trying to acquire lock", ie);
-            } catch (ExecutionException ee) {
-                if (ee.getCause() instanceof LockingException) {
-                    throw (LockingException)(ee.getCause());
+                Await.result(futureToWaitFor);
+            } catch (Exception e) {
+                if (e instanceof LockingException) {
+                    throw (LockingException) e;
                 } else {
-                    LOG.error("Execution Exception while trying to acquire lock {} : ", lockPath, ee);
-                    throw new LockingException(lockPath, "Execution Exception while trying to acquire lock", ee);
-                }
-            }
-
-            synchronized (this) {
-                // Check that the task did not fail to reacquire
-                if (null != asyncLockAcquireException) {
-                    throw asyncLockAcquireException;
+                    throw new LockingException(lockPath, "Exception on re-acquiring lock : ", e);
                 }
             }
         }
-
-        return false;
     }
 
-    boolean haveLock() {
-        return internalLock.isLockHeld();
+    @VisibleForTesting
+    Future<String> getAsyncLockAcquireFuture() {
+        return asyncLockAcquireFuture;
     }
 
-    public void close() {
-        Future<?> futureToCancel;
-        synchronized (this) {
-            futureToCancel = asyncLockAcquireFuture;
-        }
-        if (null != futureToCancel) {
-            futureToCancel.cancel(true);
-        }
-        internalLock.cleanup(true);
-    }
-
-    private synchronized void setAsyncLockAcquireException(LockingException e) {
-        this.asyncLockAcquireException = e;
+    @VisibleForTesting
+    int getLockCount() {
+        return lockCount.get();
     }
 
     @VisibleForTesting
@@ -337,289 +303,1048 @@ class DistributedReentrantLock {
         return internalLock;
     }
 
-    static class DeleteCallback implements AsyncCallback.VoidCallback {
+    boolean haveLock() {
+        return internalLock.isLockHeld();
+    }
 
-        final Stopwatch stopwatch;
-
-        DeleteCallback() {
-            stopwatch = new Stopwatch().start();
-        }
-
-        @Override
-        public void processResult(int rc, String path, Object ctx) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                asyncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                LOG.info("Deleted lock znode {} successfully!", path);
-            } else {
-                asyncDeleteStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                LOG.info("Deleted lock znode {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
+    public void close() {
+        Future<String> futureToWait;
+        DistributedLock lockToClose;
+        synchronized (this) {
+            if (closed) {
+                return;
             }
+            closed = true;
+            futureToWait = asyncLockAcquireFuture;
+            lockToClose = internalLock;
+        }
+        if (null != futureToWait) {
+            try {
+                Await.result(futureToWait);
+            } catch (Exception e) {
+                LOG.warn("Exception on waiting re-acquiring lock {} : ", lockPath, e);
+            }
+        }
+        lockToClose.unlock();
+    }
+
+    void internalTryLock(final AtomicInteger numRetries, final long lockTimeout,
+                         final Promise<String> result) {
+        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+            @Override
+            public void safeRun() {
+                DistributedLock lock;
+                synchronized (DistributedReentrantLock.this) {
+                    try {
+                        lock = createInternalLock(numRetries);
+                    } catch (IOException ioe) {
+                        result.setException(ioe);
+                        return;
+                    }
+                    internalLock = lock;
+                }
+                lock.asyncTryLock(lockTimeout, TimeUnit.MILLISECONDS)
+                    .addEventListener(new FutureEventListener<String>() {
+                        @Override
+                        public void onSuccess(String owner) {
+                            if (internalLock.isLockHeld()) {
+                                result.setValue(owner);
+                            } else {
+                                result.setException(new OwnershipAcquireFailedException(lockPath, owner));
+                            }
+                        }
+                        @Override
+                        public void onFailure(Throwable cause) {
+                            if (numRetries.getAndDecrement() > 0 && !closed) {
+                                internalTryLock(numRetries, lockTimeout, result);
+                            } else {
+                                result.setException(cause);
+                            }
+                        }
+                    });
+            }
+        });
+    }
+
+    DistributedLock createInternalLock(AtomicInteger numRetries) throws IOException {
+        DistributedLock lock;
+        do {
+            if (closed) {
+                throw new LockingException(lockPath, "Lock is closed");
+            }
+            try {
+                lock = new DistributedLock(zooKeeperClient, lockPath, clientId, lockStateExecutor, new LockListener() {
+                    @Override
+                    public void onExpired() {
+                        try {
+                            reacquireLock(false);
+                        } catch (LockingException e) {
+                            // should not happen
+                            LOG.error("Locking exception on re-acquiring lock {} : ", lockPath, e);
+                        }
+                    }
+                });
+            } catch (DLInterruptedException dlie) {
+                // if the creation is interrupted, throw the exception without retrie.
+                throw dlie;
+            } catch (IOException ioe) {
+                lock = null;
+                if (numRetries.getAndDecrement() < 0) {
+                    throw ioe;
+                }
+            }
+        } while (null == lock);
+        return lock;
+    }
+
+    private Future<String> reacquireLock(boolean throwLockAcquireException) throws LockingException {
+        Promise<String> lockPromise;
+        synchronized (this) {
+            if (closed) {
+                throw new LockingException(lockPath, "Lock is closed");
+            }
+            if (null != asyncLockAcquireException) {
+                if (throwLockAcquireException) {
+                    throw asyncLockAcquireException;
+                } else {
+                    return null;
+                }
+            }
+            if (null != asyncLockAcquireFuture) {
+                return asyncLockAcquireFuture;
+            }
+            asyncLockAcquireFuture = lockPromise = new Promise<String>();
+            asyncLockAcquireFuture.addEventListener(new FutureEventListener<String>() {
+                @Override
+                public void onSuccess(String value) {
+                    // if success re-acquire
+                }
+
+                @Override
+                public void onFailure(Throwable cause) {
+                    synchronized (DistributedReentrantLock.this) {
+                        if (cause instanceof LockingException) {
+                            asyncLockAcquireException = (LockingException) cause;
+                        } else {
+                            asyncLockAcquireException = new LockingException(lockPath,
+                                    "Exception on re-acquiring lock", cause);
+                        }
+                    }
+                }
+            });
+        }
+        internalTryLock(new AtomicInteger(Integer.MAX_VALUE), 0, lockPromise);
+        return lockPromise;
+    }
+
+    public static interface LockAction {
+        void execute();
+        String getActionName();
+    }
+
+    public static interface LockListener {
+        /**
+         * Triggered when a lock is changed from CLAIMED to EXPIRED.
+         */
+        void onExpired();
+    }
+
+    public static class LockStateChangedException extends LockingException {
+
+        private static final long serialVersionUID = -3770866789942102262L;
+
+        public LockStateChangedException(String lockPath, Pair<String, Long> lockId,
+                                         DistributedLock.State expectedState, DistributedLock.State currentState) {
+            super(lockPath, "Lock state of " + lockId + " for " + lockPath + " has changed : expected "
+                    + expectedState + ", but " + currentState);
         }
     }
 
     /**
-     * Twitter commons version with some modifications.
-     * <p/>
-     * TODO: Cannot use the same version to avoid a transitive dependence on
-     * TODO: two different versions of zookeeper.
-     * TODO: When science upgrades to ZK 3.4.X we should remove this
+     * Exception indicates that epoch already changed when executing a given
+     * {@link com.twitter.distributedlog.DistributedReentrantLock.LockAction}.
+     */
+    public static class EpochChangedException extends LockingException {
+
+        private static final long serialVersionUID = 8775257025963870331L;
+
+        public EpochChangedException(String lockPath, int expectedEpoch, int currentEpoch) {
+            super(lockPath, "lock " + lockPath + " already moved to epoch " + currentEpoch + ", expected " + expectedEpoch);
+        }
+
+    }
+
+    /**
+     * A lock under a given zookeeper session. This is a one-time lock.
+     * It is not reusable: if lock failed, if zookeeper session is expired, if #unlock is called,
+     * it would be transitioned to expired or closed state.
+     *
+     * The Locking Procedure is described as below.
+     *
+     * <p>
+     * 0. if it is an immediate lock, it would get lock waiters first. if the lock is already held
+     *    by someone. it would fail immediately with {@link com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException}
+     *    with current owner. if there is no lock waiters, it would start locking procedure from 1.
+     * 1. prepare: create a sequential znode to identify the lock.
+     * 2. check lock waiters: get all lock waiters to check after prepare. if it is the first waiter,
+     *    claim the ownership; if it is not the first waiter, but first waiter was itself (same client id and same session id)
+     *    claim the ownership too; otherwise, it would set watcher on its sibling and wait it to disappared.
+     * </p>
      */
     static class DistributedLock {
 
-        private final ZooKeeperClient zkClient;
-        private final String lockPath;
-        private final String clientId;
+        private static final String LOCK_PATH_PREFIX = "/member_";
+        private static final String LOCK_PART_SEP = "_";
 
-        private final AtomicBoolean aborted = new AtomicBoolean(false);
-        private volatile CountDownLatch syncPoint;
-        private volatile boolean holdsLock = false;
-        private volatile String currentId;
-        private volatile String currentNode;
-        private volatile String watchedNode;
-        private volatile String currentOwner = DistributedLogConstants.UNKNOWN_CLIENT_ID;
-        private volatile LockWatcher watcher;
+        public static String getLockPathPrefixV1(String lockPath) {
+            // member_
+            return lockPath + LOCK_PATH_PREFIX;
+        }
+
+        public static String getLockPathPrefixV2(String lockPath, String clientId) throws UnsupportedEncodingException {
+            // member_<clientid>_
+            return lockPath + LOCK_PATH_PREFIX + URLEncoder.encode(clientId, UTF_8.name()) + LOCK_PART_SEP;
+        }
+
+        public static String getLockPathPrefixV3(String lockPath, String clientId, long sessionOwner) throws UnsupportedEncodingException {
+            // member_<clientid>_s<owner_session>_
+            StringBuilder sb = new StringBuilder();
+            sb.append(lockPath).append(LOCK_PATH_PREFIX).append(URLEncoder.encode(clientId, UTF_8.name())).append(LOCK_PART_SEP)
+                    .append("s").append(String.format("%10d", sessionOwner)).append(LOCK_PART_SEP);
+            return sb.toString();
+        }
+
+        public static byte[] serializeClientId(String clientId) {
+            return clientId.getBytes(UTF_8);
+        }
+
+        public static String deserializeClientId(byte[] data) {
+            return new String(data, UTF_8);
+        }
+
+        public static String getLockIdFromPath(String path) {
+            // We only care about our actual id since we want to compare ourselves to siblings.
+            if (path.contains("/")) {
+                return path.substring(path.lastIndexOf("/") + 1);
+            } else {
+                return path;
+            }
+        }
+
+        static final Comparator<String> MEMBER_COMPARATOR = new Comparator<String>() {
+            public int compare(String o1, String o2) {
+                int l1 = parseMemberID(o1);
+                int l2 = parseMemberID(o2);
+                return l1 - l2;
+            }
+        };
+
+        static enum State {
+            INIT,      // initialized state
+            PREPARING, // preparing to lock, but no lock node created
+            PREPARED,  // lock node created
+            CLAIMED,   // claim lock ownership
+            WAITING,   // waiting for the ownership
+            EXPIRED,   // lock is expired
+            CLOSED,    // lock is closed
+        }
+
+        private final ZooKeeperClient zkClient;
+        private final ZooKeeper zk;
+        private final String lockPath;
+        // Identify a unique lock
+        private final Pair<String, Long> lockId;
+        private volatile State lockState;
+
+        private final CountDownLatch syncPoint;
+        private String currentId;
+        private String currentNode;
+        private String watchedNode;
+        private LockWatcher watcher;
         private final AtomicInteger epoch = new AtomicInteger(0);
+        private final OrderedSafeExecutor lockStateExecutor;
+        private final LockListener lockListener;
 
         /**
          * Creates a distributed lock using the given {@code zkClient} to coordinate locking.
          *
          * @param zkClient The ZooKeeper client to use.
          * @param lockPath The path used to manage the lock under.
+         * @param clientId client id use for lock.
+         * @param lockStateExecutor executor to execute all lock state changes.
+         * @param lockListener listener on lock state change.
          */
-        public DistributedLock(ZooKeeperClient zkClient, String lockPath, String clientId) {
+        public DistributedLock(ZooKeeperClient zkClient, String lockPath, String clientId,
+                               OrderedSafeExecutor lockStateExecutor, LockListener lockListener)
+                throws IOException {
             this.zkClient = zkClient;
+            try {
+                this.zk = zkClient.get();
+            } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
+                throw new ZKException("Failed to get zookeeper client for lock " + lockPath,
+                        KeeperException.Code.CONNECTIONLOSS);
+            } catch (InterruptedException e) {
+                throw new DLInterruptedException("Interrupted on getting zookeeper client for lock " + lockPath, e);
+            }
             this.lockPath = lockPath;
-            this.clientId = clientId;
+            this.lockId = Pair.of(clientId, this.zk.getSessionId());
+            this.lockStateExecutor = lockStateExecutor;
+            this.lockListener = lockListener;
             this.syncPoint = new CountDownLatch(1);
+            this.lockState = State.INIT;
         }
 
-        private static int parseMemberID(String nodeName) {
+        @VisibleForTesting
+        AtomicInteger getEpoch() {
+            return epoch;
+        }
+
+        @VisibleForTesting
+        State getLockState() {
+            return lockState;
+        }
+
+        @VisibleForTesting
+        Pair<String, Long> getLockId() {
+            return lockId;
+        }
+
+        boolean isExpiredOrClosed() {
+            return State.CLOSED == lockState || State.EXPIRED == lockState;
+        }
+
+        /**
+         * Execute a lock action of a given <i>lockEpoch</i> in ordered safe way.
+         *
+         * @param lockEpoch
+         *          lock epoch
+         * @param func
+         *          function to execute a lock action
+         */
+        protected void executeLockAction(final int lockEpoch, final LockAction func) {
+            lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                @Override
+                public void safeRun() {
+                    if (DistributedLock.this.epoch.get() == lockEpoch) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} executing lock action '{}' under epoch {} for lock {}",
+                                    new Object[]{lockId, func.getActionName(), lockEpoch, lockPath});
+                        }
+                        func.execute();
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} executed lock action '{}' under epoch {} for lock {}",
+                                    new Object[]{lockId, func.getActionName(), lockEpoch, lockPath});
+                        }
+                    } else {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} skipped executing lock action '{}' for lock {}, since epoch is changed from {} to {}.",
+                                    new Object[]{lockId, func.getActionName(), lockPath, lockEpoch, DistributedLock.this.epoch.get()});
+                        }
+                    }
+                }
+            });
+        }
+
+        /**
+         * Execute a lock action of a given <i>lockEpoch</i> in ordered safe way. If the lock action couln't be
+         * executed due to epoch changed, fail the given <i>promise</i> with
+         * {@link com.twitter.distributedlog.DistributedReentrantLock.EpochChangedException}
+         *
+         * @param lockEpoch
+         *          lock epoch
+         * @param func
+         *          function to execute a lock action
+         * @param promise
+         *          promise
+         */
+        protected <T> void executeLockAction(final int lockEpoch, final LockAction func, final Promise<T> promise) {
+            lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                @Override
+                public void safeRun() {
+                    int currentEpoch = DistributedLock.this.epoch.get();
+                    if (currentEpoch == lockEpoch) {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} executed lock action '{}' under epoch {} for lock {}",
+                                    new Object[]{lockId, func.getActionName(), lockEpoch, lockPath});
+                        }
+                        func.execute();
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} executed lock action '{}' under epoch {} for lock {}",
+                                    new Object[]{lockId, func.getActionName(), lockEpoch, lockPath});
+                        }
+                    } else {
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("{} skipped executing lock action '{}' for lock {}, since epoch is changed from {} to {}.",
+                                    new Object[]{lockId, func.getActionName(), lockPath, lockEpoch, currentEpoch});
+                        }
+                        promise.setException(new EpochChangedException(lockPath, lockEpoch, currentEpoch));
+                    }
+                }
+            });
+        }
+
+        /**
+         * Parse member id generated by zookeeper from given <i>nodeName</i>
+         *
+         * @param nodeName
+         *          lock node name
+         * @return member id generated by zookeeper
+         */
+        static int parseMemberID(String nodeName) {
             int id = -1;
             String[] parts = nodeName.split("_");
             if (parts.length > 0) {
                 try {
                     id = Integer.parseInt(parts[parts.length - 1]);
                 } catch (NumberFormatException nfe) {
-                    id = -1;
+                    // make it to be MAX_VALUE, so the bad znode will never acquire the lock
+                    id = Integer.MAX_VALUE;
                 }
             }
             return id;
         }
 
-        private String parseClientID(String nodeName)
-                throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException,
-                KeeperException, UnsupportedEncodingException {
+        /**
+         * Get client id and its ephemeral owner.
+         *
+         * @param zkClient
+         *          zookeeper client
+         * @param lockPath
+         *          lock path
+         * @param nodeName
+         *          node name
+         * @return client id and its ephemeral owner.
+         */
+        static Future<Pair<String, Long>> asyncParseClientID(ZooKeeper zkClient, String lockPath, String nodeName) {
             String[] parts = nodeName.split("_");
-
-            String currentOwnerTemp;
-            if (parts.length == 3) {
-                currentOwnerTemp = URLDecoder.decode(parts[1], "UTF-8");
-            } else {
-                currentOwnerTemp = new String(
-                    zkClient.get().getData(lockPath + "/" + nodeName, false, null), "UTF-8");
-            }
-            return currentOwnerTemp;
-        }
-
-        private List<String> getLockMembers()
-                throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException,
-                KeeperException {
-            List<String> sortedMembers = zkClient.get().getChildren(lockPath, null);
-
-            Collections.sort(sortedMembers, new Comparator<String>() {
-                public int compare(String o1, String o2) {
-                    int l1 = parseMemberID(o1);
-                    int l2 = parseMemberID(o2);
-                    return l1 - l2;
+            // member_<clientid>_s<owner_session>_
+            if (4 == parts.length && parts[2].startsWith("s")) {
+                long sessionOwner = Long.parseLong(parts[2].substring(1));
+                String clientId;
+                try {
+                    clientId = URLDecoder.decode(parts[1], UTF_8.name());
+                    return Future.value(Pair.of(clientId, sessionOwner));
+                } catch (UnsupportedEncodingException e) {
+                    // if failed to parse client id, we have to get client id by zookeeper#getData.
                 }
-            });
-
-            return sortedMembers;
-        }
-
-        private void checkOwnerIfNeed(long timeout)
-                throws OwnershipAcquireFailedException, InterruptedException, ZooKeeperClient.ZooKeeperConnectionException,
-                KeeperException {
-            if (DistributedLogConstants.LOCK_IMMEDIATE == timeout) {
-                List<String> members = getLockMembers();
-                if (members.size() > 0) {
-                    try {
-                        String clientId = parseClientID(members.get(0));
-                        throw new OwnershipAcquireFailedException(lockPath, clientId);
-                    } catch (UnsupportedEncodingException e) {
-                        // no idea about current owner, then fallback.
-                    } catch (KeeperException.NoNodeException nne) {
-                        // the owner just disappeared, then fallback.
+            }
+            final Promise<Pair<String, Long>> promise = new Promise<Pair<String, Long>>();
+            zkClient.getData(lockPath + "/" + nodeName, false, new AsyncCallback.DataCallback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                    if (KeeperException.Code.OK.intValue() != rc) {
+                        promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                    } else {
+                        promise.setValue(Pair.of(deserializeClientId(data), stat.getEphemeralOwner()));
                     }
                 }
-            }
+            }, null);
+            return promise;
         }
 
-        private int prepare()
-                throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
-            Stopwatch stopwatch = new Stopwatch().start();
-            boolean success = false;
-            try {
-                int res = doPrepare();
-                success = true;
-                return res;
-            } finally {
-                if (success) {
-                    prepareStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                } else {
-                    prepareStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+        private Future<String> asyncTryLock(long timeout, TimeUnit timeUnit) {
+            final Promise<String> result = new Promise<String>();
+            final boolean wait = DistributedLogConstants.LOCK_IMMEDIATE != timeout;
+            if (wait) {
+                asyncTryLock(wait, result);
+            } else {
+                // try to check locks first
+                zk.getChildren(lockPath, null, new AsyncCallback.Children2Callback() {
+                    @Override
+                    public void processResult(final int rc, String path, Object ctx,
+                                              final List<String> children, Stat stat) {
+                        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                            @Override
+                            public void safeRun() {
+                                if (State.INIT != lockState) {
+                                    result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                                    return;
+                                }
+                                if (KeeperException.Code.OK.intValue() != rc) {
+                                    result.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                                    return;
+                                }
+                                Collections.sort(children, MEMBER_COMPARATOR);
+                                if (children.size() > 0) {
+                                    asyncParseClientID(zk, lockPath, children.get(0)).addEventListener(
+                                    new FutureEventListener<Pair<String, Long>>() {
+                                        @Override
+                                        public void onSuccess(Pair<String, Long> owner) {
+                                            checkOrClaimLockOwner(owner, result);
+                                        }
+
+                                        @Override
+                                        public void onFailure(final Throwable cause) {
+                                            lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                                                @Override
+                                                public void safeRun() {
+                                                    result.setException(cause);
+                                                }
+                                            });
+                                        }
+                                    });
+                                } else {
+                                    asyncTryLock(wait, result);
+                                }
+                            }
+                        });
+                    }
+                }, null);
+            }
+            return result;
+        }
+
+        private void checkOrClaimLockOwner(final Pair<String, Long> currentOwner,
+                                           final Promise<String> result) {
+            if (lockId.compareTo(currentOwner) != 0) {
+                lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                    @Override
+                    public void safeRun() {
+                        result.setValue(currentOwner.getLeft());
+                    }
+                });
+                return;
+            }
+            // current owner is itself
+            final int curEpoch = epoch.incrementAndGet();
+            executeLockAction(curEpoch, new LockAction() {
+                @Override
+                public void execute() {
+                    if (State.INIT != lockState) {
+                        result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                        return;
+                    }
+                    asyncTryLock(false, result);
                 }
-            }
+                @Override
+                public String getActionName() {
+                    return "claimOwnership(owner=" + currentOwner + ")";
+                }
+            }, result);
         }
 
-        private int doPrepare()
-            throws InterruptedException, KeeperException, ZooKeeperClient.ZooKeeperConnectionException {
+        /**
+         * Try lock. If it failed, it would cleanup its attempt.
+         *
+         * @param wait
+         *          whether to wait for ownership.
+         * @param result
+         *          promise to satisfy with current lock owner
+         */
+        private void asyncTryLock(boolean wait, final Promise<String> result) {
+            final Promise<String> lockResult = new Promise<String>();
+            lockResult.addEventListener(new FutureEventListener<String>() {
+                @Override
+                public void onSuccess(String currentOwner) {
+                    result.setValue(currentOwner);
+                }
 
-            LOG.trace("Working with locking path: {}", lockPath);
+                @Override
+                public void onFailure(final Throwable lockCause) {
+                    // if tryLock failed due to state changed, we don't need to cleanup
+                    if (lockCause instanceof LockStateChangedException) {
+                        result.setException(lockCause);
+                        return;
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("{} is cleaning up its lock state for {} due to : ",
+                                  new Object[] { lockId, lockPath, lockCause });
+                    }
+                    // if encountered any exception
+                    // we should cleanup
+                    Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
+                    cleanupResult.addEventListener(new FutureEventListener<BoxedUnit>() {
+                        @Override
+                        public void onSuccess(BoxedUnit value) {
+                            result.setException(lockCause);
+                        }
+                        @Override
+                        public void onFailure(Throwable cause) {
+                            result.setException(lockCause);
+                        }
+                    });
+                    cleanup(cleanupResult);
+                }
+            });
+            asyncTryLockWithoutCleanup(wait, lockResult);
+        }
 
-            // Increase the epoch each time acquire the lock
-            int curEpoch = epoch.incrementAndGet();
+        /**
+         * Try lock. If wait is true, it would wait and watch sibling to acquire lock when
+         * the sibling is dead. <i>syncPoint</i> will be notified either it locked successfully
+         * or the lock failed. The promise will only satisfy with current lock owner.
+         *
+         * NOTE: the <i>promise</i> is only satisfied on <i>lockStateExecutor</i>, so any
+         * transformations attached on promise will be executed in order.
+         *
+         * @param wait
+         *          whether to wait for ownership.
+         * @param promise
+         *          promise to satisfy with current lock owner.
+         */
+        private void asyncTryLockWithoutCleanup(final boolean wait, final Promise<String> promise) {
+            executeLockAction(epoch.get(), new LockAction() {
+                @Override
+                public void execute() {
+                    if (State.INIT != lockState) {
+                        promise.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                        return;
+                    }
+                    lockState = State.PREPARING;
 
-            // Create an EPHEMERAL_SEQUENTIAL node.
-            try {
-                currentNode =
-                    zkClient.get().create(lockPath + "/member_" + URLEncoder.encode(clientId, "UTF-8") + "_",
-                            clientId.getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
-            } catch (UnsupportedEncodingException e) {
-                currentNode =
-                    zkClient.get().create(lockPath + "/member_",
-                            clientId.getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
-            }
+                    final int curEpoch = epoch.incrementAndGet();
+                    watcher = new LockWatcher(curEpoch);
+                    // register watcher for session expires
+                    zkClient.register(watcher);
+                    // Encode both client id and session in the lock node
+                    String myPath;
+                    try {
+                        // member_<clientid>_s<owner_session>_
+                        myPath = getLockPathPrefixV3(lockPath, lockId.getLeft(), lockId.getRight());
+                    } catch (UnsupportedEncodingException uee) {
+                        myPath = getLockPathPrefixV1(lockPath);
+                    }
+                    zk.create(myPath, serializeClientId(lockId.getLeft()), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL,
+                            new AsyncCallback.StringCallback() {
+                        @Override
+                        public void processResult(final int rc, String path, Object ctx, final String name) {
+                            executeLockAction(curEpoch, new LockAction() {
+                                @Override
+                                public void execute() {
+                                    if (KeeperException.Code.OK.intValue() != rc) {
+                                        KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
+                                        promise.setException(ke);
+                                        return;
+                                    }
+                                    currentNode = name;
+                                    currentId = getLockIdFromPath(currentNode);
+                                    LOG.trace("{} received member id for lock {} : ", lockId, currentId);
+                                    // Complete preparation
+                                    lockState = State.PREPARED;
+                                    checkLockOwnerAndWaitIfPossible(watcher, wait, promise);
+                                }
 
-            // We only care about our actual id since we want to compare ourselves to siblings.
-            if (currentNode.contains("/")) {
-                currentId = currentNode.substring(currentNode.lastIndexOf("/") + 1);
-            }
-            LOG.trace("Received ID from zk: {}", currentId);
-            this.watcher = new LockWatcher(curEpoch);
-            return curEpoch;
+                                @Override
+                                public String getActionName() {
+                                    return "postPrepare(wait=" + wait + ")";
+                                }
+                            });
+                        }
+                    }, null);
+                }
+                @Override
+                public String getActionName() {
+                    return "prepare(wait=" + wait + ")";
+                }
+            }, promise);
         }
 
         public boolean tryLock(long timeout, TimeUnit unit) throws LockingException {
-            if (holdsLock) {
-                throw new LockingException(lockPath, "Error, already holding a lock. Call unlock first!");
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Try locking {} at {}.", lockPath, System.currentTimeMillis());
-            }
+            return waitForLock(asyncTryLock(timeout, unit), timeout, unit);
+        }
+
+        public synchronized boolean waitForLock(Future<String> lockFuture, long timeout, TimeUnit unit)
+                throws LockingException {
+            boolean success = false;
+            boolean stateChanged = false;
             try {
-                checkOwnerIfNeed(timeout);
-                prepare();
-                // only wait the lock for non-immediate lock
-                watcher.checkForLock(DistributedLogConstants.LOCK_IMMEDIATE != timeout);
-                if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
-                    if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
-                        syncPoint.await();
+                String owner;
+                try {
+                    owner = Await.result(lockFuture);
+                } catch (Exception e) {
+                    if (e instanceof LockingException) {
+                        stateChanged = e instanceof LockStateChangedException;
+                        throw (LockingException) e;
+                    } else {
+                        throw new LockingException(lockPath, lockId + " failed to lock " + lockPath, e);
                     }
-                    else {
-                        if (!syncPoint.await(timeout, unit)) {
-                            LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
+                }
+                try {
+                    if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
+                        if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
+                            syncPoint.await();
+                        }
+                        else {
+                            if (!syncPoint.await(timeout, unit)) {
+                                LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
+                            }
                         }
                     }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
                 }
-                if (!holdsLock) {
-                    throw new OwnershipAcquireFailedException(lockPath, currentOwner);
+                success = isLockHeld();
+                if (!success) {
+                    throw new OwnershipAcquireFailedException(lockPath, owner);
                 }
-            } catch (InterruptedException e) {
-                cancelAttempt(true, this.epoch.get());
-                return false;
-            } catch (KeeperException e) {
-                LOG.error("ZooKeeper Exception while trying to acquire lock {} : ", lockPath, e);
-                // No need to clean up since the node wasn't created yet.
-                throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock " + lockPath, e);
-            } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                // No need to clean up since the node wasn't created yet.
-                throw new LockingException(lockPath, "ZooKeeper Exception while trying to acquire lock " + lockPath, e);
             } finally {
-                if (!holdsLock) {
-                    cancelAttempt(false, this.epoch.get());
+                if (!success && !stateChanged) {
+                    unlock();
                 }
             }
             return true;
         }
 
-        public void unlock() {
-            if (currentId == null) {
-                LOG.error("Error, neither attempting to lock nor holding a lock! {}", lockPath);
-                return;
-            }
-            // Try aborting!
-            if (!holdsLock) {
-                aborted.set(true);
-                LOG.info("Not holding lock, aborting acquisition attempt!");
-            } else {
-                LOG.trace("Cleaning up this locks ephemeral node. {} {}", currentId, currentNode);
-                cleanup(true);
+        public synchronized void unlock() {
+            Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
+            cleanup(cleanupResult);
+            try {
+                Await.result(cleanupResult);
+            } catch (Exception e) {
+                LOG.warn("{} failed to unlock {} : ", new Object[] { lockId, lockPath, e });
             }
         }
 
-        private String getCurrentId() {
-            return currentId;
+        // Lock State Changes (all state changes should be executed under a LockAction)
+
+        private void claimOwnership(int lockEpoch) {
+            lockState = State.CLAIMED;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Notify lock waiters on {} at {} : watcher epoch {}, lock epoch {}",
+                          new Object[] { lockPath, System.currentTimeMillis(),
+                                  lockEpoch, DistributedLock.this.epoch.get() });
+            }
+            syncPoint.countDown();
         }
 
         public boolean isLockHeld() {
-            return holdsLock;
+            return State.CLAIMED == lockState;
         }
 
-        private void cancelAttempt(boolean sync, int epoch) {
-            if (this.epoch.getAndIncrement() == epoch) {
-                LOG.info("Cancelling lock attempt!");
-                cleanup(sync);
-                // Bubble up failure...
-                holdsLock = false;
-                syncPoint.countDown();
+        /**
+         * NOTE: cleanup should only after try lock.
+         */
+        private void cleanup(Promise<BoxedUnit> promise) {
+            // already closed or expired, nothing to cleanup
+            this.epoch.incrementAndGet();
+            if (null != watcher) {
+                this.zkClient.unregister(watcher);
             }
+            if (State.CLOSED == lockState || State.EXPIRED == lockState) {
+                promise.setValue(BoxedUnit.UNIT);
+                return;
+            }
+
+            LOG.info("Lock {} for {} is closed from state {}.",
+                    new Object[] { lockId, lockPath, lockState });
+            if (State.INIT == lockState) {
+                // nothing to cleanup
+                lockState = State.CLOSED;
+                promise.setValue(BoxedUnit.UNIT);
+                return;
+            }
+
+            lockState = State.CLOSED;
+            // in any other state, we should clean the member node
+            deleteLockNode(promise);
         }
 
-        private void cleanup(boolean sync) {
-            LOG.trace("Cleaning up!");
-            String nodeToDelete = currentNode;
-            try {
-                if (null != nodeToDelete) {
-                    if (sync) {
-                        Stopwatch stopwatch = new Stopwatch().start();
-                        boolean success = false;
-                        try {
-                            Stat stat = zkClient.get().exists(nodeToDelete, false);
-                            if (stat != null) {
-                                zkClient.get().delete(nodeToDelete, -1);
+        private void deleteLockNode(final Promise<BoxedUnit> promise) {
+            if (null == currentNode) {
+                promise.setValue(BoxedUnit.UNIT);
+                return;
+            }
+            zk.delete(currentNode, -1, new AsyncCallback.VoidCallback() {
+                @Override
+                public void processResult(final int rc, final String path, Object ctx) {
+                    lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                        @Override
+                        public void safeRun() {
+                            if (KeeperException.Code.OK.intValue() == rc ||
+                                    KeeperException.Code.NONODE.intValue() == rc ||
+                                    KeeperException.Code.SESSIONEXPIRED.intValue() == rc) {
+                                LOG.info("Deleted lock node {} for {} successfully.", path, lockId);
                             } else {
-                                LOG.warn("Called cleanup but nothing to cleanup!");
+                                LOG.warn("Failed on deleting lock node {} for {} : {}",
+                                        new Object[] { path, lockId, KeeperException.Code.get(rc) });
                             }
-                            success = true;
-                        } finally {
-                            if (success) {
-                                syncDeleteStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                            } else {
-                                syncDeleteStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                            }
+                            promise.setValue(BoxedUnit.UNIT);
                         }
+                    });
+                }
+            }, null);
+        }
 
-                    } else {
-                        zkClient.get().delete(nodeToDelete, -1, new DeleteCallback(), null);
+        /**
+         * Handle session expired for lock watcher at epoch <i>lockEpoch</i>.
+         *
+         * @param lockEpoch
+         *          lock epoch
+         */
+        private void handleSessionExpired(final int lockEpoch) {
+            executeLockAction(lockEpoch, new LockAction() {
+                @Override
+                public void execute() {
+                    boolean shouldNotifyLockListener = State.CLAIMED == lockState;
+
+                    lockState = State.EXPIRED;
+                    // remove the watcher
+                    if (null != watcher) {
+                        zkClient.unregister(watcher);
+                    }
+                    // increment epoch to avoid any ongoing locking action
+                    DistributedLock.this.epoch.incrementAndGet();
+                    // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
+                    // we don't even need to clean up the lock as the znode will disappear after session expired
+                    syncPoint.countDown();
+
+                    if (shouldNotifyLockListener) {
+                        // if session expired after claimed, we need to notify the caller to re-lock
+                        if (null != lockListener) {
+                            lockListener.onExpired();
+                        }
                     }
                 }
-            } catch (KeeperException e) {
-                LOG.warn("Failed to clean up lock node {} : ", nodeToDelete, e);
-            } catch (InterruptedException e) {
-                LOG.warn("Interrupted on cleaning up lock node {} : ", nodeToDelete, e);
-            } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                LOG.warn("Lost zookeeper connection on cleaning up node {} : ", nodeToDelete, e);
-            }
-            holdsLock = false;
-            aborted.set(false);
-            currentId = null;
-            currentNode = null;
-            watcher = null;
-            syncPoint = new CountDownLatch(1);
+
+                @Override
+                public String getActionName() {
+                    return "handleSessionExpired(epoch=" + lockEpoch + ")";
+                }
+            });
         }
 
-        class LockWatcher implements Watcher, AsyncCallback.VoidCallback {
+        private void handleNodeDelete(int lockEpoch, final WatchedEvent event) {
+            executeLockAction(lockEpoch, new LockAction() {
+                @Override
+                public void execute() {
+                    // The lock is either expired or closed
+                    if (State.WAITING != lockState) {
+                        LOG.info("{} ignore watched node {} deleted event, since lock state has moved to {}.",
+                                 new Object[] { lockId, event.getPath(), lockState });
+                        return;
+                    }
+                    lockState = State.PREPARED;
+                    // we don't need to wait and check the result, since:
+                    // 1) if it claimed the ownership, it would notify the waiters when claimed ownerships
+                    // 2) if it failed, it would also notify the waiters, the waiters would cleanup the state.
+                    checkLockOwnerAndWaitIfPossible(watcher, true);
+                }
+
+                @Override
+                public String getActionName() {
+                    return "handleNodeDelete(path=" + event.getPath() + ")";
+                }
+            });
+        }
+
+        private Future<String> checkLockOwnerAndWaitIfPossible(final LockWatcher lockWatcher,
+                                                               final boolean wait) {
+            final Promise<String> promise = new Promise<String>();
+            checkLockOwnerAndWaitIfPossible(lockWatcher, wait, promise);
+            return promise;
+        }
+
+        /**
+         * Check Lock Owner Phase 1 : Get all lock waiters.
+         *
+         * @param lockWatcher
+         *          lock watcher.
+         * @param wait
+         *          whether to wait for ownership.
+         * @param promise
+         *          promise to satisfy with current lock owner
+         */
+        private void checkLockOwnerAndWaitIfPossible(final LockWatcher lockWatcher,
+                                                     final boolean wait,
+                                                     final Promise<String> promise) {
+            zk.getChildren(lockPath, false, new AsyncCallback.Children2Callback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+                    processLockWaiters(lockWatcher, wait, rc, children, promise);
+                }
+            }, null);
+        }
+
+        /**
+         * Check Lock Owner Phase 2 : check all lock waiters to get current owner and wait for ownership if necessary.
+         *
+         * @param lockWatcher
+         *          lock watcher.
+         * @param wait
+         *          whether to wait for ownership.
+         * @param getChildrenRc
+         *          result of getting all lock waiters
+         * @param children
+         *          current lock waiters.
+         * @param promise
+         *          promise to satisfy with current lock owner.
+         */
+        private void processLockWaiters(final LockWatcher lockWatcher,
+                                        final boolean wait,
+                                        final int getChildrenRc,
+                                        final List<String> children,
+                                        final Promise<String> promise) {
+            executeLockAction(lockWatcher.epoch, new LockAction() {
+                @Override
+                public void execute() {
+                    if (State.PREPARED != lockState) { // e.g. lock closed or session expired after prepared
+                        promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState));
+                        return;
+                    }
+
+                    if (KeeperException.Code.OK.intValue() != getChildrenRc) {
+                        promise.setException(KeeperException.create(KeeperException.Code.get(getChildrenRc)));
+                        return;
+                    }
+                    if (children.isEmpty()) {
+                        LOG.error("Error, memeber list is empty for lock {}.", lockPath);
+                        promise.setException(new UnexpectedException("Empty member list for lock " + lockPath));
+                        return;
+                    }
+
+                    // sort the children
+                    Collections.sort(children, MEMBER_COMPARATOR);
+                    final String cid = currentId;
+                    final int memberIndex = children.indexOf(cid);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("{} is the number {} member in the list.", cid, memberIndex);
+                    }
+                    // If we hold the lock
+                    if (memberIndex == 0) {
+                        LOG.info("{} acquired the lock {}.", cid, lockPath);
+                        claimOwnership(lockWatcher.epoch);
+                        promise.setValue(cid);
+                    } else if (memberIndex > 0) { // we are in the member list but we didn't hold the lock
+                        // get ownership of current owner
+                        asyncParseClientID(zk, lockPath, children.get(0)).addEventListener(new FutureEventListener<Pair<String, Long>>() {
+                            @Override
+                            public void onSuccess(Pair<String, Long> currentOwner) {
+                                watchLockOwner(lockWatcher, wait,
+                                        cid, children.get(memberIndex - 1), children.get(0), currentOwner, promise);
+                            }
+                            @Override
+                            public void onFailure(final Throwable cause) {
+                                // ensure promise is satisfied in lock thread
+                                executeLockAction(lockWatcher.epoch, new LockAction() {
+                                    @Override
+                                    public void execute() {
+                                        promise.setException(cause);
+                                    }
+
+                                    @Override
+                                    public String getActionName() {
+                                        return "handleFailureOnParseClientID(lockPath=" + lockPath + ")";
+                                    }
+                                }, promise);
+                            }
+                        });
+                    } else {
+                        LOG.error("Member {} doesn't exist in the members list {} for lock {}.",
+                                new Object[]{ cid, children, lockPath});
+                        promise.setException(
+                                new UnexpectedException("Member " + cid + " doesn't exist in member list " +
+                                        children + " for lock " + lockPath));
+                    }
+                }
+
+                @Override
+                public String getActionName() {
+                    return "processLockWaiters(rc=" + getChildrenRc + ", waiters=" + children + ")";
+                }
+            }, promise);
+        }
+
+        /**
+         * Check Lock Owner Phase 3: watch sibling node for lock ownership.
+         *
+         * @param lockWatcher
+         *          lock watcher.
+         * @param wait
+         *          whether to wait for ownership.
+         * @param myNode
+         *          my lock node.
+         * @param siblingNode
+         *          my sibling lock node.
+         * @param ownerNode
+         *          owner lock node.
+         * @param currentOwner
+         *          current owner info.
+         * @param promise
+         *          promise to satisfy with current lock owner.
+         */
+        private void watchLockOwner(final LockWatcher lockWatcher,
+                                    final boolean wait,
+                                    final String myNode,
+                                    final String siblingNode,
+                                    final String ownerNode,
+                                    final Pair<String, Long> currentOwner,
+                                    final Promise<String> promise) {
+            executeLockAction(lockWatcher.epoch, new LockAction() {
+                @Override
+                public void execute() {
+                    boolean shouldWatch;
+                    if (lockId.compareTo(currentOwner) == 0 && siblingNode.equals(ownerNode)) {
+                        // I found that my sibling is the current owner with same lock id (client id & session id)
+                        // It must be left by any race condition from same zookeeper client
+                        // I would watch owner instead of sibling
+                        shouldWatch = true;
+                        LOG.info("LockWatcher {} for {} found itself {} already held lock at sibling node {}, watch it to claim ownership.",
+                                new Object[]{myNode, lockPath, lockId, siblingNode});
+                    } else {
+                        shouldWatch = wait;
+                        if (wait) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Current LockWatcher for {} with ephemeral node {}, is waiting for {} to release lock at {}.",
+                                        new Object[]{lockPath, myNode, siblingNode, System.currentTimeMillis()});
+                            }
+                        }
+                    }
+
+                    // watch sibling for lock ownership
+                    if (shouldWatch) {
+                        watchedNode = String.format("%s/%s", lockPath, siblingNode);
+                        zk.exists(watchedNode, lockWatcher, new AsyncCallback.StatCallback() {
+                            @Override
+                            public void processResult(final int rc, String path, Object ctx, final Stat stat) {
+                                executeLockAction(lockWatcher.epoch, new LockAction() {
+                                    @Override
+                                    public void execute() {
+                                        if (KeeperException.Code.OK.intValue() == rc) {
+                                            if (lockId.compareTo(currentOwner) == 0 && siblingNode.equals(ownerNode)) {
+                                                // watch owner successfully
+                                                claimOwnership(lockWatcher.epoch);
+                                                LOG.info("LockWatcher {} claimed ownership for {} after set watcher on {}.",
+                                                        new Object[]{ myNode, lockPath, ownerNode });
+                                                promise.setValue(currentOwner.getLeft());
+                                            } else {
+                                                // watch sibling successfully
+                                                lockState = State.WAITING;
+                                                promise.setValue(currentOwner.getLeft());
+                                            }
+                                        } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                                            // sibling just disappeared, it might be the chance to claim ownership
+                                            checkLockOwnerAndWaitIfPossible(lockWatcher, wait, promise);
+                                        } else {
+                                            promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                                        }
+                                    }
+
+                                    @Override
+                                    public String getActionName() {
+                                        StringBuilder sb = new StringBuilder();
+                                        sb.append("postWatchLockOwner(myNode=").append(myNode).append(", siblingNode=")
+                                                .append(siblingNode).append(", ownerNode=").append(ownerNode).append(")");
+                                        return sb.toString();
+                                    }
+                                }, promise);
+                            }
+                        }, null);
+                    } else {
+                        promise.setValue(currentOwner.getLeft());
+                    }
+                }
+
+                @Override
+                public String getActionName() {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("watchLockOwner(myNode=").append(myNode).append(", siblingNode=")
+                            .append(siblingNode).append(", ownerNode=").append(ownerNode).append(")");
+                    return sb.toString();
+                }
+            }, promise);
+        }
+
+        class LockWatcher implements Watcher {
 
             // Enforce a epoch number to avoid a race on canceling attempt
             final int epoch;
@@ -628,227 +1353,34 @@ class DistributedReentrantLock {
                 this.epoch = epoch;
             }
 
-            public void checkForLock(boolean wait) {
-                Stopwatch stopwatch = new Stopwatch().start();
-                boolean success = false;
-                try {
-                    doCheckForLock(wait);
-                    success = true;
-                } finally {
-                    if (success) {
-                        checkLockStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                    } else {
-                        checkLockStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                    }
-                }
-            }
-
-            void asyncCheckForLock(final boolean wait, final AsyncCallback.VoidCallback callback, Object ctx) {
-                try {
-                    zkClient.get().getChildren(lockPath, false, new AsyncCallback.Children2Callback() {
-                        @Override
-                        public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
-                            if (KeeperException.Code.OK.intValue() != rc) {
-                                callback.processResult(rc, path, ctx);
-                                return;
-                            }
-                            if (children.isEmpty()) {
-                                LOG.error("Error, memeber list is empty for lock {}.", lockPath);
-                                callback.processResult(KeeperException.Code.RUNTIMEINCONSISTENCY.intValue(), path, ctx);
-                                return;
-                            }
-                            // sort the children
-                            Collections.sort(children, new Comparator<String>() {
-                                public int compare(String o1, String o2) {
-                                    int l1 = parseMemberID(o1);
-                                    int l2 = parseMemberID(o2);
-                                    return l1 - l2;
-                                }
-                            });
-                            String cid = getCurrentId();
-                            int memberIndex = children.indexOf(cid);
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("{} is the number {} member in the list.", cid, memberIndex);
-                            }
-                            // If we hold the lock
-                            if (memberIndex == 0) {
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug("{} acquired the lock {}.", cid, lockPath);
-                                }
-                                holdsLock = true;
-                                callback.processResult(rc, path, ctx);
-                            } else if (memberIndex > 0) {
-                                String[] parts = children.get(0).split("_");
-                                if (parts.length != 3) {
-                                    callback.processResult(KeeperException.Code.RUNTIMEINCONSISTENCY.intValue(), path, ctx);
-                                    return;
-                                }
-                                String currentOwnerTemp;
-                                try {
-                                    currentOwnerTemp = URLDecoder.decode(parts[1], "UTF-8");
-                                } catch (UnsupportedEncodingException e) {
-                                    callback.processResult(KeeperException.Code.RUNTIMEINCONSISTENCY.intValue(), path, ctx);
-                                    return;
-                                }
-                                currentOwner = currentOwnerTemp;
-
-                                if (wait) {
-                                    final String nextLowestNode = children.get(memberIndex - 1);
-                                    if (LOG.isDebugEnabled()) {
-                                        LOG.debug("Current LockWatcher for {} with ephemeral node {}, is waiting for {} to release lock at {}.",
-                                                  new Object[] { lockPath, cid, nextLowestNode, System.currentTimeMillis() });
-                                    }
-                                    watchedNode = String.format("%s/%s", lockPath, nextLowestNode);
-                                    try {
-                                        zkClient.get().exists(watchedNode, LockWatcher.this, new StatCallback() {
-                                            @Override
-                                            public void processResult(int rc, String path, Object ctx, Stat stat) {
-                                                if (KeeperException.Code.OK.intValue() == rc) {
-                                                    callback.processResult(rc, path, ctx);
-                                                } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                                                    asyncCheckForLock(wait, callback, ctx);
-                                                } else {
-                                                    callback.processResult(rc, path, ctx);
-                                                }
-                                            }
-                                        }, ctx);
-                                    } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                                        callback.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, ctx);
-                                    } catch (InterruptedException e) {
-                                        callback.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, ctx);
-                                    }
-                                }
-                            } else {
-                                LOG.error("Member {} doesn't exist in the members list {}.", cid, children);
-                                callback.processResult(KeeperException.Code.RUNTIMEINCONSISTENCY.intValue(), path, ctx);
-                            }
-                        }
-                    }, ctx);
-                } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                    callback.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), lockPath, ctx);
-                } catch (InterruptedException e) {
-                    callback.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), lockPath, ctx);
-                }
-            }
-
-            void doCheckForLock(boolean wait) {
-                try {
-                    List<String> sortedMembers = getLockMembers();
-
-                    // Unexpected behavior if there are no children!
-                    if (sortedMembers.isEmpty()) {
-                        // TODO: changed to unexpected exception in dlog proxy
-                        throw new IOException("Error, member list is empty!");
-                    }
-
-                    int memberIndex = sortedMembers.indexOf(getCurrentId());
-
-                    // If we hold the lock
-                    if (memberIndex == 0) {
-                        synchronized (DistributedLock.this) {
-                            holdsLock = true;
-                            syncPoint.countDown();
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("{} claimed ownership on lock {} at {}.",
-                                          new Object[] { getCurrentId(), lockPath, System.currentTimeMillis() });
-                            }
-                        }
-                    } else if (memberIndex > 0) {
-                        String currentOwnerTemp = parseClientID(sortedMembers.get(0));
-
-                        // Accessed concurrently in the thread that acquires the lock
-                        // checkForLock can be called by background threads as well
-                        synchronized(DistributedLock.this) {
-                            currentOwner = currentOwnerTemp;
-                        }
-
-                        if (wait) {
-                            final String nextLowestNode = sortedMembers.get(memberIndex - 1);
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Current LockWatcher for {} with ephemeral node {}, is waiting for {} to release lock at {}.",
-                                          new Object[] { lockPath, getCurrentId(), nextLowestNode, System.currentTimeMillis() });
-                            }
-                            watchedNode = String.format("%s/%s", lockPath, nextLowestNode);
-                            Stat stat = zkClient.get().exists(watchedNode, this);
-                            if (stat == null) {
-                                checkForLock(true);
-                            }
-                        }
-                    } else {
-                        throw new IOException("Error, current id " + getCurrentId() + " is not in the members list.");
-                    }
-                } catch (InterruptedException e) {
-                    handleException("interrupted", e);
-                } catch (KeeperException e) {
-                    handleException("an exception while accessing ZK", e);
-                } catch (UnsupportedEncodingException e) {
-                    handleException("invalid ownership data", e);
-                } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-                    handleException("zookeeper connection lost", e);
-                } catch (IOException e) {
-                    handleException("unexpected empty memberlist", e);
-                }
-            }
-
-            private void handleException(String reason, Exception e) {
-                if (DistributedLock.this.epoch.get() == epoch) {
-                    LOG.warn("Current LockWatcher with ephemeral node {} got {}. Trying to cancel lock acquisition.",
-                             new Object[] { getCurrentId(), reason, e });
-                    cancelAttempt(true, epoch);
-                }
-            }
-
             @Override
             public void process(WatchedEvent event) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Received event {} from lock {} at {} : watcher epoch {}, lock epoch {}.",
-                              new Object[] { event, lockPath, System.currentTimeMillis(), epoch, DistributedLock.this.epoch.get() });
-                }
-                // this handles the case where we have aborted a lock and deleted ourselves but still have a
-                // watch on the nextLowestNode. This is a workaround since ZK doesn't support unsub.
-                if (!event.getPath().equals(watchedNode)) {
-                    LOG.debug("Ignoring call for node:" + watchedNode);
-                    return;
-                }
+                LOG.info("Received event {} from lock {} at {} : watcher epoch {}, lock epoch {}.",
+                          new Object[] { event, lockPath, System.currentTimeMillis(), epoch, DistributedLock.this.epoch.get() });
                 if (event.getType() == Watcher.Event.EventType.None) {
                     switch (event.getState()) {
                         case SyncConnected:
-                            LOG.info("Reconnected...");
                             break;
                         case Expired:
-                            LOG.warn(String.format("Current ZK session expired![%s]", getCurrentId()));
-                            // if session expired, just notify the waiter. as the lock acquire doesn't succeed,
-                            // the caller of acquire will clean up the lock.
-                            if (DistributedLock.this.epoch.get() == epoch) {
-                                syncPoint.countDown();
-                            }
+                            handleSessionExpired(epoch);
                             break;
                         default:
                             break;
                     }
                 } else if (event.getType() == Event.EventType.NodeDeleted) {
-                    if (DistributedLock.this.epoch.get() == epoch) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Membership changed for lock {} at {}.", lockPath, System.currentTimeMillis());
-                        }
-                        asyncCheckForLock(true, this, null);
+                    // this handles the case where we have aborted a lock and deleted ourselves but still have a
+                    // watch on the nextLowestNode. This is a workaround since ZK doesn't support unsub.
+                    if (!event.getPath().equals(watchedNode)) {
+                        LOG.warn("{} (watching {}) ignored watched event from {} ",
+                                 new Object[] { lockId, watchedNode, event.getPath() });
+                        return;
                     }
+                    handleNodeDelete(epoch, event);
                 } else {
                     LOG.warn("Unexpected ZK event: {}", event.getType().name());
                 }
             }
 
-            @Override
-            public void processResult(int rc, String path, Object ctx) {
-                // when callback, either acquire succeed or fail, we need to notify the waiter.
-                if (DistributedLock.this.epoch.get() == epoch) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Notify lock waiters on {} at {} : watcher epoch {}, lock epoch {}",
-                                  new Object[] { lockPath, System.currentTimeMillis(), epoch, DistributedLock.this.epoch.get() });
-                    }
-                    syncPoint.countDown();
-                }
-            }
         }
     }
 }

@@ -718,7 +718,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     private void checkWriteLock() throws LockingException {
         if (enforceLock) {
-            lock.checkWriteLock(false, DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+            lock.checkWriteLock(false);
         }
     }
 

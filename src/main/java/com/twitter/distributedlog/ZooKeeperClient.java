@@ -165,6 +165,12 @@ public class ZooKeeperClient {
     public synchronized ZooKeeper get(int connectionTimeoutMs)
         throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
 
+        try {
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_ZooKeeperConnectionLoss);
+        } catch (IOException ioe) {
+            throw new ZooKeeperConnectionException("Client " + name + " failed on establishing zookeeper connection", ioe);
+        }
+
         // This indicates that the client was explictly closed
         if (0 == refCount.get()) {
             throw new ZooKeeperConnectionException("Client " + name + " has already been closed");

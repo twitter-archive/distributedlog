@@ -26,6 +26,7 @@ import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -64,7 +65,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, FuturePool.class, ExecutorService.class,
+        ScheduledExecutorService.class, FuturePool.class, ExecutorService.class, OrderedSafeExecutor.class,
         LedgerAllocator.class, StatsLogger.class, String.class, int.class
     };
 
@@ -77,13 +78,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                                                        ScheduledExecutorService executorService,
                                                                        FuturePool orderedFuturePool,
                                                                        ExecutorService metadataExecutor,
+                                                                       OrderedSafeExecutor lockStateExecutor,
                                                                        LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
                                                                        String clientId,
                                                                        int regionId) throws IOException {
         if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, metadataExecutor, ledgerAllocator, false, statsLogger, clientId, regionId);
+                    executorService, orderedFuturePool, metadataExecutor, lockStateExecutor, ledgerAllocator,
+                    false, statsLogger, clientId, regionId);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -104,7 +107,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
             Object[] arguments = {
                     name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, metadataExecutor, ledgerAllocator, statsLogger, clientId, regionId
+                    executorService, orderedFuturePool, metadataExecutor, lockStateExecutor,
+                    ledgerAllocator, statsLogger, clientId, regionId
             };
             try {
                 return constructor.newInstance(arguments);
@@ -127,6 +131,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     protected final DistributedReentrantLock lock;
     protected final DistributedReentrantLock deleteLock;
+    protected final OrderedSafeExecutor lockStateExecutor;
     protected final String maxTxIdPath;
     protected final MaxTxId maxTxId;
     protected final AtomicInteger startLogSegmentCount = new AtomicInteger(0);
@@ -346,6 +351,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                ScheduledExecutorService executorService,
                                FuturePool orderedFuturePool,
                                ExecutorService metadataExecutor,
+                               OrderedSafeExecutor lockStateExecutor,
                                LedgerAllocator allocator,
                                boolean useAllocator,
                                StatsLogger statsLogger,
@@ -355,6 +361,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
               executorService, statsLogger, null, WRITE_HANDLE_FILTER);
         this.metadataExecutor = metadataExecutor;
         this.orderedFuturePool = orderedFuturePool;
+        this.lockStateExecutor = lockStateExecutor;
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -421,10 +428,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
 
         // Build the locks
-        lock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger);
-        deleteLock = new DistributedReentrantLock(executorService, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger);
+        lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries());
+        deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
+                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries());
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 
@@ -943,15 +950,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(inprogressZnodeName);
-        boolean acquiredLocally = false;
         try {
             Stat inprogressStat = zooKeeperClient.get().exists(inprogressPath, false);
             if (inprogressStat == null) {
                 throw new IOException("Inprogress znode " + inprogressPath
                     + " doesn't exist");
             }
-
-            acquiredLocally = lock.checkWriteLock(true, DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
+            lock.checkWriteLock(true);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
@@ -1000,11 +1005,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         } catch (KeeperException e) {
             throw new ZKException("Error when finalising stream " + partitionRootPath, e);
         } finally {
-            if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
-                DistributedReentrantLock.LockReason reason = acquiredLocally ?
-                    DistributedReentrantLock.LockReason.COMPLETEANDCLOSE:
-                    DistributedReentrantLock.LockReason.WRITEHANDLER;
-                lock.release(reason);
+            if (shouldReleaseLock && startLogSegmentCount.get() > 0) {
+                lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
                 startLogSegmentCount.decrementAndGet();
             }
         }

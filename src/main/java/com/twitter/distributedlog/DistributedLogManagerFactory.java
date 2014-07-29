@@ -15,6 +15,7 @@ import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.AsyncCallback;
@@ -88,6 +89,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final StatsLogger statsLogger;
     private final ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
     private final ScheduledThreadPoolExecutor readAheadExecutor;
+    private final OrderedSafeExecutor lockStateExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     // zookeeper clients
@@ -156,6 +158,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             this.readAheadExecutor = this.scheduledThreadPoolExecutor;
             LOG.info("Used shared executor for readahead.");
         }
+        this.lockStateExecutor = OrderedSafeExecutor.newBuilder()
+                .name("DLM-LockState")
+                .numThreads(conf.getNumLockStateThreads())
+                .statsLogger(statsLogger)
+                .build();
         this.channelFactory = new NioClientSocketChannelFactory(
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-worker-%d").build()),
@@ -419,7 +426,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
-            null, null, null, null, scheduledThreadPoolExecutor, readAheadExecutor, channelFactory, requestTimer, statsLogger);
+            null, null, null, null, scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
+            channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -496,7 +504,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
                 nameOfLogStream, conf, namespace,
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
-                writerBKCBuilder, readerBKCBuilder, scheduledThreadPoolExecutor, readAheadExecutor,
+                writerBKCBuilder, readerBKCBuilder,
+                scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
                 channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
@@ -543,7 +552,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 nameOfLogStream, mergedConfiguration, namespace,
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
                 writerBKCBuilder, readerBKCBuilder,
-                scheduledThreadPoolExecutor, readAheadExecutor,
+                scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
                 channelFactory, requestTimer, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
@@ -820,9 +829,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         // force closing all bk/zk clients to avoid zookeeper threads not being
         // shutdown due to any reference count issue, which make the factory still
         // holding locks w/o releasing ownerships.
-        writerBKC.release(true);
+        writerBKC.release(writerBKC != readerBKC);
         readerBKC.release(true);
-        sharedWriterZKCForDL.close(true);
+        sharedWriterZKCForDL.close(sharedWriterZKCForDL != sharedReaderZKCForDL);
         sharedReaderZKCForDL.close(true);
 
         // Close shared zookeeper clients for bk
@@ -833,7 +842,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             readerZKC = sharedReaderZKCForBK;
         }
         if (null != writerZKC) {
-            writerZKC.close(true);
+            writerZKC.close(writerZKC != readerZKC);
         }
         if (null != readerZKC) {
             readerZKC.close(true);
@@ -842,5 +851,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         LOG.info("Release external resources used by channel factory.");
         requestTimer.stop();
         LOG.info("Stopped request timer");
+        SchedulerUtils.shutdownScheduler(lockStateExecutor, 5000, TimeUnit.MILLISECONDS);
+        LOG.info("Stopped lock state executor");
     }
 }

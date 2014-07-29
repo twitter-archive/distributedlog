@@ -22,6 +22,7 @@ import com.twitter.util.FuturePool;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
@@ -95,6 +96,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
     private ExecutorService metadataExecutor = null;
+    private OrderedSafeExecutor lockStateExecutor;
     private final AlertStatsLogger alertStatsLogger;
 
     private static StatsLogger handlerStatsLogger = null;
@@ -111,7 +113,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this(name, conf, uri,
              writerZKCBuilder, readerZKCBuilder, writerBKCBuilder, readerBKCBuilder,
              Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-             null, null, null, statsLogger);
+             null, null, null, null, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -124,12 +126,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                    BookKeeperClientBuilder readerBKCBuilder,
                                    ScheduledExecutorService executorService,
                                    ScheduledExecutorService readAheadExecutor,
+                                   OrderedSafeExecutor lockStateExecutor,
                                    ClientSocketChannelFactory channelFactory,
                                    HashedWheelTimer requestTimer,
                                    StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder);
         this.conf = conf;
         this.executorService = executorService;
+        this.lockStateExecutor = lockStateExecutor;
         this.readAheadExecutor = null == readAheadExecutor ? executorService : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
@@ -183,6 +187,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
 
         this.alertStatsLogger = new AlertStatsLogger(statsLogger, name);
+    }
+
+    private synchronized OrderedSafeExecutor getLockStateExecutor(boolean createIfNull) {
+        if (createIfNull && null == lockStateExecutor && ownExecutor) {
+            lockStateExecutor = OrderedSafeExecutor.newBuilder()
+                    .numThreads(1).name("BKDL-LockState").build();
+        }
+        return lockStateExecutor;
     }
 
     @VisibleForTesting
@@ -285,7 +297,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool, metadataExecutor,
-                ledgerAllocator, statsLogger, clientId, regionId);
+                getLockStateExecutor(true), ledgerAllocator, statsLogger, clientId, regionId);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
             writeHandler.register((Watcher) manager);
@@ -899,6 +911,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
             }
+
+            SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
+            LOG.info("Stopped BKDL Lock State Executor for {}.", name);
         } else {
             if (null != orderedFuturePool) {
                 SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), 5000, TimeUnit.MILLISECONDS);

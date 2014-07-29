@@ -23,6 +23,7 @@ import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +106,8 @@ public class DLMTestUtil {
                 path, p.toString(), conf, createDLMURI("/" + path), null, null,
                 Executors.newScheduledThreadPool(1,
                         new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
-                null, null, null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
+                null, null, OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
+                null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
     }
 
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {

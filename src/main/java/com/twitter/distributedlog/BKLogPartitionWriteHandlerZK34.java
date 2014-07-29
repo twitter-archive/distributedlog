@@ -12,6 +12,7 @@ import com.twitter.util.FuturePool;
 
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
@@ -54,12 +55,14 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    ScheduledExecutorService executorService,
                                    FuturePool orderedFuturePool,
                                    ExecutorService metadataExecutor,
+                                   OrderedSafeExecutor lockStateExecutor,
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
                                    String clientId,
                                    int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, orderedFuturePool, metadataExecutor, allocator, true, statsLogger, clientId, regionId);
+              executorService, orderedFuturePool, metadataExecutor, lockStateExecutor,
+              allocator, true, statsLogger, clientId, regionId);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -288,9 +291,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressZnodePath = inprogressZNode(inprogressZnodeName);
-        boolean acquiredLocally = false;
         try {
-            acquiredLocally = lock.checkWriteLock(true, DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
+            lock.checkWriteLock(true);
             // for normal case, it just fetches the metadata from caches, for recovery case, it reads
             // from zookeeper.
             LogSegmentLedgerMetadata logSegment = readLogSegmentFromCache(inprogressZnodeName);
@@ -364,11 +366,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         } catch (KeeperException e) {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } finally {
-            if (acquiredLocally || (shouldReleaseLock && startLogSegmentCount.get() > 0)) {
-                DistributedReentrantLock.LockReason reason = acquiredLocally ?
-                    DistributedReentrantLock.LockReason.COMPLETEANDCLOSE:
-                    DistributedReentrantLock.LockReason.WRITEHANDLER;
-                lock.release(reason);
+            if (shouldReleaseLock && startLogSegmentCount.get() > 0) {
+                lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
                 startLogSegmentCount.decrementAndGet();
             }
         }
