@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.ZooKeeperClient.Credentials;
+import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.net.TwitterDNSResolver;
@@ -108,9 +110,15 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                         conf.getBKClientZKRetryBackoffStartMillis(),
                         conf.getBKClientZKRetryBackoffMaxMillis(), conf.getBKClientZKNumRetries());
             }
+
+            Credentials credentials = Credentials.NONE;
+            if (conf.getZkAclId() != null) {
+                credentials = new DigestCredentials(conf.getZkAclId(), conf.getZkAclId());
+            }
+
             this.zkc = new ZooKeeperClient(name + ":zk", zkSessionTimeout, 2 * zkSessionTimeout, zkServers,
                                            retryPolicy, statsLogger.scope("bkc_zkc"), conf.getZKClientNumberRetryThreads(),
-                                           conf.getBKClientZKRequestRateLimit());
+                                           conf.getBKClientZKRequestRateLimit(), credentials);
         }
         registerExpirationHandler = conf.getBKClientZKNumRetries() <= 0;
 

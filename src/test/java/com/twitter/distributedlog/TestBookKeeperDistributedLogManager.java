@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.zookeeper.ZooDefs;
 
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -1726,11 +1727,19 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         for (int i = 0; i < numSegments + 1; i++) {
             latches[i] = new CountDownLatch(1);
         }
+
         final AtomicInteger numFailures = new AtomicInteger(0);
         final AtomicReference<Collection<LogSegmentLedgerMetadata>> receivedStreams =
                 new AtomicReference<Collection<LogSegmentLedgerMetadata>>();
+        
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
-        BKDistributedLogManager.createUnpartitionedStream(conf, zkc, ((BKDistributedLogManager) dlm).uri, name);
+        ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder()
+                .uri(DLMTestUtil.createDLMURI("/"))
+                .sessionTimeoutMs(10000)
+                .zkAclId(null)
+                .build();
+
+        BKDistributedLogManager.createUnpartitionedStream(conf, zkClient, ((BKDistributedLogManager) dlm).uri, name);
         dlm.registerListener(new LogSegmentListener() {
             @Override
             public void onSegmentsUpdated(List<LogSegmentLedgerMetadata> segments) {
@@ -1834,6 +1843,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         URI uri = DLMTestUtil.createDLMURI("/" + name);
         ZooKeeperClient zookeeperClient = ZooKeeperClientBuilder.newBuilder()
             .uri(uri)
+            .zkAclId(null)
             .sessionTimeoutMs(10000).build();
         BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(conf, name);
 

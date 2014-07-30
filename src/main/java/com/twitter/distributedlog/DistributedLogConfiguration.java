@@ -28,6 +28,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         }
     }
 
+    public static final String BKDL_ZK_ACL_ID = "zkAclId";
+    public static final String BKDL_ZK_ACL_ID_DEFAULT = null;
+
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
     public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
@@ -300,6 +303,24 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             LOG.warn("invalid stream configuration override(s): {}",
                 StringUtils.join(ignoredSettings, ";"));
         }
+    }
+
+    /**
+     * Get digest id used for ZK acl.
+     *
+     * @return zk acl id.
+     */
+    public String getZkAclId() {
+        return getString(BKDL_ZK_ACL_ID, BKDL_ZK_ACL_ID_DEFAULT);
+    }
+
+    /**
+     * Set digest id to use for ZK acl.
+     *
+     * @param zk acl id.
+     */
+    public void setZkAclId(String zkAclId) {
+        setProperty(BKDL_ZK_ACL_ID, zkAclId);
     }
 
     /**

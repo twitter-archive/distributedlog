@@ -27,6 +27,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.ACL;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
@@ -50,9 +51,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return String.format("%s/%s/%s", uri.getPath(), streamName, streamIdentifier);
     }
 
-    static void createUnpartitionedStream(DistributedLogConfiguration conf, ZooKeeper zk, URI uri, String streamName) throws IOException {
+    static void createUnpartitionedStream(DistributedLogConfiguration conf, ZooKeeperClient zkc, URI uri, String streamName) throws IOException, InterruptedException {
         BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
-            conf.getUnpartitionedStreamName()), zk, true, new DataWithStat(), new DataWithStat(), new DataWithStat());
+            conf.getUnpartitionedStreamName()), zkc.get(), zkc.getDefaultACL(), true, new DataWithStat(), new DataWithStat(), new DataWithStat());
     }
 
     static final Function<LogRecordWithDLSN, Long> RECORD_2_TXID_FUNCTION =

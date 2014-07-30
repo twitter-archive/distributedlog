@@ -68,7 +68,7 @@ public class TestLedgerAllocator {
     @Before
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
-                .sessionTimeoutMs(10000).build();
+                .sessionTimeoutMs(10000).zkAclId(null).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
                 .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
     }

@@ -69,11 +69,13 @@ public class TestDistributedLock {
                 .name("zkc")
                 .uri(DLMTestUtil.createDLMURI("/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
+                .zkAclId(null)
                 .build();
         zkc0 = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc0")
                 .uri(DLMTestUtil.createDLMURI("/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
+                .zkAclId(null)
                 .build();
         lockStateExecutor = new OrderedSafeExecutor(1);
     }

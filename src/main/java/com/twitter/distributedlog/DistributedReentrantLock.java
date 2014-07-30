@@ -38,7 +38,6 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -904,7 +903,7 @@ class DistributedReentrantLock {
                     } catch (UnsupportedEncodingException uee) {
                         myPath = getLockPathPrefixV1(lockPath);
                     }
-                    zk.create(myPath, serializeClientId(lockId.getLeft()), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL,
+                    zk.create(myPath, serializeClientId(lockId.getLeft()), zkClient.getDefaultACL(), CreateMode.EPHEMERAL_SEQUENTIAL,
                             new AsyncCallback.StringCallback() {
                         @Override
                         public void processResult(final int rc, String path, Object ctx, final String name) {

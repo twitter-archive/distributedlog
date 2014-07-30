@@ -7,7 +7,6 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Transaction;
-import org.apache.zookeeper.ZooDefs;
 
 import java.io.IOException;
 
@@ -28,7 +27,7 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
             // delete old log segment
             zkc.get().delete(oldSegment.getZkPath(), -1);
             // create new log segment
-            zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            zkc.get().create(newSegment.getZkPath(), finalisedData, zkc.getDefaultACL(), CreateMode.PERSISTENT);
             // commit the transaction
             txn.commit();
         } catch (InterruptedException e) {

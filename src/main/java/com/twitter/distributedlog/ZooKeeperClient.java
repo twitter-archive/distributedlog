@@ -25,12 +25,16 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.ACL;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
@@ -43,6 +47,34 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Manages a connection to a ZooKeeper cluster.
  */
 public class ZooKeeperClient {
+
+    public static interface Credentials {
+
+        Credentials NONE = new Credentials() {
+            @Override 
+            public void authenticate(ZooKeeper zooKeeper) {
+                // noop
+            }
+        };
+
+        void authenticate(ZooKeeper zooKeeper);
+    }
+
+    public static class DigestCredentials implements Credentials {
+
+        String username;
+        String password;
+
+        public DigestCredentials(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+
+        @Override
+        public void authenticate(ZooKeeper zooKeeper) {
+            zooKeeper.addAuthInfo("digest", "%s:%s".format(username, password).getBytes());
+        }
+    }
 
     public interface ZooKeeperSessionExpireNotifier {
         void notifySessionExpired();
@@ -88,6 +120,8 @@ public class ZooKeeperClient {
     private final StatsLogger statsLogger;
     private final int retryThreadCount;
     private final double requestRateLimit;
+    private final Credentials credentials;
+    private boolean authenticated = false;
 
     final Set<Watcher> watchers = new CopyOnWriteArraySet<Watcher>();
 
@@ -104,11 +138,13 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this("default", sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0);
+        this("default", sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0, 
+             Credentials.NONE);
     }
 
     ZooKeeperClient(String name, int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
-                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit) {
+                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit, 
+                    Credentials credentials) {
         this.name = name;
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
@@ -118,6 +154,15 @@ public class ZooKeeperClient {
         this.statsLogger = statsLogger;
         this.retryThreadCount = retryThreadCount;
         this.requestRateLimit = requestRateLimit;
+        this.credentials = credentials;
+    }
+
+    public List<ACL> getDefaultACL() {
+        if (Credentials.NONE == credentials) {
+            return ZooDefs.Ids.OPEN_ACL_UNSAFE;
+        } else {
+            return DistributedLogConstants.EVERYONE_READ_CREATOR_ALL;
+        }
     }
 
     /**
@@ -184,6 +229,14 @@ public class ZooKeeperClient {
                 zooKeeper = buildZooKeeper(connectionTimeoutMs);
             }
         }
+
+        // In case authenticate throws an exception, the caller can try to recover the client by 
+        // calling get again.
+        if (!authenticated) { 
+            credentials.authenticate(zooKeeper);
+            authenticated = true;
+        }
+
         return zooKeeper;
     }
 
@@ -192,6 +245,23 @@ public class ZooKeeperClient {
         Watcher watcher = new Watcher() {
             @Override
             public void process(WatchedEvent event) {
+                switch (event.getType()) {
+                    case None:
+                        switch (event.getState()) {
+                            case Expired:
+                            case Disconnected:    
+                                // Mark as not authenticated if expired or disconnected. In both cases
+                                // we lose any attached auth info. Relying on Expired/Disconnected is 
+                                // sufficient since all Expired/Disconnected events are processed before
+                                // all SyncConnected events, and the underlying member is not updated until 
+                                // SyncConnected is received.
+                                authenticated = false;
+                                break;
+                            default:
+                                break;
+                        }
+                }
+
                 try {
                     for (Watcher watcher : watchers) {
                         try {
@@ -205,6 +275,7 @@ public class ZooKeeperClient {
                 }
             }
         };
+
         Set<Watcher> watchers = new HashSet<Watcher>();
         watchers.add(watcher);
 
@@ -241,6 +312,11 @@ public class ZooKeeperClient {
                             case Expired:
                                 LOG.info("Zookeeper {} 's session expired. Event: {}", name, event);
                                 closeInternal();
+                                authenticated = false;
+                                break;
+                            case Disconnected:
+                                LOG.info("ZooKeeper client is disconnected from zookeeper now, but it is OK unless we received EXPIRED event.");
+                                authenticated = false;
                                 break;
                             case SyncConnected:
                                 connected.countDown();

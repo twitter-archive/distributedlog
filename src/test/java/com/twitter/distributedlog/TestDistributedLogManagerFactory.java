@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -13,12 +14,19 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
@@ -26,6 +34,11 @@ import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import static org.junit.Assert.*;
 
 public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
+
+    @Rule 
+    public TestName runtime = new TestName();
+
+    static final Logger LOG = LoggerFactory.getLogger(TestDistributedLogManagerFactory.class);
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
@@ -35,7 +48,10 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zooKeeperClient = ZooKeeperClientBuilder.newBuilder().uri(DLMTestUtil.createDLMURI("/"))
+        zooKeeperClient = 
+            ZooKeeperClientBuilder.newBuilder()
+                .uri(DLMTestUtil.createDLMURI("/"))
+                .zkAclId(null)
                 .sessionTimeoutMs(10000).build();
     }
 
@@ -46,7 +62,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test
     public void testCreateIfNotExists() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/createIfNotExists");
+        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(false);
@@ -63,7 +79,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         dlm.close();
 
         // create the stream
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient.get(), uri, streamName);
+        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, streamName);
 
         DistributedLogManager newDLM = factory.createDistributedLogManagerWithSharedClients(streamName);
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
@@ -77,7 +93,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         assertFalse(DistributedLogManagerFactory.isReservedStreamName("test"));
         assertTrue(DistributedLogManagerFactory.isReservedStreamName(".test"));
 
-        URI uri = DLMTestUtil.createDLMURI("/invalidStreamName");
+        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
 
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
 
@@ -126,7 +142,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testNamespaceListener() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/testNamespaceListener");
+        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
         final CountDownLatch[] latches = new CountDownLatch[3];
@@ -149,9 +165,9 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
             }
         });
         latches[0].await();
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient.get(), uri, "test1");
+        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, "test1");
         latches[1].await();
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient.get(), uri, "test2");
+        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, "test2");
         latches[2].await();
         assertEquals(0, numFailures.get());
         assertNotNull(receivedStreams.get());
@@ -163,4 +179,101 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         assertTrue(streamSet.contains("test2"));
     }
 
+    private void initDlogMeta(String namespace, String un, String streamName) throws Exception {
+        URI uri = DLMTestUtil.createDLMURI(namespace);
+        DistributedLogConfiguration newConf = new DistributedLogConfiguration();
+        newConf.addConfiguration(conf);
+        newConf.setCreateStreamIfNotExists(true);
+        newConf.setZkAclId(un);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(newConf, uri);
+        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (int i = 0; i < 10; i++) { 
+            writer.write(DLMTestUtil.getLogRecordInstance(1L));
+        }
+        writer.close();
+        dlm.close();
+        factory.close();
+    } 
+
+    @Test
+    public void testAclPermsZkAccessConflict() throws Exception {
+
+        String namespace = "/" + runtime.getMethodName();
+        initDlogMeta(namespace, "test-un", "test-stream");
+        URI uri = DLMTestUtil.createDLMURI(namespace);
+
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+            .name("unpriv")
+            .uri(uri)
+            .sessionTimeoutMs(2000)
+            .zkAclId(null)
+            .build();
+
+        try {
+            zkc.get().create(uri.getPath() + "/test-stream/test-garbage", 
+                new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            fail("write should have failed due to perms");
+        } catch (KeeperException.NoAuthException ex) {
+            LOG.info("caught exception trying to write with no perms", ex);
+        }
+
+        try {
+            zkc.get().setData(uri.getPath() + "/test-stream", new byte[0], 0);
+            fail("write should have failed due to perms");
+        } catch (KeeperException.NoAuthException ex) {
+            LOG.info("caught exception trying to write with no perms", ex);
+        }
+    }
+
+    @Test
+    public void testAclPermsZkAccessNoConflict() throws Exception {
+
+        String namespace = "/" + runtime.getMethodName();
+        initDlogMeta(namespace, "test-un", "test-stream");
+        URI uri = DLMTestUtil.createDLMURI(namespace);
+
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+            .name("unpriv")
+            .uri(uri)
+            .sessionTimeoutMs(2000)
+            .zkAclId(null)
+            .build();
+
+        zkc.get().getChildren(uri.getPath() + "/test-stream", false, new Stat());
+        zkc.get().getData(uri.getPath() + "/test-stream", false, new Stat());  
+    }
+
+    @Test
+    public void testAclModifyPermsDlmConflict() throws Exception {
+        
+        String streamName = "test-stream";
+
+        // Reopening and writing again with the same un will succeed.
+        initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
+
+        try {
+            // Reopening and writing again with a different un will fail.
+            initDlogMeta("/" + runtime.getMethodName(), "not-test-un", streamName);
+            fail("write should have failed due to perms");
+        } catch (LockingException ex) {
+            LOG.info("caught exception trying to write with no perms {}", ex);
+            assertEquals(KeeperException.NoAuthException.class, ex.getCause().getClass());
+        }
+
+        // Should work again.
+        initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
+    }
+
+    @Test
+    public void testAclModifyPermsDlmNoConflict() throws Exception {
+        
+        String streamName = "test-stream";
+
+        // Establish the uri.
+        initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
+
+        // Reopening and writing again with the same un will succeed.
+        initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
+    }
 }

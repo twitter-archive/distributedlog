@@ -33,8 +33,12 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-    zooKeeperClient = ZooKeeperClientBuilder.newBuilder().uri(DLMTestUtil.createDLMURI("/"))
-                    .sessionTimeoutMs(10000).build();
+        zooKeeperClient = ZooKeeperClientBuilder
+            .newBuilder()
+            .uri(DLMTestUtil.createDLMURI("/"))
+            .sessionTimeoutMs(10000)
+            .zkAclId(null)
+            .build();
     }
 
     @After

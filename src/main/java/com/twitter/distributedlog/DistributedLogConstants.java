@@ -1,7 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.bookkeeper.shims.Version;
+import org.apache.zookeeper.data.ACL;
+import org.apache.zookeeper.ZooDefs.Ids;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import com.twitter.distributedlog.exceptions.InternalServerException;
@@ -39,4 +43,11 @@ public class DistributedLogConstants {
     public static final Version ZK_VERSION = new Version("zk");
     public static final String ZK33 = "3.3";
     public static final String ZK34 = "3.4";
+    
+    // An ACL that gives all permissions to node creators and read permissions only to everyone else.
+    public static final List<ACL> EVERYONE_READ_CREATOR_ALL =
+        ImmutableList.<ACL>builder()
+            .addAll(Ids.CREATOR_ALL_ACL)
+            .addAll(Ids.READ_ACL_UNSAFE)
+            .build();
 }

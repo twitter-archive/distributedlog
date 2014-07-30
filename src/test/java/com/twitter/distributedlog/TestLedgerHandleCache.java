@@ -56,7 +56,7 @@ public class TestLedgerHandleCache {
     @Before
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
-                .zkServers(zkServers).sessionTimeoutMs(10000).build();
+                .zkServers(zkServers).sessionTimeoutMs(10000).zkAclId(null).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
                 .zkc(zkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
     }
@@ -96,7 +96,7 @@ public class TestLedgerHandleCache {
 
     @Test(timeout = 60000)
     public void testOpenLedgerWhenZkClosed() throws Exception {
-        ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder().name("zkc-openledger-when-zk-closed")
+        ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).name("zkc-openledger-when-zk-closed")
                 .zkServers(zkServers).sessionTimeoutMs(10000).build();
         BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("bkc-openledger-when-zk-closed")
                 .zkc(newZkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();

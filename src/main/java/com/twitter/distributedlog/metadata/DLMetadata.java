@@ -6,7 +6,6 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,6 +88,7 @@ public class DLMetadata {
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
+                .zkAclId(conf.getZkAclId())
                 .uri(uri)
                 .buildNew(false).build();
         byte[] data = serialize();
@@ -120,12 +120,13 @@ public class DLMetadata {
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
+                .zkAclId(conf.getZkAclId())
                 .uri(uri)
                 .buildNew(false).build();
         byte[] data = serialize();
         try {
             Utils.zkCreateFullPathOptimistic(zkc, uri.getPath(), data,
-                    ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                    zkc.getDefaultACL(), CreateMode.PERSISTENT);
         } catch (KeeperException e) {
             throw new IOException("Fail to write dl metadata " + new String(data, UTF_8)
                     +  " to uri " + uri, e);
@@ -143,6 +144,7 @@ public class DLMetadata {
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
+                .zkAclId(conf.getZkAclId())
                 .uri(uri)
                 .build();
         byte[] data = new byte[0];

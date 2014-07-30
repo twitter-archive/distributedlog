@@ -24,7 +24,6 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -623,7 +622,7 @@ public class LogSegmentLedgerMetadata {
         String finalisedData = getFinalisedData();
         try {
             zkc.get().create(path, finalisedData.getBytes(UTF_8),
-                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                zkc.getDefaultACL(), CreateMode.PERSISTENT);
         } catch (KeeperException.NodeExistsException nee) {
             throw nee;
         } catch (InterruptedException ie) {

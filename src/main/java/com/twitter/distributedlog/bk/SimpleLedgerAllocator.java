@@ -15,7 +15,6 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
 import org.apache.zookeeper.Transaction;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +63,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
     static DataWithStat createAndGetAllocationData(String allocatePath, ZooKeeperClient zkc) throws IOException {
         try {
             try {
-                zkc.get().create(allocatePath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                zkc.get().create(allocatePath, new byte[0], zkc.getDefaultACL(), CreateMode.PERSISTENT);
             } catch (KeeperException.NodeExistsException nee) {
                 // if node already exists
                 LOG.debug("Allocation path {} is already existed.", allocatePath);

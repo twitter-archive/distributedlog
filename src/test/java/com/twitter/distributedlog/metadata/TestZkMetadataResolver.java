@@ -45,6 +45,7 @@ public class TestZkMetadataResolver {
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
                 .uri(createURI("/"))
+                .zkAclId(null)
                 .sessionTimeoutMs(10000).build();
         resolver = new ZkMetadataResolver(zkc);
     }

@@ -10,7 +10,6 @@ import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +49,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                     .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                     .retryThreadCount(conf.getZKClientNumberRetryThreads())
                     .requestRateLimit(conf.getZKRequestRateLimit())
+                    .zkAclId(conf.getZkAclId())
                     .uri(uri)
                     .retryPolicy(retryPolicy)
                     .buildNew(false);
@@ -86,6 +86,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                         .requestRateLimit(conf.getZKRequestRateLimit())
                         .zkServers(zkServersForReader)
                         .retryPolicy(retryPolicy)
+                        .zkAclId(conf.getZkAclId())
                         .buildNew(false);
             }
         } else {
@@ -125,7 +126,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                     Utils.zkCreateFullPathOptimistic(writerZKC,
                         zkPath,
                         metadata,
-                        ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                        writerZKC.getDefaultACL(),
                         CreateMode.PERSISTENT);
                 }
             } else {

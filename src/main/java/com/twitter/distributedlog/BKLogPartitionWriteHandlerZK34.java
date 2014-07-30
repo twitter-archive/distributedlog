@@ -18,6 +18,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
 import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
 import java.io.IOException;
@@ -108,9 +109,9 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
     }
 
     // Transactional operations for logsegment
-    void tryWrite(Transaction txn, LogSegmentLedgerMetadata metadata, String path) {
+    void tryWrite(Transaction txn, List<ACL> acl, LogSegmentLedgerMetadata metadata, String path) {
         byte[] finalisedData = metadata.getFinalisedData().getBytes(UTF_8);
-        txn.create(path, finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        txn.create(path, finalisedData, acl, CreateMode.PERSISTENT);
     }
 
     void confirmWrite(OpResult result, LogSegmentLedgerMetadata metadata, String path) {
@@ -209,7 +210,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId,
                     DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
-            tryWrite(txn, l, inprogressZnodePath);
+            tryWrite(txn, zooKeeperClient.getDefaultACL(), l, inprogressZnodePath);
 
             // Try storing max sequence number.
             LOG.debug("Try storing max sequence number in startLogSegment {} : {}", inprogressZnodePath, ledgerSeqNo);
@@ -315,7 +316,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             setLastLedgerRollingTimeMillis(logSegment.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId));
             String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
             String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
-            tryWrite(txn, logSegment, pathForCompletedLedger);
+            tryWrite(txn, zooKeeperClient.getDefaultACL(), logSegment, pathForCompletedLedger);
             txn.delete(inprogressZnodePath, -1);
             LOG.debug("Trying storing LastTxId in Finalize Path {} LastTxId {}", pathForCompletedLedger, lastTxId);
             tryStore(txn, maxTxId, lastTxId);

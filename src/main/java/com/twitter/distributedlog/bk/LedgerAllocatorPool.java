@@ -12,7 +12,6 @@ import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +86,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 allocators = zkc.get().getChildren(poolPath, false);
             } catch (KeeperException.NoNodeException e) {
                 logger.info("Allocator Pool {} doesn't exist. Creating it.", poolPath);
-                ZkUtils.createFullPathOptimistic(zkc.get(), poolPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                ZkUtils.createFullPathOptimistic(zkc.get(), poolPath, new byte[0], zkc.getDefaultACL(),
                         CreateMode.PERSISTENT);
                 allocators = zkc.get().getChildren(poolPath, false);
             }
@@ -125,7 +124,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         };
         for (int i = 0; i < numAllocators; i++) {
             zkc.get().create(poolPath + "/A", new byte[0],
-                             ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                             zkc.getDefaultACL(),
                              CreateMode.PERSISTENT_SEQUENTIAL,
                              createCallback, null);
         }
@@ -182,7 +181,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         String allocatePath;
         try {
             allocatePath = zkc.get().create(poolPath + "/A", new byte[0],
-                    ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+                    zkc.getDefaultACL(), CreateMode.PERSISTENT_SEQUENTIAL);
         } catch (KeeperException e) {
             throw new IOException("Failed to create allocator path under " + poolPath + " : ", e);
         } catch (InterruptedException e) {

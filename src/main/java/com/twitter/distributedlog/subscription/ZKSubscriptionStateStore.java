@@ -10,7 +10,6 @@ import com.google.common.base.Charsets;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 
 import com.twitter.distributedlog.DLSN;
@@ -84,7 +83,7 @@ public class ZKSubscriptionStateStore implements SubscriptionStateStore {
             lastCommittedPosition.set(newPosition);
             return Utils.zkAsyncCreateFullPathOptimisticAndSetData(zooKeeperClient,
                 zkPath, newPosition.serialize().getBytes(Charsets.UTF_8),
-                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                zooKeeperClient.getDefaultACL(),
                 CreateMode.PERSISTENT);
         } else {
             return Future.Done();

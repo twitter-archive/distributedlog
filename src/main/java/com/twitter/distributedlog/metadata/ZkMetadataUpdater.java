@@ -10,7 +10,6 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -135,7 +134,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
             if (newSegment.getZkPath().equalsIgnoreCase(oldSegment.getZkPath())) {
                 zkc.get().setData(newSegment.getZkPath(), finalisedData, -1);
             } else {
-                zkc.get().create(newSegment.getZkPath(), finalisedData, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                zkc.get().create(newSegment.getZkPath(), finalisedData, zkc.getDefaultACL(), CreateMode.PERSISTENT);
                 // delete old log segment
                 zkc.get().delete(oldSegment.getZkPath(), -1);
             }

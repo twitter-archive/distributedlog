@@ -44,7 +44,7 @@ public class TestLogSegmentLedgerMetadata {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().zkServers("127.0.0.1:7000").sessionTimeoutMs(10000).build();
+        zkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).zkServers("127.0.0.1:7000").sessionTimeoutMs(10000).build();
     }
 
     @After

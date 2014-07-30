@@ -60,8 +60,11 @@ public class TestDLCK {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().uri(DLMTestUtil.createDLMURI("/"))
-                .sessionTimeoutMs(10000).build();
+        zkc = ZooKeeperClientBuilder
+            .newBuilder()
+            .uri(DLMTestUtil.createDLMURI("/"))
+            .zkAclId(null)
+            .sessionTimeoutMs(10000).build();
     }
 
     @After

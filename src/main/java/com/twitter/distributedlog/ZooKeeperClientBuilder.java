@@ -1,10 +1,15 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.ZooKeeperClient.Credentials;
+import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 
@@ -12,6 +17,8 @@ import java.net.URI;
  * Builder to build zookeeper client.
  */
 public class ZooKeeperClientBuilder {
+
+    static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClientBuilder.class);
 
     /**
      * Create a zookeeper client builder to build zookeeper clients.
@@ -40,6 +47,9 @@ public class ZooKeeperClientBuilder {
     private int retryThreadCount = 1;
     // zookeeper access requestRateLimit limit
     private double requestRateLimit = 0;
+    // Did call the zkAclId setter on the builder, used to ensure the setter is set.
+    private boolean zkAclIdSet = false;
+    private String zkAclId;
 
     // Cached ZooKeeper Client
     private ZooKeeperClient cachedClient = null;
@@ -156,6 +166,15 @@ public class ZooKeeperClientBuilder {
     }
 
     /**
+     * * Build zookeeper client with given zk acl digest id <i>zkAclId</i>.
+     */
+    public synchronized ZooKeeperClientBuilder zkAclId(String zkAclId) {
+        this.zkAclIdSet = true;
+        this.zkAclId = zkAclId;
+        return this;   
+    }
+
+    /**
      * If <i>buildNew</i> is set to false, the built zookeeper client by {@link #build()}
      * will be cached. Following {@link #build()} always returns this cached zookeeper
      * client. Otherwise, each {@link #build()} will create a new zookeeper client.
@@ -176,6 +195,7 @@ public class ZooKeeperClientBuilder {
         Preconditions.checkArgument(sessionTimeoutMs > 0,
                 "Invalid session timeout : %d", sessionTimeoutMs);
         Preconditions.checkNotNull(statsLogger, "No stats logger provided.");
+        Preconditions.checkArgument(zkAclIdSet == true, "Zookeeper acl id not set.");
     }
 
     /**
@@ -210,6 +230,12 @@ public class ZooKeeperClientBuilder {
 
     private ZooKeeperClient buildClient() {
         validateParameters();
+
+        Credentials credentials = Credentials.NONE;
+        if (null != zkAclId) {
+            credentials = new DigestCredentials(zkAclId, zkAclId);
+        }
+
         return new ZooKeeperClient(
                 name,
                 sessionTimeoutMs,
@@ -218,8 +244,8 @@ public class ZooKeeperClientBuilder {
                 retryPolicy,
                 statsLogger,
                 retryThreadCount,
-                requestRateLimit
+                requestRateLimit,
+                credentials
         );
     }
-
 }

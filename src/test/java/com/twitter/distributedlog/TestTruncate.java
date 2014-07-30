@@ -49,7 +49,7 @@ public class TestTruncate extends TestDistributedLogBase {
         List<LogSegmentLedgerMetadata> segments = distributedLogManager.getLogSegments();
         LOG.info("Segments before modifying completion time : {}", segments);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).uri(uri)
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .build();

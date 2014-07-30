@@ -70,6 +70,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .uri(namespace)
                 .retryThreadCount(conf.getZKClientNumberRetryThreads())
                 .requestRateLimit(conf.getZKRequestRateLimit())
+                .zkAclId(conf.getZkAclId())
                 .build();
         try {
             return handler.handle(zkc);
@@ -260,11 +261,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             .zkServers(zkServers)
             .retryPolicy(retryPolicy)
             .statsLogger(statsLogger)
+            .zkAclId(conf.getZkAclId())
             .buildNew(conf.getSeparateZKClients());
         LOG.info("Created shared zooKeeper client builder {}: zkServers = {}, numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
-                 + " maxRetryBackoff = {}.", new Object[] { zkcName, zkServers, conf.getZKNumRetries(),
+                 + " maxRetryBackoff = {}, zkAclId = {}.", new Object[] { zkcName, zkServers, conf.getZKNumRetries(),
                 conf.getZKSessionTimeoutMilliseconds(), conf.getZKRetryBackoffStartMillis(),
-                conf.getZKRetryBackoffMaxMillis() });
+                conf.getZKRetryBackoffMaxMillis(), conf.getZkAclId() });
         return builder;
     }
 
@@ -287,11 +289,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .zkServers(zkServers)
                 .retryPolicy(retryPolicy)
                 .statsLogger(statsLogger)
+                .zkAclId(conf.getZkAclId())
                 .buildNew(conf.getSeparateZKClients());
         LOG.info("Created shared zooKeeper client builder {}: zkServers = {}, numRetries = {}, sessionTimeout = {}, retryBackoff = {},"
-                + " maxRetryBackoff = {}.", new Object[] { zkcName, zkServers, conf.getBKClientZKNumRetries(),
+                + " maxRetryBackoff = {}, zkAclId = {}.", new Object[] { zkcName, zkServers, conf.getBKClientZKNumRetries(),
                 conf.getBKClientZKSessionTimeoutMilliSeconds(), conf.getBKClientZKRetryBackoffStartMillis(),
-                conf.getBKClientZKRetryBackoffMaxMillis() });
+                conf.getBKClientZKRetryBackoffMaxMillis(), conf.getZkAclId() });
         return builder;
     }
 
@@ -801,7 +804,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             public Void handle(ZooKeeperClient zkc) throws IOException {
                 for (String s : streamNames) {
                     try {
-                        BKDistributedLogManager.createUnpartitionedStream(conf, zkc.get(), uri, s);
+                        BKDistributedLogManager.createUnpartitionedStream(conf, zkc, uri, s);
                     } catch (InterruptedException e) {
                         LOG.error("Interrupted on creating unpartitioned stream {} : ", s, e);
                         return null;

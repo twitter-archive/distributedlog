@@ -32,8 +32,8 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -407,7 +407,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new DLInterruptedException("Failed to initialize zookeeper client", e);
             }
 
-            createStreamIfNotExists(partitionRootPath, zk, ownAllocator, allocationData, maxTxIdData, ledgersData);
+            createStreamIfNotExists(partitionRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
         } else {
             getLedgersData(ledgersData);
         }
@@ -467,7 +467,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     static void createStreamIfNotExists(final String partitionRootPath,
-                                        final ZooKeeper zk, final boolean ownAllocator,
+                                        final ZooKeeper zk, 
+                                        final List<ACL> acl,
+                                        final boolean ownAllocator,
                                         final DataWithStat allocationData,
                                         final DataWithStat maxTxIdData,
                                         final DataWithStat ledgersData) throws IOException {
@@ -507,20 +509,20 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             private void createAndGetZnodes() {
                 // Send the corresponding create requests in sequence and just wait for the last call.
                 // maxtxid path
-                zk.create(maxTxIdPath, Long.toString(0).getBytes(UTF_8), ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                zk.create(maxTxIdPath, Long.toString(0).getBytes(UTF_8), acl,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // version path
-                zk.create(versionPath, intToBytes(LAYOUT_VERSION), ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                zk.create(versionPath, intToBytes(LAYOUT_VERSION), acl,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // ledgers path
-                zk.create(ledgerPath, new byte[]{'0'}, ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                zk.create(ledgerPath, new byte[]{'0'}, acl,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // lock path
-                zk.create(lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                zk.create(lockPath, new byte[0], acl,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // allocation path
                 if (ownAllocator) {
-                    zk.create(allocationPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                    zk.create(allocationPath, new byte[0], acl,
                             CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 }
                 // send get requests to maxTxId, version, allocation
@@ -556,7 +558,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                     if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
                         lockData.notExists() || ledgersData.notExists()) {
                         ZkUtils.createFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
-                                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
+                                acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
                     } else {
                         initializeLatch.countDown();
                     }
