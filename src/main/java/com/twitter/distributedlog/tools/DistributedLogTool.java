@@ -72,17 +72,21 @@ public class DistributedLogTool extends Tool {
     /**
      * Per DL Command, which parses basic options. e.g. uri.
      */
-    protected abstract class PerDLCommand extends OptsCommand {
+    protected abstract static class PerDLCommand extends OptsCommand {
 
         protected Options options = new Options();
         protected final DistributedLogConfiguration dlConf;
         protected URI uri;
+        protected String zkAclId = null;
+        protected boolean force = false;
 
         protected PerDLCommand(String name, String description) {
             super(name, description);
             dlConf = new DistributedLogConfiguration();
             options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("c", "conf", true, "DistributedLog Configuration File");
+            options.addOption("a", "zk-acl-id", true, "Zookeeper ACL ID");
+            options.addOption("F", "force", false, "Force command (no warnings or prompts)");
         }
 
         @Override
@@ -120,6 +124,12 @@ public class DistributedLogTool extends Tool {
                             + configFile + ".");
                 }
             }
+            if (cmdline.hasOption("a")) {
+                zkAclId = cmdline.getOptionValue("a");
+            }
+            if (cmdline.hasOption("f")) {
+                force = true;
+            }
         }
 
         protected DistributedLogConfiguration getConf() {
@@ -129,12 +139,32 @@ public class DistributedLogTool extends Tool {
         protected URI getUri() {
             return uri;
         }
+
+        protected void setUri(URI uri) {
+            this.uri = uri;
+        }
+
+        protected String getZkAclId() {
+            return zkAclId;
+        }
+
+        protected void setZkAclId(String zkAclId) {
+            this.zkAclId = zkAclId;
+        }
+
+        protected boolean getForce() {
+            return force;
+        }
+
+        protected void setForce(boolean force) {
+            this.force = force;
+        }
     }
 
     /**
      * Per Stream Command, which parse common options for per stream. e.g. stream name.
      */
-    abstract class PerStreamCommand extends PerDLCommand {
+    abstract static class PerStreamCommand extends PerDLCommand {
 
         protected String streamName;
 
@@ -155,9 +185,13 @@ public class DistributedLogTool extends Tool {
         protected String getStreamName() {
             return streamName;
         }
+
+        protected void setStreamName(String streamName) {
+            this.streamName = streamName;
+        }
     }
 
-    class DeleteAllocatorPoolCommand extends PerDLCommand {
+    protected static class DeleteAllocatorPoolCommand extends PerDLCommand {
 
         DeleteAllocatorPoolCommand() {
             super("delete_allocator_pool", "Delete allocator pool for a given distributedlog instance");
@@ -168,7 +202,7 @@ public class DistributedLogTool extends Tool {
             String rootPath = getUri().getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE;
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).build();
+                    .uri(getUri()).zkAclId(getZkAclId()).build();
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
             BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
                     .dlConfig(getConf())
@@ -178,7 +212,7 @@ public class DistributedLogTool extends Tool {
                     .build();
             try {
                 List<String> pools = zkc.get().getChildren(rootPath, false);
-                if (IOUtils.confirmPrompt("Are u sure to delete allocator pools : " + pools)) {
+                if (getForce() || IOUtils.confirmPrompt("Are you sure you want to delete allocator pools : " + pools)) {
                     for (String pool : pools) {
                         String poolPath = rootPath + "/" + pool;
                         LedgerAllocator allocator =
@@ -204,7 +238,7 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class ListCommand extends PerDLCommand {
+    public static class ListCommand extends PerDLCommand {
 
         boolean printMetadata = false;
         boolean printHex = false;
@@ -240,7 +274,7 @@ public class DistributedLogTool extends Tool {
             } finally {
                 factory.close();
             }
-            return 0;  //To change body of implemented methods use File | Settings | File Templates.
+            return 0;  
         }
 
         protected void printStreamsWithMetadata(DistributedLogManagerFactory factory)
@@ -274,7 +308,7 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class InspectCommand extends PerDLCommand {
+    protected static class InspectCommand extends PerDLCommand {
 
         int numThreads = 1;
         String streamPrefix = null;
@@ -361,7 +395,7 @@ public class DistributedLogTool extends Tool {
                 return;
             }
             println("Streams : " + streams);
-            if (!IOUtils.confirmPrompt("Are u sure to inspect " + streams.size() + " streams")) {
+            if (!getForce() && !IOUtils.confirmPrompt("Are you sure you want to inspect " + streams.size() + " streams")) {
                 return;
             }
             numThreads = Math.min(streams.size(), numThreads);
@@ -464,19 +498,17 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class TruncateCommand extends PerDLCommand {
+    protected static class TruncateCommand extends PerDLCommand {
 
         int numThreads = 1;
         String streamPrefix = null;
         boolean deleteStream = false;
-        boolean force = false;
 
         TruncateCommand() {
             super("truncate", "truncate streams under a given dl uri");
             options.addOption("t", "threads", true, "Number threads to do truncation");
             options.addOption("f", "filter", true, "Stream filter by prefix");
             options.addOption("d", "delete", false, "Delete Stream");
-            options.addOption("x", "force", false, "Force execute");
         }
 
         @Override
@@ -491,7 +523,6 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("d")) {
                 deleteStream = true;
             }
-            force = cmdline.hasOption("x");
         }
 
         @Override
@@ -499,8 +530,13 @@ public class DistributedLogTool extends Tool {
             return "truncate [options]";
         }
 
+        protected void setFilter(String filter) {
+            this.streamPrefix = filter;
+        }
+
         @Override
         protected int runCmd() throws Exception {
+            getConf().setZkAclId(getZkAclId());
             final DistributedLogManagerFactory factory =
                     new DistributedLogManagerFactory(getConf(), getUri());
             return truncateStreams(factory);
@@ -522,7 +558,7 @@ public class DistributedLogTool extends Tool {
                 return 0;
             }
             println("Streams : " + streams);
-            if (!force && !IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
+            if (!getForce() && !IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
                 return 0;
             }
             numThreads = Math.min(streams.size(), numThreads);
@@ -570,7 +606,7 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class ShowCommand extends PerStreamCommand {
+    protected static class ShowCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
 
@@ -599,7 +635,7 @@ public class DistributedLogTool extends Tool {
                 printMetadata(dlm);
             } finally {
                 dlm.close();
-            }
+            } 
             return 0;
         }
 
@@ -652,7 +688,7 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class DeleteCommand extends PerStreamCommand {
+    public static class DeleteCommand extends PerStreamCommand {
 
         protected DeleteCommand() {
             super("delete", "delete a given stream");
@@ -660,6 +696,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
+            getConf().setZkAclId(getZkAclId());
             DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
                     getStreamName(), getConf(), getUri());
             try {
@@ -676,9 +713,12 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class CreateCommand extends PerDLCommand {
+    public static class CreateCommand extends PerDLCommand {
 
         final List<String> streams = new ArrayList<String>();
+
+        String streamPrefix = null;
+        String streamExpression = null;
 
         CreateCommand() {
             super("create", "create streams under a given namespace");
@@ -690,8 +730,6 @@ public class DistributedLogTool extends Tool {
         @Override
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
-            String streamPrefix = null;
-            String streamExpression = null;
             if (cmdline.hasOption("r")) {
                 streamPrefix = cmdline.getOptionValue("r");
             }
@@ -701,6 +739,10 @@ public class DistributedLogTool extends Tool {
             if (null == streamPrefix || null == streamExpression) {
                 throw new ParseException("Please specify stream prefix & expression.");
             }
+        }
+
+        protected void generateStreams(String streamPrefix, String streamExpression) throws ParseException {
+            
             // parse the stream expression
             if (streamExpression.contains("-")) {
                 // a range expression
@@ -738,13 +780,15 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
+            generateStreams(streamPrefix, streamExpression);
             if (streams.isEmpty()) {
                 println("Nothing to create.");
                 return 0;
             }
-            if (!IOUtils.confirmPrompt("Are u going to create streams : " + streams)) {
+            if (!getForce() && !IOUtils.confirmPrompt("Are u going to create streams : " + streams)) {
                 return 0;
             }
+            getConf().setZkAclId(getZkAclId());
             DistributedLogManagerFactory.createUnpartitionedStreams(getConf(), getUri(), streams);
             return 0;
         }
@@ -753,9 +797,17 @@ public class DistributedLogTool extends Tool {
         protected String getUsage() {
             return "create [options]";
         }
+
+        protected void setPrefix(String prefix) {
+            this.streamPrefix = prefix;
+        }
+
+        protected void setExpression(String expression) {
+            this.streamExpression = expression;
+        }
     }
 
-    class DumpCommand extends PerStreamCommand {
+    protected static class DumpCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
         boolean printHex = false;
@@ -854,7 +906,7 @@ public class DistributedLogTool extends Tool {
                     }
                 } catch (LogEmptyException lee) {
                     println("No stream found to dump records.");
-                    return -1;
+                    return 0;
                 }
                 try {
                     println("Dump records for " + getStreamName() + " (from = " + fromTxnId
@@ -910,12 +962,16 @@ public class DistributedLogTool extends Tool {
         protected String getUsage() {
             return "dump [options]";
         }
+
+        protected void setFromTxnId(Long fromTxnId) {
+            this.fromTxnId = fromTxnId;
+        }
     }
 
     /**
      * Per Ledger Command, which parse common options for per ledger. e.g. ledger id.
      */
-    abstract class PerLedgerCommand extends PerDLCommand {
+    abstract static class PerLedgerCommand extends PerDLCommand {
 
         protected long ledgerId;
 
@@ -936,9 +992,13 @@ public class DistributedLogTool extends Tool {
         protected long getLedgerID() {
             return ledgerId;
         }
+
+        protected void setLedgerId(long ledgerId) {
+            this.ledgerId = ledgerId;    
+        }
     }
 
-    class ReadLastConfirmedCommand extends PerLedgerCommand {
+    protected static class ReadLastConfirmedCommand extends PerLedgerCommand {
 
         ReadLastConfirmedCommand() {
             super("readlac", "read last add confirmed for a given ledger");
@@ -948,7 +1008,7 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).build();
+                    .uri(getUri()).zkAclId(null).build();
             try {
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
                 BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
@@ -982,7 +1042,7 @@ public class DistributedLogTool extends Tool {
         }
     }
 
-    class ReadEntriesCommand extends PerLedgerCommand {
+    protected static class ReadEntriesCommand extends PerLedgerCommand {
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
@@ -992,7 +1052,7 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).build();
+                    .uri(getUri()).zkAclId(null).build();
             try {
                 BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
                 BKDLConfig.propagateConfiguration(bkdlConfig, getConf());

@@ -108,7 +108,7 @@ public class LocalDLMEmulator {
         return zkEnsemble;
     }
 
-    public String getBkLedgerPath() {
+    public static String getBkLedgerPath() {
         return "/ledgers";
     }
 

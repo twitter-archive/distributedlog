@@ -526,7 +526,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             }
 
             // resolving the uri to see if there is another bindings in this uri.
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri)
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().uri(uri).zkAclId(null)
                     .sessionTimeoutMs(10000).build();
             try {
                 BKDLConfig newBKDLConfig =

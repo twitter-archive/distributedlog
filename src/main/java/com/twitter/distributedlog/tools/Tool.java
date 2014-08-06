@@ -28,7 +28,7 @@ public abstract class Tool {
     /**
      * {@link org.apache.commons.cli.Options} based command.
      */
-    protected abstract class OptsCommand implements Command {
+    protected abstract static class OptsCommand implements Command {
 
         /**
          * @return options used by this command.
@@ -155,7 +155,7 @@ public abstract class Tool {
      * @param msg
      *          message to print
      */
-    protected void println(String msg) {
+    protected static void println(String msg) {
         System.err.println(msg);
     }
 
