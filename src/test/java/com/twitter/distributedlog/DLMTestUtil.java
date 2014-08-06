@@ -20,6 +20,8 @@ package com.twitter.distributedlog;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.util.Await;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -180,6 +182,14 @@ public class DLMTestUtil {
         assertEquals(Long.valueOf(txIds[0]), Long.valueOf(txIds[0]));
     }
 
+    static LogRecord getLargeLogRecordInstance(long txId, boolean control) {
+        LogRecord record = new LogRecord(txId, payloadStatic);
+        if (control) {
+            record.setControl();
+        }
+        return record;
+    }
+
     static LogRecord getLargeLogRecordInstance(long txId) {
         return new LogRecord(txId, payloadStatic);
     }
@@ -270,6 +280,24 @@ public class DLMTestUtil {
             }
             writer.closeAndComplete();
         }
+    }
+
+    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid) throws Exception {        
+        AsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
+        long txid = startTxid;
+        for (int i = 0; i < controlEntries; ++i) {
+            LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
+            record.setControl();
+            Await.result(out.write(record));
+            ++txid;
+        }
+        for (int i = 0; i < userEntries; ++i) {
+            LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
+            Await.result(out.write(record));
+            ++txid;
+        }
+        out.close();
+        return txid - startTxid;
     }
 
     public static void injectLogSegmentWithGivenLedgerSeqNo(DistributedLogManager manager, DistributedLogConfiguration conf,

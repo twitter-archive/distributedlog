@@ -32,8 +32,8 @@ public class ReadUtils {
         // scan settings
         final long startEntryId;
         final long endEntryId;
-        final int firstNumEntriesPerReadLastRecordScan;
-        final int maxNumEntriesPerReadLastRecordScan;
+        final int scanStartBatchSize;
+        final int scanMaxBatchSize;
         final boolean includeControl;
         final boolean includeEndOfStream;
         final boolean backward;
@@ -42,29 +42,29 @@ public class ReadUtils {
         final AtomicInteger numRecordsScanned;
 
         ScanContext(long startEntryId, long endEntryId,
-                    int firstNumEntriesPerReadLastRecordScan,
-                    int maxNumEntriesPerReadLastRecordScan,
+                    int scanStartBatchSize,
+                    int scanMaxBatchSize,
                     boolean includeControl,
                     boolean includeEndOfStream,
                     boolean backward,
                     AtomicInteger numRecordsScanned) {
             this.startEntryId = startEntryId;
             this.endEntryId = endEntryId;
-            this.firstNumEntriesPerReadLastRecordScan = firstNumEntriesPerReadLastRecordScan;
-            this.maxNumEntriesPerReadLastRecordScan = maxNumEntriesPerReadLastRecordScan;
+            this.scanStartBatchSize = scanStartBatchSize;
+            this.scanMaxBatchSize = scanMaxBatchSize;
             this.includeControl = includeControl;
             this.includeEndOfStream = includeEndOfStream;
             this.backward = backward;
             // Scan state
-            this.numEntriesToScan = new AtomicInteger(firstNumEntriesPerReadLastRecordScan);
+            this.numEntriesToScan = new AtomicInteger(scanStartBatchSize);
             if (backward) {
                 this.curStartEntryId = new AtomicLong(
-                        Math.max(startEntryId, (endEntryId - firstNumEntriesPerReadLastRecordScan + 1)));
+                        Math.max(startEntryId, (endEntryId - scanStartBatchSize + 1)));
                 this.curEndEntryId = new AtomicLong(endEntryId);
             } else {
                 this.curStartEntryId = new AtomicLong(startEntryId);
                 this.curEndEntryId = new AtomicLong(
-                        Math.min(endEntryId, (startEntryId + firstNumEntriesPerReadLastRecordScan - 1)));
+                        Math.min(endEntryId, (startEntryId + scanStartBatchSize - 1)));
             }
             this.numRecordsScanned = numRecordsScanned;
         }
@@ -86,7 +86,7 @@ public class ReadUtils {
             curEndEntryId.set(nextEndEntryId);
             // update num entries to scan
             numEntriesToScan.set(
-                    Math.min(numEntriesToScan.get() * 2, maxNumEntriesPerReadLastRecordScan));
+                    Math.min(numEntriesToScan.get() * 2, scanMaxBatchSize));
             // update start entry id
             curStartEntryId.set(Math.max(startEntryId, nextEndEntryId - numEntriesToScan.get() + 1));
             return true;
@@ -101,7 +101,7 @@ public class ReadUtils {
             curStartEntryId.set(nextStartEntryId);
             // update num entries to scan
             numEntriesToScan.set(
-                    Math.min(numEntriesToScan.get() * 2, maxNumEntriesPerReadLastRecordScan));
+                    Math.min(numEntriesToScan.get() * 2, scanMaxBatchSize));
             // update start entry id
             curEndEntryId.set(Math.min(endEntryId, nextStartEntryId + numEntriesToScan.get() - 1));
             return true;
@@ -109,7 +109,7 @@ public class ReadUtils {
     }
 
     /**
-     * Read last record from a given range of ledger entries.
+     * Read record from a given range of ledger entries.
      *
      * @param streamName
      *          fully qualified stream name (used for logging)
@@ -121,14 +121,15 @@ public class ReadUtils {
      *          executor service used for processing entries
      * @param context
      *          scan context
-     * @return a future with last log record.
+     * @return a future with the log record.
      */
-    private static Future<LogRecordWithDLSN> asyncReadLastRecordFromEntries(
+    private static Future<LogRecordWithDLSN> asyncReadRecordFromEntries(
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             LedgerHandleCache handleCache,
             final ExecutorService executorService,
-            final ScanContext context) {
+            final ScanContext context,
+            final LogRecordSelector selector) {
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
         final long startEntryId = context.curStartEntryId.get();
         final long endEntryId = context.curEndEntryId.get();
@@ -150,19 +151,15 @@ public class ReadUtils {
                             public void run() {
                                 if (BKException.Code.OK != rc) {
                                     String errMsg = "Error reading entries [" + startEntryId + "-" + endEntryId
-                                            + "] for reading last record of " + streamName;
+                                            + "] for reading record of " + streamName;
                                     promise.setException(new IOException(errMsg, BKException.create(rc)));
                                 } else {
-                                    // TODO: (sijieg) properly we need a reverse enumeration
-                                    LogRecordWithDLSN lastRecord = null;
+                                    LogRecordWithDLSN record = null;
                                     while (entries.hasMoreElements()) {
                                         LedgerEntry entry = entries.nextElement();
                                         try {
-                                            LogRecordWithDLSN record = getLastRecordFromEntry(
-                                                    streamName, ledgerDescriptor.getLedgerSequenceNo(), entry, context);
-                                            if (null != record) {
-                                                lastRecord = record;
-                                            }
+                                            visitEntryRecords(
+                                                streamName, ledgerDescriptor.getLedgerSequenceNo(), entry, context, selector);
                                         } catch (IOException ioe) {
                                             // exception is only thrown due to bad ledger entry, so it might be corrupted
                                             // we shouldn't do anything beyond this point. throw the exception to application
@@ -170,12 +167,14 @@ public class ReadUtils {
                                             return;
                                         }
                                     }
+                                    
+                                    record = selector.result();
                                     if (LOG.isDebugEnabled()) {
-                                        LOG.debug("{} got last record from entries [{} - {}] of {} : {}",
+                                        LOG.debug("{} got record from entries [{} - {}] of {} : {}",
                                                 new Object[] { streamName, startEntryId, endEntryId,
-                                                        ledgerDescriptor, lastRecord });
+                                                        ledgerDescriptor, record });
                                     }
-                                    promise.setValue(lastRecord);
+                                    promise.setValue(record);
                                 }
                             }
                         });
@@ -185,7 +184,7 @@ public class ReadUtils {
     }
 
     /**
-     * Get last record from a given ledger entry. (it just processed the in-memory ledger entry).
+     * Process each record using LogRecordSelector.
      *
      * @param streamName
      *          fully qualified stream name (used for logging)
@@ -195,16 +194,16 @@ public class ReadUtils {
      *          ledger entry
      * @param context
      *          scan context
-     * @return last log record with dlsn inside the ledger entry
+     * @return log record with dlsn inside the ledger entry
      * @throws IOException
      */
-    private static LogRecordWithDLSN getLastRecordFromEntry(
+    private static void visitEntryRecords(
             String streamName,
             long ledgerSeqNo,
             LedgerEntry entry,
-            ScanContext context) throws IOException {
+            ScanContext context,
+            LogRecordSelector selector) throws IOException {
         LogRecord.Reader reader = new LedgerEntryReader(streamName, ledgerSeqNo, entry);
-        LogRecordWithDLSN lastRecord = null;
         LogRecordWithDLSN nextRecord = reader.readOp();
         while (nextRecord != null) {
             LogRecordWithDLSN record = nextRecord;
@@ -216,13 +215,12 @@ public class ReadUtils {
             if (!context.includeEndOfStream && record.isEndOfStream()) {
                 continue;
             }
-            lastRecord = record;
+            selector.process(record);
         }
-        return lastRecord;
     }
 
     /**
-     * Do a backward scanning in given steps.
+     * Scan entries for the given record.
      *
      * @param streamName
      *          fully qualified stream name (used for logging)
@@ -233,23 +231,24 @@ public class ReadUtils {
      * @param executorService
      *          executor service used for processing entries
      * @param promise
-     *          promise to return last record.
+     *          promise to return desired record.
      * @param context
      *          scan context
      */
-    private static void asyncReadLastRecordFromEntries(
+    private static void asyncReadRecordFromEntries(
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
             final ExecutorService executorService,
             final Promise<LogRecordWithDLSN> promise,
-            final ScanContext context) {
-        asyncReadLastRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService, context)
+            final ScanContext context,
+            final LogRecordSelector selector) {
+        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService, context, selector)
                 .addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
                     @Override
                     public void onSuccess(LogRecordWithDLSN value) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("{} read last record from [{} - {}] of {} : {}",
+                            LOG.debug("{} read record from [{} - {}] of {} : {}",
                                     new Object[]{streamName, context.curStartEntryId.get(), context.curEndEntryId.get(),
                                             ledgerDescriptor, value});
                         }
@@ -263,12 +262,13 @@ public class ReadUtils {
                             return;
                         }
                         // scan next range
-                        asyncReadLastRecordFromEntries(streamName,
+                        asyncReadRecordFromEntries(streamName,
                                 ledgerDescriptor,
                                 handleCache,
                                 executorService,
                                 promise,
-                                context);
+                                context,
+                                selector);
                     }
 
                     @Override
@@ -278,17 +278,19 @@ public class ReadUtils {
                 });
     }
 
-    private static void asyncReadLastRecordFromLedger(
+    private static void asyncReadRecordFromLedger(
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
             final ExecutorService executorService,
-            final int firstNumEntriesPerReadLastRecordScan,
-            final int maxNumEntriesPerReadLastRecordScan,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
             final boolean includeControl,
             final boolean includeEndOfStream,
             final Promise<LogRecordWithDLSN> promise,
-            final AtomicInteger numRecordsScanned) {
+            final AtomicInteger numRecordsScanned,
+            final LogRecordSelector selector,
+            final boolean backward) {
         final long lastAddConfirmed;
         try {
             lastAddConfirmed = handleCache.getLastAddConfirmed(ledgerDescriptor);
@@ -305,10 +307,10 @@ public class ReadUtils {
         }
         final ScanContext context = new ScanContext(
                 0L, lastAddConfirmed,
-                firstNumEntriesPerReadLastRecordScan, maxNumEntriesPerReadLastRecordScan,
-                includeControl, includeEndOfStream, true, numRecordsScanned);
-        asyncReadLastRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService,
-                                       promise, context);
+                scanStartBatchSize, scanMaxBatchSize,
+                includeControl, includeEndOfStream, backward, numRecordsScanned);
+        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService,
+                                   promise, context, selector);
     }
 
     /**
@@ -324,9 +326,9 @@ public class ReadUtils {
      *          whether to include control record.
      * @param includeEndOfStream
      *          whether to include end of stream.
-     * @param firstNumEntriesPerReadLastRecordScan
+     * @param scanStartBatchSize
      *          first num entries used for read last record scan
-     * @param maxNumEntriesPerReadLastRecordScan
+     * @param scanMaxBatchSize
      *          max num entries used for read last record scan
      * @param numRecordsScanned
      *          num of records scanned to get last record
@@ -344,38 +346,99 @@ public class ReadUtils {
             final boolean fence,
             final boolean includeControl,
             final boolean includeEndOfStream,
-            final int firstNumEntriesPerReadLastRecordScan,
-            final int maxNumEntriesPerReadLastRecordScan,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
             final AtomicInteger numRecordsScanned,
             final ExecutorService executorService,
             final BookKeeperClient bookKeeperClient,
             final String digestpw) {
+        final LogRecordSelector selector = new LastRecordSelector();
+        return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize, 
+                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               selector, true /* backward */);
+    }
+
+    /**
+     * Read first record from a ledger with a DLSN larger than that given.
+     *
+     * @param streamName
+     *          fully qualified stream name (used for logging)
+     * @param l
+     *          ledger descriptor.
+     * @param scanStartBatchSize
+     *          first num entries used for read last record scan
+     * @param scanMaxBatchSize
+     *          max num entries used for read last record scan
+     * @param numRecordsScanned
+     *          num of records scanned to get last record
+     * @param executorService
+     *          executor service used for processing entries
+     * @param bookKeeperClient
+     *          bookkeeper client to process entries
+     * @param digestpw
+     *          digest password to read entries from bookkeeper
+     * @param dlsn
+     *          threshold dlsn
+     * @return a future with last record.
+     */
+    public static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
+            final String streamName,
+            final LogSegmentLedgerMetadata l,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
+            final AtomicInteger numRecordsScanned,
+            final ExecutorService executorService,
+            final BookKeeperClient bookKeeperClient,
+            final String digestpw,
+            final DLSN dlsn) {
+        final LogRecordSelector selector = new FirstDLSNGreaterThanSelector(dlsn);
+        return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize, 
+                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               selector, false /* backward */);
+    }
+
+    private static Future<LogRecordWithDLSN> asyncReadRecord(
+            final String streamName,
+            final LogSegmentLedgerMetadata l,
+            final boolean fence,
+            final boolean includeControl,
+            final boolean includeEndOfStream,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
+            final AtomicInteger numRecordsScanned,
+            final ExecutorService executorService,
+            final BookKeeperClient bookKeeperClient,
+            final String digestpw,
+            final LogRecordSelector selector,
+            final boolean backward) {
+        
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
+        
         // Create a ledger handle cache && open ledger handle
         final LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         handleCachePriv.asyncOpenLedger(l, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(final int rc, final LedgerDescriptor ledgerDescriptor) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} Opened logsegment {} for reading last record : {}",
+                    LOG.debug("{} Opened logsegment {} for reading record : {}",
                             new Object[] { streamName, l, BKException.getMessage(rc) });
                 }
                 executorService.submit(new Runnable() {
                     @Override
                     public void run() {
                         if (BKException.Code.OK != rc) {
-                            String errMsg = "Error opening log segment " + l
-                                    + "] for reading last record of " + streamName;
+                            String errMsg = "Error opening log segment " + l + "] for reading record of " + streamName;
                             promise.setException(new IOException(errMsg, BKException.create(rc)));
                         } else {
                             if (LOG.isDebugEnabled()) {
-                                LOG.debug("{} backward scanning {}.", streamName, l);
+                                LOG.debug("{} {} scanning {}.", new Object[] { 
+                                        (backward ? "backward" : "forward"), streamName, l });
                             }
-                            asyncReadLastRecordFromLedger(
+                            asyncReadRecordFromLedger(
                                     streamName, ledgerDescriptor, handleCachePriv, executorService,
-                                    firstNumEntriesPerReadLastRecordScan, maxNumEntriesPerReadLastRecordScan,
+                                    scanStartBatchSize, scanMaxBatchSize,
                                     includeControl, includeEndOfStream,
-                                    promise, numRecordsScanned);
+                                    promise, numRecordsScanned, selector, backward);
                         }
                     }
                 });

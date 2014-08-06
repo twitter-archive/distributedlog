@@ -26,6 +26,7 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 
 import com.twitter.util.Await;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -493,6 +494,109 @@ abstract class BKLogPartitionHandler implements Watcher {
         return count;
     }
 
+    private Future<LogRecordWithDLSN> asyncReadFirstUserRecord(LogSegmentLedgerMetadata ledger, DLSN beginDLSN) {
+        return ReadUtils.asyncReadFirstUserRecord(
+                getFullyQualifiedName(),
+                ledger,
+                firstNumEntriesPerReadLastRecordScan,
+                maxNumEntriesPerReadLastRecordScan,
+                new AtomicInteger(0),
+                executorService,
+                bookKeeperClient,
+                digestpw,
+                beginDLSN);
+    }
+
+    /**
+     * This is a helper method to compactly return the record count between two records, the first denoted by 
+     * beginDLSN and the second denoted by endPosition. Its up to the caller to ensure that endPosition refers to 
+     * position in the same ledger as beginDLSN.
+     */
+    private Future<Long> asyncGetLogRecordCount(LogSegmentLedgerMetadata ledger, final DLSN beginDLSN, final long endPosition) {
+        return asyncReadFirstUserRecord(ledger, beginDLSN).map(new Function<LogRecordWithDLSN, Long>() {
+            public Long apply(final LogRecordWithDLSN beginRecord) {
+                long recordCount = 0;
+                if (null != beginRecord) {
+                    recordCount = endPosition + 1 - beginRecord.getPositionWithinLogSegment();
+                }
+                return recordCount;
+            }
+        });
+    }
+
+    /**
+     * Ledger metadata tells us how many records are in each completed segment, but for the first and last segments
+     * we may have to crack open the entry and count. For the first entry, we need to do so because beginDLSN may be 
+     * an interior entry. For the last entry, if it is inprogress, we need to recover it and find the last user 
+     * entry. 
+     */
+    private Future<Long> asyncGetLogRecordCount(final LogSegmentLedgerMetadata ledger, final DLSN beginDLSN) {
+        if (ledger.isInProgress() && ledger.isDLSNinThisSegment(beginDLSN)) {
+            return asyncReadLastUserRecord(ledger).flatMap(new Function<LogRecordWithDLSN, Future<Long>>() {
+                public Future<Long> apply(final LogRecordWithDLSN endRecord) {
+                    if (null != endRecord) {
+                        return asyncGetLogRecordCount(ledger, beginDLSN, endRecord.getPositionWithinLogSegment() /* end position */);
+                    } else {
+                        return Future.value((long) 0);
+                    }
+                }
+            });
+        } else if (ledger.isInProgress()) {
+            return asyncReadLastUserRecord(ledger).map(new Function<LogRecordWithDLSN, Long>() {
+                public Long apply(final LogRecordWithDLSN endRecord) {
+                    if (null != endRecord) {
+                        return (long) endRecord.getPositionWithinLogSegment();
+                    } else {
+                        return (long) 0;
+                    }
+                }
+            });
+        } else if (ledger.isDLSNinThisSegment(beginDLSN)) {
+            return asyncGetLogRecordCount(ledger, beginDLSN, ledger.getRecordCount() /* end position */);
+        } else {
+            return Future.value((long) ledger.getRecordCount());
+        }
+    }
+
+    /**
+     * Get a count of records between beginDLSN and the end of the stream.
+     *
+     * @param the dlsn marking the start of the range
+     * @return the count of records present in the range
+     */
+    public Future<Long> asyncGetLogRecordCount(final DLSN beginDLSN) {
+
+        return checkLogStreamExistsAsync().flatMap(new Function<Void, Future<Long>>() {
+            public Future<Long> apply(Void done) {         
+                
+                return asyncGetFullLedgerList(true, false).flatMap(new Function<List<LogSegmentLedgerMetadata>, Future<Long>>() {
+                    public Future<Long> apply(List<LogSegmentLedgerMetadata> ledgerList) {
+                        
+                        List<Future<Long>> futureCounts = new ArrayList<Future<Long>>(ledgerList.size());
+                        for (LogSegmentLedgerMetadata ledger : ledgerList) {
+                            if (ledger.getLedgerSequenceNumber() >= beginDLSN.getLedgerSequenceNo()) {
+                                futureCounts.add(asyncGetLogRecordCount(ledger, beginDLSN));
+                            }
+                        }
+                        return Future.collect(futureCounts).map(new Function<List<Long>, Long>() {
+                            public Long apply(List<Long> counts) {
+                                return sum(counts);
+                            }
+                        });
+                    }
+                });  
+            }
+        });        
+    }
+
+    private Long sum(List<Long> values) {
+        long sum = 0;
+        for (Long value : values) {
+            sum += value.longValue();
+        }
+        return sum;
+    }
+
     public long getFirstTxId() throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getFullLedgerList(true, true);
@@ -658,6 +762,10 @@ abstract class BKLogPartitionHandler implements Watcher {
                 throw new IOException("Error on reading last record in ledger " + l + " for " + getFullyQualifiedName(), t);
             }
         }
+    }
+
+    public Future<LogRecordWithDLSN> asyncReadLastUserRecord(final LogSegmentLedgerMetadata l) {
+        return asyncReadLastRecord(l, false, false, false);
     }
 
     public Future<LogRecordWithDLSN> asyncReadLastRecord(final LogSegmentLedgerMetadata l,
