@@ -4,7 +4,7 @@ import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
-import com.twitter.distributedlog.stats.BKExceptionStatsLogger;
+import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -24,8 +24,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -47,35 +45,19 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final AlertStatsLogger alertStatsLogger;
 
     // stats
-    private static Counter readAheadWorkerWaits;
-    private static Counter readAheadEntryPiggyBackHits;
-    private static Counter readAheadEntryPiggyBackMisses;
-    private static Counter readAheadReadLACCounter;
-    private static Counter readAheadReadLACAndEntryCounter;
-    private static OpStatsLogger getInputStreamByTxIdStat;
-    private static OpStatsLogger getInputStreamByDLSNStat;
-    private static OpStatsLogger existsStat;
-    private static OpStatsLogger readAheadReadEntriesStat;
-    private static OpStatsLogger longPollInterruptionStat;
-    private static OpStatsLogger metadataReinitializationStat;
-    private static OpStatsLogger notificationExecutionStat;
-    private static StatsLogger parentExceptionStatsLogger;
-    private final static ConcurrentMap<String, BKExceptionStatsLogger> exceptionStatsLoggers =
-            new ConcurrentHashMap<String, BKExceptionStatsLogger>();
-
-    private static BKExceptionStatsLogger getBKExceptionStatsLogger(String phase) {
-        assert null != parentExceptionStatsLogger;
-        BKExceptionStatsLogger exceptionStatsLogger = exceptionStatsLoggers.get(phase);
-        if (null == exceptionStatsLogger) {
-            exceptionStatsLogger = new BKExceptionStatsLogger(parentExceptionStatsLogger.scope(phase));
-            BKExceptionStatsLogger oldExceptionStatsLogger =
-                    exceptionStatsLoggers.putIfAbsent(phase, exceptionStatsLogger);
-            if (null != oldExceptionStatsLogger) {
-                exceptionStatsLogger = oldExceptionStatsLogger;
-            }
-        }
-        return exceptionStatsLogger;
-    }
+    private final Counter readAheadWorkerWaits;
+    private final Counter readAheadEntryPiggyBackHits;
+    private final Counter readAheadEntryPiggyBackMisses;
+    private final Counter readAheadReadLACCounter;
+    private final Counter readAheadReadLACAndEntryCounter;
+    private final OpStatsLogger getInputStreamByTxIdStat;
+    private final OpStatsLogger getInputStreamByDLSNStat;
+    private final OpStatsLogger existsStat;
+    private final OpStatsLogger readAheadReadEntriesStat;
+    private final OpStatsLogger longPollInterruptionStat;
+    private final OpStatsLogger metadataReinitializationStat;
+    private final OpStatsLogger notificationExecutionStat;
+    private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
@@ -98,6 +80,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      ScheduledExecutorService executorService,
                                      ScheduledExecutorService readAheadExecutor,
                                      AlertStatsLogger alertStatsLogger,
+                                     ReadAheadExceptionsLogger readAheadExceptionsLogger,
                                      StatsLogger statsLogger,
                                      AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
@@ -112,47 +95,20 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
-        if (null == readAheadWorkerWaits) {
-            readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
-        }
-        if (null == readAheadEntryPiggyBackHits) {
-            readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
-        }
-        if (null == readAheadEntryPiggyBackMisses) {
-            readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
-        }
-        if (null == readAheadReadEntriesStat) {
-            readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
-        }
-        if (null == readAheadReadLACCounter) {
-            readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
-        }
-        if (null == readAheadReadLACAndEntryCounter) {
-            readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
-        }
-        if (null == longPollInterruptionStat) {
-            longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
-        }
-        if (null == notificationExecutionStat) {
-            notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
-        }
-        if (null == metadataReinitializationStat) {
-            metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
-        }
-        if (null == parentExceptionStatsLogger) {
-            parentExceptionStatsLogger = statsLogger.scope("exceptions");
-        }
-
+        readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
+        readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
+        readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
+        readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
+        readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
+        readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
+        longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
+        notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
+        metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
-        if (null == getInputStreamByDLSNStat) {
-            getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
-        }
-        if (null == getInputStreamByTxIdStat) {
-            getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
-        }
-        if (null == existsStat) {
-            existsStat = readerStatsLogger.getOpStatsLogger("check_stream_exists");
-        }
+        getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
+        getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
+        existsStat = readerStatsLogger.getOpStatsLogger("check_stream_exists");
+        this.readAheadExceptionsLogger = readAheadExceptionsLogger;
     }
 
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
@@ -634,7 +590,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
 
         private void handleException(ReadAheadPhase phase, int returnCode) {
-            getBKExceptionStatsLogger(phase.name()).getExceptionCounter(returnCode).inc();
+            readAheadExceptionsLogger.getBKExceptionStatsLogger(phase.name()).getExceptionCounter(returnCode).inc();
             exceptionHandler.process(returnCode);
         }
 

@@ -19,8 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.google.common.base.Stopwatch;
-
 import static com.google.common.base.Charsets.UTF_8;
 
 public class LedgerHandleCache {
@@ -31,10 +29,11 @@ public class LedgerHandleCache {
 
     private final BookKeeperClient bkc;
     private final String digestpw;
-    private static OpStatsLogger openStats = null;
-    private static OpStatsLogger openNoRecoveryStats = null;
-    private static OpStatsLogger tryReadLastConfirmedStats = null;
-    private static OpStatsLogger readLastConfirmedStats = null;
+
+    private final OpStatsLogger openStats;
+    private final OpStatsLogger openNoRecoveryStats;
+    private final OpStatsLogger tryReadLastConfirmedStats;
+    private final OpStatsLogger readLastConfirmedStats;
 
     LedgerHandleCache(BookKeeperClient bkc, String digestpw) {
         this(bkc, digestpw, NullStatsLogger.INSTANCE);
@@ -43,23 +42,11 @@ public class LedgerHandleCache {
     LedgerHandleCache(BookKeeperClient bkc, String digestpw, StatsLogger statsLogger) {
         this.bkc = bkc;
         this.digestpw = digestpw;
-        initializeStats(statsLogger);
-    }
-
-    static synchronized void initializeStats(StatsLogger statsLogger) {
         // Stats
-        if (openStats == null) {
-            openStats = statsLogger.getOpStatsLogger("open_ledger");
-        }
-        if (openNoRecoveryStats == null) {
-            openNoRecoveryStats = statsLogger.getOpStatsLogger("open_ledger_no_recovery");
-        }
-        if (tryReadLastConfirmedStats == null) {
-            tryReadLastConfirmedStats = statsLogger.getOpStatsLogger("try_read_last_confirmed");
-        }
-        if (readLastConfirmedStats == null) {
-            readLastConfirmedStats = statsLogger.getOpStatsLogger("read_last_confirmed");
-        }
+        openStats = statsLogger.getOpStatsLogger("open_ledger");
+        openNoRecoveryStats = statsLogger.getOpStatsLogger("open_ledger_no_recovery");
+        tryReadLastConfirmedStats = statsLogger.getOpStatsLogger("try_read_last_confirmed");
+        readLastConfirmedStats = statsLogger.getOpStatsLogger("read_last_confirmed");
     }
 
     /**

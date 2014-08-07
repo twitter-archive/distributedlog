@@ -35,19 +35,20 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private ConcurrentLinkedQueue<PendingReadRequest> pendingRequests = new ConcurrentLinkedQueue<PendingReadRequest>();
     private AtomicLong scheduleCount = new AtomicLong(0);
     private boolean simulateErrors = false;
-    private static OpStatsLogger futurePending = null;
-    private static OpStatsLogger readNextExecTime = null;
-    private static OpStatsLogger timeBetweenReadNexts = null;
-    private static OpStatsLogger futureSetLatency = null;
-    private static OpStatsLogger scheduleLatency = null;
-    private static OpStatsLogger backgroundReaderRunTime = null;
     final private Stopwatch scheduleDelayStopwatch;
     final private Stopwatch readNextDelayStopwatch;
     private final DLSN startDLSN;
     private boolean readAheadStarted = false;
     private int lastPosition = 0;
 
-    private static class PendingReadRequest {
+    // Stats
+    private final OpStatsLogger readNextExecTime;
+    private final OpStatsLogger timeBetweenReadNexts;
+    private final OpStatsLogger futureSetLatency;
+    private final OpStatsLogger scheduleLatency;
+    private final OpStatsLogger backgroundReaderRunTime;
+
+    private class PendingReadRequest {
         private final Promise<LogRecordWithDLSN> promise;
         private final Stopwatch sw;
 
@@ -88,11 +89,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         this.startDLSN = startDLSN;
         this.scheduleDelayStopwatch = Stopwatch.createUnstarted();
         this.readNextDelayStopwatch = Stopwatch.createStarted();
+
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
         futureSetLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
         scheduleLatency = asyncReaderStatsLogger.getOpStatsLogger("schedule");
         backgroundReaderRunTime = asyncReaderStatsLogger.getOpStatsLogger("background_read");
-        futurePending = asyncReaderStatsLogger.getOpStatsLogger("future_pending");
         readNextExecTime = asyncReaderStatsLogger.getOpStatsLogger("read_next_exec");
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
     }

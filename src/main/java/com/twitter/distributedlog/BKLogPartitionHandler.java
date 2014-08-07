@@ -146,16 +146,16 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final long metadataLatencyWarnThresholdMillis;
 
     // Stats
-    private static OpStatsLogger forceGetListStat;
-    private static OpStatsLogger getListStat;
-    private static OpStatsLogger getFilteredListStat;
-    private static OpStatsLogger getFullListStat;
-    private static OpStatsLogger getInprogressSegmentStat;
-    private static OpStatsLogger getCompletedSegmentStat;
-    private static OpStatsLogger negativeGetInprogressSegmentStat;
-    private static OpStatsLogger negativeGetCompletedSegmentStat;
-    private static OpStatsLogger recoverLastEntryStats;
-    private static OpStatsLogger recoverScannedEntriesStats;
+    private final OpStatsLogger forceGetListStat;
+    private final OpStatsLogger getListStat;
+    private final OpStatsLogger getFilteredListStat;
+    private final OpStatsLogger getFullListStat;
+    private final OpStatsLogger getInprogressSegmentStat;
+    private final OpStatsLogger getCompletedSegmentStat;
+    private final OpStatsLogger negativeGetInprogressSegmentStat;
+    private final OpStatsLogger negativeGetCompletedSegmentStat;
+    private final OpStatsLogger recoverLastEntryStats;
+    private final OpStatsLogger recoverScannedEntriesStats;
 
     static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
 
@@ -305,36 +305,16 @@ abstract class BKLogPartitionHandler implements Watcher {
 
         // Stats
         StatsLogger segmentsLogger = statsLogger.scope("logsegments");
-        if (null == forceGetListStat) {
-            forceGetListStat = segmentsLogger.getOpStatsLogger("force_get_list");
-        }
-        if (null == getListStat) {
-            getListStat = segmentsLogger.getOpStatsLogger("get_list");
-        }
-        if (null == getFilteredListStat) {
-            getFilteredListStat = segmentsLogger.getOpStatsLogger("get_filtered_list");
-        }
-        if (null == getFullListStat) {
-            getFullListStat = segmentsLogger.getOpStatsLogger("get_full_list");
-        }
-        if (null == getInprogressSegmentStat) {
-            getInprogressSegmentStat = segmentsLogger.getOpStatsLogger("get_inprogress_segment");
-        }
-        if (null == getCompletedSegmentStat) {
-            getCompletedSegmentStat = segmentsLogger.getOpStatsLogger("get_completed_segment");
-        }
-        if (null == negativeGetInprogressSegmentStat) {
-            negativeGetInprogressSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_inprogress_segment");
-        }
-        if (null == negativeGetCompletedSegmentStat) {
-            negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
-        }
-        if (null == recoverLastEntryStats) {
-            recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
-        }
-        if (null == recoverScannedEntriesStats) {
-            recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
-        }
+        forceGetListStat = segmentsLogger.getOpStatsLogger("force_get_list");
+        getListStat = segmentsLogger.getOpStatsLogger("get_list");
+        getFilteredListStat = segmentsLogger.getOpStatsLogger("get_filtered_list");
+        getFullListStat = segmentsLogger.getOpStatsLogger("get_full_list");
+        getInprogressSegmentStat = segmentsLogger.getOpStatsLogger("get_inprogress_segment");
+        getCompletedSegmentStat = segmentsLogger.getOpStatsLogger("get_completed_segment");
+        negativeGetInprogressSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_inprogress_segment");
+        negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
+        recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
+        recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
     }
 
     protected void registerListener(LogSegmentListener listener) {

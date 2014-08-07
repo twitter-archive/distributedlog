@@ -95,9 +95,8 @@ class DistributedReentrantLock {
         }
     }
 
-    private static StatsLogger lockStatsLogger = null;
-    private static OpStatsLogger acquireStats = null;
-    private static OpStatsLogger releaseStats = null;
+    private final OpStatsLogger acquireStats;
+    private final OpStatsLogger releaseStats;
 
     /**
      * Construct a lock.
@@ -140,15 +139,9 @@ class DistributedReentrantLock {
         this.lockAcqTracker = new AtomicIntegerArray(LockReason.MAXREASON.value);
         this.internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
 
-        if (null == lockStatsLogger) {
-            lockStatsLogger = statsLogger.scope("lock");
-        }
-        if (null == acquireStats) {
-            acquireStats = lockStatsLogger.getOpStatsLogger("acquire");
-        }
-        if (null == releaseStats) {
-            releaseStats = lockStatsLogger.getOpStatsLogger("release");
-        }
+        StatsLogger lockStatsLogger = statsLogger.scope("lock");
+        acquireStats = lockStatsLogger.getOpStatsLogger("acquire");
+        releaseStats = lockStatsLogger.getOpStatsLogger("release");
     }
 
     void acquire(LockReason reason) throws LockingException {
@@ -343,24 +336,25 @@ class DistributedReentrantLock {
                     internalLock = lock;
                 }
                 lock.asyncTryLock(lockTimeout, TimeUnit.MILLISECONDS)
-                    .addEventListener(new FutureEventListener<String>() {
-                        @Override
-                        public void onSuccess(String owner) {
-                            if (internalLock.isLockHeld()) {
-                                result.setValue(owner);
-                            } else {
-                                result.setException(new OwnershipAcquireFailedException(lockPath, owner));
+                        .addEventListener(new FutureEventListener<String>() {
+                            @Override
+                            public void onSuccess(String owner) {
+                                if (internalLock.isLockHeld()) {
+                                    result.setValue(owner);
+                                } else {
+                                    result.setException(new OwnershipAcquireFailedException(lockPath, owner));
+                                }
                             }
-                        }
-                        @Override
-                        public void onFailure(Throwable cause) {
-                            if (numRetries.getAndDecrement() > 0 && !closed) {
-                                internalTryLock(numRetries, lockTimeout, result);
-                            } else {
-                                result.setException(cause);
+
+                            @Override
+                            public void onFailure(Throwable cause) {
+                                if (numRetries.getAndDecrement() > 0 && !closed) {
+                                    internalTryLock(numRetries, lockTimeout, result);
+                                } else {
+                                    result.setException(cause);
+                                }
                             }
-                        }
-                    });
+                        });
             }
         });
     }

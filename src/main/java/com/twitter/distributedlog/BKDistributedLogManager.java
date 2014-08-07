@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
@@ -9,6 +10,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
+import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
 import com.twitter.distributedlog.util.PermitManager;
@@ -98,10 +100,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private ExecutorServiceFuturePool readerFuturePool = null;
     private ExecutorService metadataExecutor = null;
     private OrderedSafeExecutor lockStateExecutor;
-    private final AlertStatsLogger alertStatsLogger;
 
-    private static StatsLogger handlerStatsLogger = null;
-    private static OpStatsLogger createWriteHandlerStats = null;
+    private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
+    private final AlertStatsLogger alertStatsLogger;
+    private final OpStatsLogger createWriteHandlerStats;
 
     public BKDistributedLogManager(String name,
                                    DistributedLogConfiguration conf,
@@ -114,24 +116,26 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this(name, conf, uri,
              writerZKCBuilder, readerZKCBuilder, writerBKCBuilder, readerBKCBuilder,
              Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-             null, null, null, null, statsLogger);
+             null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), statsLogger);
         this.ownExecutor = true;
     }
 
-    public BKDistributedLogManager(String name,
-                                   DistributedLogConfiguration conf,
-                                   URI uri,
-                                   ZooKeeperClientBuilder writerZKCBuilder,
-                                   ZooKeeperClientBuilder readerZKCBuilder,
-                                   BookKeeperClientBuilder writerBKCBuilder,
-                                   BookKeeperClientBuilder readerBKCBuilder,
-                                   ScheduledExecutorService executorService,
-                                   ScheduledExecutorService readAheadExecutor,
-                                   OrderedSafeExecutor lockStateExecutor,
-                                   ClientSocketChannelFactory channelFactory,
-                                   HashedWheelTimer requestTimer,
-                                   StatsLogger statsLogger) throws IOException {
+    BKDistributedLogManager(String name,
+                            DistributedLogConfiguration conf,
+                            URI uri,
+                            ZooKeeperClientBuilder writerZKCBuilder,
+                            ZooKeeperClientBuilder readerZKCBuilder,
+                            BookKeeperClientBuilder writerBKCBuilder,
+                            BookKeeperClientBuilder readerBKCBuilder,
+                            ScheduledExecutorService executorService,
+                            ScheduledExecutorService readAheadExecutor,
+                            OrderedSafeExecutor lockStateExecutor,
+                            ClientSocketChannelFactory channelFactory,
+                            HashedWheelTimer requestTimer,
+                            ReadAheadExceptionsLogger readAheadExceptionsLogger,
+                            StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder);
+        Preconditions.checkNotNull("No ReadAhead Stats Logger Provided.", readAheadExceptionsLogger);
         this.conf = conf;
         this.executorService = executorService;
         this.lockStateExecutor = lockStateExecutor;
@@ -182,12 +186,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         closed = false;
 
         // Stats
-        if (null == handlerStatsLogger) {
-            handlerStatsLogger = statsLogger.scope("handlers");
-            createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
-        }
-
+        StatsLogger handlerStatsLogger = statsLogger.scope("handlers");
+        this.createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
         this.alertStatsLogger = new AlertStatsLogger(statsLogger, name);
+        this.readAheadExceptionsLogger = readAheadExceptionsLogger;
     }
 
     private synchronized OrderedSafeExecutor getLockStateExecutor(boolean createIfNull) {
@@ -265,7 +267,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                                                           AsyncNotification notification) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
                 readerZKCBuilder, readerBKCBuilder, executorService, readAheadExecutor,
-                alertStatsLogger, statsLogger, notification);
+                alertStatsLogger, readAheadExceptionsLogger, statsLogger, notification);
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {

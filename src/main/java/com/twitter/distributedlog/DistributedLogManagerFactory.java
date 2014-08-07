@@ -7,6 +7,7 @@ import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
@@ -87,7 +88,6 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final int regionId;
     private DistributedLogConfiguration conf;
     private URI namespace;
-    private final StatsLogger statsLogger;
     private final ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
     private final ScheduledThreadPoolExecutor readAheadExecutor;
     private final OrderedSafeExecutor lockStateExecutor;
@@ -122,6 +122,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final AtomicBoolean namespaceWatcherSet = new AtomicBoolean(false);
     private final CopyOnWriteArraySet<NamespaceListener> namespaceListeners =
             new CopyOnWriteArraySet<NamespaceListener>();
+
+    // Stats Loggers
+    private final StatsLogger statsLogger;
+    private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
 
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
@@ -239,6 +243,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         } else {
             allocator = null;
         }
+
+        // Stats Loggers
+        this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
 
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
     }
@@ -430,7 +437,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         DistributedLogManagerFactory.validateName(nameOfLogStream);
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(nameOfLogStream, conf, namespace,
             null, null, null, null, scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-            channelFactory, requestTimer, statsLogger);
+            channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
         return distLogMgr;
     }
@@ -509,7 +516,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
                 writerBKCBuilder, readerBKCBuilder,
                 scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-                channelFactory, requestTimer, statsLogger);
+                channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);
@@ -556,7 +563,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL,
                 writerBKCBuilder, readerBKCBuilder,
                 scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-                channelFactory, requestTimer, statsLogger);
+                channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setLedgerAllocator(allocator);

@@ -18,8 +18,6 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -190,12 +188,14 @@ class BKPerStreamLogReader {
         private LedgerDataAccessor ledgerDataAccessor;
         private final String fullyQualifiedName;
         private boolean nonBlocking = false;
-        private static Counter getWithNoWaitCount = null;
-        private static Counter getWithWaitCount = null;
-        private static OpStatsLogger getWithNoWaitStat = null;
-        private static OpStatsLogger getWithWaitStat = null;
-        private static Counter illegalStateCount = null;
         private boolean enableTrace = false;
+
+        // Stats
+        private final Counter getWithNoWaitCount;
+        private final Counter getWithWaitCount;
+        private final OpStatsLogger getWithNoWaitStat;
+        private final OpStatsLogger getWithWaitStat;
+        private final Counter illegalStateCount;
 
         /**
          * Construct ledger input stream
@@ -215,26 +215,11 @@ class BKPerStreamLogReader {
             this.enableTrace = enableTrace;
 
             StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
-
-            if (null == getWithWaitCount) {
-                getWithWaitCount = getEntryStatsLogger.getCounter("block");
-            }
-
-            if (null == getWithNoWaitCount) {
-                getWithNoWaitCount = getEntryStatsLogger.getCounter("no_block");
-            }
-
-            if (null == getWithNoWaitStat) {
-                getWithNoWaitStat = getEntryStatsLogger.getOpStatsLogger("no_block_latency");
-            }
-
-            if (null == getWithWaitStat) {
-                getWithWaitStat = getEntryStatsLogger.getOpStatsLogger("block_latency");
-            }
-
-            if (null == illegalStateCount) {
-                illegalStateCount = statsLogger.getCounter("illegal_state");
-            }
+            getWithWaitCount = getEntryStatsLogger.getCounter("block");
+            getWithNoWaitCount = getEntryStatsLogger.getCounter("no_block");
+            getWithNoWaitStat = getEntryStatsLogger.getOpStatsLogger("no_block_latency");
+            getWithWaitStat = getEntryStatsLogger.getOpStatsLogger("block_latency");
+            illegalStateCount = statsLogger.getCounter("illegal_state");
         }
 
         private Counter getEntryCounter(boolean nonBlocking) {

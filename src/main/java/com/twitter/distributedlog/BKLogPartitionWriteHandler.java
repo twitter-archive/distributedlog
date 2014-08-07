@@ -167,10 +167,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     // Stats
-    private static OpStatsLogger closeOpStats;
-    private static OpStatsLogger openOpStats;
-    private static OpStatsLogger recoverOpStats;
-    private static OpStatsLogger deleteOpStats;
+    private final OpStatsLogger closeOpStats;
+    private final OpStatsLogger openOpStats;
+    private final OpStatsLogger recoverOpStats;
+    private final OpStatsLogger deleteOpStats;
 
     static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
         @Override
@@ -448,18 +448,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         // Stats
         StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
-        if (null == openOpStats) {
-            openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
-        }
-        if (null == closeOpStats) {
-            closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
-        }
-        if (null == recoverOpStats) {
-            recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
-        }
-        if (null == deleteOpStats) {
-            deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
-        }
+        openOpStats = segmentsStatsLogger.getOpStatsLogger("open");
+        closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
+        recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
+        deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
     }
 
     /**

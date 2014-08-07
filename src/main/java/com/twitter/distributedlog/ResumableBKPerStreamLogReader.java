@@ -22,9 +22,9 @@ import org.slf4j.LoggerFactory;
 class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(ResumableBKPerStreamLogReader.class);
 
-    private static Counter resumeMisses = null;
-    private static OpStatsLogger resumeHitStat = null;
-    private static OpStatsLogger resumeSetWatcherStat = null;
+    private final Counter resumeMisses;
+    private final OpStatsLogger resumeHitStat;
+    private final OpStatsLogger resumeSetWatcherStat;
 
     private final LogSegmentLedgerMetadata metadata;
     private String zkPath;
@@ -57,17 +57,9 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
         // Stats
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
-        if (null == resumeMisses) {
-            resumeMisses = readerStatsLogger.getCounter("resume_miss");
-        }
-
-        if (null == resumeHitStat) {
-            resumeHitStat = readerStatsLogger.getOpStatsLogger("resume_hit");
-        }
-
-        if (null == resumeSetWatcherStat) {
-            resumeSetWatcherStat = readerStatsLogger.getOpStatsLogger("resume_setwatcher");
-        }
+        resumeMisses = readerStatsLogger.getCounter("resume_miss");
+        resumeHitStat = readerStatsLogger.getOpStatsLogger("resume_hit");
+        resumeSetWatcherStat = readerStatsLogger.getOpStatsLogger("resume_setwatcher");
 
         resume(true);
     }
