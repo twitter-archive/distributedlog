@@ -132,7 +132,10 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
         BKLogPartitionWriteHandler writeHandler =
                 this.getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
-        writeHandler.recoverIncompleteLogSegments();
+        // hold the lock for the handler across the lifecycle of log writer, so we don't need
+        // to release underlying lock when rolling or completing log segments, which would reduce
+        // the possibility of ownership change during rolling / completing log segments.
+        writeHandler.lockHandler().recoverIncompleteLogSegments();
         return this;
     }
 
@@ -178,7 +181,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     }
 
     List<Future<DLSN>> queueRequests(List<LogRecord> records) {
-        List<Future<DLSN>> pendingResults = new ArrayList<Future<DLSN>>(records.size()); 
+        List<Future<DLSN>> pendingResults = new ArrayList<Future<DLSN>>(records.size());
         for (LogRecord record : records) {
             pendingResults.add(queueRequest(record));
         }
@@ -264,10 +267,10 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public Future<DLSN> write(final LogRecord record) {
-        // IMPORTANT: Continuations (flatMap, map, etc.) applied to a completed future are NOT guaranteed 
-        // to run inline/synchronously. For example if the current thread is already running some 
-        // continuation, any new applied continuations will be run only after the current continuation 
-        // completes. Thus it is NOT safe to replace the single flattened future pool block below with 
+        // IMPORTANT: Continuations (flatMap, map, etc.) applied to a completed future are NOT guaranteed
+        // to run inline/synchronously. For example if the current thread is already running some
+        // continuation, any new applied continuations will be run only after the current continuation
+        // completes. Thus it is NOT safe to replace the single flattened future pool block below with
         // the flatMap alternative, "futurePool { getWriter } flatMap { asyncWrite }".
         return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
             public Future<DLSN> applyE() throws IOException {
@@ -279,7 +282,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     /**
      * Write many log records to the stream. The return type here is unfortunate but its a direct result
-     * of having to combine FuturePool and the asyncWriteBulk method which returns a future as well. The 
+     * of having to combine FuturePool and the asyncWriteBulk method which returns a future as well. The
      * problem is the List that asyncWriteBulk returns can't be materialized until getPerStreamLogWriter
      * completes, so it has to be wrapped in a future itself.
      *

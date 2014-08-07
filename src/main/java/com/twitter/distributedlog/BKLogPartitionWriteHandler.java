@@ -151,6 +151,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     protected volatile boolean closed = false;
     protected boolean recoverInitiated = false;
     protected final RollingPolicy rollingPolicy;
+    protected boolean lockHandler = false;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -438,11 +439,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         // Initialize other parameters.
         setLastLedgerRollingTimeMillis(Utils.nowInMillis());
 
-        // acquire the lock if we enable recover in background
-        if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
-            lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
-        }
-
         // Rolling Policy
         if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
             rollingPolicy = new TimeBasedRollingPolicy(conf);
@@ -464,6 +460,28 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         if (null == deleteOpStats) {
             deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
         }
+    }
+
+    /**
+     * The caller could call this before any actions, which to hold the lock for
+     * the write handler of its whole lifecycle. The lock will only be released
+     * when closing the write handler.
+     *
+     * This method is useful to prevent releasing underlying zookeeper lock during
+     * recovering/completing log segments. Releasing underlying zookeeper lock means
+     * 1) increase latency when re-lock on starting new log segment. 2) increase the
+     * possibility of a stream being re-acquired by other instances.
+     *
+     * @return write handler
+     * @throws LockingException
+     */
+    BKLogPartitionWriteHandler lockHandler() throws LockingException {
+        if (lockHandler) {
+            return this;
+        }
+        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
+        lockHandler = true;
+        return this;
     }
 
     static void createStreamIfNotExists(final String partitionRootPath,
@@ -994,16 +1012,19 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 return;
             }
 
-            zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
-            LOG.info("Deleted {} for completing segment {} for {} : {}",
-                    new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), l });
+            try {
+                zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
+                LOG.info("Deleted {} for completing segment {} for {} : {}",
+                        new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), l });
+            } catch (KeeperException.NoNodeException nne) {
+                LOG.warn("No segment {} to delete for completing segment {} for {}",
+                         new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName() });
+            }
 
             removeLogSegmentFromCache(inprogressZnodeName);
             addLogSegmentToCache(nameForCompletedLedger, l);
         } catch (InterruptedException e) {
-            throw new IOException("Interrupted when finalising stream " + partitionRootPath, e);
-        } catch (KeeperException.NoNodeException e) {
-            throw new IOException("Error when finalising stream " + partitionRootPath, e);
+            throw new DLInterruptedException("Interrupted when finalising stream " + partitionRootPath, e);
         } catch (KeeperException e) {
             throw new ZKException("Error when finalising stream " + partitionRootPath, e);
         } finally {
@@ -1374,7 +1395,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
             }
         }
-        if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground()) {
+        if (lockHandler) {
             lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
         }
         lock.close();

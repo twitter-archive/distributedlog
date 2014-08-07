@@ -154,6 +154,7 @@
           </excludes>
           <testExcludes>
             <exclude>**/bk/**Allocator**</exclude>
+            <exclude>**/**TestLogSegmentsZK34**</exclude>
           </testExcludes>
         </configuration>
       </plugin>
