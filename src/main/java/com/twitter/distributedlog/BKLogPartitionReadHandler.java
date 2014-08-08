@@ -45,6 +45,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private volatile boolean readingFromTruncated = false;
     private final AlertStatsLogger alertStatsLogger;
 
+    private final long checkLogExistenceBackoffStartMs;
+    private final long checkLogExistenceBackoffMaxMs;
+    private long checkLogExistenceBackoffMs;
+
     // stats
     private final Counter readAheadWorkerWaits;
     private final Counter readAheadEntryPiggyBackHits;
@@ -93,6 +97,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         ledgerDataAccessor = new LedgerDataAccessor(
                 handleCache, getFullyQualifiedName(), statsLogger, notification,
                 conf.getTraceReadAheadDeliveryLatency(), conf.getDataLatencyWarnThresholdMillis());
+
+        this.checkLogExistenceBackoffStartMs = conf.getCheckLogExistenceBackoffStartMillis();
+        this.checkLogExistenceBackoffMaxMs = conf.getCheckLogExistenceBackoffMaxMillis();
+        this.checkLogExistenceBackoffMs = this.checkLogExistenceBackoffStartMs;
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
@@ -281,6 +289,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         } else {
             if (fThrowOnEmpty) {
                 throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
+            } else if (checkLogExistenceBackoffStartMs > 0) {
+                try {
+                    TimeUnit.MILLISECONDS.sleep(checkLogExistenceBackoffMs);
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on backoff checking existence of stream {} : ", getFullyQualifiedName(), e);
+                    Thread.currentThread().interrupt();
+                }
+                checkLogExistenceBackoffMs = Math.min(checkLogExistenceBackoffMs * 2, checkLogExistenceBackoffMaxMs);
             }
         }
 
@@ -730,7 +746,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 !conf.getIgnoreTruncationStatus()) {
                                 continue;
                             }
-
 
                             // next read position still inside a log segment
                             final boolean hasDataToRead = (l.getLastDLSN().compareTo(

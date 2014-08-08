@@ -239,6 +239,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "maxNumEntriesPerReadLastRecordScan";
     public static final int BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 16;
 
+    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS = "checkLogExistenceBackoffStartMillis";
+    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT = 200;
+
+    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS = "checkLogExistenceBackoffMaxMillis";
+    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT = 1000;
+
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
         BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
@@ -1678,6 +1684,48 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setMaxNumEntriesPerReadLastRecordScan(int numEntries) {
         setProperty(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
+        return this;
+    }
+
+    /**
+     * Get the backoff start time to check log existence if the log doesn't exist.
+     *
+     * @return the backoff start time to check log existence if the log doesn't exist.
+     */
+    public long getCheckLogExistenceBackoffStartMillis() {
+        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT);
+    }
+
+    /**
+     * Set the backoff start time to check log existence if the log doesn't exist.
+     *
+     * @param backoffMillis
+     *          backoff time in millis
+     * @return dl configuration
+     */
+    public DistributedLogConfiguration setCheckLogExistenceBackoffStartMillis(long backoffMillis) {
+        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, backoffMillis);
+        return this;
+    }
+
+    /**
+     * Get the backoff max time to check log existence if the log doesn't exist.
+     *
+     * @return the backoff max time to check log existence if the log doesn't exist.
+     */
+    public long getCheckLogExistenceBackoffMaxMillis() {
+        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT);
+    }
+
+    /**
+     * Set the backoff max time to check log existence if the log doesn't exist.
+     *
+     * @param backoffMillis
+     *          backoff time in millis
+     * @return dl configuration
+     */
+    public DistributedLogConfiguration setCheckLogExistenceBackoffMaxMillis(long backoffMillis) {
+        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, backoffMillis);
         return this;
     }
 }
