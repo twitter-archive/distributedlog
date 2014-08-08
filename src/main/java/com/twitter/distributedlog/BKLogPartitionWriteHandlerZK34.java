@@ -374,29 +374,34 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                 abortStore(maxTxId, lastTxId);
 
                 List<OpResult> errorResults = ke.getResults();
-                OpResult completedLedgerResult = errorResults.get(0);
-                if (ZooDefs.OpCode.error == completedLedgerResult.getType()) {
-                    OpResult.ErrorResult errorResult = (OpResult.ErrorResult) completedLedgerResult;
-                    if (KeeperException.Code.NODEEXISTS.intValue() == errorResult.getErr()) {
-                        if (!logSegment.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
-                            throw new IOException("Node " + pathForCompletedLedger + " already exists"
-                                    + " but data doesn't match");
+                if (null != errorResults) {
+                    OpResult completedLedgerResult = errorResults.get(0);
+                    if (null != completedLedgerResult && ZooDefs.OpCode.error == completedLedgerResult.getType()) {
+                        OpResult.ErrorResult errorResult = (OpResult.ErrorResult) completedLedgerResult;
+                        if (KeeperException.Code.NODEEXISTS.intValue() == errorResult.getErr()) {
+                            if (!logSegment.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
+                                throw new IOException("Node " + pathForCompletedLedger + " already exists"
+                                        + " but data doesn't match");
+                            }
+                        } else {
+                            // fail on completing an inprogress log segment
+                            throw ke;
+                        }
+                        // fall back to use synchronous calls
+                        maxLedgerSequenceNo.store(zooKeeperClient, ledgerPath, maxSeqNo);
+                        maxTxId.store(lastTxId);
+                        LOG.info("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressZnodePath, lastTxId);
+                        try {
+                            zooKeeperClient.get().delete(inprogressZnodePath, -1);
+                        } catch (KeeperException.NoNodeException nne) {
+                            LOG.warn("No inprogress log segment {} to delete while completing log segment {} for {} : ",
+                                     new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), nne });
                         }
                     } else {
-                        // fail on completing an inprogress log segment
                         throw ke;
                     }
-                    // fall back to use synchronous calls
-                    maxLedgerSequenceNo.store(zooKeeperClient, ledgerPath, maxSeqNo);
-                    maxTxId.store(lastTxId);
-                    LOG.info("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressZnodePath, lastTxId);
-                    try {
-                        zooKeeperClient.get().delete(inprogressZnodePath, -1);
-                    } catch (KeeperException.NoNodeException nne) {
-                        LOG.warn("No inprogress log segment {} to delete while completing log segment {} for {} : ",
-                                 new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), nne });
-                    }
                 } else {
+                    LOG.warn("No OpResults for a multi operation when finalising stream " + partitionRootPath, ke);
                     throw ke;
                 }
             }

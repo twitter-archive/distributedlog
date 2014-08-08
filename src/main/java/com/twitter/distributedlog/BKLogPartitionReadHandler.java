@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -38,7 +39,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final LedgerHandleCache handleCache;
 
     protected final ScheduledExecutorService readAheadExecutor;
-    private ReadAheadWorker readAheadWorker = null;
+    protected ReadAheadWorker readAheadWorker = null;
     private volatile boolean readAheadError = false;
     private volatile boolean readAheadInterrupted = false;
     private volatile boolean readingFromTruncated = false;
@@ -474,7 +475,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final BKLogPartitionReadHandler bkLedgerManager;
         private volatile boolean reInitializeMetadata = true;
         private final LedgerReadPosition startReadPosition;
-        private LedgerReadPosition nextReadPosition;
+        protected LedgerReadPosition nextReadPosition;
         private LogSegmentLedgerMetadata currentMetadata = null;
         private int currentMetadataIndex;
         private LedgerDescriptor currentLH;
@@ -625,11 +626,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     int zkErrorThreshold = BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / conf.getReadAheadWaitTime();
 
                     if ((bkcZkExceptions.get() > zkErrorThreshold) || simulate) {
-                        LOG.error("BookKeeper Client used by the ReadAhead Thread has encountered zookeeper exception");
+                        LOG.error("{} : BookKeeper Client used by the ReadAhead Thread has encountered {} zookeeper exceptions : simulate = {}",
+                                  new Object[] { fullyQualifiedName, bkcZkExceptions.get(), simulate });
                         running = false;
                         bkLedgerManager.setReadAheadError();
                     } else if (bkcUnExpectedExceptions.get() > BKC_UNEXPECTED_EXCEPTION_THRESHOLD) {
-                        LOG.error("ReadAhead Thread has encountered an unexpected BK exception");
+                        LOG.error("{} : ReadAhead Thread has encountered {} unexpected BK exceptions.",
+                                  fullyQualifiedName, bkcUnExpectedExceptions.get());
                         running = false;
                         bkLedgerManager.setReadAheadError();
                     } else {
@@ -728,9 +731,24 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 continue;
                             }
 
-                            if ((l.getLastDLSN().compareTo(
-                                new DLSN(nextReadPosition.getLedgerSequenceNumber(), nextReadPosition.getEntryId(), -1)) >= 0) ||
-                                (l.isInProgress() && l.getLedgerSequenceNumber() == nextReadPosition.getLedgerSequenceNumber())) {
+
+                            // next read position still inside a log segment
+                            final boolean hasDataToRead = (l.getLastDLSN().compareTo(
+                                    new DLSN(nextReadPosition.getLedgerSequenceNumber(), nextReadPosition.getEntryId(), -1)) >= 0);
+
+                            // either there is data to read in current log segment or we are moving over a log segment that is
+                            // still inprogress or was inprogress, we have check (or maybe close) this log segment.
+                            final boolean checkOrCloseLedger = hasDataToRead ||
+                                // next read position move over a log segment, if l is still inprogress or it was inprogress
+                                ((l.isInProgress() || (null != currentMetadata && currentMetadata.isInProgress())) &&
+                                        l.getLedgerSequenceNumber() == nextReadPosition.getLedgerSequenceNumber());
+
+                            if (LOG.isTraceEnabled()) {
+                                LOG.trace("CheckLogSegment : newMetadata = {}, currentMetadata = {}, nextReadPosition = {}",
+                                          new Object[] { l, currentMetadata, nextReadPosition });
+                            }
+
+                            if (checkOrCloseLedger) {
                                 long startBKEntry = 0;
                                 if(l.getLedgerSequenceNumber() == nextReadPosition.getLedgerSequenceNumber()) {
                                     startBKEntry = Math.max(0, nextReadPosition.getEntryId());
@@ -874,6 +892,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 // we are waiting for first entry to arrive
                                 LOG.info("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
                                          new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadPosition });
+                            } else {
+                                if (LOG.isTraceEnabled()) {
+                                    LOG.trace("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
+                                              new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadPosition });
+                                }
                             }
                             String ctx;
                             boolean callbackImmediately;
@@ -946,7 +969,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         }
 
                                         if (LOG.isTraceEnabled()) {
-                                            LOG.trace("Past the last Add Confirmed in ledger {} for {}", currentMetadata, fullyQualifiedName);
+                                            LOG.trace("Past the last Add Confirmed {} in ledger {} for {}",
+                                                      new Object[] { lastAddConfirmed, currentMetadata, fullyQualifiedName });
                                         }
                                         bkLedgerManager.getHandleCache().closeLedger(currentLH);
                                         LogSegmentLedgerMetadata oldMetadata = currentMetadata;
@@ -961,11 +985,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                     currentMetadata, oldMetadata);
                                                 setReadAheadError();
                                             } else {
-                                                if (LOG.isTraceEnabled()) {
-                                                    LOG.trace("Moving read position to a new ledger {} for {}.",
-                                                        currentMetadata, fullyQualifiedName);
+                                                if (currentMetadata.isTruncated() && !conf.getIgnoreTruncationStatus()) {
+                                                    LOG.error("{}: Trying to position reader on the log segment that is marked truncated : {}",
+                                                              getFullyQualifiedName(), currentMetadata);
+                                                    setReadingFromTruncated();
+                                                    setReadAheadError();
+                                                } else {
+                                                    if (LOG.isTraceEnabled()) {
+                                                        LOG.trace("Moving read position to a new ledger {} for {}.",
+                                                            currentMetadata, fullyQualifiedName);
+                                                    }
+                                                    nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
                                                 }
-                                                nextReadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
                                             }
                                         }
                                     }
@@ -1007,7 +1038,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                         currentLH = result;
                         if (conf.getTraceReadAheadMetadataChanges()) {
-                            LOG.info("Opened inprogress ledger of {} for {} at {}.",
+                            LOG.info("Opened ledger of {} for {} at {}.",
                                     new Object[] { currentMetadata, fullyQualifiedName, System.currentTimeMillis() });
                         }
                         bkcZkExceptions.set(0);
@@ -1241,6 +1272,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             synchronized (notificationLock) {
                 this.metadataNotification = notification;
                 return reInitializeMetadata;
+            }
+        }
+
+        @VisibleForTesting
+        AsyncNotification getMetadataNotification() {
+            synchronized (notificationLock) {
+                return metadataNotification;
             }
         }
 

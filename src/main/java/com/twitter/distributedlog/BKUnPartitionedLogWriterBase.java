@@ -7,9 +7,9 @@ import java.util.LinkedList;
 import com.google.common.annotations.VisibleForTesting;
 
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
-    private BKPerStreamLogWriter perStreamWriter = null;
-    private BKPerStreamLogWriter allocatedPerStreamWriter = null;
-    private BKLogPartitionWriteHandler partitionHander = null;
+    protected BKPerStreamLogWriter perStreamWriter = null;
+    protected BKPerStreamLogWriter allocatedPerStreamWriter = null;
+    protected BKLogPartitionWriteHandler partitionHander = null;
 
     public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);

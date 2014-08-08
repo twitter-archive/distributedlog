@@ -29,6 +29,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1867,7 +1868,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         {
             LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
             LogRecordWithDLSN record = reader.readNext(false);
-            assert((record != null) && (record.getDlsn().compareTo(DLSN.InitialDLSN) == 0));
+            assertTrue((record != null) && (record.getDlsn().compareTo(DLSN.InitialDLSN) == 0));
             reader.close();
         }
 
@@ -1881,14 +1882,14 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         {
             LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
             LogRecordWithDLSN record = reader.readNext(false);
-            assert((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
+            assertTrue((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
             reader.close();
         }
 
         {
             LogReader reader = dlm.getInputStream(1);
             LogRecordWithDLSN record = reader.readNext(false);
-            assert((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
+            assertTrue((record != null) && (record.getDlsn().compareTo(new DLSN(2, 0, 0)) == 0));
             reader.close();
         }
 
@@ -1899,17 +1900,22 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         updater.changeTruncationStatus(segmentList.get(2L), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
 
         {
-            LogReader reader = dlm.getInputStream(1);
+            AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+            long expectedTxId = 1L;
             boolean exceptionEncountered = false;
             try {
-                LogRecord record = reader.readNext(false);
-                while (null != record) {
-                    record = reader.readNext(false);
+                for (int i = 0; i < 3 * DEFAULT_SEGMENT_SIZE; i++) {
+                    LogRecordWithDLSN record = Await.result(reader.readNext());
+                    DLMTestUtil.verifyLogRecord(record);
+                    assertEquals(expectedTxId, record.getTransactionId());
+                    expectedTxId++;
                 }
-            } catch (AlreadyTruncatedTransactionException exc) {
-                exceptionEncountered = true;
+            } catch (RetryableReadException exc) {
+                if (exc.getCause() instanceof AlreadyTruncatedTransactionException) {
+                    exceptionEncountered = true;
+                }
             }
-            assert(exceptionEncountered);
+            assertTrue(exceptionEncountered);
             reader.close();
         }
 

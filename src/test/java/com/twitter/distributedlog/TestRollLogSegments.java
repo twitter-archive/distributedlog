@@ -5,12 +5,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
+import com.twitter.util.Await;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.util.FutureEventListener;
 
+import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
 
 public class TestRollLogSegments extends TestDistributedLogBase {
@@ -152,5 +156,113 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         assertEquals(numSegmentsAfterAsyncWrites + numLogSegments / 2, segments.size());
         ensureOnlyOneInprogressLogSegments(segments);
+    }
+
+    private void checkAndWaitWriterReaderPosition(BKPerStreamLogWriter writer, long expectedWriterPosition,
+                                                  BKAsyncLogReaderDLSN reader, long expectedReaderPosition,
+                                                  LedgerHandle inspector, long expectedLac) throws Exception {
+        while (writer.getLedgerHandle().getLastAddConfirmed() < expectedWriterPosition) {
+            Thread.sleep(1000);
+        }
+        assertEquals(expectedWriterPosition, writer.getLedgerHandle().getLastAddConfirmed());
+        assertEquals(expectedLac, inspector.readLastConfirmed());
+        LedgerReadPosition readPosition = reader.bkLedgerManager.readAheadWorker.nextReadPosition;
+        logger.info("ReadAhead moved read position {} : ", readPosition);
+        while (readPosition.getEntryId() < expectedReaderPosition) {
+            Thread.sleep(1000);
+            readPosition = reader.bkLedgerManager.readAheadWorker.nextReadPosition;
+            logger.info("ReadAhead moved read position {} : ", readPosition);
+        }
+        assertEquals(expectedReaderPosition, readPosition.getEntryId());
+    }
+
+    @Test(timeout = 60000)
+    public void testCaughtUpReaderOnLogSegmentRolling() throws Exception {
+        String name = "distrlog-caughtup-reader-on-logsegment-rolling";
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(4 * 1024 * 1024);
+        confLocal.setTraceReadAheadMetadataChanges(true);
+        confLocal.setEnsembleSize(1);
+        confLocal.setWriteQuorumSize(1);
+        confLocal.setAckQuorumSize(1);
+        confLocal.setReadLACLongPollTimeout(99999999);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+
+        // 1) writer added 5 entries.
+        final int numEntries = 5;
+        for (int i = 1; i <= numEntries; i++) {
+            writer.write(DLMTestUtil.getLogRecordInstance(i));
+            writer.setReadyToFlush();
+            writer.flushAndSync();
+        }
+
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);
+
+        // 2) reader should be able to read 5 entries.
+        for (long i = 1; i <= numEntries; i++) {
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            DLMTestUtil.verifyLogRecord(record);
+            assertEquals(i, record.getTransactionId());
+        }
+
+        BKPerStreamLogWriter perStreamWriter = writer.perStreamWriter;
+        BookKeeperClient bkc = readDLM.getReaderBKCBuilder().build();
+        LedgerHandle readLh = bkc.get().openLedgerNoRecovery(perStreamWriter.getLedgerHandle().getId(),
+                BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+
+        // Writer moved to lac = 9, while reader knows lac = 8 and moving to wait on 9
+        checkAndWaitWriterReaderPosition(perStreamWriter, 9, reader, 9, readLh, 8);
+
+        // write 6th record
+        writer.write(DLMTestUtil.getLogRecordInstance(numEntries + 1));
+        writer.setReadyToFlush();
+        // Writer moved to lac = 10, while reader knows lac = 9 and moving to wait on 10
+        checkAndWaitWriterReaderPosition(perStreamWriter, 10, reader, 10, readLh, 9);
+
+        // write records without commit to simulate similar failure cases
+        writer.write(DLMTestUtil.getLogRecordInstance(numEntries + 2));
+        writer.setReadyToFlush();
+        // Writer moved to lac = 11, while reader knows lac = 10 and moving to wait on 11
+        checkAndWaitWriterReaderPosition(perStreamWriter, 11, reader, 11, readLh, 10);
+
+        while (null == reader.bkLedgerManager.readAheadWorker.getMetadataNotification()) {
+            Thread.sleep(1000);
+        }
+        logger.info("Waiting for long poll getting interrupted with metadata changed");
+
+        // simulate a recovery without closing ledger causing recording wrong last dlsn
+        BKLogPartitionWriteHandler writeHandler = writer.getCachedPartitionHandler(conf.getUnpartitionedStreamName());
+        writeHandler.completeAndCloseLogSegment(
+                writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLedgerSequenceNumber()),
+                perStreamWriter.getLedgerSequenceNumber(),
+                perStreamWriter.getLedgerHandle().getId(),
+                perStreamWriter.getStartTxId(), perStreamWriter.getLastTxId(),
+                perStreamWriter.getPositionWithinLogSegment() - 1,
+                9,
+                0,
+                true);
+
+        BKUnPartitionedSyncLogWriter anotherWriter = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        anotherWriter.write(DLMTestUtil.getLogRecordInstance(numEntries + 3));
+        anotherWriter.setReadyToFlush();
+        anotherWriter.flushAndSync();
+        anotherWriter.closeAndComplete();
+
+        for (long i = numEntries + 1; i <= numEntries + 3; i++) {
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            DLMTestUtil.verifyLogRecord(record);
+            assertEquals(i, record.getTransactionId());
+        }
+
+        bkc.release();
+        readDLM.close();
+
     }
 }

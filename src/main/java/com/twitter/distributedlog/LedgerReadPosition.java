@@ -58,7 +58,7 @@ public class LedgerReadPosition {
     public void positionOnNewLedger(long ledgerId, long ledgerSequenceNo) {
         this.ledgerId = ledgerId;
         this.ledgerSequenceNo = ledgerSequenceNo;
-        this.entryId = -1;
+        this.entryId = 0L;
     }
 
     @Override
