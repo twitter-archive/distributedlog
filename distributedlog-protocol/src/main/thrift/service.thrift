@@ -66,6 +66,8 @@ enum StatusCode {
     // 10xx: reader exceptions
     RETRYABLE_READ = 1000,
     LOG_READ_ERROR = 1001,
+    // Read cancelled exception
+    READ_CANCELLED_EXCEPTION = 1002,
 }
 
 // Response Header

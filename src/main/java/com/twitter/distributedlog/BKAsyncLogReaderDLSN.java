@@ -1,8 +1,8 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.RetryableReadException;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import com.twitter.util.Throw;
@@ -41,6 +41,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean readAheadStarted = false;
     private int lastPosition = 0;
 
+    protected boolean closed = false;
+
     // Stats
     private final OpStatsLogger readNextExecTime;
     private final OpStatsLogger timeBetweenReadNexts;
@@ -50,11 +52,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private class PendingReadRequest {
         private final Promise<LogRecordWithDLSN> promise;
-        private final Stopwatch sw;
 
         PendingReadRequest() {
             promise = new Promise<LogRecordWithDLSN>();
-            sw = Stopwatch.createStarted();
         }
 
         Promise<LogRecordWithDLSN> getPromise() {
@@ -62,14 +62,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         }
 
         void setException(Throwable throwable) {
-            long satisfyDelay = sw.stop().elapsed(TimeUnit.MICROSECONDS);
             Stopwatch stopwatch = Stopwatch.createStarted();
             promise.updateIfEmpty(new Throw(throwable));
             futureSetLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
 
         void setValue(LogRecordWithDLSN record) {
-            long satisfyDelay = sw.stop().elapsed(TimeUnit.MICROSECONDS);
             Stopwatch stopwatch = Stopwatch.createStarted();
             promise.setValue(record);
             futureSetLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -128,11 +126,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         return false;
     }
 
-    private void setLastException(Throwable exc) {
-        lastException.set(exc);
-        if (!(exc instanceof EndOfStreamException)) {
-            lastException.set(new RetryableReadException(bkLedgerManager.getFullyQualifiedName(), exc.getMessage(), exc));
-        }
+    private void setLastException(IOException exc) {
+        lastException.compareAndSet(null, exc);
     }
 
     /**
@@ -185,13 +180,21 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             scheduleDelayStopwatch.reset().start();
             executorService.submit(this);
         }
-
     }
 
     @Override
     public void close() throws IOException {
-        cancelAllPendingReads(new RetryableReadException(
-            bkLedgerManager.getFullyQualifiedName(), "Reader was closed"));
+        ReadCancelledException exception;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            exception = new ReadCancelledException(bkLedgerManager.getFullyQualifiedName(), "Reader was closed");
+            setLastException(exception);
+        }
+
+        cancelAllPendingReads(exception);
 
         bkLedgerManager.unregister(sessionExpireWatcher);
         bkLedgerManager.close();
@@ -239,7 +242,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 // know the last consumed read
                 if (null == lastException.get()) {
                     if (nextPromise.getPromise().isInterrupted().isDefined()) {
-                        setLastException(nextPromise.getPromise().isInterrupted().get());
+                        setLastException(new DLInterruptedException("Interrupted on reading " + bkLedgerManager.getFullyQualifiedName() + " : ",
+                                nextPromise.getPromise().isInterrupted().get()));
                     }
                 }
 

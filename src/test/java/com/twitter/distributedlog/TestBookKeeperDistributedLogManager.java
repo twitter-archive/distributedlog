@@ -1910,10 +1910,8 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
                     assertEquals(expectedTxId, record.getTransactionId());
                     expectedTxId++;
                 }
-            } catch (RetryableReadException exc) {
-                if (exc.getCause() instanceof AlreadyTruncatedTransactionException) {
-                    exceptionEncountered = true;
-                }
+            } catch (AlreadyTruncatedTransactionException exc) {
+                exceptionEncountered = true;
             }
             assertTrue(exceptionEncountered);
             reader.close();

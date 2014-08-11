@@ -99,9 +99,6 @@ public class LedgerDataAccessor {
 
     private void setLastException(IOException exc) {
         lastException.set(exc);
-        if (!(exc instanceof EndOfStreamException)) {
-            lastException.set(new RetryableReadException(streamName, exc.getMessage(), exc));
-        }
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {

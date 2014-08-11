@@ -1,7 +1,7 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.FailpointUtils;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 
@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -85,7 +86,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(future, Duration.fromSeconds(10));
         } catch (Exception ex) {
             assertTrue("exceptions types equal", exClass.isInstance(ex));
-        } 
+        }
     }
 
     public <T> T validateFutureSucceededAndGetResult(Future<T> future) throws Exception {
@@ -94,7 +95,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         } catch (Exception ex) {
             fail("unexpected exception " + ex.getClass().getName());
             throw ex;
-        } 
+        }
     }
 
     @Test
@@ -112,23 +113,23 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         records.addAll(DLMTestUtil.getLargeLogRecordInstanceList(1, goodRecs));
         Future<List<Future<DLSN>>> futureResults = writer.writeBulk(records);
         List<Future<DLSN>> results = validateFutureSucceededAndGetResult(futureResults);
-        
+
         // One future returned for each write.
         assertEquals(2*goodRecs + 1, results.size());
 
         // First goodRecs are good.
         for (int i = 0; i < goodRecs; i++) {
-            DLSN dlsn = validateFutureSucceededAndGetResult(results.get(i)); 
+            DLSN dlsn = validateFutureSucceededAndGetResult(results.get(i));
         }
 
         // First failure is log rec too big.
         validateFutureFailed(results.get(goodRecs), LogRecordTooLongException.class);
 
-        // Rest are WriteCancelledException. 
+        // Rest are WriteCancelledException.
         for (int i = goodRecs+1; i < 2*goodRecs+1; i++) {
             validateFutureFailed(results.get(i), WriteCancelledException.class);
         }
-        
+
         writer.closeAndComplete();
         dlm.close();
     }
@@ -146,7 +147,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         // First entry.
         long ledgerIndex = 1;
-        long entryIndex = 0; 
+        long entryIndex = 0;
         long slotIndex = 0;
 
         FailpointUtils.setFailpoint(
@@ -154,8 +155,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             FailpointUtils.FailPointActions.FailPointAction_Throw
         );
 
-        // Since we don't hit MAX_TRANSMISSION_SIZE, the failure is triggered on final flush, which 
-        // will enqueue cancel promises task to the ordered future pool. 
+        // Since we don't hit MAX_TRANSMISSION_SIZE, the failure is triggered on final flush, which
+        // will enqueue cancel promises task to the ordered future pool.
         checkAllSubmittedButFailed(writer, batchSize, 1024, 1);
 
         FailpointUtils.removeFailpoint(
@@ -184,7 +185,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DLSN dlsn = validateFutureSucceededAndGetResult(result);
         assertEquals(1, dlsn.getLedgerSequenceNo());
 
-        // Write two more via bulk. Ledger doesn't roll because there's a partial failure. 
+        // Write two more via bulk. Ledger doesn't roll because there's a partial failure.
         List<LogRecord> records = null;
         Future<List<Future<DLSN>>> futureResults = null;
         List<Future<DLSN>> results = null;
@@ -254,7 +255,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         // First entry.
         long ledgerIndex = 1;
-        long entryIndex = 0; 
+        long entryIndex = 0;
         long slotIndex = 0;
         long txIndex = 1;
         checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
@@ -264,7 +265,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         slotIndex = 0;
         txIndex += batchSize;
         checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
-        
+
         // Roll ledger.
         ledgerIndex++;
         entryIndex = 0;
@@ -342,9 +343,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
     private DLSN checkAllSucceeded(BKUnPartitionedAsyncLogWriter writer,
                                    int batchSize,
-                                   int recSize, 
+                                   int recSize,
                                    long ledgerIndex,
-                                   long entryIndex, 
+                                   long entryIndex,
                                    long slotIndex,
                                    long txIndex) throws Exception {
 
@@ -359,7 +360,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (Future<DLSN> result : results) {
             DLSN dlsn = Await.result(result, Duration.fromSeconds(10));
             lastDlsn = dlsn;
-            
+
             // If we cross a transmission boundary, slot id gets reset.
             if (dlsn.getEntryId() > prevEntryId) {
                 slotIndex = 0;
@@ -368,8 +369,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             assertEquals(slotIndex, dlsn.getSlotId());
             slotIndex++;
             prevEntryId = dlsn.getEntryId();
-        } 
-        return lastDlsn;    
+        }
+        return lastDlsn;
     }
 
     private void checkAllSubmittedButFailed(BKUnPartitionedAsyncLogWriter writer,
@@ -1107,6 +1108,58 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assert(!(Thread.interrupted()));
         assert(success);
         reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testCancelReadRequestOnReaderClosed() throws Exception {
+        final String name = "distrlog-cancel-read-requests-on-reader-closed";
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        writer.write(DLMTestUtil.getLogRecordInstance(1L));
+        writer.closeAndComplete();
+
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        LogRecordWithDLSN record = Await.result(reader.readNext());
+        assertEquals(1L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+
+        final CountDownLatch readLatch = new CountDownLatch(1);
+        final AtomicBoolean receiveExpectedException = new AtomicBoolean(false);
+        Thread readThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Await.result(reader.readNext());
+                } catch (ReadCancelledException rce) {
+                    receiveExpectedException.set(true);
+                } catch (Throwable t) {
+                    LOG.error("Receive unexpected exception on reading stream {} : ", name, t);
+                }
+                readLatch.countDown();
+            }
+        }, "read-thread");
+        readThread.start();
+
+        Thread.sleep(1000);
+
+        // close reader should cancel the pending read next
+        reader.close();
+
+        readLatch.await();
+        readThread.join();
+
+        assertTrue("Read request should be cancelled.", receiveExpectedException.get());
+
+        // closed reader should reject any readNext
+        try {
+            Await.result(reader.readNext());
+            fail("Reader should reject readNext if it is closed.");
+        } catch (ReadCancelledException rce) {
+            // expected
+        }
+
         dlm.close();
     }
 
