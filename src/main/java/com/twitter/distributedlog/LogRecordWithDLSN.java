@@ -28,6 +28,7 @@ public class LogRecordWithDLSN extends LogRecord {
         return "LogRecordWithDLSN{" +
             "dlsn=" + dlsn +
             ", txid=" + getTransactionId() +
+            ", position=" + getPositionWithinLogSegment() +
             ", isControl=" + isControl() +
             ", isEndOfStream=" + isEndOfStream() +
             '}';

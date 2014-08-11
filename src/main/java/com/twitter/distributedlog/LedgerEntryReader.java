@@ -8,7 +8,7 @@ import java.io.InputStream;
 /**
  * Help class on reading records batched in a {@link org.apache.bookkeeper.client.LedgerEntry}.
  */
-class LedgerEntryReader extends LogRecord.Reader {
+public class LedgerEntryReader extends LogRecord.Reader {
     /**
      * Construct the reader
      *
@@ -19,7 +19,7 @@ class LedgerEntryReader extends LogRecord.Reader {
      * @param ledgerEntry
      *          ledger entry
      */
-    LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry) {
+    public LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry) {
         this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream());
     }
 

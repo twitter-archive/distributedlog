@@ -8,6 +8,7 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LedgerEntryReader;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
@@ -29,6 +30,8 @@ import org.apache.commons.cli.ParseException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,6 +50,8 @@ import java.util.TreeMap;
 import static com.google.common.base.Charsets.UTF_8;
 
 public class DistributedLogTool extends Tool {
+
+    static final Logger logger = LoggerFactory.getLogger(DistributedLogTool.class);
 
     static final List<String> EMPTY_LIST = Lists.newArrayList();
 
@@ -68,6 +73,18 @@ public class DistributedLogTool extends Tool {
             }
         }
     };
+
+    static DLSN parseDLSN(String dlsnStr) throws IOException {
+        String[] parts = dlsnStr.split(",");
+        if (parts.length != 3) {
+            throw new IOException("Invalid dlsn : " + dlsnStr);
+        }
+        try {
+            return new DLSN(Long.parseLong(parts[0]), Long.parseLong(parts[1]), Long.parseLong(parts[2]));
+        } catch (NumberFormatException nfe) {
+            throw new IOException("Invalid dlsn : " + dlsnStr, nfe);
+        }
+    }
 
     /**
      * Per DL Command, which parses basic options. e.g. uri.
@@ -539,7 +556,11 @@ public class DistributedLogTool extends Tool {
             getConf().setZkAclId(getZkAclId());
             final DistributedLogManagerFactory factory =
                     new DistributedLogManagerFactory(getConf(), getUri());
-            return truncateStreams(factory);
+            try {
+                return truncateStreams(factory);
+            } finally {
+                factory.close();
+            }
         }
 
         private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
@@ -680,11 +701,80 @@ public class DistributedLogTool extends Tool {
             println("Stream " + (null == pid ? "<default>" : "partition " + pid)
                     + " : (first = " + firstTxnId + ", last = " + lastTxnId
                     + ", recordCount = " + recordCount + ")");
+            if (null == pid) {
+                List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+                for (LogSegmentLedgerMetadata segment : segments) {
+                    println(segment.getLedgerSequenceNumber() + "\t: " + segment);
+                }
+            }
         }
 
         @Override
         protected String getUsage() {
             return "show [options]";
+        }
+    }
+
+    static class CountCommand extends PerStreamCommand {
+
+        DLSN startDLSN;
+        DLSN endDLSN;
+
+        protected CountCommand() {
+            super("count", "count number records between dlsns");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            String[] args = cmdline.getArgs();
+            if (args.length < 2) {
+                throw new ParseException("Expected specifying start and end dlsns.");
+            }
+            try {
+                startDLSN = parseDLSN(args[0]);
+                endDLSN = parseDLSN(args[1]);
+            } catch (IOException ioe) {
+                throw new ParseException("Invalid dlsn found : " + ioe.getMessage());
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
+                    getStreamName(), getConf(), getUri());
+            int count = 0;
+            try {
+                LogReader reader = dlm.getInputStream(startDLSN);
+                try {
+                    LogRecordWithDLSN record = reader.readNext(false);
+                    LogRecordWithDLSN preRecord = record;
+                    println("first record : " + record);
+                    while (null != record) {
+                        if (record.getDlsn().compareTo(endDLSN) > 0) {
+                            break;
+                        }
+                        ++count;
+                        if (count % 1000 == 0) {
+                            logger.info("read {} records from {}...", count, getStreamName());
+                        }
+                        preRecord = record;
+                        record = reader.readNext(false);
+                    }
+                    println("last record : " + preRecord);
+                    println("total is " + count + " records.");
+                } finally {
+                    reader.close();
+                }
+            } finally {
+                dlm.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "count <start> <end>";
         }
     }
 
@@ -1044,8 +1134,24 @@ public class DistributedLogTool extends Tool {
 
     protected static class ReadEntriesCommand extends PerLedgerCommand {
 
+        Long fromEntryId;
+        Long untilEntryId;
+
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
+            options.addOption("fid", "from", true, "Entry id to start reading");
+            options.addOption("uid", "until", true, "Entry id to read until");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("fid")) {
+                fromEntryId = Long.parseLong(cmdline.getOptionValue("fid"));
+            }
+            if (cmdline.hasOption("uid")) {
+                untilEntryId = Long.parseLong(cmdline.getOptionValue("uid"));
+            }
         }
 
         @Override
@@ -1066,14 +1172,29 @@ public class DistributedLogTool extends Tool {
                     LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
                             dlConf.getBKDigestPW().getBytes(UTF_8));
                     try {
-                        long lac = lh.readLastConfirmed();
-                        if (lac >= 0) {
-                            Enumeration<LedgerEntry> entries = lh.readEntries(0L, lac);
-                            int i = 0;
+                        if (null == fromEntryId) {
+                            fromEntryId = 0L;
+                        }
+                        if (null == untilEntryId) {
+                            untilEntryId = lh.readLastConfirmed();
+                        } else {
+                            untilEntryId = Math.min(lh.readLastConfirmed(), untilEntryId);
+                        }
+                        if (untilEntryId >= fromEntryId) {
+                            Enumeration<LedgerEntry> entries = lh.readEntries(fromEntryId, untilEntryId);
+                            long i = fromEntryId;
                             System.out.println("Entries:");
                             while (entries.hasMoreElements()) {
                                 LedgerEntry entry = entries.nextElement();
-                                System.out.println("\t" + i + "\t: " + new String(entry.getEntry(), UTF_8));
+                                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry);
+                                System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
+                                LogRecordWithDLSN record = reader.readOp();
+                                while (null != record) {
+                                    System.out.println("\t" + record);
+                                    System.out.println(new String(record.getPayload(), UTF_8));
+                                    System.out.println();
+                                    record = reader.readOp();
+                                }
                                 ++i;
                             }
                         } else {
@@ -1109,6 +1230,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new InspectCommand());
         addCommand(new ReadLastConfirmedCommand());
         addCommand(new ReadEntriesCommand());
+        addCommand(new CountCommand());
     }
 
     @Override

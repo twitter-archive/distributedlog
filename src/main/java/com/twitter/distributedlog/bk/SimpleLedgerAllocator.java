@@ -448,9 +448,10 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
             throw new ZKException("Encountered zookeeper connection issue on deleting allocator " + allocatePath + " : ",
                     KeeperException.Code.CONNECTIONLOSS);
+        } finally {
+            this.bkc.release();
+            this.zkc.close();
         }
-        this.bkc.release();
-        this.zkc.close();
     }
 
 }
