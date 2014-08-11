@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
@@ -288,6 +289,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         this.closed = false;
     }
 
+    @VisibleForTesting
+    DistributedReentrantLock getLock() {
+        return this.lock;
+    }
+
     protected final LedgerHandle getLedgerHandle() {
         return this.lh;
     }
@@ -420,21 +426,21 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     // Record failure so we can quickly abort a bulk write.
     static class FailfastWriteListener implements FutureEventListener<DLSN> {
-        
+
         private final AtomicBoolean failed;
-        
+
         FailfastWriteListener(AtomicBoolean failed) {
             this.failed = failed;
         }
 
         @Override
-        public void onSuccess(DLSN dlsn) { 
+        public void onSuccess(DLSN dlsn) {
             /* do nothing */
         }
 
-        @Override 
-        public void onFailure(Throwable t) { 
-            failed.set(true); 
+        @Override
+        public void onFailure(Throwable t) {
+            failed.set(true);
         }
     }
 
@@ -459,18 +465,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     synchronized public List<Future<DLSN>> asyncWriteBulk(List<LogRecord> records) {
         AtomicBoolean failed = new AtomicBoolean(false);
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(records.size());
-        FailfastWriteListener failfastListener = new FailfastWriteListener(failed); 
-        
+        FailfastWriteListener failfastListener = new FailfastWriteListener(failed);
+
         for (LogRecord record : records) {
             Future<DLSN> result = null;
-            
+
             // Need to be careful to terminate the bulk operation in case a client error occurs.
-            // Ex. some write in the middle of the list may end up being too large, and we must not 
-            // attempt to apply any more writes after said write fails. 
+            // Ex. some write in the middle of the list may end up being too large, and we must not
+            // attempt to apply any more writes after said write fails.
             try {
                 result = writeUserRecord(record).addEventListener(failfastListener);
             } catch (IOException ioe) {
-                LOG.error("Encountered exception during bulk write while writing a log record to stream {}", 
+                LOG.error("Encountered exception during bulk write while writing a log record to stream {}",
                     fullyQualifiedLogSegment, ioe);
                 result = Future.exception(ioe);
                 failed.set(true);
@@ -483,11 +489,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        // Try to flush pending writes. If flush fails here it cancels all pending writes on the 
-        // ordered future pool thread. Whether an error occurred or not earlier its safe to flush here 
-        // again since either we end up flushing all writes prior to the failure, or we fail all pending 
-        // writes. In both cases we haven't violated the requirement that all writes should fail after 
-        // the first failure.  
+        // Try to flush pending writes. If flush fails here it cancels all pending writes on the
+        // ordered future pool thread. Whether an error occurred or not earlier its safe to flush here
+        // again since either we end up flushing all writes prior to the failure, or we fail all pending
+        // writes. In both cases we haven't violated the requirement that all writes should fail after
+        // the first failure.
         flushIfNeededNoThrow();
 
         // If results are not fully specified, we hit a failure. Cancel the remaining futures.
@@ -495,12 +501,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             assert(failed.get());
             appendCancelledFutures(results, records.size() - results.size());
         }
-        
+
         return (List) results;
     }
 
     private void appendCancelledFutures(List<Future<DLSN>> futures, int count) {
-        final WriteCancelledException cre = 
+        final WriteCancelledException cre =
             new WriteCancelledException(fullyQualifiedLogSegment);
         for (int i = 0; i < count; i++) {
             Future<DLSN> cancelledFuture = Future.exception(cre);
@@ -648,20 +654,20 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     void flushIfNeededNoThrow() {
         try {
-            flushIfNeeded();       
+            flushIfNeeded();
         } catch (IOException ioe) {
-            LOG.error("Encountered exception while flushing log records to stream {}", 
+            LOG.error("Encountered exception while flushing log records to stream {}",
                 fullyQualifiedLogSegment, ioe);
             cancelPromisesInOrderedFuturePool(ioe);
         }
     }
 
-    // Based on transmit buffer size, immediate flush, etc., should we flush the current 
+    // Based on transmit buffer size, immediate flush, etc., should we flush the current
     // packet now.
     void flushIfNeeded() throws IOException {
         if (outstandingBytes > transmissionThreshold) {
             setReadyToFlush();
-        }       
+        }
     }
 
     void cancelPromisesInOrderedFuturePool(final IOException ioe) {

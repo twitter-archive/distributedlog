@@ -334,6 +334,9 @@ public class DLMTestUtil {
             }
             if (completeLogSegment) {
                 writeHandler.completeAndCloseLogSegment(writer);
+            } else {
+                writer.getLock().release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+                writeHandler.lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
             }
         } finally {
             bkc.release();

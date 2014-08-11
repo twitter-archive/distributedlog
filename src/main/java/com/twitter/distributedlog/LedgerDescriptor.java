@@ -42,7 +42,8 @@ class LedgerDescriptor {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("(lid=").append(ledgerId).append(", fenced=").append(fenced).append(")");
+        sb.append("(lid=").append(ledgerId).append(", lseqno=").append(ledgerSequenceNo)
+                .append(", fenced=").append(fenced).append(")");
         return sb.toString();
     }
 }

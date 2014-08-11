@@ -112,6 +112,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_WAITTIME = "ReadAheadWaitTime";
     public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
 
+    public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
+            "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
+    public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
+
     public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
     public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
 
@@ -891,6 +895,33 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadAheadWaitTime(int readAheadWaitTime) {
         setProperty(BKDL_READAHEAD_WAITTIME, readAheadWaitTime);
+        return this;
+    }
+
+    /**
+     * If readahead keeps receiving {@link org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException} on
+     * reading last add confirmed in given period, it would stop polling last add confirmed and re-initialize the ledger
+     * handle and retry. The threshold is specified in milliseconds.
+     *
+     * @return error threshold in milliseconds, that readahead will reinitialize ledger handle after keeping receiving
+     * no such ledger exceptions.
+     */
+    public int getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() {
+        return this.getInt(BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS,
+                           BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the error threshold that readahead will reinitialize ledger handle after keeping receiving no such ledger exceptions.
+     *
+     * @see #getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis()
+     * @param thresholdMillis
+     *          error threshold in milliseconds, that readahead will reinitialize ledger handle after keeping receiving
+     *          no such ledger exceptions.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(long thresholdMillis) {
+        setProperty(BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS, thresholdMillis);
         return this;
     }
 
