@@ -170,8 +170,6 @@ public class BookKeeperClientBuilder {
     public synchronized BookKeeperClient build() {
         if (null == cachedClient) {
             cachedClient = buildClient();
-        } else {
-            cachedClient.addRef();
         }
         return cachedClient;
     }

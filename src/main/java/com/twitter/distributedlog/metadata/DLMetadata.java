@@ -90,7 +90,7 @@ public class DLMetadata {
                 .requestRateLimit(conf.getZKRequestRateLimit())
                 .zkAclId(conf.getZkAclId())
                 .uri(uri)
-                .buildNew(false).build();
+                .build();
         byte[] data = serialize();
         try {
             zkc.get().setData(uri.getPath(), data, -1);
@@ -122,7 +122,7 @@ public class DLMetadata {
                 .requestRateLimit(conf.getZKRequestRateLimit())
                 .zkAclId(conf.getZkAclId())
                 .uri(uri)
-                .buildNew(false).build();
+                .build();
         byte[] data = serialize();
         try {
             Utils.zkCreateFullPathOptimistic(zkc, uri.getPath(), data,

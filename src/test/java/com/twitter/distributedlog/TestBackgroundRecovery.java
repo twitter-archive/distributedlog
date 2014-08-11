@@ -130,7 +130,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
             logger.info("Creating log segment {}.", i);
             BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(writeConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
-            BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
+            BKUnPartitionedAsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
             long txnidToWrite = txid++;
             logger.info("Adding txn id {} to log segment {}.", txnidToWrite, i);
             Await.result(out.write(DLMTestUtil.getLogRecordInstance(txnidToWrite)));
@@ -145,12 +145,13 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         readConf.setLogSegmentNameVersion(readVersion);
 
         BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(readConf, name);
-        BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
+        BKUnPartitionedAsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
         Await.result(out.write(DLMTestUtil.getLogRecordInstance(txid)));
         out.closeAndComplete();
         dlm.close();
 
-        BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(readConf, name);
+        BKLogPartitionReadHandler readHandler = readDLM.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> segments = readHandler.getFullLedgerList(true, false);
         assertEquals(numExpectedSegments, segments.size());
         int numCompleted = 0;
@@ -166,6 +167,9 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         assertEquals(numExpectedInprocessSegments, numInprogress);
 
         assertEquals(numSegments + 1, DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(readConf, name), 0L));
+
+        readHandler.close();
+        readDLM.close();
     }
 
     @Test(timeout = 60000)

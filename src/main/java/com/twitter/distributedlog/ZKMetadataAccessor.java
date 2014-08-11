@@ -26,8 +26,10 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     //       instantiating readers or writers.
     protected final ZooKeeperClientBuilder writerZKCBuilder;
     protected final ZooKeeperClient writerZKC;
+    protected final boolean ownWriterZKC;
     protected final ZooKeeperClientBuilder readerZKCBuilder;
     protected final ZooKeeperClient readerZKC;
+    protected final boolean ownReaderZKC;
 
     public ZKMetadataAccessor(String name,
                               DistributedLogConfiguration conf,
@@ -51,10 +53,11 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                     .requestRateLimit(conf.getZKRequestRateLimit())
                     .zkAclId(conf.getZkAclId())
                     .uri(uri)
-                    .retryPolicy(retryPolicy)
-                    .buildNew(false);
+                    .retryPolicy(retryPolicy);
+            this.ownWriterZKC = true;
         } else {
             this.writerZKCBuilder = writerZKCBuilder;
+            this.ownWriterZKC = false;
         }
         this.writerZKC = this.writerZKCBuilder.build();
 
@@ -72,6 +75,7 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                 LOG.info("Used same zookeeper servers '{}' for both writers and readers for {}.",
                          zkServersForWriter, name);
                 this.readerZKCBuilder = this.writerZKCBuilder;
+                this.ownReaderZKC = false;
             } else {
                 RetryPolicy retryPolicy = null;
                 if (conf.getZKNumRetries() > 0) {
@@ -86,13 +90,14 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                         .requestRateLimit(conf.getZKRequestRateLimit())
                         .zkServers(zkServersForReader)
                         .retryPolicy(retryPolicy)
-                        .zkAclId(conf.getZkAclId())
-                        .buildNew(false);
+                        .zkAclId(conf.getZkAclId());
+                this.ownReaderZKC = true;
             }
         } else {
             this.readerZKCBuilder = readerZKCBuilder;
+            this.ownReaderZKC = false;
         }
-        readerZKC = this.readerZKCBuilder.build();
+        this.readerZKC = this.readerZKCBuilder.build();
 
         closed = false;
     }
@@ -187,8 +192,12 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             closed = true;
         }
         try {
-            writerZKC.close();
-            readerZKC.close();
+            if (ownWriterZKC) {
+                writerZKC.close();
+            }
+            if (ownReaderZKC) {
+                readerZKC.close();
+            }
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager", e);
         }

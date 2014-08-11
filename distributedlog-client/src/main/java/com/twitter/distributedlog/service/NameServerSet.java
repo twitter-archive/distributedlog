@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import com.twitter.common.base.Command;
 import com.twitter.common.base.Commands;
-import com.twitter.common.net.pool.DynamicHostSet.HostChangeMonitor;
 import com.twitter.common.zookeeper.Group;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.Addr;
@@ -109,14 +108,15 @@ class NameServerSet implements ServerSet {
 
 
     private String hostSetToString(ImmutableSet<ServiceInstance> hostSet) {
-        String result = "(";
+        StringBuilder result = new StringBuilder();
+        result.append("(");
         for (ServiceInstance serviceInstance : hostSet) {
             Endpoint endpoint = serviceInstance.getServiceEndpoint();
-            result += String.format(" %s:%d", endpoint.getHost(), endpoint.getPort());
+            result.append(String.format(" %s:%d", endpoint.getHost(), endpoint.getPort()));
         }
-        result += " )";
+        result.append(" )");
 
-        return result;
+        return result.toString();
     }
 
 

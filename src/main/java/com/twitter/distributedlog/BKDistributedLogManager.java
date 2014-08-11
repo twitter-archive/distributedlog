@@ -88,8 +88,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     //       instantiating readers or writers.
     private final BookKeeperClientBuilder writerBKCBuilder;
     private final BookKeeperClient writerBKC;
+    private final boolean ownWriterBKC;
     private final BookKeeperClientBuilder readerBKCBuilder;
     private final BookKeeperClient readerBKC;
+    private final boolean ownReaderBKC;
     private final StatsLogger statsLogger;
     private LedgerAllocator ledgerAllocator = null;
     // Log Segment Rolling Manager to control rolling speed
@@ -105,16 +107,19 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final AlertStatsLogger alertStatsLogger;
     private final OpStatsLogger createWriteHandlerStats;
 
-    public BKDistributedLogManager(String name,
-                                   DistributedLogConfiguration conf,
-                                   URI uri,
-                                   ZooKeeperClientBuilder writerZKCBuilder,
-                                   ZooKeeperClientBuilder readerZKCBuilder,
-                                   BookKeeperClientBuilder writerBKCBuilder,
-                                   BookKeeperClientBuilder readerBKCBuilder,
-                                   StatsLogger statsLogger) throws IOException {
+    BKDistributedLogManager(String name,
+                            DistributedLogConfiguration conf,
+                            URI uri,
+                            ZooKeeperClientBuilder writerZKCBuilder,
+                            ZooKeeperClientBuilder readerZKCBuilder,
+                            ZooKeeperClient zkcForWriterBKC,
+                            ZooKeeperClient zkcForReaderBKC,
+                            BookKeeperClientBuilder writerBKCBuilder,
+                            BookKeeperClientBuilder readerBKCBuilder,
+                            StatsLogger statsLogger) throws IOException {
         this(name, conf, uri,
-             writerZKCBuilder, readerZKCBuilder, writerBKCBuilder, readerBKCBuilder,
+             writerZKCBuilder, readerZKCBuilder,
+             zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
              Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
              null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), statsLogger);
         this.ownExecutor = true;
@@ -125,6 +130,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             URI uri,
                             ZooKeeperClientBuilder writerZKCBuilder,
                             ZooKeeperClientBuilder readerZKCBuilder,
+                            ZooKeeperClient zkcForWriterBKC,
+                            ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
                             ScheduledExecutorService executorService,
@@ -135,7 +142,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
                             StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder);
-        Preconditions.checkNotNull("No ReadAhead Stats Logger Provided.", readAheadExceptionsLogger);
+        Preconditions.checkNotNull(readAheadExceptionsLogger, "No ReadAhead Stats Logger Provided.");
         this.conf = conf;
         this.executorService = executorService;
         this.lockStateExecutor = lockStateExecutor;
@@ -151,13 +158,19 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             this.writerBKCBuilder = BookKeeperClientBuilder.newBuilder()
                     .dlConfig(conf)
                     .name(String.format("bk:%s:dlm_writer_shared", name))
-                    .zkServers(bkdlConfig.getBkZkServersForWriter())
                     .ledgersPath(bkdlConfig.getBkLedgersPath())
                     .channelFactory(channelFactory)
                     .requestTimer(requestTimer)
                     .statsLogger(statsLogger);
+            if (null == zkcForWriterBKC) {
+                this.writerBKCBuilder.zkServers(bkdlConfig.getBkZkServersForWriter());
+            } else {
+                this.writerBKCBuilder.zkc(zkcForWriterBKC);
+            }
+            this.ownWriterBKC = true;
         } else {
             this.writerBKCBuilder = writerBKCBuilder;
+            this.ownWriterBKC = false;
         }
         this.writerBKC = this.writerBKCBuilder.build();
 
@@ -168,18 +181,25 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             BKDLConfig.propagateConfiguration(bkdlConfig, conf);
             if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
                 this.readerBKCBuilder = this.writerBKCBuilder;
+                this.ownReaderBKC = false;
             } else {
                 this.readerBKCBuilder = BookKeeperClientBuilder.newBuilder()
                         .dlConfig(conf)
                         .name(String.format("bk:%s:dlm_reader_shared", name))
-                        .zkServers(bkdlConfig.getBkZkServersForReader())
                         .ledgersPath(bkdlConfig.getBkLedgersPath())
                         .channelFactory(channelFactory)
                         .requestTimer(requestTimer)
                         .statsLogger(statsLogger);
+                if (null == zkcForReaderBKC) {
+                    this.readerBKCBuilder.zkServers(bkdlConfig.getBkZkServersForReader());
+                } else {
+                    this.readerBKCBuilder.zkc(zkcForReaderBKC);
+                }
+                this.ownReaderBKC = true;
             }
         } else {
             this.readerBKCBuilder = readerBKCBuilder;
+            this.ownReaderBKC = false;
         }
         this.readerBKC = this.readerBKCBuilder.build();
 
@@ -201,13 +221,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @VisibleForTesting
-    BookKeeperClientBuilder getWriterBKCBuilder() {
-        return this.writerBKCBuilder;
+    BookKeeperClient getWriterBKC() {
+        return this.writerBKC;
     }
 
     @VisibleForTesting
-    BookKeeperClientBuilder getReaderBKCBuilder() {
-        return this.readerBKCBuilder;
+    BookKeeperClient getReaderBKC() {
+        return this.readerBKC;
     }
 
     @Override
@@ -815,20 +835,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         String zkPath = getZKPath();
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
-            ZooKeeperClient zkc = writerZKCBuilder.build();
             try {
                 LOG.info("Delete the path associated with the log {}, ZK Path", name, zkPath);
-                ZKUtil.deleteRecursive(zkc.get(), zkPath);
+                ZKUtil.deleteRecursive(writerZKC.get(), zkPath);
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted while accessing ZK", ie);
                 throw new DLInterruptedException("Error initializing zk", ie);
             } catch (KeeperException ke) {
                 LOG.error("Error accessing entry in zookeeper", ke);
                 throw new IOException("Error initializing zk", ke);
-            } finally {
-                zkc.close();
             }
-
         } else {
             LOG.warn("Skip deletion of unrecognized ZK Path {}", zkPath);
         }
@@ -855,21 +871,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private List<String> getStreamsWithinALog() throws IOException {
         List<String> partitions;
         String zkPath = getZKPath();
-        ZooKeeperClient zkc = readerZKCBuilder.build();
         try {
-            if (zkc.get().exists(zkPath, false) == null) {
+            if (readerZKC.get().exists(zkPath, false) == null) {
                 LOG.info("Log {} was not found, ZK Path {} doesn't exist", name, zkPath);
                 throw new LogNotFoundException("Log " + name + " was not found");
             }
-            partitions = zkc.get().getChildren(zkPath, false);
+            partitions = readerZKC.get().getChildren(zkPath, false);
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while accessing ZK", ie);
             throw new IOException("Error initializing zk", ie);
         } catch (KeeperException ke) {
             LOG.error("Error accessing entry in zookeeper", ke);
             throw new IOException("Error initializing zk", ke);
-        } finally {
-            zkc.close();
         }
         return partitions;
     }
@@ -925,8 +938,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             SchedulerUtils.shutdownScheduler(metadataExecutor, 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
-        writerBKC.release();
-        readerBKC.release();
+        if (ownWriterBKC) {
+            writerBKC.close();
+        }
+        if (ownReaderBKC) {
+            readerBKC.close();
+        }
         try {
             super.close();
         } catch (IOException e) {

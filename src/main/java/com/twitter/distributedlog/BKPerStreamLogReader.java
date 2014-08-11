@@ -175,6 +175,10 @@ class BKPerStreamLogReader {
         }
     }
 
+    synchronized boolean isTraceEnabled() {
+        return enableTrace;
+    }
+
     /**
      * Input stream implementation which can be used by
      * LogRecord.Reader

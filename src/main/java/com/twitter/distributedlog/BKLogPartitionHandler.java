@@ -113,9 +113,11 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     protected final String name;
     protected final String streamIdentifier;
-    protected final ZooKeeperClient zooKeeperClient;
     protected final DistributedLogConfiguration conf;
+    protected final ZooKeeperClient zooKeeperClient;
+    protected final boolean ownZKC;
     protected final BookKeeperClient bookKeeperClient;
+    protected final boolean ownBKC;
     protected final String partitionRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
@@ -282,8 +284,10 @@ abstract class BKLogPartitionHandler implements Watcher {
                     .statsLogger(statsLogger)
                     .retryThreadCount(conf.getZKClientNumberRetryThreads())
                     .requestRateLimit(conf.getZKRequestRateLimit())
-                    .zkAclId(conf.getZkAclId())
-                    .buildNew(false);
+                    .zkAclId(conf.getZkAclId());
+            ownZKC = true;
+        } else {
+            ownZKC = false;
         }
         this.zooKeeperClient = zkcBuilder.build();
         LOG.debug("Using ZK Path {}", partitionRootPath);
@@ -297,6 +301,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                     .zkServers(bkdlConfig.getBkZkServersForWriter())
                     .ledgersPath(bkdlConfig.getBkLedgersPath())
                     .statsLogger(statsLogger);
+            ownBKC = true;
+        } else {
+            ownBKC = false;
         }
         this.bookKeeperClient = bkcBuilder.build();
 
@@ -705,8 +712,12 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     public void close() throws IOException {
-        bookKeeperClient.release();
-        zooKeeperClient.close();
+        if (ownBKC) {
+            bookKeeperClient.close();
+        }
+        if (ownZKC) {
+            zooKeeperClient.close();
+        }
     }
 
     /**

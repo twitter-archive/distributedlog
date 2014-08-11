@@ -113,14 +113,10 @@ public class TestDLCK {
         DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 4L, 31L, 10, true);
 
         // dryrun
-        BookKeeperClient bkc = factory.getReaderBKCBuilder().build();
-        try {
-            DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                    new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()),
-                    executorService, bkc, confLocal.getBKDigestPW(), false, false);
-        } finally {
-            bkc.release();
-        }
+        BookKeeperClient bkc = factory.getReaderBKC();
+        DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
+                new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()),
+                executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentLedgerMetadata> segments = getLogSegments(dlm);
         verifyLogSegment(segments, new DLSN(1L, 18L, 0L), 1L, 10, 10L);
@@ -129,14 +125,10 @@ public class TestDLCK {
         verifyLogSegment(segments, new DLSN(4L, 16L, 0L), 4L, 9, 39L);
 
         // check and repair
-        bkc = factory.getReaderBKCBuilder().build();
-        try {
-            DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                    ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL()),
-                    executorService, bkc, confLocal.getBKDigestPW(), false, false);
-        } finally {
-            bkc.release();
-        }
+        bkc = factory.getReaderBKC();
+        DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
+                ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL()),
+                executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);
         verifyLogSegment(segments, new DLSN(1L, 18L, 0L), 1L, 10, 10L);

@@ -196,7 +196,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     public void process(WatchedEvent event) {
         if (event.getType() == Watcher.Event.EventType.NodeDeleted) {
             nodeDeleteNotification.set(true);
-            if (enableTrace) {
+            if (isTraceEnabled()) {
                 LOG.info("{}: Node {} Deleted", ledgerManager.getFullyQualifiedName(), event.getPath());
             } else {
                 LOG.debug("{}: Node {} Deleted", ledgerManager.getFullyQualifiedName(), event.getPath());

@@ -31,8 +31,6 @@ public class ZooKeeperClientBuilder {
 
     // name
     private String name = "default";
-    // whether to build new client
-    private boolean buildNew = false;
     // sessionTimeoutMs
     private int sessionTimeoutMs = -1;
     // conectionTimeoutMs
@@ -137,7 +135,6 @@ public class ZooKeeperClientBuilder {
      */
     public synchronized ZooKeeperClientBuilder zkc(ZooKeeperClient zkc) {
         this.cachedClient = zkc;
-        this.buildNew = false;
         return this;
     }
 
@@ -174,20 +171,6 @@ public class ZooKeeperClientBuilder {
         return this;   
     }
 
-    /**
-     * If <i>buildNew</i> is set to false, the built zookeeper client by {@link #build()}
-     * will be cached. Following {@link #build()} always returns this cached zookeeper
-     * client. Otherwise, each {@link #build()} will create a new zookeeper client.
-     *
-     * @param buildNew
-     *          whether to build new client for each {@link #build()}
-     * @return builder
-     */
-    public synchronized ZooKeeperClientBuilder buildNew(boolean buildNew) {
-        this.buildNew = buildNew;
-        return this;
-    }
-
     private void validateParameters() {
         Preconditions.checkNotNull(zkServers, "No zk servers provided.");
         Preconditions.checkArgument(conectionTimeoutMs > 0,
@@ -204,28 +187,10 @@ public class ZooKeeperClientBuilder {
      * @return zookeeper client.
      */
     public synchronized ZooKeeperClient build() {
-        return build(false);
-    }
-
-    /**
-     * Build a zookeeper client. If <i>forceNew</i> is true, a new
-     * ZooKeeper client is created.
-     *
-     * @param forceNew
-     *          flag to force creating a new client.
-     * @return zookeeper client.
-     */
-    private synchronized ZooKeeperClient build(boolean forceNew) {
-        if (!buildNew && !forceNew) {
-            if (null == cachedClient) {
-                cachedClient = buildClient();
-            } else {
-                cachedClient.addRef();
-            }
-            return cachedClient;
-        } else {
-            return buildClient();
+        if (null == cachedClient) {
+            cachedClient = buildClient();
         }
+        return cachedClient;
     }
 
     private ZooKeeperClient buildClient() {

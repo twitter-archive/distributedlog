@@ -21,22 +21,17 @@ import com.twitter.util.Promise;
 
 
 public class ZKSubscriptionStateStore implements SubscriptionStateStore {
-    private ZooKeeperClient zooKeeperClient;
+    private final ZooKeeperClient zooKeeperClient;
     private final String zkPath;
     private AtomicReference<DLSN> lastCommittedPosition = new AtomicReference<DLSN>(null);
 
     public ZKSubscriptionStateStore(ZooKeeperClient zooKeeperClient, String zkPath) {
         this.zooKeeperClient = zooKeeperClient;
-        this.zooKeeperClient.addRef();
         this.zkPath = zkPath;
     }
 
     @Override
     public void close() throws IOException {
-        if (null != zooKeeperClient) {
-            zooKeeperClient.close();
-            zooKeeperClient = null;
-        }
     }
 
     /**

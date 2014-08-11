@@ -947,7 +947,6 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         String name = "distrlog-separate-bk-setting";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        confLocal.setSeparateZKClients(!conf.getSeparateZKClients());
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         PartitionId pid0 = new PartitionId(0);

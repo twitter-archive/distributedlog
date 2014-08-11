@@ -307,7 +307,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     }
 
     @VisibleForTesting
-    void setForceBlockingRead(boolean force) {
+    synchronized void setForceBlockingRead(boolean force) {
         forceBlockingRead = force;
     }
 }

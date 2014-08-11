@@ -103,7 +103,7 @@ public class DistributedLogTool extends Tool {
             options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("c", "conf", true, "DistributedLog Configuration File");
             options.addOption("a", "zk-acl-id", true, "Zookeeper ACL ID");
-            options.addOption("F", "force", false, "Force command (no warnings or prompts)");
+            options.addOption("f", "force", false, "Force command (no warnings or prompts)");
         }
 
         @Override
@@ -243,7 +243,7 @@ public class DistributedLogTool extends Tool {
                     }
                 }
             } finally {
-                bkc.release();
+                bkc.close();
                 zkc.close();
             }
             return 0;
@@ -291,7 +291,7 @@ public class DistributedLogTool extends Tool {
             } finally {
                 factory.close();
             }
-            return 0;  
+            return 0;
         }
 
         protected void printStreamsWithMetadata(DistributedLogManagerFactory factory)
@@ -337,7 +337,7 @@ public class DistributedLogTool extends Tool {
         InspectCommand() {
             super("inspect", "Inspect streams under a given dl uri to find any potential corruptions");
             options.addOption("t", "threads", true, "Number threads to do inspection.");
-            options.addOption("f", "filter", true, "Stream filter by prefix");
+            options.addOption("ft", "filter", true, "Stream filter by prefix");
             options.addOption("i", "inprogress", false, "Print inprogress log segments only");
             options.addOption("d", "dump", false, "Dump entries of inprogress log segments");
             options.addOption("ot", "orderbytime", false, "Order the log segments by completion time");
@@ -350,8 +350,8 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("t")) {
                 numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
             }
-            if (cmdline.hasOption("f")) {
-                streamPrefix = cmdline.getOptionValue("f");
+            if (cmdline.hasOption("ft")) {
+                streamPrefix = cmdline.getOptionValue("ft");
             }
             printInprogressOnly = cmdline.hasOption("i");
             dumpEntries = cmdline.hasOption("d");
@@ -445,7 +445,7 @@ public class DistributedLogTool extends Tool {
             int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
             for (int i = startIdx; i < endIdx; i++) {
                 String s = streams.get(i);
-                BookKeeperClient bkc = factory.getReaderBKCBuilder().build();
+                BookKeeperClient bkc = factory.getReaderBKC();
                 DistributedLogManager dlm =
                         factory.createDistributedLogManagerWithSharedClients(s);
                 try {
@@ -504,7 +504,6 @@ public class DistributedLogTool extends Tool {
                     }
                 } finally {
                     dlm.close();
-                    bkc.release();
                 }
             }
         }
@@ -524,7 +523,7 @@ public class DistributedLogTool extends Tool {
         TruncateCommand() {
             super("truncate", "truncate streams under a given dl uri");
             options.addOption("t", "threads", true, "Number threads to do truncation");
-            options.addOption("f", "filter", true, "Stream filter by prefix");
+            options.addOption("ft", "filter", true, "Stream filter by prefix");
             options.addOption("d", "delete", false, "Delete Stream");
         }
 
@@ -534,8 +533,8 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("t")) {
                 numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
             }
-            if (cmdline.hasOption("f")) {
-                streamPrefix = cmdline.getOptionValue("f");
+            if (cmdline.hasOption("ft")) {
+                streamPrefix = cmdline.getOptionValue("ft");
             }
             if (cmdline.hasOption("d")) {
                 deleteStream = true;
@@ -656,7 +655,7 @@ public class DistributedLogTool extends Tool {
                 printMetadata(dlm);
             } finally {
                 dlm.close();
-            } 
+            }
             return 0;
         }
 
@@ -832,7 +831,7 @@ public class DistributedLogTool extends Tool {
         }
 
         protected void generateStreams(String streamPrefix, String streamExpression) throws ParseException {
-            
+
             // parse the stream expression
             if (streamExpression.contains("-")) {
                 // a range expression
@@ -1084,7 +1083,7 @@ public class DistributedLogTool extends Tool {
         }
 
         protected void setLedgerId(long ledgerId) {
-            this.ledgerId = ledgerId;    
+            this.ledgerId = ledgerId;
         }
     }
 
@@ -1118,7 +1117,7 @@ public class DistributedLogTool extends Tool {
                         lh.close();
                     }
                 } finally {
-                    bkc.release();
+                    bkc.close();
                 }
             } finally {
                 zkc.close();
@@ -1204,7 +1203,7 @@ public class DistributedLogTool extends Tool {
                         lh.close();
                     }
                 } finally {
-                    bkc.release();
+                    bkc.close();
                 }
             } finally {
                 zkc.close();

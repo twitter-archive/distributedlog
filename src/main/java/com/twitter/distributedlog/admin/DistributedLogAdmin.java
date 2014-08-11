@@ -590,11 +590,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
         }
     }
 
-    class RepairSeqNoCommand extends PerDLCommand {
+    static class RepairSeqNoCommand extends PerDLCommand {
 
         boolean dryrun = false;
         boolean verbose = false;
-        boolean force = false;
         final List<String> streams = new ArrayList<String>();
 
         RepairSeqNoCommand() {
@@ -602,7 +601,6 @@ public class DistributedLogAdmin extends DistributedLogTool {
             options.addOption("d", "dryrun", false, "Dry run without repairing");
             options.addOption("l", "list", true, "List of streams to repair, separated by comma");
             options.addOption("v", "verbose", false, "Print verbose messages");
-            options.addOption("f", "force", false, "Force execution without confirmation execution");
         }
 
         @Override
@@ -630,7 +628,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     return -1;
                 }
                 for (String stream : streams) {
-                    fixInprogressSegmentWithLowerSequenceNumber(factory, metadataUpdater, stream, verbose, !force);
+                    fixInprogressSegmentWithLowerSequenceNumber(factory, metadataUpdater, stream, verbose, !getForce());
                 }
                 return 0;
             } finally {
@@ -644,18 +642,16 @@ public class DistributedLogAdmin extends DistributedLogTool {
         }
     }
 
-    class DLCKCommand extends PerDLCommand {
+    static class DLCKCommand extends PerDLCommand {
 
         boolean dryrun = false;
         boolean verbose = false;
-        boolean force = false;
         int concurrency = 1;
 
         DLCKCommand() {
             super("dlck", "Check and repair a distributedlog namespace");
             options.addOption("d", "dryrun", false, "Dry run without repairing");
             options.addOption("v", "verbose", false, "Print verbose messages");
-            options.addOption("f", "force", false, "Force execution without confirmation execution");
             options.addOption("cy", "concurrency", true, "Concurrency on checking streams");
         }
 
@@ -664,7 +660,6 @@ public class DistributedLogAdmin extends DistributedLogTool {
             super.parseCommandLine(cmdline);
             dryrun = cmdline.hasOption("d");
             verbose = cmdline.hasOption("v");
-            force = cmdline.hasOption("f");
             if (cmdline.hasOption("cy")) {
                 try {
                     concurrency = Integer.parseInt(cmdline.getOptionValue("cy"));
@@ -681,12 +676,11 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()) :
                         ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL());
                 ExecutorService executorService = Executors.newCachedThreadPool();
-                BookKeeperClient bkc = factory.getReaderBKCBuilder().build();
+                BookKeeperClient bkc = factory.getReaderBKC();
                 try {
                     checkAndRepairDLNamespace(getUri(), factory, metadataUpdater, executorService,
-                                              bkc, getConf().getBKDigestPW(), verbose, !force, concurrency);
+                                              bkc, getConf().getBKDigestPW(), verbose, !getForce(), concurrency);
                 } finally {
-                    bkc.release();
                     SchedulerUtils.shutdownScheduler(executorService, 5, TimeUnit.MINUTES);
                 }
                 return 0;

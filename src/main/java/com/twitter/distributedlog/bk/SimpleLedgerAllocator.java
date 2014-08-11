@@ -123,8 +123,6 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
             this.ackQuorumSize = conf.getAckQuorumSize();
         }
         this.digestpw = conf.getBKDigestPW().getBytes(UTF_8);
-        this.zkc.addRef();
-        this.bkc.addRef();
         initialize(allocationData);
     }
 
@@ -427,8 +425,6 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             LOG.error("ZooKeeper connection exception when closing allocator {} : ", allocatePath, e);
         }
-        this.bkc.release();
-        this.zkc.close();
     }
 
     @Override
@@ -448,9 +444,6 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
             throw new ZKException("Encountered zookeeper connection issue on deleting allocator " + allocatePath + " : ",
                     KeeperException.Code.CONNECTIONLOSS);
-        } finally {
-            this.bkc.release();
-            this.zkc.close();
         }
     }
 

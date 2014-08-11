@@ -6,7 +6,6 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.zk.DataWithStat;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback;
@@ -51,8 +50,6 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         this.conf = conf;
         this.zkc = zkc;
         this.bkc = bkc;
-        this.zkc.addRef();
-        this.bkc.addRef();
         initializePool();
     }
 
@@ -276,8 +273,6 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 allocator.close(cleanup);
             }
         }
-        this.bkc.release();
-        this.zkc.close();
     }
 
     @Override
@@ -300,7 +295,5 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         } catch (KeeperException ke) {
             throw new IOException("Error on deleting allocator pool " + poolPath + " : ", ke);
         }
-        this.bkc.release();
-        this.zkc.close();
     }
 }

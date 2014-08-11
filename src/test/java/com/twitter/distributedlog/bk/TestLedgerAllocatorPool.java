@@ -68,7 +68,7 @@ public class TestLedgerAllocatorPool {
 
     @After
     public void teardown() throws Exception {
-        bkc.release();
+        bkc.close();
         zkc.close();
     }
 

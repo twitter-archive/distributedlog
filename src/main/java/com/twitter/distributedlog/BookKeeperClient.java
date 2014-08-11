@@ -36,7 +36,6 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
     private final StatsLogger statsLogger;
 
     // bookkeeper client state
-    private int refCount;
     private boolean closed = false;
     private BookKeeper bkc = null;
     private ZooKeeperClient zkc;
@@ -92,9 +91,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         if (null != zkc) {
             // reference the passing zookeeper client
             this.zkc = zkc;
-            this.zkc.addRef();
         }
-        refCount = 1;
     }
 
     private synchronized void initialize() throws IOException {
@@ -156,51 +153,31 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         return bkc;
     }
 
-    public synchronized void addRef() {
-        refCount++;
-    }
-
-    public void release() {
-        release(false);
-    }
-
-    /**
-     * TODO: force close is a temp solution. we need to figure out ref count leaking.
-     * {@link https://jira.twitter.biz/browse/PUBSUB-2232}
-     */
-    public synchronized void release(boolean force) {
+    public synchronized void close() {
         if (closed) {
             return;
         }
 
-        refCount--;
-
-        if (0 == refCount || force) {
-            LOG.info("BookKeeper Client closed {} : refs = {}, force = {}",
-                     new Object[] { name, refCount, force });
-            if (null != bkc) {
-                try {
-                    bkc.close();
-                } catch (InterruptedException e) {
-                    LOG.warn("Interrupted on closing bookkeeper client {} : ", name, e);
-                    Thread.currentThread().interrupt();
-                } catch (BKException e) {
-                    LOG.warn("Error on closing bookkeeper client {} : ", name, e);
-                }
+        LOG.info("BookKeeper Client closed {}", name);
+        if (null != bkc) {
+            try {
+                bkc.close();
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted on closing bookkeeper client {} : ", name, e);
+                Thread.currentThread().interrupt();
+            } catch (BKException e) {
+                LOG.warn("Error on closing bookkeeper client {} : ", name, e);
             }
-            if (null != zkc) {
-                if (null != sessionExpireWatcher) {
-                    zkc.unregister(sessionExpireWatcher);
-                }
-                if (ownZK) {
-                    zkc.close(force);
-                } else {
-                    // release the reference of passing zookeeper client.
-                    zkc.close();
-                }
-            }
-            closed = true;
         }
+        if (null != zkc) {
+            if (null != sessionExpireWatcher) {
+                zkc.unregister(sessionExpireWatcher);
+            }
+            if (ownZK) {
+                zkc.close();
+            }
+        }
+        closed = true;
     }
 
     @Override

@@ -24,15 +24,15 @@ public class TestReadUtils extends TestDistributedLogBase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestReadUtils.class);
 
-    @Rule 
+    @Rule
     public TestName runtime = new TestName();
 
     private Future<LogRecordWithDLSN> getFirstGreaterThanRecord(BKDistributedLogManager bkdlm, int ledgerNo, DLSN dlsn) throws Exception {
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
         return ReadUtils.asyncReadFirstUserRecord(
-            bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1), 
-            bkdlm.getWriterBKCBuilder().build(), conf.getBKDigestPW(), dlsn); 
+            bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
+            bkdlm.getWriterBKC(), conf.getBKDigestPW(), dlsn);
     }
 
     private Future<LogRecordWithDLSN> getLastUserRecord(BKDistributedLogManager bkdlm, int ledgerNo) throws Exception {
@@ -40,8 +40,8 @@ public class TestReadUtils extends TestDistributedLogBase {
         List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
         LOG.info("DBG: tru {}", ledgerList);
         return ReadUtils.asyncReadLastRecord(
-            bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1), 
-            bkdlm.getWriterBKCBuilder().build(), conf.getBKDigestPW()); 
+            bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
+            bkdlm.getWriterBKC(), conf.getBKDigestPW());
     }
 
     @Test(timeout = 60000)
@@ -141,7 +141,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     public void testGetLastRecordControlRecord() throws Exception {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
-        
+
         AsyncLogWriter out = bkdlm.startAsyncLogSegmentNonPartitioned();
         int txid = 1;
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));

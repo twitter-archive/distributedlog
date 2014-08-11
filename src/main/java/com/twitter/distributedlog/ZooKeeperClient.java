@@ -32,7 +32,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,8 +39,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Manages a connection to a ZooKeeper cluster.
@@ -51,7 +50,7 @@ public class ZooKeeperClient {
     public static interface Credentials {
 
         Credentials NONE = new Credentials() {
-            @Override 
+            @Override
             public void authenticate(ZooKeeper zooKeeper) {
                 // noop
             }
@@ -72,7 +71,7 @@ public class ZooKeeperClient {
 
         @Override
         public void authenticate(ZooKeeper zooKeeper) {
-            zooKeeper.addAuthInfo("digest", "%s:%s".format(username, password).getBytes());
+            zooKeeper.addAuthInfo("digest", String.format("%s:%s", username, password).getBytes(UTF_8));
         }
     }
 
@@ -115,13 +114,14 @@ public class ZooKeeperClient {
     // made from within long synchronized blocks.
     private volatile ZooKeeper zooKeeper = null;
     private SessionState sessionState = null;
-    private final AtomicInteger refCount;
     private final RetryPolicy retryPolicy;
     private final StatsLogger statsLogger;
     private final int retryThreadCount;
     private final double requestRateLimit;
     private final Credentials credentials;
     private boolean authenticated = false;
+
+    private boolean closed = false;
 
     final Set<Watcher> watchers = new CopyOnWriteArraySet<Watcher>();
 
@@ -138,18 +138,17 @@ public class ZooKeeperClient {
      *          the set of servers forming the ZK cluster
      */
     ZooKeeperClient(int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers) {
-        this("default", sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0, 
+        this("default", sessionTimeoutMs, connectionTimeoutMs, zooKeeperServers, null, NullStatsLogger.INSTANCE, 1, 0,
              Credentials.NONE);
     }
 
     ZooKeeperClient(String name, int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
-                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit, 
+                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit,
                     Credentials credentials) {
         this.name = name;
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.zooKeeperServers = zooKeeperServers;
         this.defaultConnectionTimeoutMs = connectionTimeoutMs;
-        this.refCount = new AtomicInteger(1);
         this.retryPolicy = retryPolicy;
         this.statsLogger = statsLogger;
         this.retryThreadCount = retryThreadCount;
@@ -163,15 +162,6 @@ public class ZooKeeperClient {
         } else {
             return DistributedLogConstants.EVERYONE_READ_CREATOR_ALL;
         }
-    }
-
-    /**
-     * Increment reference on this client.
-     *
-     * @return reference count.
-     */
-    public int addRef() {
-        return refCount.incrementAndGet();
     }
 
     /**
@@ -218,7 +208,7 @@ public class ZooKeeperClient {
         }
 
         // This indicates that the client was explictly closed
-        if (0 == refCount.get()) {
+        if (closed) {
             throw new ZooKeeperConnectionException("Client " + name + " has already been closed");
         }
 
@@ -230,9 +220,9 @@ public class ZooKeeperClient {
             }
         }
 
-        // In case authenticate throws an exception, the caller can try to recover the client by 
+        // In case authenticate throws an exception, the caller can try to recover the client by
         // calling get again.
-        if (!authenticated) { 
+        if (!authenticated) {
             credentials.authenticate(zooKeeper);
             authenticated = true;
         }
@@ -249,11 +239,11 @@ public class ZooKeeperClient {
                     case None:
                         switch (event.getState()) {
                             case Expired:
-                            case Disconnected:    
+                            case Disconnected:
                                 // Mark as not authenticated if expired or disconnected. In both cases
-                                // we lose any attached auth info. Relying on Expired/Disconnected is 
+                                // we lose any attached auth info. Relying on Expired/Disconnected is
                                 // sufficient since all Expired/Disconnected events are processed before
-                                // all SyncConnected events, and the underlying member is not updated until 
+                                // all SyncConnected events, and the underlying member is not updated until
                                 // SyncConnected is received.
                                 authenticated = false;
                                 break;
@@ -437,23 +427,15 @@ public class ZooKeeperClient {
     }
 
     /**
-     * Closes the connection when the reference count drops to zero
+     * Closes the the underlying zookeeper instance.
      * Subsequent attempts to {@link #get} will fail
      */
-    public void close() {
-        close(false);
-    }
-
-    /**
-     * TODO: force close is a temp solution. we need to figure out ref count leaking.
-     * {@link https://jira.twitter.biz/browse/PUBSUB-2232}
-     */
-    public synchronized void close(boolean force) {
-        int refs = refCount.decrementAndGet();
-        if (refs == 0 || force) {
-            LOG.info("Close zookeeper client {} : ref = {}, force = {}.",
-                     new Object[] { name, refs, force });
-            closeInternal();
+    public synchronized void close() {
+        if (closed) {
+            return;
         }
+        LOG.info("Close zookeeper client {}.", name);
+        closeInternal();
+        closed = true;
     }
 }

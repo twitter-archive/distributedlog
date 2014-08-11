@@ -63,7 +63,7 @@ public class TestLedgerHandleCache {
 
     @After
     public void teardown() throws Exception {
-        bkc.release();
+        bkc.close();
         zkc.close();
     }
 
@@ -73,7 +73,7 @@ public class TestLedgerHandleCache {
                 .zkc(zkc).ledgersPath(ledgersPath).dlConfig(dlConf).build();
         LedgerHandleCache cache = new LedgerHandleCache(newBkc, "bkcClosed");
         // closed the bkc
-        newBkc.release();
+        newBkc.close();
         // open ledger after bkc closed.
         try {
             cache.openLedger(new LogSegmentLedgerMetadata("", 2, 1, 1, 1, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS), false);
@@ -103,7 +103,7 @@ public class TestLedgerHandleCache {
         try {
             LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkcClosed".getBytes(UTF_8));
             lh.close();
-            newZkc.close(true);
+            newZkc.close();
             LedgerHandleCache cache = new LedgerHandleCache(newBkc, "zkcClosed");
             // open ledger after zkc closed
             try {
@@ -129,7 +129,7 @@ public class TestLedgerHandleCache {
             latch.await();
             assertEquals(BKException.Code.ZKException, rcHolder.get());
         } finally {
-            newBkc.release();
+            newBkc.close();
         }
     }
 

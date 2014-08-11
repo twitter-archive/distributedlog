@@ -122,10 +122,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
     public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
 
-    // should each partition use a separate zookeeper client
-    public static final String BKDL_SEPARATE_ZK_CLIENT = "separateZKClients";
-    public static final boolean BKDL_SEPARATE_ZK_CLIENT_DEFAULT = false;
-
     public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
     public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
 
@@ -535,28 +531,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public String getBKDigestPW() {
         return getString(BKDL_BOOKKEEPER_DIGEST_PW, BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT);
-    }
-
-    /**
-     * Set if we should use separate ZK clients
-     *
-     * @param separateZKClients
-     *          Use separate ZK Clients
-     */
-    @Deprecated
-    public DistributedLogConfiguration setSeparateZKClients(boolean separateZKClients) {
-        setProperty(BKDL_SEPARATE_ZK_CLIENT, separateZKClients);
-        return this;
-    }
-
-    /**
-     * Get if we should use separate ZK Clients
-     *
-     * @return if should use separate ZK Clients
-     */
-    @Deprecated
-    public boolean getSeparateZKClients() {
-        return getBoolean(BKDL_SEPARATE_ZK_CLIENT, BKDL_SEPARATE_ZK_CLIENT_DEFAULT);
     }
 
     /**

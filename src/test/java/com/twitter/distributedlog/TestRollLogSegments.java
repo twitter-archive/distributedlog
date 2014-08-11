@@ -213,7 +213,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         }
 
         BKPerStreamLogWriter perStreamWriter = writer.perStreamWriter;
-        BookKeeperClient bkc = readDLM.getReaderBKCBuilder().build();
+        BookKeeperClient bkc = readDLM.getReaderBKC();
         LedgerHandle readLh = bkc.get().openLedgerNoRecovery(perStreamWriter.getLedgerHandle().getId(),
                 BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
 
@@ -261,8 +261,6 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             assertEquals(i, record.getTransactionId());
         }
 
-        bkc.release();
         readDLM.close();
-
     }
 }
