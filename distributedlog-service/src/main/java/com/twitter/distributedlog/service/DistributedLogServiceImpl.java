@@ -49,7 +49,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -191,11 +190,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          failure reason
          */
         void fail(String owner, Throwable t) {
-            opStatsLogger.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             if (null != owner) {
                 redirects.inc();
                 fail(ownerToResponseHeader(owner));
             } else {
+                // record failure stats only when op failed
+                if (!(t instanceof OwnershipAcquireFailedException)) {
+                    opStatsLogger.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                } else {
+                    redirects.inc();
+                }
                 fail(exceptionToResponseHeader(t));
             }
         }
@@ -713,11 +717,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        countException(cause, exceptionStatLogger);
+                        boolean countAsException = true;
                         if (cause instanceof DLException) {
                             final DLException dle = (DLException) cause;
                             switch (dle.getCode()) {
                             case FOUND:
+                                countAsException = false;
                                 handleOwnershipAcquireFailedException(op, (OwnershipAcquireFailedException) cause);
                                 break;
                             case ALREADY_CLOSED:
@@ -742,6 +747,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             }
                         } else {
                             handleUnknownException(op, cause);
+                        }
+                        if (countAsException) {
+                            countException(cause, exceptionStatLogger);
                         }
                     }
                 });
@@ -831,9 +839,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          * Handling already closed exception.
          */
         private void handleAlreadyClosedException(AlreadyClosedException ace) {
-            // TODO: change to more specific exception: e.g. bkzk session expired?
-            logger.error("DL Manager is closed. Quiting : ", ace);
-            Runtime.getRuntime().exit(-1);
+            unexpectedExceptions.inc();
+            logger.error("Encountered unexpected exception when writing data into stream {} : ", name, ace);
+            triggerShutdown();
         }
 
         void acquireStream() {
@@ -853,7 +861,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 handleAlreadyClosedException(ace);
                 return;
             } catch (final OwnershipAcquireFailedException oafe) {
-                countException(oafe, exceptionStatLogger);
                 logger.error("Failed to initialize stream {} : ", name, oafe);
                 synchronized (this) {
                     setStreamStatus(StreamStatus.BACKOFF, null, oafe.getCurrentOwner(), oafe);
@@ -886,6 +893,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             AsyncLogWriter oldWriter = this.writer;
             this.writer = writer;
             if (null != owner && owner.equals(clientId)) {
+                unexpectedExceptions.inc();
+                logger.error("I am waiting myself {} to release lock on stream {}, so have to shut myself down :",
+                             new Object[] { owner, name, t });
                 // I lost the ownership but left a lock over zookeeper
                 // I should not ask client to redirect to myself again as I can't handle it :(
                 // shutdown myself
@@ -1047,6 +1057,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final OpStatsLogger deleteStat;
     private final OpStatsLogger releaseStat;
     private final Counter redirects;
+    private final Counter unexpectedExceptions;
     // exception stats
     private final StatsLogger exceptionStatLogger;
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
@@ -1105,6 +1116,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 return closed ? -1 : 1;
             }
         });
+
+        // Stats on server
+        this.unexpectedExceptions = statsLogger.getCounter("unexpected_exceptions");
 
         // Stats on requests
         StatsLogger requestsStatsLogger = statsLogger.scope("request");
