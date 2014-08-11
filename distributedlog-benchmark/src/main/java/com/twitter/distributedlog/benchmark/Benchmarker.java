@@ -39,6 +39,11 @@ public class Benchmarker {
     int durationMins = 60;
     URI dlUri = null;
     int batchSize = 0;
+    int readersPerStream = 1;
+    Integer maxStreamId = null;
+    int truncationInterval = 3600;
+    Integer startStreamId = null;
+    Integer endStreamId = null;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -60,6 +65,11 @@ public class Benchmarker {
         options.addOption("r", "rate", true, "Rate limit (requests/second)");
         options.addOption("t", "concurrency", true, "Concurrency (number of threads)");
         options.addOption("m", "mode", true, "Benchmark mode (read/write)");
+        options.addOption("rps", "readers-per-stream", true, "Number readers per stream");
+        options.addOption("msid", "max-stream-id", true, "Max Stream ID");
+        options.addOption("ti", "truncation-interval", true, "Truncation interval in seconds");
+        options.addOption("ssid", "start-stream-id", true, "Start Stream ID");
+        options.addOption("esid", "end-stream-id", true, "Start Stream ID");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -114,6 +124,21 @@ public class Benchmarker {
             String configFile = cmdline.getOptionValue("c");
             conf.loadConf(new File(configFile).toURI().toURL());
         }
+        if (cmdline.hasOption("rps")) {
+            readersPerStream = Integer.parseInt(cmdline.getOptionValue("rps"));
+        }
+        if (cmdline.hasOption("msid")) {
+            maxStreamId = Integer.parseInt(cmdline.getOptionValue("msid"));
+        }
+        if (cmdline.hasOption("ti")) {
+            truncationInterval = Integer.parseInt(cmdline.getOptionValue("ti"));
+        }
+        if (cmdline.hasOption("ssid")) {
+            startStreamId = Integer.parseInt(cmdline.getOptionValue("ssid"));
+        }
+        if (cmdline.hasOption("esid")) {
+            endStreamId = Integer.parseInt(cmdline.getOptionValue("esid"));
+        }
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -136,6 +161,8 @@ public class Benchmarker {
             w = runWriter();
         } else if ("dlwrite".equals(mode)) {
             w = runDLWriter();
+        } else if ("dlread".equals(mode)) {
+            w = runDLReader();
         }
 
         if (w == null) {
@@ -162,8 +189,8 @@ public class Benchmarker {
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
 
         return new WriterWorker(streamPrefix,
-                shardId * numStreams,
-                (shardId + 1) * numStreams,
+                null == startStreamId ? shardId * numStreams : startStreamId,
+                null == endStreamId ? (shardId + 1) * numStreams : endStreamId,
                 rate,
                 concurrency,
                 msgSize,
@@ -176,6 +203,7 @@ public class Benchmarker {
 
     Worker runDLWriter() throws IOException {
         Preconditions.checkNotNull(dlUri, "dlUri must be defined");
+        Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
 
         return new DLWriterWorker(conf,
                 dlUri,
@@ -188,9 +216,36 @@ public class Benchmarker {
                 statsProvider.getStatsLogger("dlwrite"));
     }
 
-    Worker runReader() {
-        // TODO:
-        return null;
+    Worker runReader() throws IOException {
+        Preconditions.checkNotNull(serversetPath, "serversetPath is required");
+        Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
+        Preconditions.checkArgument(truncationInterval > 0, "truncation interval should be greater than 0");
+        return runReaderInternal(serversetPath, truncationInterval);
+    }
+
+    Worker runDLReader() throws IOException {
+        return runReaderInternal(null, 0);
+    }
+
+    private Worker runReaderInternal(String ssPath, int truncationInterval) throws IOException {
+        Preconditions.checkNotNull(dlUri);
+
+        int ssid = null == startStreamId ? shardId * numStreams : startStreamId;
+        int esid = null == endStreamId ? (shardId + readersPerStream) * numStreams : endStreamId;
+        if (null != maxStreamId) {
+            esid = Math.min(esid, maxStreamId);
+        }
+
+        return new ReaderWorker(conf,
+                dlUri,
+                streamPrefix,
+                ssid,
+                esid,
+                concurrency,
+                ssPath,
+                truncationInterval,
+                statsReceiver,
+                statsProvider.getStatsLogger("dlreader"));
     }
 
     public static void main(String[] args) {
