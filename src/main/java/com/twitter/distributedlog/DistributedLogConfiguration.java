@@ -112,6 +112,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_WAITTIME = "ReadAheadWaitTime";
     public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
 
+    public static final String BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM = "ReadAheadWaitTimeOnEndOfStream";
+    public static final int BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT = 10000;
+
     public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
             "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
     public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
@@ -895,6 +898,29 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadAheadWaitTime(int readAheadWaitTime) {
         setProperty(BKDL_READAHEAD_WAITTIME, readAheadWaitTime);
+        return this;
+    }
+
+    /**
+     * Get the wait time if it reaches end of stream and <b>there isn't any inprogress logsegment in the stream</b>, in millis.
+     *
+     * @see #setReadAheadWaitTimeOnEndOfStream(int)
+     * @return the wait time if it reaches end of stream and there isn't any inprogress logsegment in the stream, in millis.
+     */
+    public int getReadAheadWaitTimeOnEndOfStream() {
+        return this.getInt(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM, BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT);
+    }
+
+    /**
+     * Set the wait time that would be used for readahead to backoff polling logsegments from zookeeper when it reaches end of stream
+     * and there isn't any inprogress logsegment in the stream. The unit is millis.
+     *
+     * @param waitTime
+     *          wait time that readahead used to backoff when reaching end of stream.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setReadAheadWaitTimeOnEndOfStream(int waitTime) {
+        setProperty(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM, waitTime);
         return this;
     }
 

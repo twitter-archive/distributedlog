@@ -80,4 +80,65 @@ public class TestReadAhead extends TestDistributedLogBase {
         readDLM.close();
 
     }
+
+    @Test(timeout = 60000)
+    public void testReadAheadWaitOnEndOfStream() throws Exception {
+        String name = "distrlog-readahead-wait-on-end-of-stream";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setZKNumRetries(0);
+        confLocal.setReadAheadWaitTime(500);
+        confLocal.setReadAheadWaitTimeOnEndOfStream(Integer.MAX_VALUE);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DLMTestUtil.generateCompletedLogSegments(dlm, confLocal, 3, 10);
+
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);
+
+        int numReads = 0;
+        long expectedID = 1;
+        for (long i = 0; i < 3; i++) {
+            for (long j = 1; j <= 10; j++) {
+                LogRecordWithDLSN record = Await.result(reader.readNext());
+                assertEquals(expectedID++, record.getTransactionId());
+                DLMTestUtil.verifyLogRecord(record);
+                ++numReads;
+            }
+        }
+        assertEquals(30, numReads);
+        // we are at the end of the stream and there isn't inprogress log segment
+        Future<LogRecordWithDLSN> readFuture = reader.readNext();
+
+        // make sure readahead is backing off on reading log segment on Integer.MAX_VALUE
+        AsyncNotification notification1;
+        while (null == (notification1 = reader.bkLedgerManager.readAheadWorker.getMetadataNotification())) {
+            Thread.sleep(200);
+        }
+        Thread.sleep(1000);
+
+        // Expire the session, so the readahead should be awaken from backoff
+        ZooKeeperClientUtils.expireSession(reader.bkLedgerManager.zooKeeperClient, zkServers, 1000);
+        AsyncNotification notification2;
+        do {
+            Thread.sleep(200);
+            notification2 = reader.bkLedgerManager.readAheadWorker.getMetadataNotification();
+        } while (null == notification2 || notification1 == notification2);
+
+        // write another record
+        BKUnPartitionedSyncLogWriter writer =
+                    (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        writer.write(DLMTestUtil.getLogRecordInstance(31L));
+        writer.closeAndComplete();
+
+        LogRecordWithDLSN record = Await.result(readFuture);
+        assertEquals(31L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+
+        reader.close();
+        readDLM.close();
+
+        dlm.close();
+    }
+
 }

@@ -603,8 +603,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         private void schedule(Runnable runnable, long timeInMillis) {
             try {
+                InterruptibleScheduledRunnable task = new InterruptibleScheduledRunnable(runnable);
+                boolean executeImmediately = setMetadataNotification(task);
+                if (executeImmediately) {
+                    readAheadExecutor.submit(addRTEHandler(task));
+                    return;
+                }
+                readAheadExecutor.schedule(addRTEHandler(task), timeInMillis, TimeUnit.MILLISECONDS);
                 readAheadWorkerWaits.inc();
-                readAheadExecutor.schedule(addRTEHandler(runnable), timeInMillis, TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException ree) {
                 bkLedgerManager.setReadAheadError();
             }
@@ -824,12 +830,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
 
                         if (null == currentMetadata) {
+                            schedule(ReadAheadWorker.this, conf.getReadAheadWaitTimeOnEndOfStream());
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("No log segment to position on for {}. Backing off for {} millseconds",
-                                            fullyQualifiedName, conf.getReadAheadWaitTime());
+                                        fullyQualifiedName, conf.getReadAheadWaitTimeOnEndOfStream());
                             }
-
-                            schedule(ReadAheadWorker.this, conf.getReadAheadWaitTime());
                         } else  {
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Initialized metadata for {}, starting reading ahead from {} : {}.",
@@ -1331,6 +1336,56 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         AsyncNotification getMetadataNotification() {
             synchronized (notificationLock) {
                 return metadataNotification;
+            }
+        }
+
+        /**
+         * A scheduled runnable that could be waken and executed immediately when notification arrives.
+         *
+         * E.g
+         * <p>
+         * The reader reaches end of stream, it backs off to schedule next read in 2 seconds.
+         * <br/>
+         * if a new log segment is created, without this change, reader has to wait 2 seconds to read
+         * entries in new log segment, which means delivery latency of entries in new log segment could
+         * be up to 2 seconds. but with this change, the task would be executed immediately, which reader
+         * would be waken up from backoff, which would reduce the delivery latency.
+         * </p>
+         */
+        class InterruptibleScheduledRunnable implements AsyncNotification, Runnable {
+
+            final Runnable task;
+            final AtomicBoolean called = new AtomicBoolean(false);
+            final long startNanos;
+
+            InterruptibleScheduledRunnable(Runnable task) {
+                this.task = task;
+                this.startNanos = MathUtils.nowInNano();
+            }
+
+            @Override
+            public void notifyOnError() {
+                longPollInterruptionStat.registerFailedEvent(MathUtils.elapsedMicroSec(startNanos));
+                execute();
+            }
+
+            @Override
+            public void notifyOnOperationComplete() {
+                longPollInterruptionStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
+                execute();
+            }
+
+            @Override
+            public void run() {
+                if (called.compareAndSet(false, true)) {
+                    task.run();
+                }
+            }
+
+            void execute() {
+                if (called.compareAndSet(false, true)) {
+                    submit(task);
+                }
             }
         }
 
