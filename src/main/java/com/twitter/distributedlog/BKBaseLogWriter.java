@@ -119,13 +119,14 @@ public abstract class BKBaseLogWriter {
         return ledgerManager;
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId, int numRecordsToBeWritten) throws IOException {
-        return getLedgerWriter(partition.toString(), startTxId, numRecordsToBeWritten);
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId, boolean allowMaxTxID) throws IOException {
+        return getLedgerWriter(partition.toString(), startTxId, allowMaxTxID);
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, int numRecordsToBeWritten) throws IOException {
+    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)
+            throws IOException {
         BKPerStreamLogWriter ledgerWriter = getLedgerWriter(streamIdentifier);
-        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */);
+        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */, allowMaxTxID);
     }
 
     synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier) throws IOException {
@@ -155,7 +156,9 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
-                                                                          String streamIdentifier, long startTxId, boolean bestEffort) throws IOException {
+                                                                          String streamIdentifier, long startTxId,
+                                                                          boolean bestEffort,
+                                                                          boolean allowMaxTxID) throws IOException {
         boolean shouldCheckForTruncation = false;
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
@@ -170,7 +173,7 @@ public abstract class BKBaseLogWriter {
                                 LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
                                         ledgerManager.getFullyQualifiedName());
                             }
-                            newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort);
+                            newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort, allowMaxTxID);
                             if (null == newLedgerWriter) {
                                 assert (bestEffort);
                                 return null;
@@ -209,7 +212,7 @@ public abstract class BKBaseLogWriter {
             }
         } else if (null == ledgerWriter) {
             // if exceptions thrown during initialize we should not catch it.
-            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId, false);
+            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId, false, allowMaxTxID);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }

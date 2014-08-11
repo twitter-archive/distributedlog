@@ -67,7 +67,7 @@ public class LogRecord {
     }
 
     void setPositionWithinLogSegment(int positionWithinLogSegment) {
-        assert(positionWithinLogSegment > 0 || isControl());
+        assert(positionWithinLogSegment >= 0);
         metadata = metadata | (((long) positionWithinLogSegment) << LOGRECORD_METADATA_POSITION_SHIFT);
     }
 

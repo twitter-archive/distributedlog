@@ -47,6 +47,7 @@ import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Await;
 
 import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 
 public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
@@ -1569,6 +1570,53 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    public void testMarkEndOfStreamOnEmptyStream() throws Exception {
+        markEndOfStreamOnEmptyLogSegment(0);
+    }
+
+    @Test
+    public void testMarkEndOfStreamOnClosedStream() throws Exception {
+        markEndOfStreamOnEmptyLogSegment(3);
+    }
+
+    private void markEndOfStreamOnEmptyLogSegment(int numCompletedSegments) throws Exception {
+        String name = "distrlog-mark-end-empty-" + numCompletedSegments;
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DLMTestUtil.generateCompletedLogSegments(dlm, conf, numCompletedSegments, DEFAULT_SEGMENT_SIZE);
+
+        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+        writer.markEndOfStream();
+
+        LogReader reader = dlm.getInputStream(1);
+        long numTrans = 0;
+        boolean exceptionEncountered = false;
+        try {
+            LogRecord record = reader.readNext(false);
+            long lastTxId = -1;
+            while (null != record) {
+                DLMTestUtil.verifyLogRecord(record);
+                assert (lastTxId < record.getTransactionId());
+                lastTxId = record.getTransactionId();
+                numTrans++;
+                record = reader.readNext(false);
+            }
+        } catch (EndOfStreamException exc) {
+            exceptionEncountered = true;
+        }
+        assertEquals(numCompletedSegments * DEFAULT_SEGMENT_SIZE, numTrans);
+        assertTrue(exceptionEncountered);
+        exceptionEncountered = false;
+        try {
+            reader.readNext(false);
+        } catch (EndOfStreamException exc) {
+            exceptionEncountered = true;
+        }
+        assertTrue(exceptionEncountered);
+        reader.close();
+    }
+
+    @Test
     public void testMaxLogRecSize() throws Exception {
         BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
@@ -1731,7 +1779,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         final AtomicInteger numFailures = new AtomicInteger(0);
         final AtomicReference<Collection<LogSegmentLedgerMetadata>> receivedStreams =
                 new AtomicReference<Collection<LogSegmentLedgerMetadata>>();
-        
+
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
         ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder()
                 .uri(DLMTestUtil.createDLMURI("/"))

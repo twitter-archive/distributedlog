@@ -94,7 +94,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     @Override
     public synchronized void write(LogRecord record, PartitionId partition) throws IOException {
         checkClosedOrInError("write");
-        getLedgerWriter(partition, record.getTransactionId(), 1).write(record);
+        getLedgerWriter(partition, record.getTransactionId(), false).write(record);
     }
 
     /**
@@ -107,7 +107,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
         checkClosedOrInError("writeBulk");
         int numRecords = 0;
         for (Map.Entry<PartitionId, List<LogRecord>> entry : records.entrySet()) {
-            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId(), records.size()).writeBulk(entry.getValue());
+            numRecords += getLedgerWriter(entry.getKey(), entry.getValue().get(0).getTransactionId(), false).writeBulk(entry.getValue());
         }
         return numRecords;
     }

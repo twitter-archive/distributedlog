@@ -13,7 +13,6 @@ import com.twitter.util.Promise;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -160,7 +159,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         BKPerStreamLogWriter writer = getPerStreamLogWriterNoWait(record, bestEffort, rollLog);
         if (null == writer || rollLog) {
             writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
-                                               record.getTransactionId(), bestEffort);
+                                               record.getTransactionId(), bestEffort, false);
         }
         return writer;
     }
@@ -286,7 +285,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      * problem is the List that asyncWriteBulk returns can't be materialized until getPerStreamLogWriter
      * completes, so it has to be wrapped in a future itself.
      *
-     * @param record single log record
+     * @param records list of records
      */
     @Override
     public Future<List<Future<DLSN>>> writeBulk(final List<LogRecord> records) {

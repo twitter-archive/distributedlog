@@ -140,14 +140,14 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
     }
 
     @Override
-    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort) throws IOException {
+    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
         checkLogExists();
 
         boolean wroteInprogressZnode = false;
 
         try {
             if ((txId < 0) ||
-                    (txId == DistributedLogConstants.MAX_TXID)) {
+                    (!allowMaxTxID && (txId == DistributedLogConstants.MAX_TXID))) {
                 throw new IOException("Invalid Transaction Id");
             }
 

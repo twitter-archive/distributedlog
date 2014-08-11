@@ -477,7 +477,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     }
 
     static void createStreamIfNotExists(final String partitionRootPath,
-                                        final ZooKeeper zk, 
+                                        final ZooKeeper zk,
                                         final List<ACL> acl,
                                         final boolean ownAllocator,
                                         final DataWithStat allocationData,
@@ -673,8 +673,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      * @throws IOException
      */
     public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
-        return startLogSegment(txId, false);
+        return startLogSegment(txId, false, false);
     }
+
     /**
      * Start a new log segment in a BookKeeper ledger.
      * First ensure that we have the write lock for this journal.
@@ -685,14 +686,17 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
      *
      * @param txId First transaction id to be written to the stream
      * @param bestEffort
+     * @param allowMaxTxID
+     *          allow using max tx id to start log segment
      * @return
      * @throws IOException
      */
-    public BKPerStreamLogWriter startLogSegment(long txId, boolean bestEffort) throws IOException {
+    public BKPerStreamLogWriter startLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID)
+            throws IOException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            BKPerStreamLogWriter writer = doStartLogSegment(txId, bestEffort);
+            BKPerStreamLogWriter writer = doStartLogSegment(txId, bestEffort, allowMaxTxID);
             success = true;
             return writer;
         } finally {
@@ -704,11 +708,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort) throws IOException {
+    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
         checkLogExists();
 
         if ((txId < 0) ||
-            (txId == DistributedLogConstants.MAX_TXID)) {
+                (!allowMaxTxID && (txId == DistributedLogConstants.MAX_TXID))) {
             throw new IOException("Invalid Transaction Id");
         }
 
