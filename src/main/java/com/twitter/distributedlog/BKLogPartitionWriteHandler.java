@@ -5,13 +5,19 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.metadata.MetadataUpdater;
+import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.zk.DataWithStat;
+
+import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.distributedlog.util.FutureUtils;
 
 import com.twitter.util.Await;
 import com.twitter.util.Function;
@@ -1192,30 +1198,49 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         purgeLogsOlderThanInternal(minTxIdToKeep);
     }
 
-    Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanDLSN(final DLSN dlsn) {
-        return asyncGetFullLedgerList(false, false).flatMap(
-                new Function<List<LogSegmentLedgerMetadata>, Future<List<LogSegmentLedgerMetadata>>>() {
+    com.twitter.util.Future<Boolean> setLogsOlderThanDLSNTruncatedAsync(final DLSN dlsn) {
+        return new ExecutorServiceFuturePool(executorService).apply(new ExceptionalFunction0<Boolean>() {
             @Override
-            public Future<List<LogSegmentLedgerMetadata>> apply(List<LogSegmentLedgerMetadata> logSegments) {
-                List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
-                if (DLSN.InitialDLSN == dlsn) {
-                    return Future.value(purgeList);
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Purging logs older than {} from {} for {}",
-                            new Object[] { dlsn, logSegments, getFullyQualifiedName() });
-                }
-                for (int i = 0; i < logSegments.size() - 1; i++) {
-                    LogSegmentLedgerMetadata l = logSegments.get(i);
-                    if (!l.isInProgress() && l.getLastDLSN().compareTo(dlsn) < 0) {
-                        purgeList.add(l);
-                    }
-                }
-                LOG.info("Deleting log segments older than {} for {} : {}",
-                         new Object[] { dlsn, getFullyQualifiedName(), purgeList });
-                return asyncPurgeLogs(purgeList);
+            public Boolean applyE() throws Throwable {
+                return setLogsOlderThanDLSNTruncated(dlsn);
             }
         });
+    }
+
+    boolean setLogsOlderThanDLSNTruncated(final DLSN dlsn) throws IOException {
+        if (DLSN.InvalidDLSN == dlsn) {
+            return true;
+        }
+        scheduleGetAllLedgersTaskIfNeeded();
+        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Setting truncation status on logs older than {} from {} for {}",
+                new Object[] { dlsn, logSegments, getFullyQualifiedName() });
+        }
+        List<LogSegmentLedgerMetadata> truncateList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+        LogSegmentLedgerMetadata partialTruncate = null;
+        for (int i = 0; i < logSegments.size() - 1; i++) {
+            LogSegmentLedgerMetadata l = logSegments.get(i);
+            if (!l.isInProgress()) {
+                if (l.getLastDLSN().compareTo(dlsn) < 0) {
+                    LOG.info("Truncating log segment {} older than {}.", l, dlsn);
+                    truncateList.add(l);
+                } else if (l.getFirstDLSN().compareTo(dlsn) < 0) {
+                    // Can be satisfied by at most one segment
+                    if (null != partialTruncate) {
+                        String logMsg = String.format("Potential metadata inconsistency for stream %s at segment %s", getFullyQualifiedName(), l);
+                        LOG.error(logMsg);
+                        throw new DLIllegalStateException(logMsg);
+                    }
+                    LOG.info("Partially truncating log segment {} older than {}.", l, dlsn);
+                    partialTruncate = l;
+                } else {
+                    break;
+                }
+            }
+        }
+        setTruncationStatus(truncateList, partialTruncate);
+        return true;
     }
 
     Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanTimestamp(
@@ -1267,6 +1292,21 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 (!l.isInProgress() && l.getLastTxId() < minTxIdToKeep)) {
                 deleteLedgerAndMetadata(l);
             }
+        }
+    }
+
+    private void setTruncationStatus(final List<LogSegmentLedgerMetadata> truncateList,
+                                     LogSegmentLedgerMetadata partialTruncate) throws IOException {
+
+        for(LogSegmentLedgerMetadata l : truncateList) {
+            MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
+            updater.changeTruncationStatus(l, LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+        }
+
+        if (null != partialTruncate) {
+            MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
+            updater.changeTruncationStatus(partialTruncate,
+                LogSegmentLedgerMetadata.TruncationStatus.PARTIALLY_TRUNCATED);
         }
     }
 

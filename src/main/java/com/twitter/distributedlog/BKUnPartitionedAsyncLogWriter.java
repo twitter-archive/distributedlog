@@ -30,16 +30,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         @Override
         public Future<Boolean> applyE(BKLogPartitionWriteHandler handler) throws Throwable {
             if (DLSN.InvalidDLSN == dlsn) {
-                return Future.value(false);
+                Promise<Boolean> promise = new Promise<Boolean>();
+                promise.setValue(false);
+                return promise;
             }
-            return handler.purgeLogsOlderThanDLSN(dlsn).map(new Function<List<LogSegmentLedgerMetadata>, Boolean>() {
-                @Override
-                public Boolean apply(List<LogSegmentLedgerMetadata> logSegments) {
-                    return true;
-                }
-            });
+            return handler.setLogsOlderThanDLSNTruncatedAsync(dlsn);
         }
-
     }
 
     // Records pending for roll log segment.

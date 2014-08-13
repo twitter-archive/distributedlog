@@ -17,9 +17,7 @@
  */
 package com.twitter.distributedlog;
 
-
 import java.net.URI;
-
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;

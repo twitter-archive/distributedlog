@@ -394,6 +394,10 @@ public class LogSegmentLedgerMetadata {
         return lastDLSN;
     }
 
+    public DLSN getFirstDLSN() {
+        return new DLSN(getLedgerSequenceNumber(), 0, 0);
+    }
+
     public int getRecordCount() {
         return recordCount;
     }
