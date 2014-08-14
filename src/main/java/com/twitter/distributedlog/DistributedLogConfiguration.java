@@ -53,6 +53,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
     public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
 
+    public static final String BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION = "explicitTruncationByApp";
+    public static final boolean BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT = false;
+
     // The time after which the a given log stream switches to a new ledger
     public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES = "rolling-interval";
     public static final int BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT = 120;
@@ -831,6 +834,29 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setImmediateFlushEnabled(boolean enabled) {
         setProperty(BKDL_ENABLE_IMMEDIATE_FLUSH, enabled);
+        return this;
+    }
+
+    /**
+     * Is truncation managed explicitly by the application. If this is set then
+     * time based retention is only a hint to perform deferred cleanup. However
+     * we never remove a segment that has not been already marked truncated
+     *
+     * @return whether truncation managed explicitly by the application
+     */
+    public boolean getExplicitTruncationByApplication() {
+        return getBoolean(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION, BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable whether truncation is managed explicitly by the application.
+     *
+     * @param enabled
+     *          flag to enable/disable whether truncation is managed explicitly by the application.
+     * @return configuration instance.
+     */
+    public DistributedLogConfiguration setExplicitTruncationByApplication(boolean enabled) {
+        setProperty(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION, enabled);
         return this;
     }
 

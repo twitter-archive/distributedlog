@@ -922,7 +922,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
     void completeAndCloseLogSegment(long ledgerSeqNo, long ledgerId, long firstTxId, long lastTxId, int recordCount)
         throws IOException {
         completeAndCloseLogSegment(inprogressZNodeName(ledgerId, firstTxId, ledgerSeqNo), ledgerSeqNo,
-                ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
+            ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
     }
 
     /**
@@ -1256,7 +1256,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
                 for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
                     LogSegmentLedgerMetadata l = logSegments.get(iterator);
-                    if ((!l.isInProgress() && l.getCompletionTime() < minTimestampToKeep)) {
+                    // When application explicitly truncates segments; timestamp based purge is 
+                   // only used to cleanup log segments that have been marked for truncation
+                    if ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
+                        !l.isInProgress() && (l.getCompletionTime() < minTimestampToKeep)) {
                         // Something went wrong - leave the ledger around for debugging
                         //
                         if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
@@ -1289,7 +1292,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         for (int iterator = 0; iterator < numEntriesToProcess; iterator++) {
             LogSegmentLedgerMetadata l = ledgerList.get(iterator);
             if ((minTxIdToKeep < 0) ||
-                (!l.isInProgress() && l.getLastTxId() < minTxIdToKeep)) {
+                ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
+                !l.isInProgress() && (l.getLastTxId() < minTxIdToKeep))) {
                 deleteLedgerAndMetadata(l);
             }
         }
