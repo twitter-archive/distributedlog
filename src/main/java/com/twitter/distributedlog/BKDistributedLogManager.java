@@ -755,6 +755,30 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream asynchronously.
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return future number of log records
+     * @throws IOException
+     */
+    @Override
+    public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN) {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+            @Override
+            public BKLogPartitionReadHandler applyE() throws IOException {
+                return createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            }
+        }).flatMap(new Function<BKLogPartitionReadHandler, Future<Long>>() {
+            @Override
+            public Future<Long> apply(BKLogPartitionReadHandler ledgerHandler) {
+                return ledgerHandler.asyncGetLogRecordCount(beginDLSN);
+            }
+        });
+    }
+
+    /**
      * Recover a specified partition within the log container
      *
      * @param partition – the partition within the log stream to delete

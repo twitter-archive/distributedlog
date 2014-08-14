@@ -260,6 +260,16 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getLogRecordCount() throws IOException;
 
     /**
+     * Get the number of log records in the active portion of the non-partitioned
+     * stream - async.
+     * Any log segments that have already been truncated will not be included
+     *
+     * @return future number of log records
+     * @throws IOException
+     */
+    public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN);
+
+    /**
      * Run recovery on the specified partition of the log
      *
      * @param partition the partition within the log to recover

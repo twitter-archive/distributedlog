@@ -27,8 +27,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.distributedlog.exceptions.RetryableReadException;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.ZooDefs;
@@ -37,18 +38,25 @@ import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Future;
 
 import static org.junit.Assert.*;
 import static org.junit.Assert.assertEquals;
 
 public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
+
+    @Rule 
+    public TestName testNames = new TestName();
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
@@ -1879,6 +1887,20 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         assertEquals(new DLSN(2, 0, 0), dlm.getLastDLSN());
 
+        writer.close();
+        dlm.close();
+    }
+
+    @Test
+    public void testGetLogRecordCountAsync() throws Exception {
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, testNames.getMethodName());
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        DLMTestUtil.generateCompletedLogSegments(dlm, conf, 2, 10);
+    
+        Future<Long> futureCount = dlm.getLogRecordCountAsync(DLSN.InitialDLSN);
+        Long count = Await.result(futureCount, Duration.fromSeconds(2));
+        assertEquals(20, count.longValue());
+        
         writer.close();
         dlm.close();
     }
