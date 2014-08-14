@@ -102,6 +102,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READER_IGNORE_TRUNCATION_STATUS = "ignoreTruncationStatus";
     public static final boolean BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT = false;
 
+    public static final String BKDL_READER_ALERT_POSITION_ON_TRUNCATED = "alertPositionOnTruncated";
+    public static final boolean BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT = true;
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -641,8 +644,25 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return getBoolean(BKDL_READER_IGNORE_TRUNCATION_STATUS, BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT);
     }
 
+    /**
+     * Set if we should alert when reader is positioned on a truncated segment
+     *
+     * @param alertWhenPositioningOnTruncated
+     *          if we should alert when reader is positioned on a truncated segment
+     */
+    public DistributedLogConfiguration setAlertWhenPositioningOnTruncated(boolean alertWhenPositioningOnTruncated) {
+        setProperty(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, alertWhenPositioningOnTruncated);
+        return this;
+    }
 
-
+    /**
+     * Get if we should alert when reader is positioned on a truncated segment
+     *
+     * @return if we should alert when reader is positioned on a truncated segment
+     */
+    public boolean getAlertWhenPositioningOnTruncated() {
+        return getBoolean(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
+    }
 
     /**
      * Set if we should enable read ahead

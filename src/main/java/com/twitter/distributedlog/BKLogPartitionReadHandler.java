@@ -182,6 +182,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
 
                         if (s.skipTo(fromDLSN)) {
+                            if (l.isTruncated() && conf.getAlertWhenPositioningOnTruncated()) {
+                                raiseAlert("Trying to position reader on {} when {} is marked truncated",
+                                    fromDLSN, l);
+                            }
                             return s;
                         } else {
                             s.close();
@@ -273,6 +277,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, statsLogger);
 
                         if (s.skipTo(fromTxId)) {
+                            if (l.isTruncated() && conf.getAlertWhenPositioningOnTruncated()) {
+                                raiseAlert("Trying to position reader on {} when {} is marked truncated",
+                                    fromTxId, l);
+                            }
                             return s;
                         } else {
                             s.close();
@@ -811,11 +819,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                              new Object[] { nextReadPosition, getFullyQualifiedName(), System.currentTimeMillis() });
                                 }
 
-                                if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
-                                    LOG.error("{}: Trying to position reader on {} when {} is marked truncated",
-                                        new Object[] {getFullyQualifiedName(), nextReadPosition, l});
-                                    setReadingFromTruncated();
-                                    return;
+                                if (l.isTruncated()) {
+                                    if (conf.getAlertWhenPositioningOnTruncated()) {
+                                        bkLedgerManager.raiseAlert("Trying to position reader on {} when {} is marked truncated",
+                                            nextReadPosition, l);
+                                    }
+
+                                    if (!conf.getIgnoreTruncationStatus()) {
+                                        LOG.error("{}: Trying to position reader on {} when {} is marked truncated",
+                                            new Object[]{getFullyQualifiedName(), nextReadPosition, l});
+                                        setReadingFromTruncated();
+                                        return;
+                                    } 
                                 }
 
                                 currentMetadata = l;
@@ -1015,11 +1030,18 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                     currentMetadata, oldMetadata);
                                                 setReadAheadError();
                                             } else {
-                                                if (currentMetadata.isTruncated() && !conf.getIgnoreTruncationStatus()) {
-                                                    LOG.error("{}: Trying to position reader on the log segment that is marked truncated : {}",
-                                                              getFullyQualifiedName(), currentMetadata);
-                                                    setReadingFromTruncated();
-                                                    setReadAheadError();
+                                                if (currentMetadata.isTruncated()) {
+                                                    if (conf.getAlertWhenPositioningOnTruncated()) {
+                                                        bkLedgerManager.raiseAlert("Trying to position reader on the log segment that is marked truncated : {}",
+                                                            currentMetadata);
+                                                    }
+
+                                                    if (!conf.getIgnoreTruncationStatus()) {
+                                                        LOG.error("{}: Trying to position reader on the log segment that is marked truncated : {}",
+                                                                  getFullyQualifiedName(), currentMetadata);
+                                                        setReadingFromTruncated();
+                                                        setReadAheadError();
+                                                    }
                                                 } else {
                                                     if (LOG.isTraceEnabled()) {
                                                         LOG.trace("Moving read position to a new ledger {} for {}.",
