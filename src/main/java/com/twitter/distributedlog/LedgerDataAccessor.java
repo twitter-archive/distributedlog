@@ -360,10 +360,22 @@ public class LedgerDataAccessor {
         try {
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();
+
                 if (null == record) {
                     break;
                 }
-                if (traceDeliveryLatencyEnabled && !suppressDeliveryLatency && !record.isControl()) {
+
+                if (lastReadAheadDLSN.compareTo(record.getDlsn()) >= 0) {
+                    LOG.error("Out of order reads last {} : curr {}", lastReadAheadDLSN, record.getDlsn());
+                    throw new LogReadException("Out of order reads");
+                }
+                lastReadAheadDLSN = record.getDlsn();
+
+                if (record.isControl()) {
+                    continue;
+                }
+
+                if (traceDeliveryLatencyEnabled && !suppressDeliveryLatency) {
                     long currentMs = System.currentTimeMillis();
                     long deliveryMs = currentMs - record.getTransactionId();
                     if (deliveryMs >= 0) {
@@ -377,11 +389,7 @@ public class LedgerDataAccessor {
                     }
                 }
                 readAheadRecords.add(record);
-                if (lastReadAheadDLSN.compareTo(record.getDlsn()) >= 0) {
-                    LOG.error("Out of order reads last {} : curr {}", lastReadAheadDLSN, record.getDlsn());
-                    throw new LogReadException("Out of order reads");
-                }
-                lastReadAheadDLSN = record.getDlsn();
+
             }
         } catch (IOException exc) {
             setLastException(exc);
