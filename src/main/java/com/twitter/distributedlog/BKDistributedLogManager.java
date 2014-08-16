@@ -81,6 +81,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final ScheduledExecutorService executorService;
     private final ScheduledExecutorService readAheadExecutor;
     private boolean ownExecutor;
+
     // bookkeeper clients
     // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
     //       {@link com.twitter.distributedlog.BookKeeperClient#get()}. So it is safe to

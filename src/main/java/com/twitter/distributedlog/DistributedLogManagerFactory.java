@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
@@ -84,6 +85,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return name.startsWith(".");
     }
 
+    public static enum ClientSharingOption {
+        PerStreamClients,
+        SharedZKClientPerStreamBKClient,
+        SharedClients
+    }
+
     private final String clientId;
     private final int regionId;
     private DistributedLogConfiguration conf;
@@ -110,9 +117,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     //       {@link com.twitter.distributedlog.BookKeeperClient#get()}. So it is safe to
     //       keep builders and their client wrappers here, as they will be used when
     //       instantiating readers or writers.
-    private final BookKeeperClientBuilder writerBKCBuilder;
+    private final BookKeeperClientBuilder sharedWriterBKCBuilder;
     private final BookKeeperClient writerBKC;
-    private final BookKeeperClientBuilder readerBKCBuilder;
+    private final BookKeeperClientBuilder sharedReaderBKCBuilder;
     private final BookKeeperClient readerBKC;
     // ledger allocator
     private final LedgerAllocator allocator;
@@ -203,24 +210,24 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.sharedReaderZKCForDL = this.sharedReaderZKCBuilderForDL.build();
 
         // Build bookkeeper client for writers
-        this.writerBKCBuilder = createBKCBuilder(
+        this.sharedWriterBKCBuilder = createBKCBuilder(
                 String.format("bk:%s:factory_writer_shared", namespace),
                 conf,
                 bkdlConfig.getBkZkServersForWriter(),
                 bkdlConfig.getBkLedgersPath());
-        this.writerBKC = this.writerBKCBuilder.build();
+        this.writerBKC = this.sharedWriterBKCBuilder.build();
 
         // Build bookkeeper client for readers
         if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
-            this.readerBKCBuilder = this.writerBKCBuilder;
+            this.sharedReaderBKCBuilder = this.sharedWriterBKCBuilder;
         } else {
-            this.readerBKCBuilder = createBKCBuilder(
+            this.sharedReaderBKCBuilder = createBKCBuilder(
                     String.format("bk:%s:factory_reader_shared", namespace),
                     conf,
                     bkdlConfig.getBkZkServersForReader(),
                     bkdlConfig.getBkLedgersPath());
         }
-        this.readerBKC = this.readerBKCBuilder.build();
+        this.readerBKC = this.sharedReaderBKCBuilder.build();
 
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
                 conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
@@ -434,15 +441,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      */
     @Deprecated
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        DistributedLogManagerFactory.validateName(nameOfLogStream);
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
-                nameOfLogStream, conf, namespace,
-                null, null,             /* dl zks */
-                null, null, null, null, /* bk zks & bks */
-                scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-                channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
-        distLogMgr.setClientId(clientId);
-        return distLogMgr;
+        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream,
+            ClientSharingOption.PerStreamClients,
+            streamConfiguration);
     }
 
 
@@ -462,50 +464,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @throws IOException
      * @throws IllegalArgumentException
      */
+    @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedZK(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        DistributedLogManagerFactory.validateName(nameOfLogStream);
-        BKDLConfig bkdlConfig = resolveBKDLConfig();
-        ZooKeeperClient writerZKC;
-        ZooKeeperClient readerZKC;
-        synchronized (this) {
-            if (closed) {
-                throw new IOException("DistributedLogManagerFactory for " + namespace + " is already closed");
-            }
-            if (null == this.sharedWriterZKCForBK) {
-                this.sharedWriterZKCBuilderForBK = createBKZKClientBuilder(
-                        String.format("bkzk:%s:factory_writer_shared", namespace),
-                        conf,
-                        bkdlConfig.getBkZkServersForWriter(),
-                        statsLogger);
-                this.sharedWriterZKCForBK = this.sharedWriterZKCBuilderForBK.build();
-            }
-            if (null == this.sharedReaderZKCForBK) {
-                if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
-                    this.sharedReaderZKCBuilderForBK = this.sharedWriterZKCBuilderForBK;
-                } else {
-                    this.sharedReaderZKCBuilderForBK = createBKZKClientBuilder(
-                            String.format("bkzk:%s:factory_reader_shared", namespace),
-                            conf,
-                            bkdlConfig.getBkZkServersForReader(),
-                            statsLogger);
-                }
-                this.sharedReaderZKCForBK = this.sharedReaderZKCBuilderForBK.build();
-            }
-            writerZKC = this.sharedWriterZKCForBK;
-            readerZKC = this.sharedReaderZKCForBK;
-        }
-
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
-                nameOfLogStream, conf, namespace,
-                sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, /* dl zks */
-                writerZKC, readerZKC, null, null,                         /* bk zks & bks */
-                scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-                channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
-        distLogMgr.setClientId(clientId);
-        distLogMgr.setRegionId(regionId);
-        distLogMgr.setLedgerAllocator(allocator);
-        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
-        return distLogMgr;
+        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream,
+            ClientSharingOption.SharedZKClientPerStreamBKClient,
+            streamConfiguration);
     }
 
 
@@ -519,9 +483,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @throws IOException
      * @throws IllegalArgumentException
      */
+    @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
-        return createDistributedLogManagerWithSharedClients(nameOfLogStream, null);
+        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream,
+            ClientSharingOption.SharedClients,
+            streamConfiguration);
     }
 
     /**
@@ -537,23 +505,121 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @throws IOException
      * @throws IllegalArgumentException
      */
+    @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream, DistributedLogConfiguration streamConfiguration)
         throws IOException, IllegalArgumentException {
+        return createDistributedLogManager(nameOfLogStream, ClientSharingOption.SharedClients, Optional.of(streamConfiguration));
+    }
+
+    /**
+     * Create a DistributedLogManager for <i>nameOfLogStream</i>, with specified client sharing options.
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @param clientSharingOption
+     *          specifies if the ZK/BK clients are shared
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
+    public DistributedLogManager createDistributedLogManager(
+            String nameOfLogStream,
+            ClientSharingOption clientSharingOption)
+        throws IOException, IllegalArgumentException {
+        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream, clientSharingOption, streamConfiguration);
+    }
+
+    /**
+     * Create a DistributedLogManager for <i>nameOfLogStream</i>, with specified client sharing options.
+     * Override whitelisted stream-level configuration settings with settings found in
+     * <i>streamConfiguration</i>.
+     *
+     *
+     * @param nameOfLogStream
+     *          name of log stream.
+     * @param clientSharingOption
+     *          specifies if the ZK/BK clients are shared
+     * @param streamConfiguration
+     *          stream configuration overrides.
+     * @return distributedlog manager instance.
+     * @throws IOException
+     * @throws IllegalArgumentException
+     */
+    public DistributedLogManager createDistributedLogManager(
+            String nameOfLogStream,
+            ClientSharingOption clientSharingOption,
+            Optional<DistributedLogConfiguration> streamConfiguration)
+        throws IOException, IllegalArgumentException {
+        // Make sure the name is well formed
         DistributedLogManagerFactory.validateName(nameOfLogStream);
+
         DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
         mergedConfiguration.loadStreamConf(streamConfiguration);
+
+        ZooKeeperClientBuilder writerZKCBuilderForDL = null;
+        ZooKeeperClientBuilder readerZKCBuilderForDL = null;
+        ZooKeeperClient writerZKCForBK = null;
+        ZooKeeperClient readerZKCForBK = null;
+        BookKeeperClientBuilder writerBKCBuilder = null;
+        BookKeeperClientBuilder readerBKCBuilder = null;
+
+        switch(clientSharingOption) {
+            case SharedClients:
+                writerZKCBuilderForDL = sharedWriterZKCBuilderForDL;
+                readerZKCBuilderForDL = sharedReaderZKCBuilderForDL;
+                writerBKCBuilder = sharedWriterBKCBuilder;
+                readerBKCBuilder = sharedReaderBKCBuilder;
+                break;
+            case SharedZKClientPerStreamBKClient:
+                writerZKCBuilderForDL = sharedWriterZKCBuilderForDL;
+                readerZKCBuilderForDL = sharedReaderZKCBuilderForDL;
+                BKDLConfig bkdlConfig = resolveBKDLConfig();
+                ZooKeeperClient writerZKC;
+                ZooKeeperClient readerZKC;
+                synchronized (this) {
+                    if (null == this.sharedWriterZKCForBK) {
+                        this.sharedWriterZKCBuilderForBK = createBKZKClientBuilder(
+                            String.format("bkzk:%s:factory_writer_shared", namespace),
+                            mergedConfiguration,
+                            bkdlConfig.getBkZkServersForWriter(),
+                            statsLogger);
+                        this.sharedWriterZKCForBK = this.sharedWriterZKCBuilderForBK.build();
+                    }
+                    if (null == this.sharedReaderZKCForBK) {
+                        if (bkdlConfig.getBkZkServersForWriter().equals(bkdlConfig.getBkZkServersForReader())) {
+                            this.sharedReaderZKCBuilderForBK = this.sharedWriterZKCBuilderForBK;
+                        } else {
+                            this.sharedReaderZKCBuilderForBK = createBKZKClientBuilder(
+                                String.format("bkzk:%s:factory_reader_shared", namespace),
+                                mergedConfiguration,
+                                bkdlConfig.getBkZkServersForReader(),
+                                statsLogger);
+                        }
+                        this.sharedReaderZKCForBK = this.sharedReaderZKCBuilderForBK.build();
+                    }
+                    writerZKCForBK = this.sharedWriterZKCForBK;
+                    readerZKCForBK = this.sharedReaderZKCForBK;
+                }
+                break;
+        }
+
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
-                nameOfLogStream, mergedConfiguration, namespace,
-                sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, /* dl zks */
-                null, null, writerBKCBuilder, readerBKCBuilder,           /* bk zks & bks */
-                scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-                channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
+            nameOfLogStream, mergedConfiguration, namespace,
+            writerZKCBuilderForDL, readerZKCBuilderForDL,
+            null, null, writerBKCBuilder, readerBKCBuilder,           /* bk zks & bks */
+            scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
+            channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
-        distLogMgr.setLedgerAllocator(allocator);
-        distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
+
+        if (clientSharingOption == ClientSharingOption.SharedClients) {
+            distLogMgr.setLedgerAllocator(allocator);
+            distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
+        }
         return distLogMgr;
     }
+
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);

@@ -89,6 +89,54 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
     }
 
     @Test
+    public void testClientSharingOptions() throws Exception {
+        URI uri = DLMTestUtil.createDLMURI("/clientSharingOptions");
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+
+        {
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("perstream1",
+                                        DistributedLogManagerFactory.ClientSharingOption.PerStreamClients);
+
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("perstream2",
+                DistributedLogManagerFactory.ClientSharingOption.PerStreamClients);
+
+            assert(bkdlm1.getReaderBKC() != bkdlm2.getReaderBKC());
+            assert(bkdlm1.getWriterBKC() != bkdlm2.getWriterBKC());
+            assert(bkdlm1.getReaderZKC() != bkdlm2.getReaderZKC());
+            assert(bkdlm1.getWriterZKC() != bkdlm2.getWriterZKC());
+
+        }
+
+        {
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedZK1",
+                DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
+
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedZK2",
+                DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
+
+            assert(bkdlm1.getReaderBKC() != bkdlm2.getReaderBKC());
+            assert(bkdlm1.getWriterBKC() != bkdlm2.getWriterBKC());
+            assert(bkdlm1.getReaderZKC() == bkdlm2.getReaderZKC());
+            assert(bkdlm1.getWriterZKC() == bkdlm2.getWriterZKC());
+        }
+
+        {
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedBoth1",
+                DistributedLogManagerFactory.ClientSharingOption.SharedClients);
+
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedBoth2",
+                DistributedLogManagerFactory.ClientSharingOption.SharedClients);
+
+            assert(bkdlm1.getReaderBKC() == bkdlm2.getReaderBKC());
+            assert(bkdlm1.getWriterBKC() == bkdlm2.getWriterBKC());
+            assert(bkdlm1.getReaderZKC() == bkdlm2.getReaderZKC());
+            assert(bkdlm1.getWriterZKC() == bkdlm2.getWriterZKC());
+        }
+
+    }
+
+
+    @Test
     public void testInvalidStreamName() throws Exception {
         assertFalse(DistributedLogManagerFactory.isReservedStreamName("test"));
         assertTrue(DistributedLogManagerFactory.isReservedStreamName(".test"));

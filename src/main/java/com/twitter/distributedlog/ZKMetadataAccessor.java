@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -213,4 +215,13 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         return String.format("%s/%s", uri.getPath(), name);
     }
 
+    @VisibleForTesting
+    protected ZooKeeperClient getReaderZKC() {
+        return readerZKC;
+    }
+
+    @VisibleForTesting
+    protected ZooKeeperClient getWriterZKC() {
+        return writerZKC;
+    }
 }

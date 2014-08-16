@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
+
 import org.apache.commons.configuration.StrictConfigurationComparator;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -11,12 +13,18 @@ public class TestDistributedLogConfiguration {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         assertEquals(conf.getPeriodicFlushFrequencyMilliSeconds(), 
             DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT);
+        assertEquals(conf.getReaderIdleErrorThresholdMillis(),
+            DistributedLogConfiguration.BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT);
         DistributedLogConfiguration override = new DistributedLogConfiguration();
         override.setPeriodicFlushFrequencyMilliSeconds(
             DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT+1);
-        conf.loadStreamConf(override);
+        override.setReaderIdleErrorThresholdMillis(
+            DistributedLogConfiguration.BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT - 1);
+        conf.loadStreamConf(Optional.of(override));
         assertEquals(conf.getPeriodicFlushFrequencyMilliSeconds(), 
             DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT+1);
+        assertEquals(conf.getReaderIdleErrorThresholdMillis(),
+            DistributedLogConfiguration.BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT - 1);
     }
 
     @Test
@@ -27,7 +35,7 @@ public class TestDistributedLogConfiguration {
         DistributedLogConfiguration override = new DistributedLogConfiguration();
         override.setBKClientWriteTimeout(
             DistributedLogConfiguration.BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT+1);
-        conf.loadStreamConf(override);
+        conf.loadStreamConf(Optional.of(override));
         assertEquals(conf.getBKClientWriteTimeout(), 
             DistributedLogConfiguration.BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT);   
     }
@@ -36,7 +44,8 @@ public class TestDistributedLogConfiguration {
     public void loadStreamConfNullOverrides() throws Exception {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         DistributedLogConfiguration confClone = (DistributedLogConfiguration)conf.clone();
-        conf.loadStreamConf(null);
+        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        conf.loadStreamConf(streamConfiguration);
 
         StrictConfigurationComparator comp = new StrictConfigurationComparator();
         assertTrue(comp.compare(conf, confClone));

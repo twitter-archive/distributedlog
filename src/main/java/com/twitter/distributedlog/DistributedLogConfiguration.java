@@ -16,6 +16,8 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
+import com.google.common.base.Optional;
+
 public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
 
@@ -256,6 +258,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
+        BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS,
+        BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS,
         BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
         BKDL_ENABLE_IMMEDIATE_FLUSH
     );
@@ -301,15 +305,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param streamConfiguration stream configuration overrides
      * @return stream configuration
      */
-    public void loadStreamConf(DistributedLogConfiguration streamConfiguration) {
-        if (null == streamConfiguration) {
+    void loadStreamConf(Optional<DistributedLogConfiguration> streamConfiguration) {
+        if (!streamConfiguration.isPresent()) {
             return;
         }
         ArrayList<String> ignoredSettings = new ArrayList<String>();
-        for (Iterator<String> iterator = streamConfiguration.getKeys(); iterator.hasNext(); ) {
+        for (Iterator<String> iterator = streamConfiguration.get().getKeys(); iterator.hasNext(); ) {
             String setting = iterator.next();
             if (streamSettings.contains(setting)) {
-                setProperty(setting, streamConfiguration.getProperty(setting));
+                setProperty(setting, streamConfiguration.get().getProperty(setting));
             } else {
                 ignoredSettings.add(setting);
             }
