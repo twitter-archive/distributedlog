@@ -221,6 +221,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return lockStateExecutor;
     }
 
+    DistributedLogConfiguration getConf() {
+        return conf;
+    }
+
     @VisibleForTesting
     BookKeeperClient getWriterBKC() {
         return this.writerBKC;

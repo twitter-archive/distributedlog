@@ -40,6 +40,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final DLSN startDLSN;
     private boolean readAheadStarted = false;
     private int lastPosition = 0;
+    private final boolean positionGapDetectionEnabled;
 
     protected boolean closed = false;
 
@@ -76,9 +77,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
-                                     String streamIdentifier,
-                                     DLSN startDLSN,
-                                     StatsLogger statsLogger) throws IOException {
+                                String streamIdentifier,
+                                DLSN startDLSN,
+                                StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, this);
@@ -87,6 +88,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         this.startDLSN = startDLSN;
         this.scheduleDelayStopwatch = Stopwatch.createUnstarted();
         this.readNextDelayStopwatch = Stopwatch.createStarted();
+        this.positionGapDetectionEnabled = bkdlm.getConf().getPositionGapDetectionEnabled();
 
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
         futureSetLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
@@ -275,7 +277,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 if (null != record) {
                     // Verify that the count is contiguous and monotonically increasing
                     //
-                    if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
+                    if (positionGapDetectionEnabled && (1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
                         (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
                         bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
                         setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));

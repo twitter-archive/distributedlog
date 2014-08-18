@@ -107,6 +107,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READER_ALERT_POSITION_ON_TRUNCATED = "alertPositionOnTruncated";
     public static final boolean BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT = true;
 
+    public static final String BKDL_READER_POSITION_GAP_DETECTION_ENABLED = "positionGapDetectionEnabled";
+    public static final boolean BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT = false;
+
     // Read ahead related parameters
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
@@ -666,6 +669,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public boolean getAlertWhenPositioningOnTruncated() {
         return getBoolean(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
+    }
+
+    /**
+     * Set if enable position gap detection for reader.
+     *
+     * @param enabled
+     *          flag to enable/disable position gap detection on reader.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setPositionGapDetectionEnabled(boolean enabled) {
+        setProperty(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Get whether position gap detection for reader enabled.
+     * @return whether position gap detection for reader enabled.
+     */
+    public boolean getPositionGapDetectionEnabled() {
+        return getBoolean(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
     }
 
     /**
