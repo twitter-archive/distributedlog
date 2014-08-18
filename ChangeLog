@@ -1,3 +1,12 @@
+0.3.19
+------
+- Additional stats on the reader
+- Fixes for DistributedLock
+- ZK ACL support
+- Remove reference counting from the ZK/BK Clients
+- Deferred Truncation (Truncation Support and Reader Validation)
+- Do not cache control records in the read ahead cache 
+
 0.3.18
 -----
 - Bulk(Batched) Writes
