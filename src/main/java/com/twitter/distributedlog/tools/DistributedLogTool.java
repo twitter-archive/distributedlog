@@ -20,9 +20,12 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.LedgerReader;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
@@ -44,8 +47,11 @@ import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -1135,11 +1141,13 @@ public class DistributedLogTool extends Tool {
 
         Long fromEntryId;
         Long untilEntryId;
+        boolean readAllBookies = false;
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
             options.addOption("fid", "from", true, "Entry id to start reading");
             options.addOption("uid", "until", true, "Entry id to read until");
+            options.addOption("bks", "all-bookies", false, "Read entry from all bookies");
         }
 
         @Override
@@ -1151,6 +1159,7 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("uid")) {
                 untilEntryId = Long.parseLong(cmdline.getOptionValue("uid"));
             }
+            readAllBookies = cmdline.hasOption("bks");
         }
 
         @Override
@@ -1180,21 +1189,11 @@ public class DistributedLogTool extends Tool {
                             untilEntryId = Math.min(lh.readLastConfirmed(), untilEntryId);
                         }
                         if (untilEntryId >= fromEntryId) {
-                            Enumeration<LedgerEntry> entries = lh.readEntries(fromEntryId, untilEntryId);
-                            long i = fromEntryId;
-                            System.out.println("Entries:");
-                            while (entries.hasMoreElements()) {
-                                LedgerEntry entry = entries.nextElement();
-                                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry);
-                                System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
-                                LogRecordWithDLSN record = reader.readOp();
-                                while (null != record) {
-                                    System.out.println("\t" + record);
-                                    System.out.println(new String(record.getPayload(), UTF_8));
-                                    System.out.println();
-                                    record = reader.readOp();
-                                }
-                                ++i;
+                            if (readAllBookies) {
+                                LedgerReader lr = new LedgerReader(bkc.get());
+                                readEntriesFromAllBookies(lr, lh, fromEntryId, untilEntryId);
+                            } else {
+                                simpleReadEntries(lh, fromEntryId, untilEntryId);
                             }
                         } else {
                             System.out.println("No entries.");
@@ -1209,6 +1208,66 @@ public class DistributedLogTool extends Tool {
                 zkc.close();
             }
             return 0;
+        }
+
+        private void readEntriesFromAllBookies(LedgerReader ledgerReader, LedgerHandle lh, long fromEntryId, long untilEntryId)
+                throws Exception {
+            for (long eid = fromEntryId; eid <= untilEntryId; ++eid) {
+                final CountDownLatch doneLatch = new CountDownLatch(1);
+                final AtomicReference<Set<LedgerReader.ReadResult>> resultHolder =
+                        new AtomicReference<Set<LedgerReader.ReadResult>>();
+                ledgerReader.readEntries(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult>>() {
+                    @Override
+                    public void operationComplete(int rc, Set<LedgerReader.ReadResult> readResults) {
+                        if (BKException.Code.OK == rc) {
+                            resultHolder.set(readResults);
+                        } else {
+                            resultHolder.set(null);
+                        }
+                        doneLatch.countDown();
+                    }
+                });
+                doneLatch.await();
+                Set<LedgerReader.ReadResult> readResults = resultHolder.get();
+                if (null == readResults) {
+                    throw new IOException("Failed to read entry " + eid);
+                }
+                System.out.println("\t" + eid + "\t:");
+                for (LedgerReader.ReadResult rr : readResults) {
+                    System.out.println("\tbookie=" + rr.getBookieAddress());
+                    System.out.println("\t-------------------------------");
+                    if (BKException.Code.OK == rr.getResultCode()) {
+                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getEntryStream());
+                        printEntry(reader);
+                    } else {
+                        System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
+                    }
+                    System.out.println("\t-------------------------------");
+                }
+            }
+        }
+
+        private void simpleReadEntries(LedgerHandle lh, long fromEntryId, long untilEntryId) throws Exception {
+            Enumeration<LedgerEntry> entries = lh.readEntries(fromEntryId, untilEntryId);
+            long i = fromEntryId;
+            System.out.println("Entries:");
+            while (entries.hasMoreElements()) {
+                LedgerEntry entry = entries.nextElement();
+                System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
+                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry);
+                printEntry(reader);
+                ++i;
+            }
+        }
+
+        private void printEntry(LedgerEntryReader reader) throws Exception {
+            LogRecordWithDLSN record = reader.readOp();
+            while (null != record) {
+                System.out.println("\t" + record);
+                System.out.println(new String(record.getPayload(), UTF_8));
+                System.out.println();
+                record = reader.readOp();
+            }
         }
 
         @Override

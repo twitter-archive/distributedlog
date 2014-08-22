@@ -35,7 +35,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      * @param in
      *          input stream of the data
      */
-    LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in) {
+    public LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in) {
         super(new RecordStream() {
             long slotId = 0;
 
