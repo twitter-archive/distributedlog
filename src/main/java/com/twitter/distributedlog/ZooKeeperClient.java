@@ -119,7 +119,7 @@ public class ZooKeeperClient {
     private final int retryThreadCount;
     private final double requestRateLimit;
     private final Credentials credentials;
-    private boolean authenticated = false;
+    private volatile boolean authenticated = false;
 
     private boolean closed = false;
 
