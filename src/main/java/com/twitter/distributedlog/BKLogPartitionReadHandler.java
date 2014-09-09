@@ -1001,9 +1001,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     // Its possible that the last entryId does not account for the control
                                     // log record, but the lastAddConfirmed should never be short of the
                                     // last entry id; else we maybe missing an entry
+                                    boolean gapDetected = false;
                                     if (lastAddConfirmed < currentMetadata.getLastEntryId()) {
                                         bkLedgerManager.raiseAlert("Unexpected last entry id during read ahead; {} , {}",
                                             currentMetadata, lastAddConfirmed);
+                                        gapDetected = true;
+                                    }
+
+                                    if (conf.getPositionGapDetectionEnabled() && gapDetected) {
                                         setReadAheadError();
                                     } else {
                                         // This disconnect will only surface during repositioning and

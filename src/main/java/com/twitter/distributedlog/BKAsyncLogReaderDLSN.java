@@ -277,26 +277,29 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 if (null != record) {
                     // Verify that the count is contiguous and monotonically increasing
                     //
-                    if (positionGapDetectionEnabled && (1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
+                    if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
                         (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
                         bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
-                        setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));
+                        if (positionGapDetectionEnabled) {
+                            setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));
+                            continue;
+                        }
+                    }
+
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("{} : Satisfied promise with record {}", bkLedgerManager.getFullyQualifiedName(), record.getTransactionId());
+                    }
+                    PendingReadRequest promise = pendingRequests.poll();
+                    if (null != promise) {
+                        lastPosition = record.getPositionWithinLogSegment();
+                        promise.setValue(record);
                     } else {
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("{} : Satisfied promise with record {}", bkLedgerManager.getFullyQualifiedName(), record.getTransactionId());
-                        }
-                        PendingReadRequest promise = pendingRequests.poll();
-                        if (null != promise) {
-                            lastPosition = record.getPositionWithinLogSegment();
-                            promise.setValue(record);
-                        } else {
-                            // We should never get here as we should have exited the loop if
-                            // pendingRequests were empty
-                            bkDistributedLogManager.raiseAlert("Unexpected condition at dlsn = {}",
-                                record.getDlsn());
-                            setLastException(
-                                new DLIllegalStateException("Unexpected condition at dlsn = " + record.getDlsn()));
-                        }
+                        // We should never get here as we should have exited the loop if
+                        // pendingRequests were empty
+                        bkDistributedLogManager.raiseAlert("Unexpected condition at dlsn = {}",
+                            record.getDlsn());
+                        setLastException(
+                            new DLIllegalStateException("Unexpected condition at dlsn = " + record.getDlsn()));
                     }
                 } else {
                     if (0 == scheduleCountLocal) {

@@ -261,6 +261,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
+        BKDL_READER_POSITION_GAP_DETECTION_ENABLED,
         BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS,
         BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS,
         BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
@@ -688,7 +689,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @return whether position gap detection for reader enabled.
      */
     public boolean getPositionGapDetectionEnabled() {
-        return getBoolean(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
+        return getBoolean(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT);
     }
 
     /**
