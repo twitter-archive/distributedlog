@@ -85,6 +85,8 @@ class DistributedReentrantLock {
     private final int lockCreationRetries;
     private boolean logUnbalancedWarning = true;
     private volatile boolean closed = false;
+    // a counter to track how many re-acquires happened during a lock's life cycle.
+    private final AtomicInteger reacquireCount = new AtomicInteger(0);
 
     public enum LockReason {
         WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4), MAXREASON(5);
@@ -281,6 +283,11 @@ class DistributedReentrantLock {
     }
 
     @VisibleForTesting
+    int getReacquireCount() {
+        return reacquireCount.get();
+    }
+
+    @VisibleForTesting
     Future<String> getAsyncLockAcquireFuture() {
         return asyncLockAcquireFuture;
     }
@@ -410,7 +417,10 @@ class DistributedReentrantLock {
             asyncLockAcquireFuture.addEventListener(new FutureEventListener<String>() {
                 @Override
                 public void onSuccess(String value) {
-                    // if success re-acquire
+                    // if re-acquire successfully, clear the state.
+                    synchronized (DistributedReentrantLock.this) {
+                        asyncLockAcquireFuture = null;
+                    }
                 }
 
                 @Override
@@ -426,6 +436,7 @@ class DistributedReentrantLock {
                 }
             });
         }
+        reacquireCount.incrementAndGet();
         internalTryLock(new AtomicInteger(Integer.MAX_VALUE), 0, lockPromise);
         return lockPromise;
     }

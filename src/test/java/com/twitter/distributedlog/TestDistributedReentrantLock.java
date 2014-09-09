@@ -217,6 +217,86 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         assertEquals(0, lock.getLockCount());
     }
 
+    @Test(timeout = 60000)
+    public void testCheckWriteLockFailureWhenLockIsAcquiredByOthers() throws Exception {
+        String lockPath = "/test-check-write-lock-failure-when-lock-is-acquired-by-others-" + System.currentTimeMillis();
+        String clientId = "test-check-write-lock-failure";
+
+        createLockPath(zkc.get(), lockPath);
+
+        DistributedReentrantLock lock0 =
+                new DistributedReentrantLock(lockStateExecutor, zkc0, lockPath,
+                        Long.MAX_VALUE, clientId, NullStatsLogger.INSTANCE);
+        lock0.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
+
+        Pair<String, Long> lockId0_1 = lock0.getInternalLock().getLockId();
+
+        List<String> children = getLockWaiters(zkc, lockPath);
+        assertEquals(1, children.size());
+        assertTrue(lock0.haveLock());
+        assertEquals(1, lock0.getLockCount());
+        assertEquals(lock0.getInternalLock().getLockId(),
+                Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
+
+        // expire the session
+        ZooKeeperClientUtils.expireSession(zkc0, zkServers, sessionTimeoutMs);
+
+        lock0.checkWriteLock(true);
+
+        Pair<String, Long> lockId0_2 = lock0.getInternalLock().getLockId();
+        assertFalse("New lock should be created under different session", lockId0_1.equals(lockId0_2));
+
+        children = getLockWaiters(zkc, lockPath);
+        assertEquals(1, children.size());
+        assertTrue(lock0.haveLock());
+        assertEquals(1, lock0.getLockCount());
+        assertEquals(lock0.getInternalLock().getLockId(),
+                Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
+
+        final DistributedReentrantLock lock1 =
+                new DistributedReentrantLock(lockStateExecutor, zkc, lockPath,
+                        Long.MAX_VALUE, clientId, NullStatsLogger.INSTANCE);
+        final CountDownLatch lockLatch = new CountDownLatch(1);
+        Thread lockThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    lock1.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
+                    lockLatch.countDown();
+                } catch (LockingException e) {
+                    logger.error("Failed on locking lock1 : ", e);
+                }
+            }
+        }, "lock-thread");
+        lockThread.start();
+
+        // ensure lock1 is waiting for lock0
+        do {
+            Thread.sleep(1000);
+            children = getLockWaiters(zkc, lockPath);
+        } while (children.size() < 2);
+
+        // expire the session
+        ZooKeeperClientUtils.expireSession(zkc0, zkServers, sessionTimeoutMs);
+
+        lockLatch.await();
+        lockThread.join();
+
+        try {
+            lock0.checkWriteLock(true);
+            fail("Should fail on checking write lock since lock is acquired by lock1");
+        } catch (LockingException le) {
+            // expected
+        }
+
+        try {
+            lock0.checkWriteLock(false);
+            fail("Should fail on checking write lock since lock is acquired by lock1");
+        } catch (LockingException le) {
+            // expected
+        }
+    }
+
     /**
      * If no lock is acquired between session expired and re-acquisition, check write lock will acquire the lock.
      * @throws Exception
@@ -267,8 +347,10 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
             do {
                 Thread.sleep(1000);
                 asyncLockAcquireFuture = lock0.getAsyncLockAcquireFuture();
-            } while (null == asyncLockAcquireFuture);
-            Await.result(asyncLockAcquireFuture);
+            } while (null == asyncLockAcquireFuture && lock0.getReacquireCount() < 1);
+            if (null != asyncLockAcquireFuture) {
+                Await.result(asyncLockAcquireFuture);
+            }
             lock0.checkWriteLock(false);
         }
         children = getLockWaiters(zkc, lockPath);
