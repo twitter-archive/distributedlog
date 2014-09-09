@@ -191,7 +191,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 String.format("dlzk:%s:factory_writer_shared", namespace),
                 conf,
                 DLUtils.getZKServersFromDLUri(uri),
-                statsLogger);
+                statsLogger.scope("dlzk_factory_writer_shared"));
         this.sharedWriterZKCForDL = this.sharedWriterZKCBuilderForDL.build();
 
         // Resolve uri to get bk dl config
@@ -204,8 +204,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             this.sharedReaderZKCBuilderForDL = createDLZKClientBuilder(
                     String.format("dlzk:%s:factory_reader_shared", namespace),
                     conf,
-                    DLUtils.getZKServersFromDLUri(uri),
-                    statsLogger);
+                    bkdlConfig.getDlZkServersForReader(),
+                    statsLogger.scope("dlzk_factory_reader_shared"));
         }
         this.sharedReaderZKCForDL = this.sharedReaderZKCBuilderForDL.build();
 
@@ -575,15 +575,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 writerZKCBuilderForDL = sharedWriterZKCBuilderForDL;
                 readerZKCBuilderForDL = sharedReaderZKCBuilderForDL;
                 BKDLConfig bkdlConfig = resolveBKDLConfig();
-                ZooKeeperClient writerZKC;
-                ZooKeeperClient readerZKC;
                 synchronized (this) {
                     if (null == this.sharedWriterZKCForBK) {
                         this.sharedWriterZKCBuilderForBK = createBKZKClientBuilder(
                             String.format("bkzk:%s:factory_writer_shared", namespace),
                             mergedConfiguration,
                             bkdlConfig.getBkZkServersForWriter(),
-                            statsLogger);
+                            statsLogger.scope("bkzk_factory_writer_shared"));
                         this.sharedWriterZKCForBK = this.sharedWriterZKCBuilderForBK.build();
                     }
                     if (null == this.sharedReaderZKCForBK) {
@@ -594,7 +592,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                                 String.format("bkzk:%s:factory_reader_shared", namespace),
                                 mergedConfiguration,
                                 bkdlConfig.getBkZkServersForReader(),
-                                statsLogger);
+                                statsLogger.scope("bkzk_factory_reader_shared"));
                         }
                         this.sharedReaderZKCForBK = this.sharedReaderZKCBuilderForBK.build();
                     }
@@ -606,8 +604,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
             nameOfLogStream, mergedConfiguration, namespace,
-            writerZKCBuilderForDL, readerZKCBuilderForDL,
-            null, null, writerBKCBuilder, readerBKCBuilder,           /* bk zks & bks */
+            writerZKCBuilderForDL, readerZKCBuilderForDL,                       /* dl zks */
+            writerZKCForBK, readerZKCForBK, writerBKCBuilder, readerBKCBuilder, /* bk zks & bks */
             scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
             channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
@@ -623,7 +621,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);
-        return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace, sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL);
+        return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace,
+                sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, statsLogger);
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -749,7 +748,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             ZooKeeperClientBuilder zkcBuilder)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder);
+        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder, NullStatsLogger.INSTANCE);
     }
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)

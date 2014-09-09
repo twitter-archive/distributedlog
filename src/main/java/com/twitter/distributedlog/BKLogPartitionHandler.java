@@ -281,7 +281,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     .name(String.format("dlzk:%s:handler_dedicated", name))
                     .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                     .uri(uri)
-                    .statsLogger(statsLogger)
+                    .statsLogger(statsLogger.scope("dlzk_handler_dedicated"))
                     .retryThreadCount(conf.getZKClientNumberRetryThreads())
                     .requestRateLimit(conf.getZKRequestRateLimit())
                     .zkAclId(conf.getZkAclId());
@@ -495,8 +495,8 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     /**
-     * This is a helper method to compactly return the record count between two records, the first denoted by 
-     * beginDLSN and the second denoted by endPosition. Its up to the caller to ensure that endPosition refers to 
+     * This is a helper method to compactly return the record count between two records, the first denoted by
+     * beginDLSN and the second denoted by endPosition. Its up to the caller to ensure that endPosition refers to
      * position in the same ledger as beginDLSN.
      */
     private Future<Long> asyncGetLogRecordCount(LogSegmentLedgerMetadata ledger, final DLSN beginDLSN, final long endPosition) {
@@ -513,9 +513,9 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     /**
      * Ledger metadata tells us how many records are in each completed segment, but for the first and last segments
-     * we may have to crack open the entry and count. For the first entry, we need to do so because beginDLSN may be 
-     * an interior entry. For the last entry, if it is inprogress, we need to recover it and find the last user 
-     * entry. 
+     * we may have to crack open the entry and count. For the first entry, we need to do so because beginDLSN may be
+     * an interior entry. For the last entry, if it is inprogress, we need to recover it and find the last user
+     * entry.
      */
     private Future<Long> asyncGetLogRecordCount(final LogSegmentLedgerMetadata ledger, final DLSN beginDLSN) {
         if (ledger.isInProgress() && ledger.isDLSNinThisSegment(beginDLSN)) {
@@ -554,11 +554,11 @@ abstract class BKLogPartitionHandler implements Watcher {
     public Future<Long> asyncGetLogRecordCount(final DLSN beginDLSN) {
 
         return checkLogStreamExistsAsync().flatMap(new Function<Void, Future<Long>>() {
-            public Future<Long> apply(Void done) {         
-                
+            public Future<Long> apply(Void done) {
+
                 return asyncGetFullLedgerList(true, false).flatMap(new Function<List<LogSegmentLedgerMetadata>, Future<Long>>() {
                     public Future<Long> apply(List<LogSegmentLedgerMetadata> ledgerList) {
-                        
+
                         List<Future<Long>> futureCounts = new ArrayList<Future<Long>>(ledgerList.size());
                         for (LogSegmentLedgerMetadata ledger : ledgerList) {
                             if (ledger.getLedgerSequenceNumber() >= beginDLSN.getLedgerSequenceNo()) {
@@ -571,9 +571,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                             }
                         });
                     }
-                });  
+                });
             }
-        });        
+        });
     }
 
     private Long sum(List<Long> values) {

@@ -168,7 +168,7 @@ public class ZooKeeperClientBuilder {
     public synchronized ZooKeeperClientBuilder zkAclId(String zkAclId) {
         this.zkAclIdSet = true;
         this.zkAclId = zkAclId;
-        return this;   
+        return this;
     }
 
     private void validateParameters() {
@@ -178,7 +178,7 @@ public class ZooKeeperClientBuilder {
         Preconditions.checkArgument(sessionTimeoutMs > 0,
                 "Invalid session timeout : %d", sessionTimeoutMs);
         Preconditions.checkNotNull(statsLogger, "No stats logger provided.");
-        Preconditions.checkArgument(zkAclIdSet == true, "Zookeeper acl id not set.");
+        Preconditions.checkArgument(zkAclIdSet, "Zookeeper acl id not set.");
     }
 
     /**

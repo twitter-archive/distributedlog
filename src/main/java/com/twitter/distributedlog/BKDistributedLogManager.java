@@ -142,7 +142,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             HashedWheelTimer requestTimer,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
                             StatsLogger statsLogger) throws IOException {
-        super(name, conf, uri, writerZKCBuilder, readerZKCBuilder);
+        super(name, conf, uri, writerZKCBuilder, readerZKCBuilder, statsLogger);
         Preconditions.checkNotNull(readAheadExceptionsLogger, "No ReadAhead Stats Logger Provided.");
         this.conf = conf;
         this.executorService = executorService;

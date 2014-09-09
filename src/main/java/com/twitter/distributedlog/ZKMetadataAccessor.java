@@ -9,6 +9,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.CreateMode;
@@ -33,11 +34,12 @@ public class ZKMetadataAccessor implements MetadataAccessor {
     protected final ZooKeeperClient readerZKC;
     protected final boolean ownReaderZKC;
 
-    public ZKMetadataAccessor(String name,
-                              DistributedLogConfiguration conf,
-                              URI uri,
-                              ZooKeeperClientBuilder writerZKCBuilder,
-                              ZooKeeperClientBuilder readerZKCBuilder) {
+    ZKMetadataAccessor(String name,
+                       DistributedLogConfiguration conf,
+                       URI uri,
+                       ZooKeeperClientBuilder writerZKCBuilder,
+                       ZooKeeperClientBuilder readerZKCBuilder,
+                       StatsLogger statsLogger) {
         this.name = name;
         this.uri = uri;
 
@@ -55,7 +57,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                     .requestRateLimit(conf.getZKRequestRateLimit())
                     .zkAclId(conf.getZkAclId())
                     .uri(uri)
-                    .retryPolicy(retryPolicy);
+                    .retryPolicy(retryPolicy)
+                    .statsLogger(statsLogger.scope("dlzk_dlm_writer_shared"));
             this.ownWriterZKC = true;
         } else {
             this.writerZKCBuilder = writerZKCBuilder;
@@ -92,7 +95,8 @@ public class ZKMetadataAccessor implements MetadataAccessor {
                         .requestRateLimit(conf.getZKRequestRateLimit())
                         .zkServers(zkServersForReader)
                         .retryPolicy(retryPolicy)
-                        .zkAclId(conf.getZkAclId());
+                        .zkAclId(conf.getZkAclId())
+                        .statsLogger(statsLogger.scope("dlzk_dlm_reader_shared"));
                 this.ownReaderZKC = true;
             }
         } else {
