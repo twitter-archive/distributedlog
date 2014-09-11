@@ -124,6 +124,11 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool, metadataExecutor);
     }
 
+    @VisibleForTesting
+    FuturePool getOrderedFuturePool() {
+        return orderedFuturePool;
+    }
+
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
         BKLogPartitionWriteHandler writeHandler =
                 this.getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
@@ -247,9 +252,11 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }
     }
 
-    private void errorOutPendingRequests(Throwable cause) {
+    @VisibleForTesting
+    void errorOutPendingRequests(Throwable cause) {
         LinkedList<PendingLogRecord> requestsToErrorOut = pendingRequests;
         pendingRequests = null;
+        queueingRequests = false;
         for (PendingLogRecord pendingLogRecord : requestsToErrorOut) {
             pendingLogRecord.promise.setException(cause);
         }

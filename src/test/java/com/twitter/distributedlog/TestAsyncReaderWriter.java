@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.util.Function0;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1109,6 +1110,89 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assert(success);
         reader.close();
         dlm.close();
+    }
+
+    @Test
+    public void testWritesAfterErrorOutPendingRequests() throws Exception {
+        final String name = "distrlog-writes-after-error-out-pending-requests";
+
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                LOG.error("Thread {} received uncaught exception : ", t.getName(), e);
+            }
+        });
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        writer.getOrderedFuturePool().apply(new Function0<Object>() {
+            @Override
+            public Object apply() {
+                try {
+                    startLatch.await();
+                    LOG.info("Starting writes and set force rolling to true");
+                    writer.setForceRolling(true);
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on waiting start latch : ", e);
+                }
+                return null;
+            }
+        });
+
+        // issue a first write
+        Future<DLSN> firstWrite = writer.write(DLMTestUtil.getLogRecordInstance(1L));
+
+        // simulate error out pending records
+        writer.getOrderedFuturePool().apply(new Function0<Object>() {
+            @Override
+            public Object apply() {
+                LOG.info("error out pending requests");
+                writer.errorOutPendingRequests(new IOException("simulate error out pending records"));
+                return null;
+            }
+        });
+
+        // issue a second write
+        Future<DLSN> secondWrite = writer.write(DLMTestUtil.getLogRecordInstance(2L));
+
+        startLatch.countDown();
+
+        LOG.info("waiting for write to be completed");
+
+        Await.result(firstWrite);
+
+        LOG.info("first write completed");
+
+        Await.result(secondWrite);
+
+        LOG.info("second write completed");
+
+        writer.closeAndComplete();
+
+        LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+        int numReads = 0;
+        long expectedTxID = 1L;
+        LogRecord record = reader.readNext(false);
+        while (null != record) {
+            DLMTestUtil.verifyLogRecord(record);
+            assertEquals(expectedTxID, record.getTransactionId());
+
+            ++numReads;
+            ++expectedTxID;
+
+            record = reader.readNext(false);
+        }
+
+        assertEquals(2, numReads);
+
+        reader.close();
     }
 
     @Test(timeout = 60000)
