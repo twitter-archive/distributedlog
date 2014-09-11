@@ -24,6 +24,7 @@ import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
@@ -237,18 +238,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
         // Build the allocator
         if (conf.getEnableLedgerAllocatorPool()) {
-            String poolName = conf.getLedgerAllocatorPoolName();
-            if (null == poolName) {
-                LOG.error("No ledger allocator pool name specified when enabling ledger allocator pool.");
-                throw new IOException("No ledger allocator name specified when enabling ledger allocator pool.");
-            }
-            String rootPath = uri.getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE + "/" + poolName;
-            allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(rootPath, conf.getLedgerAllocatorPoolCoreSize(), conf,
-                sharedWriterZKCForDL, writerBKC);
+            String allocatorPoolPath = validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
+            allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(allocatorPoolPath, conf.getLedgerAllocatorPoolCoreSize(),
+                    conf, sharedWriterZKCForDL, writerBKC);
             if (null != allocator) {
                 allocator.start();
             }
-            LOG.info("Created ledger allocator pool under {} with size {}.", rootPath, conf.getLedgerAllocatorPoolCoreSize());
+            LOG.info("Created ledger allocator pool under {} with size {}.", allocatorPoolPath, conf.getLedgerAllocatorPoolCoreSize());
         } else {
             allocator = null;
         }
@@ -257,6 +253,28 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
 
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
+    }
+
+    static String validateAndGetFullLedgerAllocatorPoolPath(DistributedLogConfiguration conf, URI uri) throws IOException {
+        String poolPath = conf.getLedgerAllocatorPoolPath();
+        LOG.info("PoolPath is {}", poolPath);
+        if (null == poolPath || !poolPath.startsWith(".") || poolPath.endsWith("/")) {
+            LOG.error("Invalid ledger allocator pool path specified when enabling ledger allocator pool : {}", poolPath);
+            throw new IOException("Invalid ledger allocator pool path specified : " + poolPath);
+        }
+        String poolName = conf.getLedgerAllocatorPoolName();
+        if (null == poolName) {
+            LOG.error("No ledger allocator pool name specified when enabling ledger allocator pool.");
+            throw new IOException("No ledger allocator name specified when enabling ledger allocator pool.");
+        }
+        String rootPath = uri.getPath() + "/" + poolPath + "/" + poolName;
+        try {
+            PathUtils.validatePath(rootPath);
+        } catch (IllegalArgumentException iae) {
+            LOG.error("Invalid ledger allocator pool path specified when enabling ledger allocator pool : {}", poolPath);
+            throw new IOException("Invalid ledger allocator pool path specified : " + poolPath);
+        }
+        return rootPath;
     }
 
     private static ZooKeeperClientBuilder createDLZKClientBuilder(String zkcName,

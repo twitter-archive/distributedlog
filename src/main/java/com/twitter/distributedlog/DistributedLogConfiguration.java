@@ -197,6 +197,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ENABLE_LEDGER_ALLOCATOR_POOL = "enableLedgerAllocatorPool";
     public static final boolean BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT = false;
 
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH = "ledgerAllocatorPoolPath";
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT = DistributedLogConstants.ALLOCATION_POOL_NODE;
+
     public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME = "ledgerAllocatorPoolName";
     public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT = null;
 
@@ -1386,6 +1389,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEnableLedgerAllocatorPool(boolean enabled) {
         setProperty(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, enabled);
+        return this;
+    }
+
+    /**
+     * The path of ledger allocator pool.
+     *
+     * @return path of ledger allocator pool.
+     */
+    public String getLedgerAllocatorPoolPath() {
+        return getString(BKDL_LEDGER_ALLOCATOR_POOL_PATH, BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the root path of ledger allocator pool
+     *
+     * @param path
+     *          path of ledger allocator pool.
+     * @return configuration
+     */
+    public DistributedLogConfiguration setLedgerAllocatorPoolPath(String path) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_PATH, path);
         return this;
     }
 

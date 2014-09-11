@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 
 public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
-    @Rule 
+    @Rule
     public TestName runtime = new TestName();
 
     static final Logger LOG = LoggerFactory.getLogger(TestDistributedLogManagerFactory.class);
@@ -48,7 +48,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zooKeeperClient = 
+        zooKeeperClient =
             ZooKeeperClientBuilder.newBuilder()
                 .uri(DLMTestUtil.createDLMURI("/"))
                 .zkAclId(null)
@@ -236,13 +236,13 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(newConf, uri);
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
-        for (int i = 0; i < 10; i++) { 
+        for (int i = 0; i < 10; i++) {
             writer.write(DLMTestUtil.getLogRecordInstance(1L));
         }
         writer.close();
         dlm.close();
         factory.close();
-    } 
+    }
 
     @Test
     public void testAclPermsZkAccessConflict() throws Exception {
@@ -259,7 +259,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
             .build();
 
         try {
-            zkc.get().create(uri.getPath() + "/test-stream/test-garbage", 
+            zkc.get().create(uri.getPath() + "/test-stream/test-garbage",
                 new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             fail("write should have failed due to perms");
         } catch (KeeperException.NoAuthException ex) {
@@ -289,12 +289,12 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
             .build();
 
         zkc.get().getChildren(uri.getPath() + "/test-stream", false, new Stat());
-        zkc.get().getData(uri.getPath() + "/test-stream", false, new Stat());  
+        zkc.get().getData(uri.getPath() + "/test-stream", false, new Stat());
     }
 
     @Test
     public void testAclModifyPermsDlmConflict() throws Exception {
-        
+
         String streamName = "test-stream";
 
         // Reopening and writing again with the same un will succeed.
@@ -315,7 +315,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test
     public void testAclModifyPermsDlmNoConflict() throws Exception {
-        
+
         String streamName = "test-stream";
 
         // Establish the uri.
@@ -323,5 +323,44 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
         // Reopening and writing again with the same un will succeed.
         initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
+    }
+
+    static void validateBadAllocatorConfiguration(DistributedLogConfiguration conf, URI uri) throws Exception {
+        try {
+            DistributedLogManagerFactory.validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
+            fail("Should throw exception when bad allocator configuration provided");
+        } catch (IOException ioe) {
+            // expected
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testValidateAndGetFullLedgerAllocatorPoolPath() throws Exception {
+        DistributedLogConfiguration testConf = new DistributedLogConfiguration();
+        testConf.setEnableLedgerAllocatorPool(true);
+
+        String namespace = "/" + runtime.getMethodName();
+        URI uri = DLMTestUtil.createDLMURI(namespace);
+
+        testConf.setLedgerAllocatorPoolName("test");
+
+        testConf.setLedgerAllocatorPoolPath("test");
+        validateBadAllocatorConfiguration(testConf, uri);
+
+        testConf.setLedgerAllocatorPoolPath(".");
+        validateBadAllocatorConfiguration(testConf, uri);
+
+        testConf.setLedgerAllocatorPoolPath("..");
+        validateBadAllocatorConfiguration(testConf, uri);
+
+        testConf.setLedgerAllocatorPoolPath("./");
+        validateBadAllocatorConfiguration(testConf, uri);
+
+        testConf.setLedgerAllocatorPoolPath(".test/");
+        validateBadAllocatorConfiguration(testConf, uri);
+
+        testConf.setLedgerAllocatorPoolPath(".test");
+        testConf.setLedgerAllocatorPoolName(null);
+        validateBadAllocatorConfiguration(testConf, uri);
     }
 }
