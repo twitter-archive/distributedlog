@@ -22,6 +22,7 @@ import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.Addr;
 import com.twitter.finagle.Name;
 import com.twitter.finagle.Resolver$;
+import com.twitter.finagle.WeightedSocketAddress;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
 import com.twitter.thrift.Status;
@@ -58,6 +59,7 @@ class NameServerSet implements ServerSet {
     }
 
     private ServiceInstance socketAddressToServiceInstance(SocketAddress socketAddress) {
+        socketAddress= WeightedSocketAddress.unapply(socketAddress).get()._1();
         if (socketAddress instanceof InetSocketAddress) {
             InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
             Endpoint endpoint = new Endpoint(inetSocketAddress.getHostString(), inetSocketAddress.getPort());
