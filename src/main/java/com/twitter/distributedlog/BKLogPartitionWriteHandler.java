@@ -1212,7 +1212,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             return true;
         }
         scheduleGetAllLedgersTaskIfNeeded();
-        List<LogSegmentLedgerMetadata> logSegments = getCachedFullLedgerList(LogSegmentLedgerMetadata.COMPARATOR);
+        List<LogSegmentLedgerMetadata> logSegments = getFullLedgerList(false, false);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Setting truncation status on logs older than {} from {} for {}",
                 new Object[] { dlsn, logSegments, getFullyQualifiedName() });

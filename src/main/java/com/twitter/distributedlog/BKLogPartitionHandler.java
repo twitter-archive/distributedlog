@@ -370,6 +370,48 @@ abstract class BKLogPartitionHandler implements Watcher {
         }
     }
 
+    public Future<LogRecordWithDLSN> asyncGetFirstLogRecord() {
+        final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
+        checkLogStreamExistsAsync().addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                asyncGetFullLedgerList(true, true).addEventListener(new FutureEventListener<List<LogSegmentLedgerMetadata>>() {
+
+                    @Override
+                    public void onSuccess(List<LogSegmentLedgerMetadata> ledgerList) {
+                        if (ledgerList.isEmpty()) {
+                            promise.setException(new LogEmptyException("Log " + getFullyQualifiedName() + " has no records"));
+                            return;
+                        }
+                        Future<LogRecordWithDLSN> firstRecord = null;
+                        for (LogSegmentLedgerMetadata ledger : ledgerList) {
+                            if (!ledger.isTruncated() && ledger.getRecordCount() > 0) {
+                                firstRecord = asyncReadFirstUserRecord(ledger, DLSN.InitialDLSN);
+                                break;
+                            }
+                        }
+                        if (null != firstRecord) {
+                            promise.become(firstRecord);
+                        } else {
+                            promise.setException(new LogEmptyException("Log " + getFullyQualifiedName() + " has no records"));
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        promise.setException(cause);
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                promise.setException(cause);
+            }
+        });
+        return promise;
+    }
+
     public Future<LogRecordWithDLSN> getLastLogRecordAsync(final boolean recover, final boolean includeEndOfStream) {
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
         checkLogStreamExistsAsync().addEventListener(new FutureEventListener<Void>() {

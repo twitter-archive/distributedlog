@@ -695,6 +695,30 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 .map(RECORD_2_TXID_FUNCTION);
     }
 
+    /**
+     * Get first DLSN in the unpartitioned stream.
+     *
+     * @return first dlsn in the stream
+     */
+    @Override
+    public Future<DLSN> getFirstDLSNAsync() {
+        return getFirstRecordAsyncInternal().map(RECORD_2_DLSN_FUNCTION);
+    }
+
+    public Future<LogRecordWithDLSN> getFirstRecordAsyncInternal() {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+            @Override
+            public BKLogPartitionReadHandler applyE() throws IOException {
+                return createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            }
+        }).flatMap(new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
+            @Override
+            public Future<LogRecordWithDLSN> apply(BKLogPartitionReadHandler ledgerHandler) {
+                return ledgerHandler.asyncGetFirstLogRecord();
+            }
+        });
+    }
 
     /**
      * Get Latest DLSN in the specified partition of the log

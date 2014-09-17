@@ -1,5 +1,9 @@
 package com.twitter.distributedlog;
 
+import com.twitter.util.Future;
+import com.twitter.util.Await;
+
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -127,6 +131,68 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         List<LogSegmentLedgerMetadata> filteredLedgerList = writeHandler1.getFilteredLedgerList(false, false);
         assertEquals(1, filteredLedgerList.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerList.get(0));
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFirstDLSNNoLogSegments() throws Exception {
+        String dlName = runtime.getMethodName();
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
+        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
+        Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
+        try {
+            Await.result(futureRecord);
+            fail("should have thrown exception");
+        } catch (LogEmptyException ex) {
+        }
+    }
+    
+    @Test(timeout = 60000)
+    public void testGetFirstDLSNWithLogSegments() throws Exception {
+        String dlName = runtime.getMethodName();
+        prepareLogSegments(dlName, 3, 3);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
+        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
+        Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
+        try {
+            LogRecordWithDLSN record = Await.result(futureRecord);
+            assertEquals(new DLSN(1, 0, 0), record.getDlsn());
+        } catch (Exception ex) {
+            fail("should not have thrown exception: " + ex);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFirstDLSNAfterCleanTruncation() throws Exception {
+        String dlName = runtime.getMethodName();
+        prepareLogSegmentsNonPartitioned(dlName, 3, 10);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
+        BKLogPartitionReadHandler readHandler = 
+            ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        Future<Boolean> futureSuccess = writer.truncate(new DLSN(2, 0, 0));
+        Boolean success = Await.result(futureSuccess);
+        assertTrue(success);
+        Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
+        LogRecordWithDLSN record = Await.result(futureRecord);
+        assertEquals(new DLSN(2, 0, 0), record.getDlsn());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFirstDLSNAfterPartialTruncation() throws Exception {
+        String dlName = runtime.getMethodName();
+        prepareLogSegmentsNonPartitioned(dlName, 3, 10);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
+        BKLogPartitionReadHandler readHandler = 
+            ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        
+        // Only truncates at ledger boundary.
+        Future<Boolean> futureSuccess = writer.truncate(new DLSN(2, 5, 0));
+        Boolean success = Await.result(futureSuccess);
+        assertTrue(success);
+        Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
+        LogRecordWithDLSN record = Await.result(futureRecord);
+        assertEquals(new DLSN(2, 0, 0), record.getDlsn());
     }
 
     @Test(timeout = 60000)

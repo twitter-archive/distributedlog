@@ -193,7 +193,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * Get Latest DLSN in the specified partition of the log
      *
      * @param partition - the partition within the log
-     * @return latest transaction id
+     * @return last dlsn
      * @throws IOException
      */
     public DLSN getLastDLSN(PartitionId partition) throws IOException;
@@ -201,7 +201,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     /**
      * Get Latest DLSN in the non partitioned stream
      *
-     * @return latest transaction id
+     * @return last dlsn
      * @throws IOException
      */
     public DLSN getLastDLSN() throws IOException;
@@ -221,6 +221,13 @@ public interface DistributedLogManager extends MetadataAccessor {
      */
     public Future<Long> getLastTxIdAsync();
 
+
+    /**
+     * Get first DLSN in the unpartitioned stream.
+     *
+     * @return first dlsn in the stream
+     */
+    public Future<DLSN> getFirstDLSNAsync();
 
     /**
      * Get Latest DLSN in the specified partition of the log - async
