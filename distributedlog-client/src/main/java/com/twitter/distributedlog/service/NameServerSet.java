@@ -34,20 +34,27 @@ class NameServerSet implements ServerSet {
     private volatile ImmutableSet<ServiceInstance> hostSet = ImmutableSet.of();
 
     public NameServerSet(String nameStr) {
-        Name name = Resolver$.MODULE$.eval(nameStr);
+        this(Resolver$.MODULE$.eval(nameStr));
+    }
 
-        if (name instanceof Name.Bound) {
+    public NameServerSet(Name name) {
+        if (name instanceof TestName) {
+            ((TestName)name).changes(new AbstractFunction1<Addr, BoxedUnit>() {
+                @Override
+                public BoxedUnit apply(Addr varAddr) {
+                    return NameServerSet.this.respondToChanges(varAddr);
+                }
+            });
+        } else if (name instanceof Name.Bound) {
             ((Name.Bound)name).addr().changes().respond(new AbstractFunction1<Addr, BoxedUnit>() {
                 @Override
                 public BoxedUnit apply(Addr varAddr) {
                     return NameServerSet.this.respondToChanges(varAddr);
                 }
             });
-
         } else {
             throw new UnsupportedOperationException("NameServerSet only supports Name.Bound");
         }
-
     }
 
     private ServiceInstance socketAddressToServiceInstance(SocketAddress socketAddress) {

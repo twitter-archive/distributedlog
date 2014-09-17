@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
@@ -23,8 +24,8 @@ import java.util.TreeMap;
 
 public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
-    public static ConsistentHashRoutingService of(ServerSet serverSet, int numReplicas) {
-        return new ConsistentHashRoutingService(serverSet, numReplicas);
+    public static ConsistentHashRoutingService of(DLServerSetWatcher serverSetWatcher, int numReplicas) {
+        return new ConsistentHashRoutingService(serverSetWatcher, numReplicas);
     }
 
     static class ConsistentHash {
@@ -39,6 +40,10 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         }
 
         private String replicaName(int shardId, int replica, SocketAddress address) {
+            if (shardId < 0) {
+                shardId = UNKNOWN_SHARD_ID;
+            }
+
             return String.format("shard-%d-%d-%s", shardId, replica, address);
         }
 
@@ -108,8 +113,10 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     protected final Map<SocketAddress, Integer> address2ShardId =
             new HashMap<SocketAddress, Integer>();
 
-    private ConsistentHashRoutingService(ServerSet serverSet, int numReplicas) {
-        super(serverSet);
+    private static final int UNKNOWN_SHARD_ID = -1;
+
+    private ConsistentHashRoutingService(DLServerSetWatcher serverSetWatcher, int numReplicas) {
+        super(serverSetWatcher);
         circle = new ConsistentHash(hashFunction, numReplicas);
     }
 
@@ -124,6 +131,10 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     @Override
     public void removeHost(SocketAddress host, Throwable reason) {
+        removeHostInternal(host, Optional.of(reason));
+    }
+
+    private void removeHostInternal(SocketAddress host, Optional<Throwable> reason) {
         synchronized (shardId2Address) {
             Integer shardId = address2ShardId.remove(host);
             if (null != shardId) {
@@ -132,10 +143,17 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                     shardId2Address.remove(shardId);
                 }
                 circle.remove(shardId, host);
-                logger.info("Shard {} ({}) left due to : ",
-                        new Object[] { shardId, host, reason });
+                if (reason.isPresent()) {
+                    logger.info("Shard {} ({}) left due to exception",
+                            new Object[] { shardId, host, reason.get() });
+                } else {
+                    logger.info("Shard {} ({}) left after server set change",
+                                shardId, host);
+                }
+            } else if (reason.isPresent()) {
+                logger.info("Node {} left due to to exception ", host, reason.get());
             } else {
-                logger.info("Node {} left due to : ", host, reason);
+                logger.info("Node {} left after server set change", host);
             }
         }
     }
@@ -165,38 +183,68 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     }
 
     @Override
-    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet) {
-        Map<Integer, SocketAddress> newMap = new HashMap<Integer, SocketAddress>();
-        for (ServiceInstance serviceInstance : serverSet) {
-            Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
-            SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
-            newMap.put(serviceInstance.getShard(), address);
-        }
-
-        Map<Integer, SocketAddress> left;
+    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serviceInstances, boolean resolvedFromName) {
         Set<SocketAddress> joinedList = new HashSet<SocketAddress>();
         Set<SocketAddress> removedList = new HashSet<SocketAddress>();
-        synchronized (shardId2Address) {
-            MapDifference<Integer, SocketAddress> difference =
-                    Maps.difference(shardId2Address, newMap);
-            left = difference.entriesOnlyOnLeft();
-            for (Integer shard : left.keySet()) {
-                SocketAddress host = shardId2Address.get(shard);
-                if (null != host) {
-                    // we don't remove those hosts that just disappered on serverset proactively,
-                    // since it might be just because serverset become flaky
-                    // address2ShardId.remove(host);
-                    // circle.remove(shard, host);
-                    logger.info("Shard {} ({}) left temporarily.", shard, host);
+        if (resolvedFromName) {
+            Set<SocketAddress> newSet = new HashSet<SocketAddress>();
+            for (ServiceInstance serviceInstance : serviceInstances) {
+                Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
+                SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
+                newSet.add(address);
+            }
+
+            synchronized (shardId2Address) {
+                removedList = Sets.difference(address2ShardId.keySet(), newSet).immutableCopy();
+                joinedList = Sets.difference(newSet, address2ShardId.keySet()).immutableCopy();
+                for (SocketAddress node: removedList) {
+                    removeHostInternal(node, Optional.<Throwable>absent());
+                }
+                for (SocketAddress node: joinedList) {
+                    // Assign a random negative shardId
+                    int shardId;
+                    do {
+                        shardId = Math.min(-1 , (int)(Math.random() * Integer.MIN_VALUE));
+                    } while (null != shardId2Address.get(shardId));
+
+                    // Since we have allocated a unique id, we don't expect to ever
+                    // have to populate anything in the removedList; Since its an immutable set;
+                    // add will throw and be a good check in case there are cases when we
+                    // don't maintain the set correctly
+                    join(shardId, node, removedList);
                 }
             }
-            // we need to find if any shards are replacing old shards
-            for (Integer shard : newMap.keySet()) {
-                SocketAddress oldHost = shardId2Address.get(shard);
-                SocketAddress newHost = newMap.get(shard);
-                if (!newHost.equals(oldHost)) {
-                    join(shard, newHost, removedList);
-                    joinedList.add(newHost);
+        } else {
+            Map<Integer, SocketAddress> newMap = new HashMap<Integer, SocketAddress>();
+            for (ServiceInstance serviceInstance : serviceInstances) {
+                Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
+                SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
+                newMap.put(serviceInstance.getShard(), address);
+            }
+
+            Map<Integer, SocketAddress> left;
+            synchronized (shardId2Address) {
+                MapDifference<Integer, SocketAddress> difference =
+                        Maps.difference(shardId2Address, newMap);
+                left = difference.entriesOnlyOnLeft();
+                for (Integer shard : left.keySet()) {
+                    SocketAddress host = shardId2Address.get(shard);
+                    if (null != host) {
+                        // we don't remove those hosts that just disappered on serverset proactively,
+                        // since it might be just because serverset become flaky
+                        // address2ShardId.remove(host);
+                        // circle.remove(shard, host);
+                        logger.info("Shard {} ({}) left temporarily.", shard, host);
+                    }
+                }
+                // we need to find if any shards are replacing old shards
+                for (Integer shard : newMap.keySet()) {
+                    SocketAddress oldHost = shardId2Address.get(shard);
+                    SocketAddress newHost = newMap.get(shard);
+                    if (!newHost.equals(oldHost)) {
+                        join(shard, newHost, removedList);
+                        joinedList.add(newHost);
+                    }
                 }
             }
         }

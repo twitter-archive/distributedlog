@@ -5,7 +5,6 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.common.net.pool.DynamicHostSet;
-import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
@@ -42,7 +41,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         }
     }
 
-    private final ServerSet serverSet;
+    private final DLServerSetWatcher serverSetWatcher;
 
     private final Set<SocketAddress> hostSet = new HashSet<SocketAddress>();
     private List<SocketAddress> hostList = new ArrayList<SocketAddress>();
@@ -57,9 +56,9 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     protected final CopyOnWriteArraySet<RoutingListener> listeners =
             new CopyOnWriteArraySet<RoutingListener>();
 
-    ServerSetRoutingService(ServerSet serverSet) {
+    ServerSetRoutingService(DLServerSetWatcher serverSetWatcher) {
         super("ServerSetRoutingService");
-        this.serverSet = serverSet;
+        this.serverSetWatcher = serverSetWatcher;
     }
 
     @Override
@@ -144,15 +143,15 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     @Override
     public void run() {
         try {
-            serverSet.watch(new DynamicHostSet.HostChangeMonitor<ServiceInstance>() {
+            serverSetWatcher.watch(new DLServerSetWatcher.DLHostChangeMonitor<ServiceInstance>() {
                 @Override
-                public void onChange(ImmutableSet<ServiceInstance> serviceInstances) {
+                public void onChange(ImmutableSet<ServiceInstance> serviceInstances, boolean resolvedFromName) {
                     ImmutableSet<ServiceInstance> lastValue = serverSetChange.getAndSet(serviceInstances);
                     if (null == lastValue) {
                         ImmutableSet<ServiceInstance> mostRecentValue;
                         do {
                             mostRecentValue = serverSetChange.get();
-                            performServerSetChange(mostRecentValue);
+                            performServerSetChange(mostRecentValue, resolvedFromName);
                             changeLatch.countDown();
                         } while (!serverSetChange.compareAndSet(mostRecentValue, null));
                     }
@@ -164,7 +163,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         }
     }
 
-    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet) {
+    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet, boolean resolvedFromName) {
         Set<SocketAddress> newSet = new HashSet<SocketAddress>();
         for (ServiceInstance serviceInstance : serverSet) {
             Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");

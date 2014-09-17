@@ -121,7 +121,7 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
-        this._routingService = ConsistentHashRoutingService.of(serverSet,
+        this._routingService = ConsistentHashRoutingService.of(new DLServerSetWatcher(serverSet, false),
                 NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
@@ -140,7 +140,7 @@ public class DistributedLogClientBuilder {
             throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
         }
 
-        this._routingService = ConsistentHashRoutingService.of(new NameServerSet(finagleNameStr),
+        this._routingService = ConsistentHashRoutingService.of(new DLServerSetWatcher(new NameServerSet(finagleNameStr), true),
             NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
