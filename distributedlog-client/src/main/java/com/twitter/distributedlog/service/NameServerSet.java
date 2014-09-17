@@ -35,10 +35,25 @@ class NameServerSet implements ServerSet {
     private volatile ImmutableSet<ServiceInstance> hostSet = ImmutableSet.of();
 
     public NameServerSet(String nameStr) {
-        this(Resolver$.MODULE$.eval(nameStr));
+        Name name;
+        try {
+            name = Resolver$.MODULE$.eval(nameStr);
+        } catch (Exception exc) {
+            logger.error("Exception in Resolver.eval for name {}", nameStr, exc);
+            // Since this is called from various places that dont handle specific exceptions,
+            // we have no option than to throw a runtime exception to halt the control flow
+            // This should only happen in case of incorrect configuration. Having a log message
+            // would help identify the problem during tests
+            throw new RuntimeException(exc);
+        }
+        initialize(name);
     }
 
     public NameServerSet(Name name) {
+        initialize(name);
+    }
+
+    private void initialize(Name name) {
         if (name instanceof TestName) {
             ((TestName)name).changes(new AbstractFunction1<Addr, BoxedUnit>() {
                 @Override
@@ -54,12 +69,13 @@ class NameServerSet implements ServerSet {
                 }
             });
         } else {
+            logger.error("NameServerSet only supports Name.Bound. While the resolved name {} was {}", name, name.getClass());
             throw new UnsupportedOperationException("NameServerSet only supports Name.Bound");
         }
     }
 
     private ServiceInstance socketAddressToServiceInstance(SocketAddress socketAddress) {
-        socketAddress= WeightedSocketAddress.unapply(socketAddress).get()._1();
+        socketAddress = WeightedSocketAddress.unapply(socketAddress).get()._1();
         if (socketAddress instanceof InetSocketAddress) {
             InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
             Endpoint endpoint = new Endpoint(inetSocketAddress.getHostString(), inetSocketAddress.getPort());
@@ -70,6 +86,8 @@ class NameServerSet implements ServerSet {
                 map,
                 Status.ALIVE);
         } else {
+            logger.error("We expect InetSocketAddress while the resolved address {} was {}",
+                        socketAddress, socketAddress.getClass());
             throw new UnsupportedOperationException("invalid socket address: " + socketAddress);
         }
     }
@@ -97,6 +115,7 @@ class NameServerSet implements ServerSet {
         } else if (addr.toString().equals("Neg")) {
             newHostSet = ImmutableSet.of();
         } else {
+            logger.error("Invalid Addr type: {}", addr.getClass().getName());
             throw new UnsupportedOperationException("Invalid Addr type:" + addr.getClass().getName());
         }
 
