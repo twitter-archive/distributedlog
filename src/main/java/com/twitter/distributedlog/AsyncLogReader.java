@@ -8,6 +8,14 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public interface AsyncLogReader extends Closeable {
+
+    /**
+     * Get stream name that the reader reads from.
+     *
+     * @return stream name.
+     */
+    public String getStreamName();
+
     /**
      * Read the next record from the log stream
      *

@@ -132,6 +132,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         lastException.compareAndSet(null, exc);
     }
 
+    @Override
+    public String getStreamName() {
+        return bkDistributedLogManager.getStreamName();
+    }
+
     /**
      * @param timeout - timeout value
      * @param timeUnit - units associated with the timeout value

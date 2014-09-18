@@ -703,6 +703,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         writer.close();
 
         AsyncLogReader asyncReader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        assertEquals(name, asyncReader.getStreamName());
         long numTrans = 0;
         DLSN lastDLSN = DLSN.InvalidDLSN;
         LogRecordWithDLSN record = asyncReader.readNext().get();
@@ -753,6 +754,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         final CountDownLatch syncLatch = new CountDownLatch(txid - 14);
         final AsyncLogReader reader = dlm.getAsyncLogReader(new DLSN(2, 2, 4));
+        assertEquals(name, reader.getStreamName());
         final Thread currentThread = Thread.currentThread();
 
         TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader, new DLSN(2, 3, 0));
@@ -833,6 +835,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+        assertEquals(name, reader.getStreamName());
         final Thread currentThread = Thread.currentThread();
 
         int txid = 1;
