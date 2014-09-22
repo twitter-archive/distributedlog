@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
@@ -33,6 +34,7 @@ class NameServerSet implements ServerSet {
 
     private volatile Set<HostChangeMonitor<ServiceInstance>> watchers = new HashSet<HostChangeMonitor<ServiceInstance>>();
     private volatile ImmutableSet<ServiceInstance> hostSet = ImmutableSet.of();
+    private AtomicBoolean resolutionPending = new AtomicBoolean(true);
 
     public NameServerSet(String nameStr) {
         Name name;
@@ -111,6 +113,7 @@ class NameServerSet implements ServerSet {
             logger.error("Name resolution failed", ((Addr.Failed)addr).cause());
             newHostSet = ImmutableSet.of();
         } else if (addr.toString().equals("Pending")) {
+            logger.info("Name resolution pending");
             newHostSet = oldHostSet;
         } else if (addr.toString().equals("Neg")) {
             newHostSet = ImmutableSet.of();
@@ -122,6 +125,7 @@ class NameServerSet implements ServerSet {
         // Reference comparison is valid as the sets are immutable
         if (oldHostSet != newHostSet) {
             logger.info("NameServerSet updated: {} -> {}", hostSetToString(oldHostSet), hostSetToString(newHostSet));
+            resolutionPending.set(false);
             hostSet = newHostSet;
             synchronized (watchers) {
                 for (HostChangeMonitor<ServiceInstance> watcher: watchers) {
@@ -226,7 +230,10 @@ class NameServerSet implements ServerSet {
         synchronized (watchers) {
             watchers.add(monitor);
         }
-        monitor.onChange(hostSet);
+
+        if(resolutionPending.compareAndSet(false, false)) {
+            monitor.onChange(hostSet);
+        }
 
         return Commands.NOOP; // Return value is not used
     }
