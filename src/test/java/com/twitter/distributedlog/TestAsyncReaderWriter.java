@@ -156,13 +156,15 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             FailpointUtils.FailPointActions.FailPointAction_Throw
         );
 
-        // Since we don't hit MAX_TRANSMISSION_SIZE, the failure is triggered on final flush, which
-        // will enqueue cancel promises task to the ordered future pool.
-        checkAllSubmittedButFailed(writer, batchSize, 1024, 1);
-
-        FailpointUtils.removeFailpoint(
-            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
-        );
+        try {
+            // Since we don't hit MAX_TRANSMISSION_SIZE, the failure is triggered on final flush, which
+            // will enqueue cancel promises task to the ordered future pool.
+            checkAllSubmittedButFailed(writer, batchSize, 1024, 1);
+        } finally {
+            FailpointUtils.removeFailpoint(
+                FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+            );
+        }
 
         writer.closeAndComplete();
         dlm.close();
@@ -332,12 +334,13 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             FailpointUtils.FailPointActions.FailPointAction_Throw
         );
 
-        checkAllSubmittedButFailed(writer, batchSize, recSize, 1);
-
-        FailpointUtils.removeFailpoint(
-            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
-        );
-
+        try {
+            checkAllSubmittedButFailed(writer, batchSize, recSize, 1);
+        } finally {
+            FailpointUtils.removeFailpoint(
+                FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+            );
+        }
         writer.closeAndComplete();
         dlm.close();
     }
