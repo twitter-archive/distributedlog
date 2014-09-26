@@ -24,6 +24,8 @@ import com.twitter.util.FutureEventListener;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.common.base.Stopwatch;
+
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 
@@ -1250,6 +1252,61 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         } catch (ReadCancelledException rce) {
             // expected
         }
+
+        dlm.close();
+    }
+
+    @Test
+    public void testAsyncWriteWithMinDelayBetweenFlushes() throws Exception {
+        String name = "distrlog-asyncwrite-mindelay";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setMinDelayBetweenImmediateFlushMs(100);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+        final CountDownLatch syncLatch = new CountDownLatch(3000);
+        final AtomicReference<DLSN> maxDLSN = new AtomicReference<DLSN>(DLSN.InvalidDLSN);
+        int txid = 1;
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        Stopwatch executionTime = Stopwatch.createStarted();
+        for (long i = 0; i < 3000; i++) {
+            Thread.sleep(1);
+            final LogRecord record = DLMTestUtil.getLogRecordInstance(txid++);
+            Future<DLSN> dlsnFuture = writer.write(record);
+            dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
+                @Override
+                public void onSuccess(DLSN value) {
+                    syncLatch.countDown();
+                    LOG.debug("SyncLatch: {} ; DLSN: {} ", syncLatch.getCount(), value);
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    currentThread.interrupt();
+                }
+            });
+        }
+        writer.closeAndComplete();
+
+        boolean success = false;
+        if (!(Thread.interrupted())) {
+            try {
+                success = syncLatch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exc) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        executionTime.stop();
+        assert(!(Thread.interrupted()));
+        assert(success);
+
+        LogRecordWithDLSN last = dlm.getLastLogRecord();
+        LOG.info("Last Entry {}; elapsed time {}", last.getDlsn().getEntryId(), executionTime.elapsed(TimeUnit.MILLISECONDS));
+        // Regardless of how many records we wrote; the number of BK entries should always be bounded by the min delay
+        assertTrue(last.getDlsn().getEntryId() <= (executionTime.elapsed(TimeUnit.MILLISECONDS) / confLocal.getMinDelayBetweenImmediateFlushMs() + 1));
+        DLMTestUtil.verifyLogRecord(last);
 
         dlm.close();
     }

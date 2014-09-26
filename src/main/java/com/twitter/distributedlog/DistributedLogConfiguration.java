@@ -51,6 +51,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ENABLE_IMMEDIATE_FLUSH = "enableImmediateFlush";
     public static final boolean BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT = false;
 
+    public static final String BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS = "minimumDelayBetweenImmediateFlushMilliSeconds";
+    public static final int BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT = 0;
+
     // Controls the retention period after which old ledgers are deleted
     public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
     public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
@@ -850,7 +853,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Get Periodic Log Flush Frequency in seconds
      *
-     * @return ensemble size
+     * @return periodic flush frequency
      */
     public int getPeriodicFlushFrequencyMilliSeconds() {
         return this.getInt(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT);
@@ -864,6 +867,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
         setProperty(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, flushFrequencyMs);
+        return this;
+    }
+
+    /**
+     * Get minimum delay between immediate flushes in milliseconds
+     *
+     * @return minimum delay between immediate flushes in milliseconds
+     */
+    public int getMinDelayBetweenImmediateFlushMs() {
+        return this.getInt(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT);
+    }
+
+    /**
+     * Set minimum delay between immediate flushes in milliseconds
+     *
+     * @param minDelayMs minimum delay between immediate flushes in milliseconds.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setMinDelayBetweenImmediateFlushMs(int minDelayMs) {
+        setProperty(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, minDelayMs);
         return this;
     }
 

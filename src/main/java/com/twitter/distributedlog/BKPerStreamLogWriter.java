@@ -18,6 +18,8 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
+
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
@@ -45,6 +47,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -179,8 +183,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     // add confirmed
     private boolean controlFlushNeeded = false;
     private boolean immediateFlushEnabled = false;
+    private int minDelayBetweenImmediateFlushMs = 0;
+    private Stopwatch lastTransmit;
     private boolean streamEnded = false;
     private ScheduledFuture<?> periodicFlushSchedule = null;
+    final private AtomicReference<ScheduledFuture<?>> transmitSchedFutureRef = new AtomicReference<ScheduledFuture<?>>(null);
+    final private AtomicReference<ScheduledFuture<?>> immFlushSchedFutureRef = new AtomicReference<ScheduledFuture<?>>(null);
     private boolean enforceLock = true;
     private boolean closed = true;
     private final boolean enableRecordCounts;
@@ -277,12 +285,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
                         periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
             }
+        } else {
+            // Min delay heuristic applies only when immediate flush is enabled
+            // and transmission threshold is zero
+            minDelayBetweenImmediateFlushMs = conf.getMinDelayBetweenImmediateFlushMs();
         }
+
         this.conf = conf;
         this.executorService = executorService;
         this.orderedFuturePool = orderedFuturePool;
         assert(!this.immediateFlushEnabled || (null != this.executorService));
         this.closed = false;
+        this.lastTransmit = Stopwatch.createStarted();
     }
 
     @VisibleForTesting
@@ -657,11 +671,43 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         }
     }
 
+    void scheduleFlushWithDelayIfNeeded(final Callable<?> callable,
+                                        final AtomicReference<ScheduledFuture<?>> scheduledFutureRef,
+                                        long delayMs) {
+        final ScheduledFuture<?> scheduledFuture = scheduledFutureRef.get();
+        if ((null == scheduledFuture) || scheduledFuture.isDone()) {
+            scheduledFutureRef.set(executorService.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized(this) {
+                        scheduledFutureRef.set(null);
+                        try {
+                            callable.call();
+                        } catch (Exception exc) {
+                            LOG.error("Delayed flush failed {}", exc);
+                        }
+                    }
+                }
+            }, delayMs, TimeUnit.MILLISECONDS));
+        }
+    }
+
     // Based on transmit buffer size, immediate flush, etc., should we flush the current
     // packet now.
     void flushIfNeeded() throws IOException {
         if (outstandingBytes > transmissionThreshold) {
-            setReadyToFlush();
+            long timeSinceLastTransmit = lastTransmit.elapsed(TimeUnit.MILLISECONDS);
+            if (minDelayBetweenImmediateFlushMs <= timeSinceLastTransmit) {
+                setReadyToFlush();
+            } else {
+                scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
+                    @Override
+                    public Void call() throws Exception {
+                        setReadyToFlush();
+                        return null;
+                    }
+                }, transmitSchedFutureRef, minDelayBetweenImmediateFlushMs - timeSinceLastTransmit);
+            }
         }
     }
 
@@ -792,6 +838,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                 transmitControlSuccesses.inc();
             }
 
+            lastTransmit.reset().start();
             outstandingRequests.incrementAndGet();
             controlFlushNeeded = false;
             return true;
@@ -880,16 +927,19 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
                     transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
                     controlFlushNeeded = true;
                     if (immediateFlushEnabled) {
-                        executorService.submit(new Runnable() {
+                        scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
                             @Override
-                            public void run() {
-                                immediateFlush(true);
+                            public Void call() throws Exception {
+                                backgroundFlush(true);
+                                return null;
                             }
-                        });
+                        }, immFlushSchedFutureRef, Math.max(0, minDelayBetweenImmediateFlushMs - lastTransmit.elapsed(TimeUnit.MILLISECONDS)));
                     }
                 }
             }
+
             DLSN lastDLSNInPacket = transmitPacket.markTransmitComplete(entryId, transmitResult.get());
+
             // update last dlsn before satisifying future
             if (BKException.Code.OK == transmitResult.get() && !transmitPacket.isControl()) {
                 if (null != lastDLSNInPacket && lastDLSN.compareTo(lastDLSNInPacket) < 0) {
@@ -925,10 +975,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     @Override
     synchronized public void run()  {
-        immediateFlush(false);
+        backgroundFlush(false);
     }
 
-    synchronized private void immediateFlush(boolean controlFlushOnly)  {
+    synchronized private void backgroundFlush(boolean controlFlushOnly)  {
         try {
             boolean newData = haveDataToTransmit();
 
