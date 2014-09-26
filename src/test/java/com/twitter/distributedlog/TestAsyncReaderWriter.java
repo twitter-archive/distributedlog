@@ -86,6 +86,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         try {
             Await.result(future, Duration.fromSeconds(10));
         } catch (Exception ex) {
+            LOG.info("Expect: {} Actual:{}", exClass.getName(), ex.getClass().getName());
             assertTrue("exceptions types equal", exClass.isInstance(ex));
         }
     }
@@ -152,8 +153,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         long slotIndex = 0;
 
         FailpointUtils.setFailpoint(
-            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry,
-            FailpointUtils.FailPointActions.FailPointAction_Throw
+            FailpointUtils.FailPointName.FP_TransmitComplete,
+            FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
         try {
@@ -162,7 +163,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             checkAllSubmittedButFailed(writer, batchSize, 1024, 1);
         } finally {
             FailpointUtils.removeFailpoint(
-                FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+                FailpointUtils.FailPointName.FP_TransmitComplete
             );
         }
 
@@ -330,15 +331,15 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertEquals(1, dlsn.getLedgerSequenceNo());
 
         FailpointUtils.setFailpoint(
-            FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry,
-            FailpointUtils.FailPointActions.FailPointAction_Throw
+            FailpointUtils.FailPointName.FP_TransmitComplete,
+            FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
         try {
             checkAllSubmittedButFailed(writer, batchSize, recSize, 1);
         } finally {
             FailpointUtils.removeFailpoint(
-                FailpointUtils.FailPointName.FP_TransmitBeforeAddEntry
+                FailpointUtils.FailPointName.FP_TransmitComplete
             );
         }
         writer.closeAndComplete();

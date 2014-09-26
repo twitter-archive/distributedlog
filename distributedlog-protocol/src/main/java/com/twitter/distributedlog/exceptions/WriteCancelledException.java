@@ -6,9 +6,9 @@ public class WriteCancelledException extends DLException {
 
     private static final long serialVersionUID = -1836146493496072122L;
 
-    public WriteCancelledException(String stream) {
+    public WriteCancelledException(String stream, Throwable t) {
         super(StatusCode.WRITE_CANCELLED_EXCEPTION,
-            "Write cancelled due to earlier error on stream " + 
-            stream);
+            "Write cancelled on stream " +
+            stream + " due to an earlier error", t);
     }
 }

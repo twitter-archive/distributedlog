@@ -9,6 +9,7 @@ class FailpointUtils {
         FP_StartLogSegmentAfterInProgressCreate,
         FP_FinalizeLedgerBeforeDelete,
         FP_TransmitBeforeAddEntry,
+        FP_TransmitComplete,
         FP_ZooKeeperConnectionLoss
     }
 
