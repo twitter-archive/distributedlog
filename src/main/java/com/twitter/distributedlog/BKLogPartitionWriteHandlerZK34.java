@@ -300,7 +300,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressZnodePath = inprogressZNode(inprogressZnodeName);
         try {
-            lock.checkWriteLock(true);
+            lock.checkOwnershipAndReacquire(true);
             // for normal case, it just fetches the metadata from caches, for recovery case, it reads
             // from zookeeper.
             LogSegmentLedgerMetadata logSegment = readLogSegmentFromCache(inprogressZnodeName);

@@ -25,9 +25,14 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
+import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.TimeoutException;
+import com.twitter.util.Throw;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -55,6 +60,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -66,6 +72,14 @@ import static com.google.common.base.Charsets.UTF_8;
  * a ledger. This could have timed out the lock, and another process could have
  * acquired the lock and started writing to bookkeeper. Therefore other
  * mechanisms are required to ensure correctness (i.e. Fencing).
+ * <p/>
+ * There are sync (acquire) and async (asyncAcquire) apis available in the 
+ * lock interface. It is inadvisable to use them together. Doing so will 
+ * essentialy render timeouts meaningless because the async interface doesn't 
+ * support timeouts. I.e. if you asyncAcquire and then sync acquire with a 
+ * timeout, the sync acquire timeout will cancel the lock, and cause the 
+ * asyncAcquire to abort. That said, using both together is considered safe 
+ * and is tested. 
  */
 class DistributedReentrantLock {
 
@@ -73,8 +87,15 @@ class DistributedReentrantLock {
 
     private final OrderedSafeExecutor lockStateExecutor;
     private final String lockPath;
-    private Future<String> asyncLockAcquireFuture = null;
-    private LockingException asyncLockAcquireException = null;
+
+    // We have two lock acquire futures: 
+    // 1. lock acquire future (in lockAcquireInfo): for the initial acquire op, unset only on full lock release
+    // 2. lock reacquire future: for reacquire necessary when session expires, lock is clossed
+    // Future [2] is set and unset every time expire/close occurs, behind the scenes, whereas
+    // future [1] is set and completed for the lifetime of one underlying acquire.  
+    private LockAcquireInfo lockAcquireInfo = null;
+    private Future<String> lockReacquireFuture = null;
+    private LockingException lockReacquireException = null;
 
     private final AtomicInteger lockCount = new AtomicInteger(0);
     private final AtomicIntegerArray lockAcqTracker;
@@ -85,13 +106,15 @@ class DistributedReentrantLock {
     private final int lockCreationRetries;
     private boolean logUnbalancedWarning = true;
     private volatile boolean closed = false;
-    // a counter to track how many re-acquires happened during a lock's life cycle.
+    
+    // A counter to track how many re-acquires happened during a lock's life cycle.
     private final AtomicInteger reacquireCount = new AtomicInteger(0);
 
     public enum LockReason {
-        WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4), MAXREASON(5);
+        WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4), 
+        READHANDLER(5), MAXREASON(6);
         private final int value;
-
+        
         private LockReason(int value) {
             this.value = value;
         }
@@ -99,6 +122,18 @@ class DistributedReentrantLock {
 
     private final OpStatsLogger acquireStats;
     private final OpStatsLogger releaseStats;
+
+    private final FutureEventListener<Void> RESET_ACQUIRE_STATE_ON_FAILURE = new FutureEventListener<Void>() {
+        @Override
+        public void onSuccess(Void complete) {
+        }
+        @Override
+        public void onFailure(Throwable cause) {
+            synchronized (DistributedReentrantLock.this) {
+                lockAcquireInfo = null;
+            }
+        }
+    };
 
     /**
      * Construct a lock.
@@ -146,6 +181,21 @@ class DistributedReentrantLock {
         releaseStats = lockStatsLogger.getOpStatsLogger("release");
     }
 
+    private static class LockAcquireInfo {
+        private final String previousOwner;
+        private final Future<Void> acquireFuture;
+        public LockAcquireInfo(String previousOwner, Future<Void> acquireFuture) {
+            this.previousOwner = previousOwner;
+            this.acquireFuture = acquireFuture;
+        }    
+        public Future<Void> getAcquireFuture() {
+            return acquireFuture;
+        }
+        public String getPreviousOwner() {
+            return previousOwner;
+        }
+    }
+
     void acquire(LockReason reason) throws LockingException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
@@ -165,8 +215,8 @@ class DistributedReentrantLock {
         if (closed) {
             throw new LockingException(lockPath, "Lock is closed");
         }
-        if (null != asyncLockAcquireException) {
-            throw asyncLockAcquireException;
+        if (null != lockReacquireException) {
+            throw lockReacquireException;
         }
     }
 
@@ -187,12 +237,17 @@ class DistributedReentrantLock {
                             throw new LockingException(lockPath, "Failed to create new internal lock", e);
                         }
                     }
-                    if (internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS)) {
-                        lockCount.set(1);
-                        break;
+                    if (null != lockAcquireInfo) {
+                        if (!internalLock.waitForAcquire(lockAcquireInfo.getAcquireFuture(), lockTimeout, TimeUnit.MILLISECONDS)) {
+                            throw new OwnershipAcquireFailedException(lockPath, lockAcquireInfo.getPreviousOwner());
+                        }
+                        lockCount.getAndIncrement();
                     } else {
-                        throw new LockingException(lockPath, "Failed to acquire lock within timeout");
+                        internalLock.tryLock(lockTimeout, TimeUnit.MILLISECONDS);
+                        lockAcquireInfo = new LockAcquireInfo(null, internalLock.getAcquireFuture());
+                        lockCount.set(1);
                     }
+                    break;
                 }
             } else {
                 int ret = lockCount.getAndIncrement();
@@ -204,6 +259,63 @@ class DistributedReentrantLock {
             }
         }
         lockAcqTracker.incrementAndGet(reason.value);
+    }
+
+    /**
+     * Asynchronously acquire the lock. Technically the try phase of this operation--which adds us to the waiter 
+     * list--is executed synchronously, but the lock wait itself doesn't block.
+     */ 
+    synchronized Future<Void> asyncAcquire(final LockReason reason) throws LockingException {
+        final Stopwatch stopwatch = new Stopwatch().start();
+        return doAsyncAcquire(reason).addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void complete) {
+                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                acquireStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+        });
+    }
+
+    synchronized Future<Void> doAsyncAcquire(final LockReason reason) throws LockingException {
+        LOG.trace("Async Lock Acquire {}, {}", lockPath, reason);
+        checkLockState();
+
+        if (null == lockAcquireInfo) {
+            if (internalLock.isExpiredOrClosed()) {
+                try {
+                    internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
+                } catch (IOException ioe) {
+                    LockingException lex = new LockingException(lockPath, "Failed to create new internal lock", ioe);
+                    return Future.exception(lex);
+                }
+            }
+
+            // We've got a valid internal lock, we need to try-acquire (which will begin the lock wait process)
+            // synchronously. There's no lock blocking on the try operation, so this shouldn't take long.
+            Future<String> result = internalLock.asyncTryLock(DistributedLogConstants.LOCK_TIMEOUT_INFINITE, TimeUnit.MILLISECONDS);
+            String previousOwner = internalLock.waitForTry(result);
+
+            // Failure should return us to a valid state.
+            Future<Void> acquireFuture = internalLock.getAcquireFuture().addEventListener(RESET_ACQUIRE_STATE_ON_FAILURE);
+            lockAcquireInfo = new LockAcquireInfo(previousOwner, acquireFuture);
+        }
+
+        // Bump use counts as soon as we acquire the lock.
+        return lockAcquireInfo.getAcquireFuture().addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void complete) {
+                synchronized (DistributedReentrantLock.this) {
+                    lockCount.getAndIncrement();
+                    lockAcqTracker.incrementAndGet(reason.value);
+                } 
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+            }
+        });
     }
 
     void release(LockReason reason) {
@@ -233,30 +345,31 @@ class DistributedReentrantLock {
                         lockPath, reason, perReasonLockCount));
             }
         }
-        if (lockCount.decrementAndGet() <= 0) {
-            if (logUnbalancedWarning && (lockCount.get() < 0)) {
-                LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
-                    lockPath, lockCount.get());
-                logUnbalancedWarning = false;
-            }
-            synchronized (this) {
+        synchronized (this) {
+            if (lockCount.decrementAndGet() <= 0) {
+                if (logUnbalancedWarning && (lockCount.get() < 0)) {
+                    LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
+                        lockPath, lockCount.get());
+                    logUnbalancedWarning = false;
+                }
                 if (lockCount.get() <= 0) {
                     if (internalLock.isLockHeld()) {
                         LOG.info("Lock Release {}, {}", lockPath, reason);
                         internalLock.unlock();
                     }
+                    lockAcquireInfo = null;
                 }
             }
         }
     }
 
     /**
-     * Check if hold write lock, if it doesn't, then re-acquire the lock.
+     * Check if hold lock, if it doesn't, then re-acquire the lock.
      *
-     * @param acquiresync
-     * @throws LockingException
+     * @param sync  should we wait for the reacquire attempt to complete 
+     * @throws LockingException     if the lock attempt fails
      */
-    public void checkWriteLock(boolean acquiresync) throws LockingException {
+    public void checkOwnershipAndReacquire(boolean sync) throws LockingException {
         Future<String> futureToWaitFor;
         synchronized (this) {
             if (haveLock()) {
@@ -269,7 +382,7 @@ class DistributedReentrantLock {
             futureToWaitFor = reacquireLock(true);
         }
 
-        if (null != futureToWaitFor && acquiresync) {
+        if (null != futureToWaitFor && sync) {
             try {
                 Await.result(futureToWaitFor);
             } catch (Exception e) {
@@ -282,14 +395,29 @@ class DistributedReentrantLock {
         }
     }
 
+    /**
+     * Check if lock is held. 
+     * If not, error out and do not reacquire. Use this in cases where there are many waiters by default 
+     * and reacquire is unlikley to succeed.
+     *
+     * @throws LockingException     if the lock attempt fails
+     */
+    public void checkOwnership() throws LockingException {
+        synchronized (this) {
+            if (!haveLock()) {
+                throw new LockingException(lockPath, "Lost lock ownership");
+            }
+        }
+    }
+
     @VisibleForTesting
     int getReacquireCount() {
         return reacquireCount.get();
     }
 
     @VisibleForTesting
-    Future<String> getAsyncLockAcquireFuture() {
-        return asyncLockAcquireFuture;
+    Future<String> getLockReacquireFuture() {
+        return lockReacquireFuture;
     }
 
     @VisibleForTesting
@@ -307,24 +435,24 @@ class DistributedReentrantLock {
     }
 
     public void close() {
-        Future<String> futureToWait;
-        DistributedLock lockToClose;
+        Future<String> lockReacquireFutureSaved = null;
+        DistributedLock internalLockSaved;
         synchronized (this) {
             if (closed) {
                 return;
             }
             closed = true;
-            futureToWait = asyncLockAcquireFuture;
-            lockToClose = internalLock;
+            lockReacquireFutureSaved = lockReacquireFuture;
+            internalLockSaved = internalLock;
         }
-        if (null != futureToWait) {
+        if (null != lockReacquireFutureSaved) {
             try {
-                Await.result(futureToWait);
+                Await.result(lockReacquireFutureSaved);
             } catch (Exception e) {
-                LOG.warn("Exception on waiting re-acquiring lock {} : ", lockPath, e);
+                LOG.warn("Exception while waiting to re-acquire lock {} : ", lockPath, e);
             }
         }
-        lockToClose.unlock();
+        internalLockSaved.unlock();
     }
 
     void internalTryLock(final AtomicInteger numRetries, final long lockTimeout,
@@ -377,6 +505,7 @@ class DistributedReentrantLock {
                     @Override
                     public void onExpired() {
                         try {
+
                             reacquireLock(false);
                         } catch (LockingException e) {
                             // should not happen
@@ -403,23 +532,23 @@ class DistributedReentrantLock {
             if (closed) {
                 throw new LockingException(lockPath, "Lock is closed");
             }
-            if (null != asyncLockAcquireException) {
+            if (null != lockReacquireException) {
                 if (throwLockAcquireException) {
-                    throw asyncLockAcquireException;
+                    throw lockReacquireException;
                 } else {
                     return null;
                 }
             }
-            if (null != asyncLockAcquireFuture) {
-                return asyncLockAcquireFuture;
+            if (null != lockReacquireFuture) {
+                return lockReacquireFuture;
             }
-            asyncLockAcquireFuture = lockPromise = new Promise<String>();
-            asyncLockAcquireFuture.addEventListener(new FutureEventListener<String>() {
+            lockReacquireFuture = lockPromise = new Promise<String>();
+            lockReacquireFuture.addEventListener(new FutureEventListener<String>() {
                 @Override
                 public void onSuccess(String value) {
                     // if re-acquire successfully, clear the state.
                     synchronized (DistributedReentrantLock.this) {
-                        asyncLockAcquireFuture = null;
+                        lockReacquireFuture = null;
                     }
                 }
 
@@ -427,9 +556,9 @@ class DistributedReentrantLock {
                 public void onFailure(Throwable cause) {
                     synchronized (DistributedReentrantLock.this) {
                         if (cause instanceof LockingException) {
-                            asyncLockAcquireException = (LockingException) cause;
+                            lockReacquireException = (LockingException) cause;
                         } else {
-                            asyncLockAcquireException = new LockingException(lockPath,
+                            lockReacquireException = new LockingException(lockPath,
                                     "Exception on re-acquiring lock", cause);
                         }
                     }
@@ -475,7 +604,30 @@ class DistributedReentrantLock {
         public EpochChangedException(String lockPath, int expectedEpoch, int currentEpoch) {
             super(lockPath, "lock " + lockPath + " already moved to epoch " + currentEpoch + ", expected " + expectedEpoch);
         }
+    }
 
+    /**
+     * Exception indicates that the lock was closed (unlocked) before the lock request could complete. 
+     */
+    public static class LockClosedException extends LockingException {
+
+        private static final long serialVersionUID = 8775257025963470331L;
+
+        public LockClosedException(String lockPath, Pair<String, Long> lockId, DistributedLock.State currentState) {
+            super(lockPath, "lock at path " + lockPath + " with id " + lockId + " closed early in state : " + currentState);
+        }
+    }
+
+    /**
+     * Exception indicates that the lock's zookeeper session was expired before the lock request could complete. 
+     */
+    public static class LockSessionExpiredException extends LockingException {
+
+        private static final long serialVersionUID = 8775253025963470331L;
+
+        public LockSessionExpiredException(String lockPath, Pair<String, Long> lockId, DistributedLock.State currentState) {
+            super(lockPath, "lock at path " + lockPath + " with id " + lockId + " expired early in state : " + currentState);
+        }
     }
 
     /**
@@ -560,7 +712,7 @@ class DistributedReentrantLock {
         private final Pair<String, Long> lockId;
         private volatile State lockState;
 
-        private final CountDownLatch syncPoint;
+        private final Promise<Void> acquireFuture;
         private String currentId;
         private String currentNode;
         private String watchedNode;
@@ -568,6 +720,15 @@ class DistributedReentrantLock {
         private final AtomicInteger epoch = new AtomicInteger(0);
         private final OrderedSafeExecutor lockStateExecutor;
         private final LockListener lockListener;
+
+        /**
+         * Satisfied once the lock is acquired. Since this is a one time lock we never reset the 
+         * value--successful completion indicates the lock was initially acquired succesfully. but
+         * doesn't say anything about the current state of the lock.
+         */
+        protected Future<Void> getAcquireFuture() {
+            return acquireFuture;
+        }
 
         /**
          * Creates a distributed lock using the given {@code zkClient} to coordinate locking.
@@ -594,8 +755,20 @@ class DistributedReentrantLock {
             this.lockId = Pair.of(clientId, this.zk.getSessionId());
             this.lockStateExecutor = lockStateExecutor;
             this.lockListener = lockListener;
-            this.syncPoint = new CountDownLatch(1);
             this.lockState = State.INIT;
+
+            // Attach interrupt handler to acquire future so clients can abort the future.
+            this.acquireFuture = new Promise<Void>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
+                @Override
+                public BoxedUnit apply(Throwable t) {
+                    DistributedLock.this.unlock();
+                    return null;
+                }
+            });
+        }
+
+        String getLockPath() {
+            return this.lockPath;
         }
 
         @VisibleForTesting
@@ -746,7 +919,7 @@ class DistributedReentrantLock {
             return promise;
         }
 
-        private Future<String> asyncTryLock(long timeout, TimeUnit timeUnit) {
+        public Future<String> asyncTryLock(long timeout, TimeUnit unit) {
             final Promise<String> result = new Promise<String>();
             final boolean wait = DistributedLogConstants.LOCK_IMMEDIATE != timeout;
             if (wait) {
@@ -875,7 +1048,7 @@ class DistributedReentrantLock {
 
         /**
          * Try lock. If wait is true, it would wait and watch sibling to acquire lock when
-         * the sibling is dead. <i>syncPoint</i> will be notified either it locked successfully
+         * the sibling is dead. <i>acquireFuture</i> will be notified either it locked successfully
          * or the lock failed. The promise will only satisfy with current lock owner.
          *
          * NOTE: the <i>promise</i> is only satisfied on <i>lockStateExecutor</i>, so any
@@ -943,53 +1116,68 @@ class DistributedReentrantLock {
             }, promise);
         }
 
-        public boolean tryLock(long timeout, TimeUnit unit) throws LockingException {
-            return waitForLock(asyncTryLock(timeout, unit), timeout, unit);
+        public void tryLock(long timeout, TimeUnit unit) throws LockingException {
+            Future<String> tryFuture = asyncTryLock(timeout, unit);
+            String currentOwner = waitForTry(tryFuture);
+            boolean acquired = waitForAcquire(getAcquireFuture(), timeout, unit);
+            if (!acquired) {
+                throw new OwnershipAcquireFailedException(lockPath, currentOwner);
+            }
         }
 
-        public synchronized boolean waitForLock(Future<String> lockFuture, long timeout, TimeUnit unit)
-                throws LockingException {
+        private synchronized String waitForTry(Future<String> tryFuture) throws LockingException {
             boolean success = false;
             boolean stateChanged = false;
+            String currentOwner;
             try {
-                String owner;
-                try {
-                    owner = Await.result(lockFuture);
-                } catch (Exception e) {
-                    if (e instanceof LockingException) {
-                        stateChanged = e instanceof LockStateChangedException;
-                        throw (LockingException) e;
-                    } else {
-                        throw new LockingException(lockPath, lockId + " failed to lock " + lockPath, e);
-                    }
-                }
-                try {
-                    if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
-                        if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
-                            syncPoint.await();
-                        }
-                        else {
-                            if (!syncPoint.await(timeout, unit)) {
-                                LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
-                            }
-                        }
-                    }
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                }
-                success = isLockHeld();
-                if (!success) {
-                    throw new OwnershipAcquireFailedException(lockPath, owner);
-                }
+                currentOwner = Await.result(tryFuture);
+                success = true;
+            } catch (LockStateChangedException ex) {
+                stateChanged = true;
+                throw ex;
+            } catch (LockingException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                String message = getLockId() + " failed to lock " + lockPath;
+                throw new LockingException(lockPath, message, ex);
             } finally {
+                // This can only happen for a Throwable thats not an 
+                // Exception, i.e. an Error 
                 if (!success && !stateChanged) {
                     unlock();
                 }
             }
-            return true;
+            return currentOwner;
+        }
+
+        public synchronized boolean waitForAcquire(Future<Void> acquireFuture, long timeout, TimeUnit unit)
+                throws LockingException {
+            try {
+                if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
+                    if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
+                        Await.result(acquireFuture);
+                    }
+                    else {
+                        Await.result(acquireFuture, Duration.fromMilliseconds(timeout));
+                    }
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (TimeoutException toe) {
+                LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
+            } catch (Exception e) {
+                LOG.error("Caught exception waiting for lock acquire", e); 
+            } finally {
+                if (!isLockHeld()) {
+                    unlock();
+                }
+            }
+            return isLockHeld();
         }
 
         public synchronized void unlock() {
+            acquireFuture.updateIfEmpty(new Throw(
+                new LockClosedException(lockPath, lockId, lockState)));
             Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
             cleanup(cleanupResult);
             try {
@@ -1008,7 +1196,7 @@ class DistributedReentrantLock {
                           new Object[] { lockPath, System.currentTimeMillis(),
                                   lockEpoch, DistributedLock.this.epoch.get() });
             }
-            syncPoint.countDown();
+            acquireFuture.setValue(null /* complete */);
         }
 
         public boolean isLockHeld() {
@@ -1057,6 +1245,7 @@ class DistributedReentrantLock {
                             if (KeeperException.Code.OK.intValue() == rc ||
                                     KeeperException.Code.NONODE.intValue() == rc ||
                                     KeeperException.Code.SESSIONEXPIRED.intValue() == rc) {
+
                                 LOG.info("Deleted lock node {} for {} successfully.", path, lockId);
                             } else {
                                 LOG.warn("Failed on deleting lock node {} for {} : {}",
@@ -1080,17 +1269,20 @@ class DistributedReentrantLock {
                 @Override
                 public void execute() {
                     boolean shouldNotifyLockListener = State.CLAIMED == lockState;
-
                     lockState = State.EXPIRED;
+
                     // remove the watcher
                     if (null != watcher) {
                         zkClient.unregister(watcher);
                     }
+
                     // increment epoch to avoid any ongoing locking action
                     DistributedLock.this.epoch.incrementAndGet();
+
                     // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
                     // we don't even need to clean up the lock as the znode will disappear after session expired
-                    syncPoint.countDown();
+                    acquireFuture.updateIfEmpty(new Throw(
+                        new LockSessionExpiredException(lockPath, lockId, lockState)));
 
                     if (shouldNotifyLockListener) {
                         // if session expired after claimed, we need to notify the caller to re-lock
@@ -1191,7 +1383,7 @@ class DistributedReentrantLock {
                         return;
                     }
                     if (children.isEmpty()) {
-                        LOG.error("Error, memeber list is empty for lock {}.", lockPath);
+                        LOG.error("Error, member list is empty for lock {}.", lockPath);
                         promise.setException(new UnexpectedException("Empty member list for lock " + lockPath));
                         return;
                     }
@@ -1306,9 +1498,9 @@ class DistributedReentrantLock {
                                         if (KeeperException.Code.OK.intValue() == rc) {
                                             if (lockId.compareTo(currentOwner) == 0 && siblingNode.equals(ownerNode)) {
                                                 // watch owner successfully
-                                                claimOwnership(lockWatcher.epoch);
                                                 LOG.info("LockWatcher {} claimed ownership for {} after set watcher on {}.",
                                                         new Object[]{ myNode, lockPath, ownerNode });
+                                                claimOwnership(lockWatcher.epoch);
                                                 promise.setValue(currentOwner.getLeft());
                                             } else {
                                                 // watch sibling successfully

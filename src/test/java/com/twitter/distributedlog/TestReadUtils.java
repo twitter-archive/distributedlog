@@ -38,7 +38,6 @@ public class TestReadUtils extends TestDistributedLogBase {
     private Future<LogRecordWithDLSN> getLastUserRecord(BKDistributedLogManager bkdlm, int ledgerNo) throws Exception {
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
-        LOG.info("DBG: tru {}", ledgerList);
         return ReadUtils.asyncReadLastRecord(
             bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
             bkdlm.getWriterBKC(), conf.getBKDigestPW());

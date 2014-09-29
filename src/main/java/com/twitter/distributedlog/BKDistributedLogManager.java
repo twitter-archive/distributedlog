@@ -21,6 +21,7 @@ import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
+import com.twitter.util.FutureEventListener;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -37,7 +38,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -45,6 +49,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogManager.class);
@@ -108,6 +114,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final AlertStatsLogger alertStatsLogger;
     private final OpStatsLogger createWriteHandlerStats;
 
+    final private PendingReaders pendingReaders;
+
     BKDistributedLogManager(String name,
                             DistributedLogConfiguration conf,
                             URI uri,
@@ -150,6 +158,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.readAheadExecutor = null == readAheadExecutor ? executorService : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
+        this.pendingReaders = new PendingReaders();
 
         // create the bkc for writers
         if (null == writerBKCBuilder) {
@@ -277,7 +286,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(PartitionId partition) throws IOException {
-        return createReadLedgerHandler(partition.toString(), null);
+        return createReadLedgerHandler(partition.toString(), getLockStateExecutor(true), null);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(PartitionId partition) throws IOException {
@@ -285,14 +294,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return createReadLedgerHandler(streamIdentifier, null);
+        return createReadLedgerHandler(streamIdentifier, getLockStateExecutor(true), null);
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                          OrderedSafeExecutor lockExecutor,
                                                                           AsyncNotification notification) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                readerZKCBuilder, readerBKCBuilder, executorService, readAheadExecutor,
-                alertStatsLogger, readAheadExceptionsLogger, statsLogger, notification);
+                readerZKCBuilder, readerBKCBuilder, executorService, lockExecutor, readAheadExecutor,
+                alertStatsLogger, readAheadExceptionsLogger, statsLogger, clientId, notification);
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
@@ -511,7 +521,50 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
-        return new BKAsyncLogReaderDLSN(this, executorService, conf.getUnpartitionedStreamName(), fromDLSN, statsLogger);
+        return new BKAsyncLogReaderDLSN(this, executorService, getLockStateExecutor(true), 
+                                        conf.getUnpartitionedStreamName(), fromDLSN, 
+                                        statsLogger, false /* lock stream */);
+    }
+
+    /**
+     * Note the lock here is a sort of elective exclusive lock. I.e. acquiring this lock will only prevent other
+     * people who try to acquire the lock from reading from the stream. Normal readers (and writers) will not be 
+     * blocked.
+     */
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN) throws IOException {
+        
+        // We don't need to use the same ordered executor for all locks, but the locks are unrelated, so it 
+        // also doesn't matter whether we do.
+        final BKAsyncLogReaderDLSN reader = new BKAsyncLogReaderDLSN(this, executorService, getLockStateExecutor(true), 
+                                                                     conf.getUnpartitionedStreamName(), fromDLSN, 
+                                                                     statsLogger, true /* lock stream */);
+
+        // Since we're not returning the reader yet, we own the reader for now (ex. if something goes wrong 
+        // we'll have to clean up).
+        pendingReaders.add(reader);
+
+        // Return the reader once the lock is acquired. 
+        return reader.getLockAcquireFuture().map(new Function<Void, AsyncLogReader>() {
+            @Override
+            public AsyncLogReader apply(Void complete) {
+                return (AsyncLogReader) reader;
+            }
+        }).addEventListener(new FutureEventListener<AsyncLogReader>() {
+            @Override
+            public void onSuccess(AsyncLogReader r) {
+                pendingReaders.remove(reader);
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                try {
+                    pendingReaders.remove(reader);
+                    reader.close();
+                } catch (IOException ioe) {
+                    LOG.error("failed to close reader on failure");
+                }
+            }
+        });
     }
 
     /**
@@ -962,6 +1015,26 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    static class PendingReaders {
+        Set<AsyncLogReader> readers = new HashSet<AsyncLogReader>();
+        public synchronized void remove(AsyncLogReader reader) {
+            readers.remove(reader);
+        }
+        public synchronized void add(AsyncLogReader reader) {
+            readers.add(reader);
+        }
+        public synchronized void close() {
+            for (AsyncLogReader reader : readers) {
+                try {
+                    reader.close(); 
+                } catch (Exception ex) {
+                    LOG.error("failed to close pending reader");
+                }
+            }
+            readers.clear();
+        }
+    };
+
     /**
      * Close the distributed log manager, freeing any resources it may hold.
      */
@@ -972,6 +1045,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 readHandlerForListener.close();
             }
         }
+        
+        // Remove and close all pending readers.
+        pendingReaders.close();
+
+        // Clean up executor state.
         if (ownExecutor) {
             SchedulerUtils.shutdownScheduler(executorService, 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL executor service for {}.", name);

@@ -6,6 +6,11 @@ import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
+
+import com.twitter.util.Function;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Future;
+
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -15,6 +20,7 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -22,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
@@ -30,6 +37,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -55,6 +63,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final Counter readAheadEntryPiggyBackMisses;
     private final Counter readAheadReadLACCounter;
     private final Counter readAheadReadLACAndEntryCounter;
+    private final Counter readLockRequestStat;
+    private final Counter readLockAcquireSuccessStat;
+    private final Counter readLockAcquireFailureStat;
+    private final Counter readLockReleaseStat;
     private final OpStatsLogger getInputStreamByTxIdStat;
     private final OpStatsLogger getInputStreamByDLSNStat;
     private final OpStatsLogger existsStat;
@@ -63,6 +75,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final OpStatsLogger metadataReinitializationStat;
     private final OpStatsLogger notificationExecutionStat;
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
+
+    private final OrderedSafeExecutor lockStateExecutor;
+    private final String readLockPath;
+    private DistributedReentrantLock readLock;
+    private Future<Void> lockAcquireFuture;
 
     public enum ReadLACOption {
         DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
@@ -83,13 +100,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
                                      ScheduledExecutorService executorService,
+                                     OrderedSafeExecutor lockStateExecutor,
                                      ScheduledExecutorService readAheadExecutor,
                                      AlertStatsLogger alertStatsLogger,
                                      ReadAheadExceptionsLogger readAheadExceptionsLogger,
                                      StatsLogger statsLogger,
+                                     String clientId,
                                      AsyncNotification notification) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
-              statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER);
+              statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
@@ -101,6 +120,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         this.checkLogExistenceBackoffStartMs = conf.getCheckLogExistenceBackoffStartMillis();
         this.checkLogExistenceBackoffMaxMs = conf.getCheckLogExistenceBackoffMaxMillis();
         this.checkLogExistenceBackoffMs = this.checkLogExistenceBackoffStartMs;
+
+        this.readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
+        this.lockStateExecutor = lockStateExecutor;
 
         // Stats
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
@@ -118,6 +140,54 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
         existsStat = readerStatsLogger.getOpStatsLogger("check_stream_exists");
         this.readAheadExceptionsLogger = readAheadExceptionsLogger;
+        StatsLogger readLockStatsLogger = statsLogger.scope("read_lock");
+        readLockRequestStat = readLockStatsLogger.getCounter("request");
+        readLockAcquireSuccessStat = readLockStatsLogger.getCounter("acquire_success");
+        readLockAcquireFailureStat = readLockStatsLogger.getCounter("acquire_failure");
+        readLockReleaseStat = readLockStatsLogger.getCounter("release");
+    }
+
+    /** 
+     * Elective stream lock--readers are not required to acquire the lock before using the stream.
+     */
+    synchronized Future<Void> lockStream() throws IOException {
+        if (null == readLock) {
+            if (!doesLogExist()) {
+                throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
+            }
+
+            this.readLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, readLockPath,
+                    conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, 
+                    conf.getZKNumRetries());
+            
+            LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
+            readLockRequestStat.inc();
+
+            lockAcquireFuture = readLock.asyncAcquire(
+                    DistributedReentrantLock.LockReason.READHANDLER);
+            lockAcquireFuture.addEventListener(new FutureEventListener<Void>() {
+                @Override
+                public void onSuccess(Void complete) {
+                    readLockAcquireSuccessStat.inc();   
+                    LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    readLockAcquireFailureStat.inc();    
+                    LOG.info("failed to acquire readlock {} at {}", 
+                        new Object[] {getLockClientId(), readLockPath, cause});
+                }
+            });
+        }
+
+        return lockAcquireFuture;
+    }
+
+    /** 
+     * Check ownership of elective stream lock.
+     */
+    void checkReadLock() throws LockingException {
+        readLock.checkOwnership();
     }
 
     public ResumableBKPerStreamLogReader getInputStream(DLSN fromDLSN,
@@ -312,13 +382,27 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     public void close() throws IOException {
-        if (null != readAheadWorker) {
-            readAheadWorker.stop();
+        try {
+            if (null != readAheadWorker) {
+                readAheadWorker.stop();
+            }
+            if (null != ledgerDataAccessor) {
+                ledgerDataAccessor.clear();
+            }
+            super.close();
+        } finally {
+            synchronized (this) {
+                if (null != readLock) { 
+                    // Force close--we may or may not have 
+                    // actually acquired the lock by now. The 
+                    // effect will be to abort any acquire 
+                    // attempts.
+                    LOG.info("closing readlock {} at {}", getLockClientId(), readLockPath);
+                    readLockReleaseStat.inc();
+                    readLock.close();
+                }
+            }
         }
-        if (null != ledgerDataAccessor) {
-            ledgerDataAccessor.clear();
-        }
-        super.close();
     }
 
     private void setWatcherOnLedgerRoot(Watcher watcher) throws ZooKeeperClient.ZooKeeperConnectionException, KeeperException, InterruptedException {

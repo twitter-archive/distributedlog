@@ -340,4 +340,24 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
 
         out.close();
     }
+
+    @Test(timeout = 60000)
+    public void testLockStreamWithMissingLog() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        try {
+            readHandler.lockStream();
+        } catch (LogNotFoundException ex) {
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testLockStream() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1);
+        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        readHandler.lockStream();
+    }
 }

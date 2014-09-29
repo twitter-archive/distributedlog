@@ -44,6 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -129,6 +130,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     private final AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
     private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
     protected volatile boolean reportGetSegmentStats = false;
+    private final String lockClientId;
 
     // listener
     protected final CopyOnWriteArraySet<LogSegmentListener> listeners =
@@ -158,6 +160,13 @@ abstract class BKLogPartitionHandler implements Watcher {
     private final OpStatsLogger negativeGetCompletedSegmentStat;
     private final OpStatsLogger recoverLastEntryStats;
     private final OpStatsLogger recoverScannedEntriesStats;
+
+    final static String LEDGERS_PATH = "/ledgers";
+    final static String MAX_TXID_PATH = "/maxtxid";
+    final static String LOCK_PATH = "/lock";
+    final static String READ_LOCK_PATH = "/readLock";
+    final static String VERSION_PATH = "/version";
+    final static String ALLOCATION_PATH = "/allocation";
 
     static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
 
@@ -261,7 +270,8 @@ abstract class BKLogPartitionHandler implements Watcher {
                           ScheduledExecutorService executorService,
                           StatsLogger statsLogger,
                           AsyncNotification notification,
-                          LogSegmentFilter filter) throws IOException {
+                          LogSegmentFilter filter,
+                          String lockClientId) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
@@ -307,6 +317,12 @@ abstract class BKLogPartitionHandler implements Watcher {
         }
         this.bookKeeperClient = bkcBuilder.build();
 
+        if (lockClientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)) {
+            this.lockClientId = getHostIpLockClientId();
+        } else {
+            this.lockClientId = lockClientId;
+        }
+
         // Traces
         this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
 
@@ -322,6 +338,18 @@ abstract class BKLogPartitionHandler implements Watcher {
         negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
         recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
         recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
+    }
+
+    public String getLockClientId() {
+        return lockClientId;
+    }
+
+    private String getHostIpLockClientId() {        
+        try {
+            return InetAddress.getLocalHost().toString();
+        } catch(Exception ex) { 
+            return DistributedLogConstants.UNKNOWN_CLIENT_ID;    
+        }
     }
 
     protected void registerListener(LogSegmentListener listener) {

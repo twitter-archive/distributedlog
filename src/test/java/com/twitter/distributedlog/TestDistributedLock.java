@@ -388,7 +388,7 @@ public class TestDistributedLock {
 
         DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
         DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
-
+        
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // verification after lock0 lock
         assertEquals(State.CLAIMED, lock0.getLockState());

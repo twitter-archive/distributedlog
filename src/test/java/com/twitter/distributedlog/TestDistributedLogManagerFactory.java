@@ -307,6 +307,9 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         } catch (LockingException ex) {
             LOG.info("caught exception trying to write with no perms {}", ex);
             assertEquals(KeeperException.NoAuthException.class, ex.getCause().getClass());
+        } catch (Exception ex) {
+            LOG.info("caught wrong exception trying to write with no perms {}", ex);
+            fail("wrong exception " + ex.getClass().getName() + " expected " + LockingException.class.getName());
         }
 
         // Should work again.

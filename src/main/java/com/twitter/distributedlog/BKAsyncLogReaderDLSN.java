@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final boolean positionGapDetectionEnabled;
 
     protected boolean closed = false;
+
+    private final boolean lockStream;
+    private final Future<Void> lockAcquireFuture;
 
     // Stats
     private final OpStatsLogger readNextExecTime;
@@ -77,12 +81,14 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                                 ScheduledExecutorService executorService,
+                                OrderedSafeExecutor lockStateExecutor,
                                 String streamIdentifier,
                                 DLSN startDLSN,
-                                StatsLogger statsLogger) throws IOException {
+                                StatsLogger statsLogger,
+                                boolean lockStream) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, this);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, lockStateExecutor, this);
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;
@@ -96,6 +102,22 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         backgroundReaderRunTime = asyncReaderStatsLogger.getOpStatsLogger("background_read");
         readNextExecTime = asyncReaderStatsLogger.getOpStatsLogger("read_next_exec");
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
+        
+        // Lock the stream if requested. The lock will be released when the reader is closed.
+        this.lockStream = lockStream;
+        if (this.lockStream) {
+            lockAcquireFuture = bkLedgerManager.lockStream();
+        } else {
+            lockAcquireFuture = null;
+        }
+    }
+
+    /**
+     * If stream lock was requested, return a future that is satisfied when the lock is acquired.
+     * Else returns null.
+     */
+    Future<Void> getLockAcquireFuture() {
+        return lockAcquireFuture;
     }
 
     @Override
@@ -116,6 +138,14 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 bkDistributedLogManager.checkClosedOrInError(operation);
             } catch (IOException exc) {
                 setLastException(exc);
+            }
+        }
+
+        if (lockStream) {
+            try {
+                bkLedgerManager.checkReadLock();
+            } catch (LockingException ex) {
+                setLastException(ex);
             }
         }
 
@@ -204,6 +234,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         cancelAllPendingReads(exception);
 
         bkLedgerManager.unregister(sessionExpireWatcher);
+
+        // Also releases the read lock, if acquired.
         bkLedgerManager.close();
     }
 

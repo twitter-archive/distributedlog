@@ -365,7 +365,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                String clientId,
                                int regionId) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, statsLogger, null, WRITE_HANDLE_FILTER);
+              executorService, statsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.metadataExecutor = metadataExecutor;
         this.orderedFuturePool = orderedFuturePool;
         this.lockStateExecutor = lockStateExecutor;
@@ -396,11 +396,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
         final boolean ownAllocator = useAllocator && (null == allocator);
 
-        this.maxTxIdPath = partitionRootPath + "/maxtxid";
-        final String lockPath = partitionRootPath + "/lock";
-        allocationPath = partitionRootPath + "/allocation";
+        this.maxTxIdPath = partitionRootPath + BKLogPartitionHandler.MAX_TXID_PATH;
+        final String lockPath = partitionRootPath + BKLogPartitionHandler.LOCK_PATH;
+        allocationPath = partitionRootPath + BKLogPartitionHandler.ALLOCATION_PATH;
 
-        // lockData & ledgersData just used for checking whether the path exists or not.
+        // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat maxTxIdData = new DataWithStat();
         allocationData = new DataWithStat();
         final DataWithStat ledgersData = new DataWithStat();
@@ -425,20 +425,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
         scheduleGetLedgersTask(false, true);
 
-        if (clientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)){
-            try {
-                clientId = InetAddress.getLocalHost().toString();
-            } catch(Exception exc) {
-                // Best effort
-                clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
-            }
-        }
-
         // Build the locks
         lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries());
+                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries());
         deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries());
+                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries());
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 
@@ -489,14 +480,20 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                         final DataWithStat allocationData,
                                         final DataWithStat maxTxIdData,
                                         final DataWithStat ledgersData) throws IOException {
-        final String ledgerPath = partitionRootPath + "/ledgers";
-        final String maxTxIdPath = partitionRootPath + "/maxtxid";
-        final String lockPath = partitionRootPath + "/lock";
-        final String versionPath = partitionRootPath + "/version";
-        final String allocationPath = partitionRootPath + "/allocation";
 
-        // lockData & ledgersData just used for checking whether the path exists or not.
+        // Note re. persistent lock state initialization: the read lock persistent state (path) is 
+        // initialized here but only used in the read handler. The reason is its more convenient and 
+        // less error prone to manage all stream structure in one place. 
+        final String ledgerPath = partitionRootPath + BKLogPartitionHandler.LEDGERS_PATH;
+        final String maxTxIdPath = partitionRootPath + BKLogPartitionHandler.MAX_TXID_PATH;
+        final String lockPath = partitionRootPath + BKLogPartitionHandler.LOCK_PATH;
+        final String readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
+        final String versionPath = partitionRootPath + BKLogPartitionHandler.VERSION_PATH;
+        final String allocationPath = partitionRootPath + BKLogPartitionHandler.ALLOCATION_PATH;
+
+        // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat lockData = new DataWithStat();
+        final DataWithStat readLockData = new DataWithStat();
         final DataWithStat versionData = new DataWithStat();
 
         final CountDownLatch initializeLatch = new CountDownLatch(1);
@@ -536,6 +533,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 // lock path
                 zk.create(lockPath, new byte[0], acl,
                         CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
+                // read lock path
+                zk.create(readLockPath, new byte[0], acl,
+                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
                 // allocation path
                 if (ownAllocator) {
                     zk.create(allocationPath, new byte[0], acl,
@@ -572,7 +572,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             public void processResult(int rc, String path, Object ctx) {
                 if (KeeperException.Code.OK.intValue() == rc) {
                     if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
-                        lockData.notExists() || ledgersData.notExists()) {
+                        lockData.notExists() || readLockData.notExists() || ledgersData.notExists()) {
                         ZkUtils.createFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
                                 acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
                     } else {
@@ -587,14 +587,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             }
         }
 
-        MultiGetCallback getCallback = new MultiGetCallback(ownAllocator ? 5 : 4,
-                new GetDataCallback(), null);
+        final int NUM_PATHS_TO_CHECK = ownAllocator ? 6 : 5;
+        MultiGetCallback getCallback = new MultiGetCallback(NUM_PATHS_TO_CHECK, new GetDataCallback(), null);
         zk.getData(maxTxIdPath, false, getCallback, maxTxIdData);
         zk.getData(versionPath, false, getCallback, versionData);
         if (ownAllocator) {
             zk.getData(allocationPath, false, getCallback, allocationData);
         }
         zk.getData(lockPath, false, getCallback, lockData);
+        zk.getData(readLockPath, false, getCallback, readLockData);
         zk.getData(ledgerPath, false, getCallback, ledgersData);
 
         try {
@@ -772,7 +773,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
             /*
              * Write the ledger metadata out to the inprogress ledger znode
              * This can fail if for some reason our write lock has
-             * expired (@see DistributedExclusiveLock) and another process has managed to
+             * expired (@see DistributedReentrantLock) and another process has managed to
              * create the inprogress znode.
              * In this case, throw an exception. We don't want to continue
              * as this would lead to a split brain situation.
@@ -978,7 +979,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 throw new IOException("Inprogress znode " + inprogressPath
                     + " doesn't exist");
             }
-            lock.checkWriteLock(true);
+            lock.checkOwnershipAndReacquire(true);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
                     conf.getDLLedgerMetadataLayoutVersion());
