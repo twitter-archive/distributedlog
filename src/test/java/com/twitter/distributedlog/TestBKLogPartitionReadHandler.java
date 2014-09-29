@@ -28,7 +28,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestBKLogPartitionReadHandler.class);
 
-    @Rule 
+    @Rule
     public TestName runtime = new TestName();
 
     private void prepareLogSegments(String name, int numSegments, int numEntriesPerSegment) throws Exception {
@@ -142,10 +142,10 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         try {
             Await.result(futureRecord);
             fail("should have thrown exception");
-        } catch (LogEmptyException ex) {
+        } catch (LogNotFoundException ex) {
         }
     }
-    
+
     @Test(timeout = 60000)
     public void testGetFirstDLSNWithLogSegments() throws Exception {
         String dlName = runtime.getMethodName();
@@ -166,7 +166,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 3, 10);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = 
+        BKLogPartitionReadHandler readHandler =
             ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Future<Boolean> futureSuccess = writer.truncate(new DLSN(2, 0, 0));
@@ -182,10 +182,10 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 3, 10);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = 
+        BKLogPartitionReadHandler readHandler =
             ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
-        
+
         // Only truncates at ledger boundary.
         Future<Boolean> futureSuccess = writer.truncate(new DLSN(2, 5, 0));
         Boolean success = Await.result(futureSuccess);
@@ -205,7 +205,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         try {
             Await.result(count);
             fail("log is empty, should have returned log empty ex");
-        } catch (LogEmptyException ex) {
+        } catch (LogNotFoundException ex) {
         }
     }
 
@@ -296,14 +296,14 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public void testGetLogRecordCountWithSingleInProgressLedger() throws Exception {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
-        
+
         AsyncLogWriter out = bkdlm.startAsyncLogSegmentNonPartitioned();
         int txid = 1;
 
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
-        
+
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
         assertEquals(1, ledgerList.size());
@@ -320,14 +320,14 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public void testGetLogRecordCountWithCompletedAndInprogressLedgers() throws Exception {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
-        
+
         long txid = 1;
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, txid);
         AsyncLogWriter out = bkdlm.startAsyncLogSegmentNonPartitioned();
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
-        
+
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
         assertEquals(2, ledgerList.size());

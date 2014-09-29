@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 
@@ -21,6 +22,7 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -147,7 +149,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         readLockReleaseStat = readLockStatsLogger.getCounter("release");
     }
 
-    /** 
+    @VisibleForTesting
+    String getReadLockPath() {
+        return readLockPath;
+    }
+
+    /**
      * Elective stream lock--readers are not required to acquire the lock before using the stream.
      */
     synchronized Future<Void> lockStream() throws IOException {
@@ -156,10 +163,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
             }
 
+            ensureReadLockPathExist();
+
             this.readLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, readLockPath,
-                    conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, 
+                    conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger,
                     conf.getZKNumRetries());
-            
+
             LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
             readLockRequestStat.inc();
 
@@ -168,14 +177,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             lockAcquireFuture.addEventListener(new FutureEventListener<Void>() {
                 @Override
                 public void onSuccess(Void complete) {
-                    readLockAcquireSuccessStat.inc();   
+                    readLockAcquireSuccessStat.inc();
                     LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
                 }
+
                 @Override
                 public void onFailure(Throwable cause) {
-                    readLockAcquireFailureStat.inc();    
-                    LOG.info("failed to acquire readlock {} at {}", 
-                        new Object[] {getLockClientId(), readLockPath, cause});
+                    readLockAcquireFailureStat.inc();
+                    LOG.info("failed to acquire readlock {} at {}",
+                            new Object[]{getLockClientId(), readLockPath, cause});
                 }
             });
         }
@@ -183,7 +193,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return lockAcquireFuture;
     }
 
-    /** 
+    /**
      * Check ownership of elective stream lock.
      */
     void checkReadLock() throws LockingException {
@@ -392,10 +402,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             super.close();
         } finally {
             synchronized (this) {
-                if (null != readLock) { 
-                    // Force close--we may or may not have 
-                    // actually acquired the lock by now. The 
-                    // effect will be to abort any acquire 
+                if (null != readLock) {
+                    // Force close--we may or may not have
+                    // actually acquired the lock by now. The
+                    // effect will be to abort any acquire
                     // attempts.
                     LOG.info("closing readlock {} at {}", getLockClientId(), readLockPath);
                     readLockReleaseStat.inc();
@@ -447,6 +457,25 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
+    void ensureReadLockPathExist() throws IOException {
+        try {
+            if (null == zooKeeperClient.get().exists(readLockPath, false)) {
+                zooKeeperClient.get().create(readLockPath, new byte[0],
+                        zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT);
+            }
+        } catch (KeeperException e) {
+            if (KeeperException.Code.NODEEXISTS == e.code()) {
+                // someone create the lock path, we are fine
+                return;
+            }
+            LOG.error("Error ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
+            throw new ZKException("Error ensuring readlock path existed for " + getFullyQualifiedName(), e);
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted while ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
+            throw new DLInterruptedException("Interrupted while ensuring read lock path existed for " + getFullyQualifiedName(), e);
+        }
+    }
+
     public boolean doesLogExist() throws IOException {
         boolean logExists = false;
         boolean success = false;
@@ -460,8 +489,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             LOG.error("Interrupted while checking " + ledgerPath, ie);
             throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
-            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Error checking " + ledgerPath + " existence in zookeeper", ke);
+            throw new ZKException("Error checking " + getFullyQualifiedName() + " existence", ke);
         } finally {
             if (success) {
                 existsStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -914,7 +943,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                             new Object[]{getFullyQualifiedName(), nextReadPosition, l});
                                         setReadingFromTruncated();
                                         return;
-                                    } 
+                                    }
                                 }
 
                                 currentMetadata = l;

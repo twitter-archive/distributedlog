@@ -344,11 +344,11 @@ abstract class BKLogPartitionHandler implements Watcher {
         return lockClientId;
     }
 
-    private String getHostIpLockClientId() {        
+    private String getHostIpLockClientId() {
         try {
             return InetAddress.getLocalHost().toString();
-        } catch(Exception ex) { 
-            return DistributedLogConstants.UNKNOWN_CLIENT_ID;    
+        } catch(Exception ex) {
+            return DistributedLogConstants.UNKNOWN_CLIENT_ID;
         }
     }
 
@@ -532,7 +532,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     public long getLogRecordCount() throws IOException {
         try {
             checkLogStreamExists();
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             return 0;
         }
 
@@ -672,7 +672,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         promise.setValue(null);
                     } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                        promise.setException(new LogEmptyException("Log " + getFullyQualifiedName() + " is empty"));
+                        promise.setException(new LogNotFoundException("Log " + getFullyQualifiedName() + " is empty"));
                     } else {
                         promise.setException(new ZKException("Error on checking log existence for " + getFullyQualifiedName(),
                                 KeeperException.create(KeeperException.Code.get(rc))));
@@ -691,14 +691,14 @@ abstract class BKLogPartitionHandler implements Watcher {
     private void checkLogStreamExists() throws IOException {
         try {
             if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
-                throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+                throw new LogNotFoundException("Log " + getFullyQualifiedName() + " doesn't exist");
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", ledgerPath, ie);
             throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
-            LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Error checking existence for {} : ", ledgerPath, ke);
+            throw new ZKException("Error checking existence for " + getFullyQualifiedName() + " : ", ke);
         }
     }
 

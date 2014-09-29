@@ -121,7 +121,7 @@ public interface DistributedLogManager extends MetadataAccessor {
 
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;
 
-    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN) throws IOException;
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN);
 
     /**
      * Get the last log record before the specified transactionId

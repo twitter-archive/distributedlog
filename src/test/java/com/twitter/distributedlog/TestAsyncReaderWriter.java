@@ -1,6 +1,5 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
@@ -18,16 +17,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
-import org.junit.Ignore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
-import com.twitter.util.Promise;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import com.google.common.base.Stopwatch;
@@ -1277,6 +1273,32 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
+    public void testReaderLockIfLockPathDoesntExist() throws Exception {
+        final String name = runtime.getMethodName();
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        writer.write(DLMTestUtil.getLogRecordInstance(1L));
+        writer.closeAndComplete();
+
+        Future<AsyncLogReader> futureReader1 = dlm.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
+        BKAsyncLogReaderDLSN reader1 = (BKAsyncLogReaderDLSN) Await.result(futureReader1);
+        LogRecord record = Await.result(reader1.readNext());
+        assertEquals(1L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+
+        String readLockPath = reader1.bkLedgerManager.getReadLockPath();
+        reader1.close();
+
+        // simulate a old stream created without readlock path
+        writer.bkDistributedLogManager.getWriterZKC().get().delete(readLockPath, -1);
+        Future<AsyncLogReader> futureReader2 = dlm.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
+        AsyncLogReader reader2 = Await.result(futureReader2);
+        record = Await.result(reader2.readNext());
+        assertEquals(1L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+    }
+
+    @Test(timeout = 60000)
     public void testReaderLockBackgroundReaderLockAcquire() throws Exception {
         final String name = runtime.getMethodName();
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
@@ -1304,10 +1326,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 } catch (Exception ex) {
                     fail("shouldn't reach here");
                 } finally {
-                    try { 
-                        dlm2.close(); 
-                    } catch (Exception ex) { 
-                        fail("shouldn't reach here"); 
+                    try {
+                        dlm2.close();
+                    } catch (Exception ex) {
+                        fail("shouldn't reach here");
                     }
                 }
             }
@@ -1318,7 +1340,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertEquals(false, acquired.get());
         reader1.close();
 
-        acquiredLatch.await(); 
+        acquiredLatch.await();
         assertEquals(true, acquired.get());
         dlm.close();
     }
@@ -1346,7 +1368,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         for (int i = 0; i < count; i++) {
             final int index = i;
-            
+
             dlms[i] = DLMTestUtil.createNewDLM(conf, name);
             readers.set(i, dlms[i].getAsyncLogReaderWithLock(DLSN.InitialDLSN));
             readers.get(i).addEventListener(new FutureEventListener<AsyncLogReader>() {
@@ -1370,7 +1392,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (int i = 0; i < count; i++) {
             dlms[i].close();
         }
-        
+
         dlm.close();
     }
 
@@ -1385,10 +1407,21 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
-        DistributedLogManager dlm2 = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm2 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
         Await.result(futureReader1);
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        dlm2.getReaderFuturePool().apply(new Function0<Void>() {
+            @Override
+            public Void apply() {
+                latch.countDown();
+                return null;
+            }
+        });
+        latch.await();
+
         dlm2.close();
         try {
             Await.result(futureReader2);
@@ -1414,16 +1447,16 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         ZooKeeperClientUtils.expireSession(((BKDistributedLogManager)dlm1).getWriterZKC(), zkServers, 1000);
 
         AsyncLogReader reader1 = Await.result(futureReader1);
-    
-        // The result of expireSession is somewhat non-deterministic with this lock. 
-        // It may fail with LockingException or it may succesfully reacquire, so for 
+
+        // The result of expireSession is somewhat non-deterministic with this lock.
+        // It may fail with LockingException or it may succesfully reacquire, so for
         // the moment rather than make it deterministic we accept either result.
         boolean success = false;
         try {
             Await.result(reader1.readNext());
             success = true;
         } catch (LockingException ex) {
-        } 
+        }
         if (success) {
             Await.result(reader1.readNext());
         }
@@ -1451,14 +1484,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             futureReader2.cancel();
             Await.result(futureReader2);
         } catch (LockClosedException ex) {
-        } 
+        }
 
         futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);
         reader1.close();
 
         Await.result(futureReader2);
-        
+
         dlm0.close();
         dlm1.close();
         dlm2.close();
@@ -1481,7 +1514,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         futureReader1.cancel();
         AsyncLogReader reader1 = Await.result(futureReader1);
         Await.result(reader1.readNext());
-        
+
         dlm0.close();
         dlm1.close();
     }
@@ -1499,11 +1532,11 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         Future<AsyncLogReader> futureReader2 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
-        // Both use the same client id, so there's no lock conflict. Not necessarily ideal, but how the 
-        // system currently works. 
+        // Both use the same client id, so there's no lock conflict. Not necessarily ideal, but how the
+        // system currently works.
         Await.result(futureReader1);
         Await.result(futureReader2);
-        
+
         dlm0.close();
         dlm1.close();
     }
@@ -1513,7 +1546,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         boolean failed = false;
         AtomicReference<DLSN> currentDLSN;
         String name;
-        
+
         public ReadRecordsListener(AtomicReference<DLSN> currentDLSN, String name) {
             this.currentDLSN = currentDLSN;
             this.name = name;
@@ -1527,7 +1560,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         public boolean done() {
             return latch.getCount() == 0;
         }
-        
+
         @Override
         public void onSuccess(AsyncLogReader reader) {
             try {
@@ -1543,7 +1576,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         }
         @Override
         public void onFailure(Throwable cause) {
-            failed = true; 
+            failed = true;
             latch.countDown();
         }
     }
@@ -1578,8 +1611,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         futureReader2.addEventListener(listener2);
         futureReader3.addEventListener(listener3);
 
-        // Get reader1 and start reading. 
-        AsyncLogReader reader1 = Await.result(futureReader1); 
+        // Get reader1 and start reading.
+        AsyncLogReader reader1 = Await.result(futureReader1);
         for ( ; recordCount < 200; recordCount++) {
             LogRecordWithDLSN record = Await.result(reader1.readNext());
             currentDLSN.set(record.getDlsn());
@@ -1598,7 +1631,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             currentDLSN.set(record.getDlsn());
         }
 
-        // Reader1 is done, someone else can take over. Since reader2 was 
+        // Reader1 is done, someone else can take over. Since reader2 was
         // aborted, reader3 should take its place.
         assertFalse(listener3.done());
         reader1.close();
@@ -1620,7 +1653,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm2.close();
         dlm3.close();
     }
-    
+
     @Test
     public void testAsyncWriteWithMinDelayBetweenFlushes() throws Exception {
         String name = "distrlog-asyncwrite-mindelay";

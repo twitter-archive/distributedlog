@@ -55,7 +55,7 @@ import static org.junit.Assert.assertEquals;
 public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
 
-    @Rule 
+    @Rule
     public TestName testNames = new TestName();
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
@@ -1037,13 +1037,13 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         try {
             dlmreader.getTxIdNotLaterThan(new PartitionId(0), 70L);
             assert (false);
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             // expected
         }
         try {
             dlmreader.getTxIdNotLaterThan(new PartitionId(1), 70L);
             assert (false);
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             // expected
         }
 
@@ -1896,11 +1896,11 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, testNames.getMethodName());
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
         DLMTestUtil.generateCompletedLogSegments(dlm, conf, 2, 10);
-    
+
         Future<Long> futureCount = dlm.getLogRecordCountAsync(DLSN.InitialDLSN);
         Long count = Await.result(futureCount, Duration.fromSeconds(2));
         assertEquals(20, count.longValue());
-        
+
         writer.close();
         dlm.close();
     }

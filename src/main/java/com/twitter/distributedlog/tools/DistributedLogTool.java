@@ -10,6 +10,7 @@ import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LedgerEntryReader;
 import com.twitter.distributedlog.LogEmptyException;
+import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
@@ -672,7 +673,7 @@ public class DistributedLogTool extends Tool {
                 try {
                     printMetadata(dlm, null);
                     hasStreams = true;
-                } catch (LogEmptyException lee) {
+                } catch (LogNotFoundException lee) {
                     // nop
                 }
                 // tries all potential partitions
@@ -681,7 +682,7 @@ public class DistributedLogTool extends Tool {
                     try {
                         printMetadata(dlm, new PartitionId(pid));
                         hasStreams = true;
-                    } catch (LogEmptyException lee) {
+                    } catch (LogNotFoundException lee) {
                         break;
                     }
                     ++pid;
@@ -693,7 +694,7 @@ public class DistributedLogTool extends Tool {
             } else {
                 try {
                     printMetadata(dlm, partitionId);
-                } catch (LogEmptyException lee) {
+                } catch (LogNotFoundException lee) {
                     println("No partition " + partitionId + " found.");
                 }
             }
@@ -999,7 +1000,7 @@ public class DistributedLogTool extends Tool {
                             reader = dlm.getInputStream(partitionId, fromDLSN);
                         }
                     }
-                } catch (LogEmptyException lee) {
+                } catch (LogNotFoundException lee) {
                     println("No stream found to dump records.");
                     return 0;
                 }
