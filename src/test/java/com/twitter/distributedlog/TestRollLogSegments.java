@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 import com.twitter.util.Await;
+import com.twitter.util.Function0;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.junit.Test;
@@ -94,8 +95,92 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test(timeout = 600000)
+    @Test(timeout = 60000)
+    public void testUnableToRollLogSegments() throws Exception {
+        String name = "distrlog-unable-to-roll-log-segments";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setLogSegmentRollingIntervalMinutes(0);
+        confLocal.setMaxLogSegmentBytes(1);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+
+        long txId = 1L;
+
+        // Create Log Segments
+        Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId)));
+
+        FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_StartLogSegmentBeforeLedgerCreate,
+                FailpointUtils.FailPointActions.FailPointAction_Throw);
+
+        try {
+            final CountDownLatch startLatch = new CountDownLatch(1);
+            writer.getOrderedFuturePool().apply(new Function0<Void>() {
+                                                    @Override
+                                                    public Void apply() {
+                    try {
+                        startLatch.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return null;
+            }
+            });
+
+            // If we couldn't open new log segment, we should keep using the old one
+            final int numRecords = 10;
+            final CountDownLatch latch = new CountDownLatch(numRecords);
+            for (int i = 0; i < numRecords; i++) {
+                writer.write(DLMTestUtil.getLogRecordInstance(++txId)).addEventListener(new FutureEventListener<DLSN>() {
+                    @Override
+                    public void onSuccess(DLSN value) {
+                        logger.info("Completed entry : {}.", value);
+                        latch.countDown();
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        logger.error("Failed to write entries : ", cause);
+                    }
+                });
+            }
+
+            // start writes
+            startLatch.countDown();
+            latch.await();
+
+            writer.close();
+
+            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            logger.info("LogSegments: {}", segments);
+
+            assertEquals(1, segments.size());
+
+            long expectedTxID = 1L;
+            LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+            LogRecord record = reader.readNext(false);
+            while (null != record) {
+                DLMTestUtil.verifyLogRecord(record);
+                assertEquals(expectedTxID++, record.getTransactionId());
+
+                record = reader.readNext(false);
+            }
+
+            assertEquals(12L, expectedTxID);
+
+            reader.close();
+
+            dlm.close();
+        } finally {
+            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_StartLogSegmentBeforeLedgerCreate);
+        }
+    }
+
+    @Test(timeout = 60000)
     public void testRollingLogSegments() throws Exception {
+        logger.info("start testRollingLogSegments");
         String name = "distrlog-rolling-logsegments-hightraffic";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
@@ -156,6 +241,9 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         assertEquals(numSegmentsAfterAsyncWrites + numLogSegments / 2, segments.size());
         ensureOnlyOneInprogressLogSegments(segments);
+
+        writer.close();
+        dlm.close();
     }
 
     private void checkAndWaitWriterReaderPosition(BKPerStreamLogWriter writer, long expectedWriterPosition,

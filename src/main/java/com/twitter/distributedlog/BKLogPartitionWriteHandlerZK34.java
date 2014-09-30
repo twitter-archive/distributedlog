@@ -180,6 +180,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                         + getFullyQualifiedName(), e);
             }
 
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentBeforeLedgerCreate);
+
             // Try obtaining an new ledger
             LedgerHandle lh = ledgerAllocator.tryObtain(txn);
 

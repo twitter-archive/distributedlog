@@ -176,7 +176,7 @@ public abstract class BKBaseLogWriter {
                             newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort, allowMaxTxID);
                             if (null == newLedgerWriter) {
                                 assert (bestEffort);
-                                return null;
+                                return ledgerWriter;
                             }
 
                             cacheAllocatedLogWriter(streamIdentifier, newLedgerWriter);

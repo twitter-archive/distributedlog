@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 class FailpointUtils {
     enum FailPointName {
+        FP_StartLogSegmentBeforeLedgerCreate,
         FP_StartLogSegmentAfterLedgerCreate,
         FP_StartLogSegmentAfterInProgressCreate,
         FP_FinalizeLedgerBeforeDelete,

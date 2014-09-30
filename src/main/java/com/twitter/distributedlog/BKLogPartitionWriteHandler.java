@@ -743,6 +743,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         boolean wroteInprogressZnode = false;
         LedgerHandle lh = null;
         try {
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentBeforeLedgerCreate);
+
             lh = bookKeeperClient.get().createLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
                 BookKeeper.DigestType.CRC32,
                 digestpw.getBytes(UTF_8));
@@ -1257,7 +1259,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                 List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
                 for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
                     LogSegmentLedgerMetadata l = logSegments.get(iterator);
-                    // When application explicitly truncates segments; timestamp based purge is 
+                    // When application explicitly truncates segments; timestamp based purge is
                    // only used to cleanup log segments that have been marked for truncation
                     if ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
                         !l.isInProgress() && (l.getCompletionTime() < minTimestampToKeep)) {
