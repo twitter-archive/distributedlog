@@ -48,15 +48,9 @@
       <version>1.6.4</version>
     </dependency>
     <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty</artifactId>
-      <!-- Must match finagle's Netty -->
-      <version>3.8.0.Final</version>
-    </dependency>
-    <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>util-core</artifactId>
-      <version>6.18.0</version>
+      <artifactId>util-core_2.10</artifactId>
+      <version>6.20.1-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -98,8 +92,8 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>scrooge-core</artifactId>
-      <version>3.13.2</version>
+      <artifactId>scrooge-core_2.10</artifactId>
+      <version>3.16.4-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>org.apache.bookkeeper</groupId>
@@ -128,7 +122,7 @@
       <plugin>
         <groupId>com.twitter</groupId>
         <artifactId>scrooge-maven-plugin</artifactId>
-        <version>3.13.2</version>
+        <version>3.16.1-TWOTEN</version>
         <configuration>
           <language>java</language>
         </configuration>

@@ -37,8 +37,8 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-ostrich4</artifactId>
-      <version>6.18.0</version>
+      <artifactId>finagle-ostrich4_2.10</artifactId>
+      <version>6.20.1-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>

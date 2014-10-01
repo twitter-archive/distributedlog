@@ -29,18 +29,18 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>scrooge-core</artifactId>
-      <version>3.13.2</version>
+      <artifactId>scrooge-core_2.10</artifactId>
+      <version>3.16.4-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-core</artifactId>
-      <version>6.18.0</version>
+      <artifactId>finagle-core_2.10</artifactId>
+      <version>6.20.1-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-thrift</artifactId>
-      <version>6.18.0</version>
+      <artifactId>finagle-thrift_2.10</artifactId>
+      <version>6.20.1-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>commons-lang</groupId>
@@ -69,7 +69,7 @@
       <plugin>
         <groupId>com.twitter</groupId>
         <artifactId>scrooge-maven-plugin</artifactId>
-        <version>3.13.2</version>
+        <version>3.16.1-TWOTEN</version>
         <configuration>
           <language>java</language>
           <thriftOpts>

@@ -29,8 +29,8 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-core</artifactId>
-      <version>6.18.0</version>
+      <artifactId>finagle-core_2.10</artifactId>
+      <version>6.20.1-TWOTEN-1407871523</version>
     </dependency>
     <dependency>
       <groupId>com.twitter.common_internal</groupId>
