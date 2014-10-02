@@ -1,0 +1,13 @@
+# default
+*.bak
+*.versionsBackup
+
+# Intellij
+.idea/
+*.iml
+*.iws
+
+# Maven
+lib/
+log/
+target/

@@ -9,18 +9,6 @@
   </parent>
   <artifactId>distributedlog-service-zk33</artifactId>
   <name>DistributedLog Service (zk33)</name>
-  <distributionManagement>
-    <repository>
-      <id>artifactory-release</id>
-      <name>Twitter Artifactory Releases</name>
-      <url>http://artifactory.local.twitter.com/libs-releases-local</url>
-    </repository>
-    <snapshotRepository>
-      <id>artifactory-snapshot</id>
-      <name>Twitter Artifactory Snapshots</name>
-      <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
-    </snapshotRepository>
-  </distributionManagement>
   <properties>
     <bookkeeper.version>4.2.19-TWTTR-NETTY</bookkeeper.version>
   </properties>
