@@ -276,9 +276,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 DLSN dlsn = completedFuture.get();
                                 WriteResponse writeResponse = new WriteResponse(successResponseHeader()).setDlsn(dlsn.serialize());
                                 writeResponses.add(writeResponse);
+                                successRecordCounter.inc();
                             } catch (Throwable t) {
                                 WriteResponse writeResponse = new WriteResponse(exceptionToResponseHeader(t));
                                 writeResponses.add(writeResponse);
+                                failureRecordCounter.inc();
                             }
                         }
 
@@ -294,7 +296,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         List<LogRecord> asRecordList(List<ByteBuffer> buffers) {
-            List<LogRecord> records = new ArrayList(buffers.size());
+            List<LogRecord> records = new ArrayList<LogRecord>(buffers.size());
             for (ByteBuffer buffer : buffers) {
                 byte[] payload = new byte[buffer.remaining()];
                 buffer.get(payload);
@@ -314,6 +316,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         void fail(ResponseHeader header) {
+            failureRecordCounter.add(buffers.size());
             result.setValue(new BulkWriteResponse(header));
         }
     }
@@ -501,6 +504,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
                     @Override
                     public WriteResponse apply(DLSN value) {
+                        successRecordCounter.inc();
                         return writeResponse(successResponseHeader()).setDlsn(value.serialize(dlsnVersion));
                     }
                 });
@@ -514,18 +518,27 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             public void run() {
                                 opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                                 writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
+                                successRecordCounter.inc();
                             }
                         }, delayMs, TimeUnit.MILLISECONDS);
                     } catch (RejectedExecutionException ree) {
                         opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                         writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
+                        successRecordCounter.inc();
                     }
                 } else {
                     opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                     writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnId)));
+                    successRecordCounter.inc();
                 }
                 return writePromise;
             }
+        }
+
+        @Override
+        void fail(ResponseHeader header) {
+            failureRecordCounter.inc();
+            super.fail(header);
         }
     }
 
@@ -1058,6 +1071,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final OpStatsLogger releaseStat;
     private final Counter redirects;
     private final Counter unexpectedExceptions;
+    // records stats
+    private final Counter receivedRecordCounter;
+    private final Counter successRecordCounter;
+    private final Counter failureRecordCounter;
     // exception stats
     private final StatsLogger exceptionStatLogger;
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
@@ -1131,6 +1148,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
         this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
+
+        // Stats on records
+        StatsLogger recordsStatsLogger = statsLogger.scope("records");
+        this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
+        this.successRecordCounter = recordsStatsLogger.getCounter("success");
+        this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
@@ -1257,11 +1280,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
+        receivedRecordCounter.inc();
         return doWrite(stream, data, new WriteContext());
     }
 
     @Override
     public Future<BulkWriteResponse> writeBulkWithContext(final String stream, List<ByteBuffer> data, WriteContext ctx) {
+        receivedRecordCounter.add(data.size());
         BulkWriteOp op = new BulkWriteOp(stream, data, ctx);
         doExecuteStreamOp(op);
         return op.result;
