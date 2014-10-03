@@ -19,6 +19,20 @@
       <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
     </snapshotRepository>
   </distributionManagement>
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <configuration>
+          <formats>
+            <format>html</format>
+            <format>xml</format>
+          </formats>
+        </configuration>
+      </plugin>
+    </plugins>
+  </reporting>
   <modules>
     <module>distributedlog-protocol</module>
     <module>distributedlog-core</module>
