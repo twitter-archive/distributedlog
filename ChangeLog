@@ -1,3 +1,11 @@
+0.3.21
+------
+- Reader Lock Implementation
+- Cancel pending writes when the stream is marked in error
+- Handle write bursts using mininum delay between flushes
+- Scala 2.10 upgrade
+- DistributedLogClient creation waits for initial binding of the Name
+
 0.3.20
 ------
 - Options to disable gap detection and alert on gaps
