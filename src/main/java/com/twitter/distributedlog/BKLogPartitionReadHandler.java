@@ -18,6 +18,8 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
@@ -39,7 +41,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -60,6 +62,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private long checkLogExistenceBackoffMs;
 
     // stats
+    private final StatsLogger readAheadPerStreamStatsLogger;
     private final Counter readAheadWorkerWaits;
     private final Counter readAheadEntryPiggyBackHits;
     private final Counter readAheadEntryPiggyBackMisses;
@@ -137,6 +140,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
         notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
         metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
+        readAheadPerStreamStatsLogger =
+                conf.getEnablePerStreamStat() ? readAheadStatsLogger.scope("perstream") : NullStatsLogger.INSTANCE;
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
         getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
         getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
@@ -450,8 +455,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return handleCache;
     }
 
-    public void setReadAheadError() {
+    void setReadAheadError(ReadAheadTracker tracker) {
+        LOG.error("Read Ahead for {} is set to error.", getFullyQualifiedName());
         readAheadError = true;
+        tracker.enterPhase(ReadAheadPhase.ERROR);
         if (null != notification) {
             notification.notifyOnError();
         }
@@ -501,20 +508,21 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return logExists;
     }
 
-    public void setReadAheadInterrupted() {
+    void setReadAheadInterrupted(ReadAheadTracker tracker) {
         readAheadInterrupted = true;
+        tracker.enterPhase(ReadAheadPhase.INTERRUPTED);
         if (null != notification) {
             notification.notifyOnError();
         }
     }
 
-    public void setReadingFromTruncated() {
+    void setReadingFromTruncated(ReadAheadTracker tracker) {
         readingFromTruncated = true;
+        tracker.enterPhase(ReadAheadPhase.TRUNCATED);
         if (null != notification) {
             notification.notifyOnError();
         }
     }
-
 
     public void setNotification(final AsyncNotification notification) {
         // If we are setting a notification, then we must ensure that
@@ -575,11 +583,76 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     static enum ReadAheadPhase {
-        GET_LEDGERS,
-        OPEN_LEDGER,
-        CLOSE_LEDGER,
-        READ_LAST_CONFIRMED,
-        READ_ENTRIES
+        ERROR(-5),
+        TRUNCATED(-4),
+        INTERRUPTED(-3),
+        STOPPED(-2),
+        EXCEPTION_HANDLING(-1),
+        SCHEDULE_READAHEAD(0),
+        GET_LEDGERS(1),
+        OPEN_LEDGER(2),
+        CLOSE_LEDGER(3),
+        READ_LAST_CONFIRMED(4),
+        READ_ENTRIES(5);
+
+        int code;
+
+        ReadAheadPhase(int code) {
+            this.code = code;
+        }
+
+        int getCode() {
+            return this.code;
+        }
+    }
+
+    /**
+     * ReadAheadTracker is tracking the progress of readahead worker. so we could use it to investigate where
+     * the readahead worker is.
+     */
+    static class ReadAheadTracker {
+        // ticks is used to differentiate that the worker enter same phase in different time.
+        final AtomicLong ticks = new AtomicLong(0);
+        // which phase that the worker is in.
+        ReadAheadPhase phase;
+
+        ReadAheadTracker(String streamName,
+                         ReadAheadPhase initialPhase,
+                         StatsLogger statsLogger) {
+            this.phase = initialPhase;
+            StatsLogger streamStatsLogger = statsLogger.scope(streamName.replaceAll(":|<|>|/", "_"));
+            streamStatsLogger.registerGauge("phase", new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return ReadAheadPhase.SCHEDULE_READAHEAD.getCode();
+                }
+
+                @Override
+                public Number getSample() {
+                    return phase.getCode();
+                }
+            });
+            streamStatsLogger.registerGauge("ticks", new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
+
+                @Override
+                public Number getSample() {
+                    return ticks.get();
+                }
+            });
+        }
+
+        ReadAheadPhase getPhase() {
+            return this.phase;
+        }
+
+        void enterPhase(ReadAheadPhase readAheadPhase) {
+            this.ticks.incrementAndGet();
+            this.phase = readAheadPhase;
+        }
     }
 
     /**
@@ -642,6 +715,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         final Phase exceptionHandler = new ExceptionHandlePhase(schedulePhase);
         final Phase readAheadPhase =
                 new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
+        final ReadAheadTracker tracker;
 
         // ReadAhead Status
         private volatile boolean isCatchingUp = true;
@@ -666,6 +740,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.conf = conf;
             this.noLedgerExceptionOnReadLACThreshold =
                     conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() / conf.getReadAheadWaitTime();
+            this.tracker = new ReadAheadTracker(BKLogPartitionReadHandler.this.name,
+                    ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
         }
 
         public void simulateErrors() {
@@ -707,7 +783,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         runnable.run();
                     } catch (RuntimeException rte) {
                         LOG.error("ReadAhead on stream {} encountered runtime exception", getFullyQualifiedName(), rte);
-                        setReadAheadError();
+                        setReadAheadError(tracker);
                         throw rte;
                     }
                 }
@@ -718,7 +794,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             try {
                 readAheadExecutor.submit(addRTEHandler(runnable));
             } catch (RejectedExecutionException ree) {
-                bkLedgerManager.setReadAheadError();
+                bkLedgerManager.setReadAheadError(tracker);
             }
         }
 
@@ -733,7 +809,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 readAheadExecutor.schedule(addRTEHandler(task), timeInMillis, TimeUnit.MILLISECONDS);
                 readAheadWorkerWaits.inc();
             } catch (RejectedExecutionException ree) {
-                bkLedgerManager.setReadAheadError();
+                bkLedgerManager.setReadAheadError(tracker);
             }
         }
 
@@ -782,9 +858,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             @Override
             void process(int rc) {
                 if (!running) {
+                    tracker.enterPhase(ReadAheadPhase.STOPPED);
                     LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
                     return;
                 }
+                tracker.enterPhase(ReadAheadPhase.SCHEDULE_READAHEAD);
+
                 boolean simulate = simulateErrors && Utils.randomPercent(2);
                 if (encounteredException || simulate) {
                     int zkErrorThreshold = BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / conf.getReadAheadWaitTime();
@@ -793,12 +872,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         LOG.error("{} : BookKeeper Client used by the ReadAhead Thread has encountered {} zookeeper exceptions : simulate = {}",
                                   new Object[] { fullyQualifiedName, bkcZkExceptions.get(), simulate });
                         running = false;
-                        bkLedgerManager.setReadAheadError();
+                        bkLedgerManager.setReadAheadError(tracker);
                     } else if (bkcUnExpectedExceptions.get() > BKC_UNEXPECTED_EXCEPTION_THRESHOLD) {
                         LOG.error("{} : ReadAhead Thread has encountered {} unexpected BK exceptions.",
                                   fullyQualifiedName, bkcUnExpectedExceptions.get());
                         running = false;
-                        bkLedgerManager.setReadAheadError();
+                        bkLedgerManager.setReadAheadError(tracker);
                     } else {
                         // We must always reinitialize metadata if the last attempt to read failed.
                         reInitializeMetadata = true;
@@ -830,10 +909,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             @Override
             void process(int rc) {
+                tracker.enterPhase(ReadAheadPhase.EXCEPTION_HANDLING);
+
                 if (BKException.Code.InterruptedException == rc) {
                     LOG.trace("ReadAhead Worker for {} is interrupted.", fullyQualifiedName);
                     running = false;
-                    bkLedgerManager.setReadAheadInterrupted();
+                    bkLedgerManager.setReadAheadInterrupted(tracker);
                     return;
                 } else if (BKException.Code.ZKException == rc) {
                     encounteredException = true;
@@ -941,7 +1022,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     if (!conf.getIgnoreTruncationStatus()) {
                                         LOG.error("{}: Trying to position reader on {} when {} is marked truncated",
                                             new Object[]{getFullyQualifiedName(), nextReadPosition, l});
-                                        setReadingFromTruncated();
+                                        setReadingFromTruncated(tracker);
                                         return;
                                     }
                                 }
@@ -982,6 +1063,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             @Override
             void process(int rc) {
+                tracker.enterPhase(ReadAheadPhase.GET_LEDGERS);
+
                 inProgressChanged = false;
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Checking {} if InProgress changed.", fullyQualifiedName);
@@ -1021,6 +1104,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             @Override
             void process(int rc) {
+                tracker.enterPhase(ReadAheadPhase.OPEN_LEDGER);
+
                 if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
                     if (null == currentLH) {
                         if (conf.getTraceReadAheadMetadataChanges()) {
@@ -1038,6 +1123,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return;
                         }
                         if (lastAddConfirmed < nextReadPosition.getEntryId()) {
+                            tracker.enterPhase(ReadAheadPhase.READ_LAST_CONFIRMED);
+
                             // the readahead is caught up if current ledger is in progress and read position moves over last add confirmed
                             if (isCatchingUp) {
                                 isCatchingUp = false;
@@ -1122,7 +1209,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     }
 
                                     if (conf.getPositionGapDetectionEnabled() && gapDetected) {
-                                        setReadAheadError();
+                                        setReadAheadError(tracker);
                                     } else {
                                         // This disconnect will only surface during repositioning and
                                         // will not silently miss records; therefore its safe to not halt
@@ -1146,7 +1233,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                 // pendingRequests were empty
                                                 bkLedgerManager.raiseAlert("Unexpected condition during read ahead; {} , {}",
                                                     currentMetadata, oldMetadata);
-                                                setReadAheadError();
+                                                setReadAheadError(tracker);
                                             } else {
                                                 if (currentMetadata.isTruncated()) {
                                                     if (conf.getAlertWhenPositioningOnTruncated()) {
@@ -1157,8 +1244,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                     if (!conf.getIgnoreTruncationStatus()) {
                                                         LOG.error("{}: Trying to position reader on the log segment that is marked truncated : {}",
                                                                   getFullyQualifiedName(), currentMetadata);
-                                                        setReadingFromTruncated();
-                                                        setReadAheadError();
+                                                        setReadingFromTruncated(tracker);
                                                     }
                                                 } else {
                                                     if (LOG.isTraceEnabled()) {
@@ -1329,6 +1415,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             @Override
             void process(int rc) {
+                tracker.enterPhase(ReadAheadPhase.READ_ENTRIES);
+
                 cacheFull = false;
                 lastAddConfirmed = -1;
                 if (null != currentLH) {
