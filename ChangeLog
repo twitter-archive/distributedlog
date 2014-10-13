@@ -1,3 +1,9 @@
+0.3.23
+------
+- Fix AppendOnlyStreamWriter empty log bug
+- Add StatsFilter to track pending requests issues
+- Add a tracker (exposing stats) to track readahead worker progress
+
 0.3.21
 ------
 - Reader Lock Implementation
