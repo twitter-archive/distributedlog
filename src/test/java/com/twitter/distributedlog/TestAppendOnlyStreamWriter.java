@@ -1,8 +1,11 @@
 package com.twitter.distributedlog;
 
 import java.io.ByteArrayInputStream;
+import java.net.URI;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -16,9 +19,12 @@ import static org.junit.Assert.*;
 public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestAppendOnlyStreamWriter.class);
 
-    @Test
+    @Rule
+    public TestName testNames = new TestName();
+
+    @Test(timeout = 60000)
     public void basicReadAndWriteBehavior() throws Exception {
-        String name = "distrlog-append-only-streams-basic";
+        String name = testNames.getMethodName();
         DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
         DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
@@ -47,9 +53,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         dlmwrite.close();
     }
     
-    @Test
+    @Test(timeout = 60000)
     public void writeFutureDoesNotCompleteUntilWritePersisted() throws Exception {
-        String name = "distrlog-writeFutureDoesNotCompleteUntilWritePersisted";
+        String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(Integer.MAX_VALUE);
         conf.setImmediateFlushEnabled(false);
@@ -82,9 +88,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         dlmreader.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void positionUpdatesOnlyAfterWriteCompletion() throws Exception {
-        String name = "distrlog-append-only-streams-async-fsync";
+        String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(10*1000);
         conf.setImmediateFlushEnabled(false);
@@ -121,9 +127,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         dlmreader.close();
     } 
 
-    @Test
+    @Test(timeout = 60000)
     public void positionDoesntUpdateBeforeWriteCompletion() throws Exception {
-        String name = "distrlog-positionDoesntUpdateBeforeWriteCompletion";
+        String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         
         // Long flush time, but we don't wait for it.
@@ -147,9 +153,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         dlmwriter.close();
     } 
 
-    @Test
+    @Test(timeout = 60000)
     public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
-        String name = "distrlog-positionUpdatesOnlyAfterWriteCompletionWithoutFsync";
+        String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(1*1000);
         conf.setImmediateFlushEnabled(false);
@@ -161,11 +167,30 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         assertEquals(0, writer.position());
         
-        // Wait 10, but will be done in 1.
-        Await.result(writer.write(byteStream), Duration.fromSeconds(10));
+        Await.result(writer.write(byteStream));
         assertEquals(33, writer.position());
         
         writer.close();
         dlmwriter.close();
+    }
+
+    @Test(timeout = 60000)
+    public void writerStartsAtTxidZeroForEmptyStream() throws Exception {
+        String name = testNames.getMethodName();
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setImmediateFlushEnabled(true);
+        conf.setOutputBufferSize(1024);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, name);
+        
+        URI uri = DLMTestUtil.createDLMURI("/" + name);
+        BKDistributedLogManager.createUnpartitionedStream(conf, dlm.getReaderZKC(), uri, name);
+
+        // Log exists but is empty, better not throw.
+        AppendOnlyStreamWriter writer = dlm.getAppendOnlyStreamWriter();
+        byte[] byteStream = DLMTestUtil.repeatString("a", 1025).getBytes();
+        Await.result(writer.write(byteStream));
+
+        writer.close();
+        dlm.close();
     } 
 }

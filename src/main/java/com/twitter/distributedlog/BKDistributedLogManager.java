@@ -411,9 +411,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
                 position = 0;
             }
-        } catch (LogNotFoundException lee) {
-            // Start with position zero
-            //
+        } catch (LogEmptyException ex) {
+            position = 0;
+        } catch (LogNotFoundException ex) {
             position = 0;
         }
         return new AppendOnlyStreamWriter(startAsyncLogSegmentNonPartitioned(), position);
