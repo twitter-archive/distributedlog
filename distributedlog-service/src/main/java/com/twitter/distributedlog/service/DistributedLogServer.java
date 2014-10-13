@@ -14,6 +14,7 @@ import com.twitter.finagle.thrift.ClientIdRequiredFilter;
 import com.twitter.finagle.thrift.ThriftServerFramedCodec;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -149,10 +150,14 @@ public class DistributedLogServer implements Runnable {
         DistributedLogServiceImpl dlService =
                 new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
+        StatsReceiver serviceStatsReceiver = statsReceiver.scope("service");
+        StatsLogger serviceStatsLogger = provider.getStatsLogger("service");
+
         // starts dl server
         Server server = ServerBuilder.safeBuild(
-                new ClientIdRequiredFilter<byte[], byte[]>(statsReceiver.scope("service")).andThen(
-                    new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory())),
+                new ClientIdRequiredFilter<byte[], byte[]>(serviceStatsReceiver).andThen(
+                    new StatsFilter<byte[], byte[]>(serviceStatsLogger).andThen(
+                        new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory()))),
                 ServerBuilder.get()
                         .name("DistributedLogServer")
                         .codec(ThriftServerFramedCodec.get())

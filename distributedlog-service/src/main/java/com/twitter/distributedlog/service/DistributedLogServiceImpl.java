@@ -1155,6 +1155,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.successRecordCounter = recordsStatsLogger.getCounter("success");
         this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
 
+        StatsLogger serviceStatsLogger = statsLogger.scope("service");
+
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
         streamsStatsLogger.registerGauge("acquired", new Gauge<Number>() {
