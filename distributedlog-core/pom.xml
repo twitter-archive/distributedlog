@@ -9,9 +9,6 @@
   </parent>
   <artifactId>distributedlog-core</artifactId>
   <name>DistributedLog Core Library</name>
-  <properties>
-    <bookkeeper.version>4.2.19-TWTTR-NETTY</bookkeeper.version>
-  </properties>
   <dependencies>
     <dependency>
       <groupId>org.apache.bookkeeper.shims</groupId>

@@ -9,9 +9,6 @@
   </parent>
   <artifactId>distributedlog-service-zk33</artifactId>
   <name>DistributedLog Service (zk33)</name>
-  <properties>
-    <bookkeeper.version>4.2.19-TWTTR-NETTY</bookkeeper.version>
-  </properties>
   <dependencies>
     <dependency>
       <groupId>com.twitter</groupId>
