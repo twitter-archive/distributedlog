@@ -88,7 +88,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                 boolean lockStream) throws IOException {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, lockStateExecutor, this);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, lockStateExecutor, this, true);
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;
@@ -102,7 +102,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         backgroundReaderRunTime = asyncReaderStatsLogger.getOpStatsLogger("background_read");
         readNextExecTime = asyncReaderStatsLogger.getOpStatsLogger("read_next_exec");
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
-        
+
         // Lock the stream if requested. The lock will be released when the reader is closed.
         this.lockStream = lockStream;
         if (this.lockStream) {

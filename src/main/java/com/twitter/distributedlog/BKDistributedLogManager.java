@@ -286,7 +286,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(PartitionId partition) throws IOException {
-        return createReadLedgerHandler(partition.toString(), getLockStateExecutor(true), null);
+        return createReadLedgerHandler(partition.toString());
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(PartitionId partition) throws IOException {
@@ -294,15 +294,21 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return createReadLedgerHandler(streamIdentifier, getLockStateExecutor(true), null);
+        return createReadLedgerHandler(streamIdentifier, false);
+    }
+
+    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier, boolean isHandleForReading)
+            throws IOException {
+        return createReadLedgerHandler(streamIdentifier, getLockStateExecutor(true), null, isHandleForReading);
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
                                                                           OrderedSafeExecutor lockExecutor,
-                                                                          AsyncNotification notification) throws IOException {
+                                                                          AsyncNotification notification,
+                                                                          boolean isHandleForReading) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
                 readerZKCBuilder, readerBKCBuilder, executorService, lockExecutor, readAheadExecutor,
-                alertStatsLogger, readAheadExceptionsLogger, statsLogger, clientId, notification);
+                alertStatsLogger, readAheadExceptionsLogger, statsLogger, clientId, notification, isHandleForReading);
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
