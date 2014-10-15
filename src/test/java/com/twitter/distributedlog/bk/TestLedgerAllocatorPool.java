@@ -3,19 +3,15 @@ package com.twitter.distributedlog.bk;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LocalDLMEmulator;
+import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
 import org.apache.zookeeper.Transaction;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -28,31 +24,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
 
-public class TestLedgerAllocatorPool {
+public class TestLedgerAllocatorPool extends TestDistributedLogBase {
 
     private static final String zkServers = "127.0.0.1:7000";
     private static final String ledgersPath = "/ledgers";
 
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
     private ZooKeeperClient zkc;
     private BookKeeperClient bkc;
     private DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
-
-    @BeforeClass
-    public static void setupBookKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownBookKeeper() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
 
     private URI createURI(String path) {
         return URI.create("distributedlog://" + zkServers + path);

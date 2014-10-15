@@ -1,11 +1,7 @@
 package com.twitter.distributedlog;
 
-import com.twitter.conversions.time;
 import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -18,9 +14,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.slf4j.Logger;
@@ -37,25 +31,12 @@ import static org.junit.Assert.*;
 /**
  * Test Cases for {@link com.twitter.distributedlog.ZooKeeperClient}
  */
-public class TestZooKeeperClient {
+public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
     static final Logger LOG = LoggerFactory.getLogger(TestZooKeeperClient.class);
 
-    private static ZooKeeperServerShim zks;
-    private static String zkServers;
     private final static int sessionTimeoutMs = 2000;
 
     private ZooKeeperClient zkc;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        zkServers = "127.0.0.1:7000";
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {
@@ -98,7 +79,7 @@ public class TestZooKeeperClient {
         zkcAuth.get().create("/test", new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         zkcAuth.get().create("/test/key1", new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         zkcAuth.get().create("/test/key2", new byte[0], DistributedLogConstants.EVERYONE_READ_CREATOR_ALL, CreateMode.PERSISTENT);
-        
+
         ZooKeeperClient zkcNoAuth = buildClient();
         zkcNoAuth.get().create("/test/key1/key1", new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         try {
@@ -106,7 +87,7 @@ public class TestZooKeeperClient {
             fail("create should fail on acl protected key");
         } catch (KeeperException.NoAuthException ex) {
             LOG.info("caught exception writing to protected key", ex);
-        } 
+        }
 
         rmAll(zkcAuth, "/test");
     }
@@ -121,7 +102,7 @@ public class TestZooKeeperClient {
             fail("create should fail because we're not authenticated");
         } catch (KeeperException.InvalidACLException ex) {
             LOG.info("caught exception writing to protected key", ex);
-        } 
+        }
 
         rmAll(zkcAuth, "/test");
     }
@@ -132,7 +113,7 @@ public class TestZooKeeperClient {
         zkcAuth.get().create("/test", new byte[0], DistributedLogConstants.EVERYONE_READ_CREATOR_ALL, CreateMode.PERSISTENT);
         zkcAuth.get().create("/test/key1", new byte[0], DistributedLogConstants.EVERYONE_READ_CREATOR_ALL, CreateMode.PERSISTENT);
         zkcAuth.get().create("/test/key1/key2", new byte[0], DistributedLogConstants.EVERYONE_READ_CREATOR_ALL, CreateMode.PERSISTENT);
-        
+
         ZooKeeperClient zkcNoAuth = buildClient();
         List<String> nodes = null;
         String path = "/test";
@@ -193,14 +174,14 @@ public class TestZooKeeperClient {
     public void testAclFailedAuthenticationCanBeRecovered() throws Exception {
         FailingCredentials credentials = new FailingCredentials();
         ZooKeeperClient zkc = new ZooKeeperClient("test", 2000, 2000, zkServers, null, null, 1, 10000, credentials);
-        
+
         try {
             zkc.get();
             fail("should have failed on auth");
         } catch (Exception ex) {
             assertEquals("authfailed", ex.getMessage());
         }
-    
+
         // Should recover fine
         credentials.setShouldFail(false);
         zkc.get().create("/test", new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
@@ -211,15 +192,15 @@ public class TestZooKeeperClient {
     private void expireZooKeeperSession(ZooKeeper zk, int timeout)
             throws IOException, InterruptedException, KeeperException {
         final CountDownLatch latch = new CountDownLatch(1);
-        
+
         ZooKeeper newZk = new ZooKeeper(zkServers, timeout, new Watcher() {
             @Override
             public void process(WatchedEvent event) {
                 if (event.getType() == EventType.None && event.getState() == KeeperState.SyncConnected) {
                     latch.countDown();
                 }
-            }}, 
-            zk.getSessionId(), 
+            }},
+            zk.getSessionId(),
             zk.getSessionPasswd());
 
         if (!latch.await(timeout, TimeUnit.MILLISECONDS)) {
@@ -250,9 +231,9 @@ public class TestZooKeeperClient {
 
         CountDownLatch expired = awaitConnectionEvent(KeeperState.Expired, zkcAuth);
         CountDownLatch connected = awaitConnectionEvent(KeeperState.SyncConnected, zkcAuth);
-        
+
         expireZooKeeperSession(zkcAuth.get(), 2000);
-        
+
         expired.await(2, TimeUnit.SECONDS);
         connected.await(2, TimeUnit.SECONDS);
 
@@ -268,9 +249,9 @@ public class TestZooKeeperClient {
 
         CountDownLatch expired = awaitConnectionEvent(KeeperState.Expired, zkcAuth);
         CountDownLatch connected = awaitConnectionEvent(KeeperState.SyncConnected, zkcAuth);
-        
+
         expireZooKeeperSession(zkcAuth.get(), 2000);
-        
+
         expired.await(2, TimeUnit.SECONDS);
         connected.await(2, TimeUnit.SECONDS);
 

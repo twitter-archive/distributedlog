@@ -2,13 +2,9 @@ package com.twitter.distributedlog;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.KeeperException;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,24 +19,13 @@ import static org.junit.Assert.fail;
 /**
  * Test {@link LogSegmentLedgerMetadata}
  */
-public class TestLogSegmentLedgerMetadata {
+public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentLedgerMetadata.class);
 
     static final int TEST_REGION_ID = 0xf - 1;
 
-    private static ZooKeeperServerShim zks;
     private ZooKeeperClient zkc;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-    }
-
-    @AfterClass
-    public static void teardownZooKeeper() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {

@@ -6,14 +6,11 @@ import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
+import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,23 +21,11 @@ import java.util.Map;
 
 import static org.junit.Assert.*;
 
-public class TestZkMetadataUpdater {
+public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestZkMetadataUpdater.class);
 
-    private static ZooKeeperServerShim zks;
-
     private ZooKeeperClient zkc;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-    }
-
-    @AfterClass
-    public static void shutdownZooKeeper() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {

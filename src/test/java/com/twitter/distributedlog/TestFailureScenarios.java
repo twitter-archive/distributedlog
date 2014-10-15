@@ -2,49 +2,15 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.zookeeper.ZooKeeper;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
-public class TestFailureScenarios {
+public class TestFailureScenarios extends TestDistributedLogBase {
 
     protected static DistributedLogConfiguration conf =
         new DistributedLogConfiguration().setLockTimeout(10).setLogSegmentNameVersion(0);
-    private ZooKeeper zkc;
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
-
-    @Before
-    public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", 7000);
-    }
-
-    @After
-    public void teardown() throws Exception {
-        zkc.close();
-    }
 
     @Test
     public void testExceptionDuringStartNewSegment() throws Exception {

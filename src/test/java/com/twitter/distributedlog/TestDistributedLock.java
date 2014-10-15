@@ -6,8 +6,6 @@ import com.twitter.distributedlog.DistributedReentrantLock.EpochChangedException
 import com.twitter.distributedlog.DistributedReentrantLock.LockStateChangedException;
 import com.twitter.util.Await;
 import com.twitter.util.Promise;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.commons.lang3.tuple.Pair;
@@ -16,9 +14,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,28 +36,15 @@ import static com.twitter.distributedlog.DistributedReentrantLock.DistributedLoc
 /**
  * Distributed Lock Tests
  */
-public class TestDistributedLock {
+public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
     static final Logger logger = LoggerFactory.getLogger(TestDistributedLock.class);
 
-    private static ZooKeeperServerShim zks;
-    private static String zkServers;
     private final static int sessionTimeoutMs = 2000;
 
     private ZooKeeperClient zkc;
     private ZooKeeperClient zkc0; // used for checking
     private OrderedSafeExecutor lockStateExecutor;
-
-    @BeforeClass
-    public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        zkServers = "127.0.0.1:7000";
-    }
-
-    @AfterClass
-    public static void teardownCluster() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {

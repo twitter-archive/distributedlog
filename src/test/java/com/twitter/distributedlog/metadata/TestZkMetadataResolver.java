@@ -4,14 +4,11 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
+import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -22,24 +19,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class TestZkMetadataResolver {
+public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
 
     private static final BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "ledgers");
     private static final BKDLConfig bkdlConfig2 = new BKDLConfig("127.0.0.1:7000", "ledgers2");
 
     private ZooKeeperClient zkc;
     private ZkMetadataResolver resolver;
-    private static ZooKeeperServerShim zks;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-    }
-
-    @AfterClass
-    public static void shutdownZooKeeper() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {

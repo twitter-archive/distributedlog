@@ -19,7 +19,9 @@ import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsProvider;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -27,6 +29,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -111,10 +114,14 @@ public class TestDistributedLogServer {
     private static URI uri;
     private static Pair<DistributedLogServiceImpl, Server> dlServer;
     static int numBookies = 3;
+    private static List<File> tmpDirs = new ArrayList<File>();
 
     @BeforeClass
     public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
+        File zkTmpDir = IOUtils.createTempDir("zookeeper",
+                TestDistributedLogServer.class.getName());
+        tmpDirs.add(zkTmpDir);
+        zks = LocalBookKeeper.runZookeeper(1000, 7000, zkTmpDir);
         bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
         bkutil.start();
         uri = LocalDLMEmulator.createDLMURI("127.0.0.1:7000", "");
@@ -134,6 +141,9 @@ public class TestDistributedLogServer {
         DistributedLogServer.closeServer(dlServer);
         bkutil.teardown();
         zks.stop();
+        for (File dir : tmpDirs) {
+            FileUtils.deleteDirectory(dir);
+        }
     }
 
     @Test(timeout = 60000)
@@ -210,7 +220,7 @@ public class TestDistributedLogServer {
     @Test(timeout = 60000)
     public void testBulkWriteEmptyList() throws Exception {
         String name = String.format("dlserver-bulk-write-%d", 0);
-        
+
         routingService.addHost(name, localAddress);
 
         List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
@@ -229,7 +239,7 @@ public class TestDistributedLogServer {
         List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
         writes.add(null);
 
-        try {        
+        try {
             List<Future<DLSN>> futureResult = dlClient.writeBulk(name, writes);
             fail("should not have succeeded");
         } catch (NullPointerException npe) {
@@ -240,7 +250,7 @@ public class TestDistributedLogServer {
     @Test(timeout = 60000)
     public void testBulkWriteEmptyBuffer() throws Exception {
         String name = String.format("dlserver-bulk-write-%s", "empty");
-        
+
         routingService.addHost(name, localAddress);
 
         List<ByteBuffer> writes = new ArrayList<ByteBuffer>();
@@ -256,7 +266,7 @@ public class TestDistributedLogServer {
 
     void failDueToWrongException(Exception ex) {
         logger.info("testBulkWritePartialFailure: ", ex);
-        fail(String.format("failed with wrong exception %s", ex.getClass().getName()));   
+        fail(String.format("failed with wrong exception %s", ex.getClass().getName()));
     }
 
     int validateAllFailedAsCancelled(List<Future<DLSN>> futures, int start, int finish) {
@@ -289,7 +299,7 @@ public class TestDistributedLogServer {
     @Test(timeout = 60000)
     public void testBulkWritePartialFailure() throws Exception {
         String name = String.format("dlserver-bulk-write-%s", "partial-failure");
-        
+
         routingService.addHost(name, localAddress);
 
         final int writeCount = 100;
@@ -338,13 +348,13 @@ public class TestDistributedLogServer {
         for (long i = 1; i <= writeCount; i++) {
             writes.add(ByteBuffer.wrap(("" + i).getBytes()));
         }
-        
+
         List<Future<DLSN>> futures = dlClient.writeBulk(name, writes);
         validateFailedAsLogRecordTooLong(futures.get(0));
-        int failed = validateAllFailedAsCancelled(futures, 1, futures.size()); 
+        int failed = validateAllFailedAsCancelled(futures, 1, futures.size());
         assertEquals(writeCount, failed);
     }
-    
+
     @Test(timeout = 60000)
     public void testHeartbeat() throws Exception {
         String name = "dlserver-heartbeat";

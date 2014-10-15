@@ -8,12 +8,12 @@ import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.util.SchedulerUtils;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
@@ -34,29 +34,13 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-public class TestDLCK {
+public class TestDLCK extends TestDistributedLogBase {
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
                 .setEnableLedgerAllocatorPool(true).setLedgerAllocatorPoolName("test");
-    private static LocalDLMEmulator bkutil;
-    private static ZooKeeperServerShim zks;
-    static int numBookies = 3;
 
     private ZooKeeperClient zkc;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-    }
-
-    @AfterClass
-    public static void shutdownZooKeeper() throws Exception {
-        bkutil.teardown();
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {

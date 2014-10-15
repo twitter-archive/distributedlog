@@ -1,14 +1,11 @@
 package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.LocalDLMEmulator;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.util.LocalBookKeeper;
+import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -17,7 +14,7 @@ import java.net.URI;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-public class TestDLMetadata {
+public class TestDLMetadata extends ZooKeeperClusterTestCase {
 
     private static final BKDLConfig bkdlConfig =
             new BKDLConfig("127.0.0.1:7000", "127.0.0.1:7000",
@@ -27,17 +24,6 @@ public class TestDLMetadata {
                            "127.0.0.1:7003", "127.0.0.1:7004", "ledgers2");
 
     private ZooKeeper zkc;
-    private static ZooKeeperServerShim zks;
-
-    @BeforeClass
-    public static void setupZooKeeper() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-    }
-
-    @AfterClass
-    public static void shutdownZooKeeper() throws Exception {
-        zks.stop();
-    }
 
     @Before
     public void setup() throws Exception {
@@ -45,7 +31,7 @@ public class TestDLMetadata {
     }
 
     @After
-    public void tearDown() throws Exception {
+    public void teardown() throws Exception {
         zkc.close();
     }
 

@@ -21,7 +21,9 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
+import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -32,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -51,6 +54,7 @@ public class LocalDLMEmulator {
     private final String zkEnsemble;
     private final URI uri;
     int numBookies;
+    final List<File> tmpDirs = new ArrayList<File>();
 
     public LocalDLMEmulator(final int numBookies) throws Exception {
         this(numBookies, true, "127.0.0.1", 2181, DEFAULT_BOOKIE_INITIAL_PORT);
@@ -101,6 +105,9 @@ public class LocalDLMEmulator {
         if (bkthread != null) {
             bkthread.interrupt();
             bkthread.join();
+        }
+        for (File dir : tmpDirs) {
+            FileUtils.deleteDirectory(dir);
         }
     }
 
@@ -164,6 +171,7 @@ public class LocalDLMEmulator {
         if (!tmpdir.mkdir()) {
             throw new IOException("Fail to create tmpdir " + tmpdir);
         }
+        tmpDirs.add(tmpdir);
 
         bookieConf.setZkServers(zkEnsemble);
         bookieConf.setJournalDirName(tmpdir.getPath());
@@ -226,13 +234,15 @@ public class LocalDLMEmulator {
             System.exit(-1);
         }
         int zkPort = Integer.parseInt(args[0]);
-        LocalBookKeeper.runZookeeper(1000, zkPort);
+        final File zkDir = IOUtils.createTempDir("distrlog", "zookeeper");
+        LocalBookKeeper.runZookeeper(1000, zkPort, zkDir);
         final LocalDLMEmulator dl = new LocalDLMEmulator(3, "127.0.0.1", zkPort);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {
                 try {
                     dl.teardown();
+                    FileUtils.deleteDirectory(zkDir);
                     System.out.println("ByeBye!");
                 } catch (Exception e) {
                     // do nothing
