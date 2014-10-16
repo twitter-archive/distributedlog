@@ -1547,14 +1547,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             private void complete() {
                 if (cacheFull) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.info("Cache for {} is full. Backoff reading ahead for {} ms.",
-                            fullyQualifiedName, conf.getReadAheadWaitTime());
-                    }
+                    LOG.trace("Cache for {} is full. Backoff reading until notified", fullyQualifiedName);
                     readAheadCacheFullCounter.inc();
                     tracker.cacheFullCounter.inc();
                     resumeStopWatch.reset().start();
-                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, conf.getReadAheadWaitTime());
+                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, conf.getReadAheadMaxEntries());
                 } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
