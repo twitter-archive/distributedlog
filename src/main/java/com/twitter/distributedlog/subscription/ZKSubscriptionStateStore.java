@@ -48,7 +48,7 @@ public class ZKSubscriptionStateStore implements SubscriptionStateStore {
                     @Override
                     public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
                         if (KeeperException.Code.NONODE.intValue() == rc) {
-                            result.setValue(DLSN.InitialDLSN);
+                            result.setValue(DLSN.NonInclusiveLowerBound);
                         } else if (KeeperException.Code.OK.intValue() != rc) {
                             result.setException(KeeperException.create(KeeperException.Code.get(rc), path));
                         } else {

@@ -1473,7 +1473,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
         SubscriptionStateStore store = dlm.getSubscriptionStateStore(subscriberId);
-        assertEquals(Await.result(store.getLastCommitPosition()), DLSN.InitialDLSN);
+        assertEquals(Await.result(store.getLastCommitPosition()), DLSN.NonInclusiveLowerBound);
         Await.result(store.advanceCommitPosition(commitPosition1));
         assertEquals(Await.result(store.getLastCommitPosition()), commitPosition1);
         Await.result(store.advanceCommitPosition(commitPosition0));
