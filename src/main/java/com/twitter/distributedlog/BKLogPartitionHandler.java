@@ -663,7 +663,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         return ledgerList.get(0).getFirstTxId();
     }
 
-    private Future<Void> checkLogStreamExistsAsync() {
+    Future<Void> checkLogStreamExistsAsync() {
         final Promise<Void> promise = new Promise<Void>();
         try {
             zooKeeperClient.get().exists(ledgerPath, false, new AsyncCallback.StatCallback() {
@@ -672,7 +672,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         promise.setValue(null);
                     } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                        promise.setException(new LogNotFoundException("Log " + getFullyQualifiedName() + " is empty"));
+                        promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
                     } else {
                         promise.setException(new ZKException("Error on checking log existence for " + getFullyQualifiedName(),
                                 KeeperException.create(KeeperException.Code.get(rc))));
@@ -781,7 +781,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         */
     }
 
-    public void close() throws IOException {
+    public void close() {
         if (ownBKC) {
             bookKeeperClient.close();
         }

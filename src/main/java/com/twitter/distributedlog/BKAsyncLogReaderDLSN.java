@@ -4,10 +4,12 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import com.twitter.util.Throw;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -180,19 +182,28 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         PendingReadRequest promise = new PendingReadRequest();
 
         if (!readAheadStarted) {
-            boolean exists = false;
-            try {
-                exists = bkLedgerManager.doesLogExist();
-            } catch (IOException ioe) {
-                setLastException(ioe);
-            }
+            bkLedgerManager.checkLogStreamExistsAsync().addEventListener(new FutureEventListener<Void>() {
+                @Override
+                public void onSuccess(Void value) {
+                    try {
+                        bkLedgerManager.startReadAhead(new LedgerReadPosition(startDLSN), simulateErrors);
+                    } catch (Exception exc) {
+                        setLastException(new IOException(exc));
+                        notifyOnError();
+                    }
+                }
 
-            if (!exists) {
-                setLastException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", bkLedgerManager.getFullyQualifiedName())));
-            } else {
-                bkLedgerManager.startReadAhead(new LedgerReadPosition(startDLSN), simulateErrors);
-                readAheadStarted = true;
-            }
+                @Override
+                public void onFailure(Throwable cause) {
+                    if (cause instanceof IOException) {
+                        setLastException((IOException)cause);
+                    } else {
+                        setLastException(new IOException(cause));
+                    }
+                    notifyOnError();
+                }
+            });
+            readAheadStarted = true;
         }
 
         if (checkClosedOrInError("readNext")) {
@@ -220,7 +231,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         ReadCancelledException exception;
         synchronized (this) {
             if (closed) {

@@ -402,7 +402,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return null;
     }
 
-    public void close() throws IOException {
+    public void close() {
         try {
             if (null != readAheadWorker) {
                 readAheadWorker.stop();

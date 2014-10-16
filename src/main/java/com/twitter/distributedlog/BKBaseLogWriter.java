@@ -86,11 +86,7 @@ public abstract class BKBaseLogWriter {
             }
         }
         for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
-            try {
-                partitionWriteHandler.close();
-            } catch (IOException ioe) {
-                LOG.error("Failed to close writer handler : ", ioe);
-            }
+            partitionWriteHandler.close();
         }
     }
 

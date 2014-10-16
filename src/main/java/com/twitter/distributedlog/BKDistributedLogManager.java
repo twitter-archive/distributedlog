@@ -575,12 +575,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        try {
-                            pendingReaders.remove(reader);
-                            reader.close();
-                        } catch (IOException ioe) {
-                            LOG.error("failed to close reader on failure");
-                        }
+                        pendingReaders.remove(reader);
+                        reader.close();
                     }
                 });
             }

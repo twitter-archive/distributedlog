@@ -1423,7 +1423,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
         }
     }
 
-    public void close() throws IOException {
+    public void close() {
         closed = true;
         List<MetadataOp> pendingOps;
         synchronized (pendingMetadataOps) {
