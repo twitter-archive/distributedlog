@@ -145,6 +145,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return new WriteResponse(responseHeader);
     }
 
+    static interface WriteOpWithPayload {
+      // Return the payload size in bytes
+      public long getPayloadSize();
+    }
+
     abstract class StreamOp {
         final String stream;
         final Stopwatch stopwatch = new Stopwatch();
@@ -196,7 +201,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             } else {
                 // record failure stats only when op failed
                 if (!(t instanceof OwnershipAcquireFailedException)) {
-                    opStatsLogger.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                    opStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 } else {
                     redirects.inc();
                 }
@@ -226,7 +231,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         public void onSuccess(T response) {
-            opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
             result.setValue(response);
         }
 
@@ -236,14 +241,26 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    class BulkWriteOp extends StreamOp {
+    class BulkWriteOp extends StreamOp implements WriteOpWithPayload {
 
         final List<ByteBuffer> buffers;
+        final long payloadSize;
         final Promise<BulkWriteResponse> result = new Promise<BulkWriteResponse>();
 
         BulkWriteOp(String stream, List<ByteBuffer> buffers, WriteContext context) {
             super(stream, context, bulkWriteStat);
             this.buffers = buffers;
+            long total = 0;
+            // We do this here because the bytebuffers are mutable.
+            for (ByteBuffer bb : buffers) {
+              total += bb.remaining();
+            }
+            this.payloadSize = total;
+        }
+
+        @Override
+        public long getPayloadSize() {
+          return payloadSize;
         }
 
         @Override
@@ -478,13 +495,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    class WriteOp extends AbstractWriteOp {
+    class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         final byte[] payload;
 
         WriteOp(String stream, ByteBuffer data, WriteContext context) {
             super(stream, context, writeStat);
             payload = new byte[data.remaining()];
             data.get(payload);
+        }
+
+        @Override
+        public long getPayloadSize() {
+          return payload.length;
         }
 
         @Override
@@ -516,18 +538,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         executorService.schedule(new Runnable() {
                             @Override
                             public void run() {
-                                opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                                opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                                 writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                                 successRecordCounter.inc();
                             }
                         }, delayMs, TimeUnit.MILLISECONDS);
                     } catch (RejectedExecutionException ree) {
-                        opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                        opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                         writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnIdToReturn)));
                         successRecordCounter.inc();
                     }
                 } else {
-                    opStatsLogger.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                    opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                     writePromise.setValue(writeResponse(successResponseHeader()).setDlsn(Long.toString(txnId)));
                     successRecordCounter.inc();
                 }
@@ -565,7 +587,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         long nextAcquireWaitTimeMs;
 
         // Stats
-        private StatsLogger exceptionStatLogger;
+        StatsLogger streamLogger;
+        StatsLogger exceptionStatLogger;
 
         Stream(String name) {
             super("Stream-" + name);
@@ -579,8 +602,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             lastException = new IOException("Fail to write record to stream " + name);
             nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
             // expose stream status
-            StatsLogger streamLogger = perStreamStatLogger.scope(name);
-            streamLogger.registerGauge("stream_status", new Gauge<Number>() {
+            this.streamLogger = perStreamStatLogger.scope(name);
+            this.streamLogger.registerGauge("stream_status", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return StreamStatus.UNINITIALIZED.getCode();
@@ -591,7 +614,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     return status.getCode();
                 }
             });
-            exceptionStatLogger = streamLogger.scope("exceptions");
+            this.exceptionStatLogger = this.streamLogger.scope("exceptions");
             return this;
         }
 
@@ -892,9 +915,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             }
             if (success) {
-                streamAcquireStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                streamAcquireStat.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
             } else {
-                streamAcquireStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                streamAcquireStat.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
             }
             for (StreamOp op : oldPendingOps) {
                 executeOp(op, success);
@@ -1333,7 +1356,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return op.result;
     }
 
-    private void doExecuteStreamOp(StreamOp op) {
+    private void doExecuteStreamOp(final StreamOp op) {
         Stream stream;
         try {
             stream = getLogWriter(op.stream);
@@ -1345,6 +1368,39 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             // redirect the requests when stream is unavailable.
             op.fail(StatusCode.SERVICE_UNAVAILABLE, "Server " + clientId + " is closed.");
             return;
+        }
+        if (op instanceof WriteOp) {
+          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger(op.getClass().getSimpleName());
+          final Counter bytes = stream.streamLogger.scope(op.getClass().getSimpleName()).getCounter("bytes");
+          final long size = ((WriteOp) op).getPayloadSize();
+          ((WriteOp) op).result.addEventListener(new FutureEventListener<WriteResponse>() {
+            @Override
+            public void onSuccess(WriteResponse ignoreVal) {
+              latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              bytes.add(size);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+              latencyStat.registerFailedEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+            }
+          });
+        } else if (op instanceof BulkWriteOp) {
+          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger(op.getClass().getSimpleName());
+          final Counter bytes = stream.streamLogger.scope(op.getClass().getSimpleName()).getCounter("bytes");
+          final long size = ((BulkWriteOp) op).getPayloadSize();
+          ((BulkWriteOp) op).result.addEventListener(new FutureEventListener<BulkWriteResponse>() {
+            @Override
+            public void onSuccess(BulkWriteResponse ignoreVal) {
+              latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              bytes.add(size);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+              latencyStat.registerFailedEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+            }
+          });
         }
         stream.waitIfNeededAndWrite(op);
     }
