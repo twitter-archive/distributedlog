@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.AlreadyClosedException;
@@ -564,7 +565,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    class Stream extends Thread {
+    protected class Stream extends Thread {
         final String name;
 
         // lock
@@ -1211,6 +1212,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
+    }
+
+    @VisibleForTesting
+    ConcurrentMap<String, Stream> getCachedStreams() {
+        return this.streams;
+    }
+
+    @VisibleForTesting
+    ConcurrentMap<String, Stream> getAcquiredStreams() {
+        return this.acquiredStreams;
     }
 
     private java.util.concurrent.Future<?> schedule(Runnable r, long delayMs) {
