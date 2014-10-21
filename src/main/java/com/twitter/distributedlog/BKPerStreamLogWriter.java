@@ -25,6 +25,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
 
 import com.twitter.util.Function0;
 import com.twitter.util.FutureEventListener;
@@ -157,7 +158,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
     private final String fullyQualifiedLogSegment;
     private BKTransmitPacket packetCurrent;
-    private final AtomicInteger outstandingRequests;
+    private final AtomicInteger outstandingWrites;
+    private final AtomicInteger outstandingTransmits;
+    private final int perWriterOutstandingWriteLimit;
+    private final boolean perWriterOutstandingWriteLimitDarkmode;
     private final int transmissionThreshold;
     protected final LedgerHandle lh;
     private final Object syncLock = new Object();
@@ -205,6 +209,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
     private final FuturePool orderedFuturePool;
+    private final StatsLogger writesStatsLogger;
+    private final OpStatsLogger outstandingWritesMetric;
+    private final Counter outstandingWritesLimitExceeded;
 
     /**
      * Construct an edit log output stream which writes to a ledger.
@@ -233,25 +240,40 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
-
+        
+        // outstanding transmit requests
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
         String statPrefixForStream = streamName.replaceAll(":|<|>|/", "_");
-        // outstanding requests
         if (conf.getEnablePerStreamStat()) {
             transmitOutstandingLogger.registerGauge(statPrefixForStream + "_requests", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return 0;
                 }
-
                 @Override
                 public Number getSample() {
-                    return outstandingRequests.get();
+                    return outstandingTransmits.get();
                 }
             });
         }
 
-        outstandingRequests = new AtomicInteger(0);
+        // outstanding user record writes
+        writesStatsLogger = statsLogger.scope("writes");
+        outstandingWritesMetric = writesStatsLogger.getOpStatsLogger("outstanding");
+        outstandingWritesLimitExceeded = writesStatsLogger.getCounter("outstandingLimitExceeded");
+        outstandingWrites = new AtomicInteger(0);
+        writesStatsLogger.registerGauge("outstanding", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+            @Override
+            public Number getSample() {
+                return outstandingWrites.get();
+            }
+        });
+
+        outstandingTransmits = new AtomicInteger(0);
         syncLatch = null;
         this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
         this.lh = lh;
@@ -276,6 +298,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
+        this.perWriterOutstandingWriteLimit = conf.getPerWriterOutstandingWriteLimit();
+        this.perWriterOutstandingWriteLimitDarkmode = conf.getPerWriterOutstandingWriteLimitDarkmode();
 
         // If we are transmitting immediately (threshold == 0) and if immediate
         // flush is enabled, we don't need the periodic flush task
@@ -543,15 +567,47 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             throw new TransactionIdOutOfOrderException(record.getTransactionId());
         }
 
+        // This sync call is the only call that increments the outstanding 
+        // requests counter, so this may be lower after this call, but it won't 
+        // be higher. Thus we should still never exceed the max outstanding
+        // requests limit.
+        int outstanding = outstandingWrites.get() + 1;
+        outstandingWritesMetric.registerSuccessfulEvent(outstandingWrites.get());
+        if (perWriterOutstandingWriteLimit > -1 && outstanding > perWriterOutstandingWriteLimit) {
+            outstandingWritesLimitExceeded.inc();
+            if (!perWriterOutstandingWriteLimitDarkmode) {
+                throw new OverCapacityException(outstanding, perWriterOutstandingWriteLimit);
+            }
+        }
+        
         // The count represents the number of user records up to the
         // current record
         // Increment the record count only when writing a user log record
         // Internally generated log records don't increment the count
         // writeInternal will always set a count regardless of whether it was
         // incremented or not.
-        positionWithinLogSegment++;
-        Future<DLSN> future = writeInternal(record);
-        return future;
+        Future<DLSN> future = null;
+        try {
+            outstandingWrites.incrementAndGet();
+            positionWithinLogSegment++;
+            future = writeInternal(record);
+        } catch (IOException ex) {
+            outstandingWrites.decrementAndGet();
+            positionWithinLogSegment--;
+            throw ex;
+        }
+
+        // Track outstanding requests and return the future.
+        return future.addEventListener(new FutureEventListener<DLSN>() {
+            @Override
+            public void onSuccess(DLSN dlsn) {
+                outstandingWrites.decrementAndGet();
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                outstandingWrites.decrementAndGet();
+            }
+        });
     }
 
     public boolean isStreamInError() {
@@ -768,7 +824,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
 
         CountDownLatch latch;
         synchronized (syncLock) {
-            latch = syncLatch = new CountDownLatch(outstandingRequests.get());
+            latch = syncLatch = new CountDownLatch(outstandingTransmits.get());
         }
 
         boolean waitSuccessful;
@@ -839,7 +895,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
 
             lastTransmit.reset().start();
-            outstandingRequests.incrementAndGet();
+            outstandingTransmits.incrementAndGet();
             controlFlushNeeded = false;
             return true;
         } else {
@@ -880,7 +936,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
         // notify the waiters before callback, otherwise, it might block flush
         CountDownLatch l;
         synchronized (syncLock) {
-            outstandingRequests.decrementAndGet();
+            outstandingTransmits.decrementAndGet();
             l = syncLatch;
         }
 

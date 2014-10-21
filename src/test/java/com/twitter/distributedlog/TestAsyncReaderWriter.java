@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
@@ -1315,6 +1316,82 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertTrue(last.getDlsn().getEntryId() <= (executionTime.elapsed(TimeUnit.MILLISECONDS) / confLocal.getMinDelayBetweenImmediateFlushMs() + 1));
         DLMTestUtil.verifyLogRecord(last);
 
+        dlm.close();
+    }
+
+    public void writeRecordsWithOutstandingWriteLimit(int limit) throws Exception {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setPerWriterOutstandingWriteLimit(limit);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
+        for (int i = 0; i < 1000; i++) {
+            results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        }
+        for (Future<DLSN> result : results) {
+            Await.result(result);
+        }
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitNoLimit() throws Exception {
+        // Must not throw.
+        writeRecordsWithOutstandingWriteLimit(-1);
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitVeryHighLimit() throws Exception {
+        // Must not throw.
+        writeRecordsWithOutstandingWriteLimit(Integer.MAX_VALUE);
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitBlockAllLimit() throws Exception {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setPerWriterOutstandingWriteLimit(0);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
+        for (int i = 0; i < 1000; i++) {
+            results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        }
+        for (Future<DLSN> result : results) {
+            try {
+                Await.result(result);
+                fail("should fail due to no outstanding writes permitted");
+            } catch (OverCapacityException ex) {
+            }
+        }
+        writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitBlockAllLimitWithDarkmode() throws Exception {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setPerWriterOutstandingWriteLimit(0);
+        confLocal.setPerWriterOutstandingWriteLimitDarkmode(true);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
+        for (int i = 0; i < 1000; i++) {
+            results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        }
+        for (Future<DLSN> result : results) {
+            Await.result(result);
+        }
+        writer.closeAndComplete();
         dlm.close();
     }
 }

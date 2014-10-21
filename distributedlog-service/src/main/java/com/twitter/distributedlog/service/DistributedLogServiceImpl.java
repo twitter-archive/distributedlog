@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.BKUnPartitionedAsyncLogWriter;
@@ -775,6 +776,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             case END_OF_STREAM:
                             case TRANSACTION_OUT_OF_ORDER:
                             case INVALID_STREAM_NAME:
+                            case OVER_CAPACITY:
                                 op.fail(null, cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer

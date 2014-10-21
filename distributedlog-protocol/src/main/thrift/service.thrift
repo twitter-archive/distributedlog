@@ -56,6 +56,8 @@ enum StatusCode {
     STREAM_UNAVAILABLE = 515,
     // Write cancelled exception
     WRITE_CANCELLED_EXCEPTION = 516,
+    // over-capacity/backpressure
+    OVER_CAPACITY = 517,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
