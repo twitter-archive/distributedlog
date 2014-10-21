@@ -1381,8 +1381,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return;
         }
         if (op instanceof WriteOp) {
-          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger(op.getClass().getSimpleName());
-          final Counter bytes = stream.streamLogger.scope(op.getClass().getSimpleName()).getCounter("bytes");
+          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger("write");
+          final Counter bytes = stream.streamLogger.scope("write").getCounter("bytes");
           final long size = ((WriteOp) op).getPayloadSize();
           ((WriteOp) op).result.addEventListener(new FutureEventListener<WriteResponse>() {
             @Override
@@ -1397,8 +1397,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
           });
         } else if (op instanceof BulkWriteOp) {
-          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger(op.getClass().getSimpleName());
-          final Counter bytes = stream.streamLogger.scope(op.getClass().getSimpleName()).getCounter("bytes");
+          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger("bulkWrite");
+          final Counter bytes = stream.streamLogger.scope("bulkWrite").getCounter("bytes");
           final long size = ((BulkWriteOp) op).getPayloadSize();
           ((BulkWriteOp) op).result.addEventListener(new FutureEventListener<BulkWriteResponse>() {
             @Override
