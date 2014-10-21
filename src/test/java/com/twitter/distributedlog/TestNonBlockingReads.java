@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
 
+import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -286,6 +287,82 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         executor.shutdown();
     }
 
+    @Test(timeout = 10000)
+    public void nonBlockingReadWithForceRead() throws Exception {
+        String name = "distrlog-non-blocking-reader-force-read";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReaderIdleWarnThresholdMillis(100);
+        confLocal.setReaderIdleErrorThresholdMillis(500);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        writer.write(DLMTestUtil.getLogRecordInstance(1));
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+
+        BKContinuousLogReaderTxId reader = (BKContinuousLogReaderTxId)dlm.getInputStream(1);
+        LogRecord record = reader.readNext(true);
+        Assert.assertTrue(null != record);
+        Thread.sleep(150);
+        record = reader.readNext(true);
+        Assert.assertTrue(null == record);
+        Assert.assertTrue(reader.getForceBlockingRead());
+        writer.write(DLMTestUtil.getLogRecordInstance(2));
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        record = reader.readNext(true);
+        Assert.assertTrue(null != record);
+        Thread.sleep(425);
+        boolean exceptionEncountered = false;
+        try {
+            record = reader.readNext(true);
+            Assert.assertTrue(null == record);
+        } catch (IdleReaderException exc) {
+            LOG.info("Exception encountered", exc);
+            exceptionEncountered = true;
+        }
+        Assert.assertTrue(exceptionEncountered);
+    }
+
+    @Test(timeout = 10000)
+    public void nonBlockingReadWithForceReadDisable() throws Exception {
+        String name = "distrlog-non-blocking-reader-force-read-disable";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReaderIdleWarnThresholdMillis(100);
+        confLocal.setReaderIdleErrorThresholdMillis(500);
+        confLocal.setEnableForceRead(false);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        writer.write(DLMTestUtil.getLogRecordInstance(1));
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+
+        BKContinuousLogReaderTxId reader = (BKContinuousLogReaderTxId)dlm.getInputStream(1);
+        LogRecord record = reader.readNext(true);
+        Assert.assertTrue(null != record);
+        Thread.sleep(150);
+        record = reader.readNext(true);
+        Assert.assertTrue(null == record);
+        Assert.assertTrue(!reader.getForceBlockingRead());
+        writer.write(DLMTestUtil.getLogRecordInstance(2));
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+        record = reader.readNext(true);
+        Assert.assertTrue(null != record);
+        Thread.sleep(425);
+        boolean exceptionEncountered = false;
+        try {
+            record = reader.readNext(true);
+            Assert.assertTrue(null == record);
+        } catch (IdleReaderException exc) {
+            LOG.info("Exception encountered", exc);
+            exceptionEncountered = true;
+        }
+        Assert.assertTrue(!exceptionEncountered);
+    }
 
     static class ReaderThread extends Thread {
 

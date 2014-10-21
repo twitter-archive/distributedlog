@@ -117,6 +117,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
 
+    public static final String BKDL_ENABLE_FORCEREAD = "enableForceRead";
+    public static final boolean BKDL_ENABLE_FORCEREAD_DEFAULT = true;
+
     public static final String BKDL_READAHEAD_MAX_ENTRIES = "ReadAheadMaxEntries";
     public static final int BKDL_READAHEAD_MAX_ENTRIES_DEFAULT = 10;
 
@@ -710,12 +713,32 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get if we should use separate ZK Clients
+     * Get if we should enable read ahead
      *
-     * @return if should use separate ZK Clients
+     * @return if read ahead is enabled
      */
     public boolean getEnableReadAhead() {
         return getBoolean(BKDL_ENABLE_READAHEAD, BKDL_ENABLE_READAHEAD_DEFAULT);
+    }
+
+    /**
+     * Set if we should enable force read
+     *
+     * @param enableForceRead
+     *          Enable force read
+     */
+    public DistributedLogConfiguration setEnableForceRead(boolean enableForceRead) {
+        setProperty(BKDL_ENABLE_FORCEREAD, enableForceRead);
+        return this;
+    }
+
+    /**
+     * Get if we should enable force read
+     *
+     * @return if should use separate ZK Clients
+     */
+    public boolean getEnableForceRead() {
+        return getBoolean(BKDL_ENABLE_FORCEREAD, BKDL_ENABLE_FORCEREAD_DEFAULT);
     }
 
     /**

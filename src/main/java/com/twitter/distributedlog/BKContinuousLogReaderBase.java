@@ -28,6 +28,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     protected final BKLogPartitionReadHandler bkLedgerManager;
     protected ResumableBKPerStreamLogReader currentReader = null;
     protected final boolean readAheadEnabled;
+    private final boolean forceReadEnabled;
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private volatile boolean endOfStreamEncountered = false;
@@ -52,6 +53,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
         this.bkLedgerManager =
                 bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, true);
         this.readAheadEnabled = conf.getEnableReadAhead();
+        this.forceReadEnabled = conf.getEnableForceRead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();
         this.idleErrorThresholdMillis = conf.getReaderIdleErrorThresholdMillis();
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
@@ -116,21 +118,25 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
 
         }
 
-        forceBlockingRead = false;
-
         if (null != record) {
             if (record.isEndOfStream()) {
                 endOfStreamEncountered = true;
                 throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
             }
 
-            idleReaderLastLogRecordSw.reset().start();
-            idleReaderLastWarnSw.reset().start();
-            if (isReaderIdle) {
-                LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
-                isReaderIdle = false;
+            if (forceBlockingRead) {
+                LOG.info("Reader on stream {}; resumed from idle state when forced blocking read", bkLedgerManager.getFullyQualifiedName());
+            } else {
+                idleReaderLastLogRecordSw.reset().start();
+                idleReaderLastWarnSw.reset().start();
+                if (isReaderIdle) {
+                    LOG.info("Reader on stream {}; resumed from idle state", bkLedgerManager.getFullyQualifiedName());
+                    isReaderIdle = false;
+                }
             }
+            forceBlockingRead = false;
         } else {
+            forceBlockingRead = false;
             long idleDuration = idleReaderLastLogRecordSw.elapsed(TimeUnit.MILLISECONDS);
             if (idleDuration > idleErrorThresholdMillis) {
                 LOG.error("Idle Reader on stream {} for {} ms; Current Reader {}",
@@ -153,7 +159,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                 idleReaderWarnCounter.inc();
                 idleReaderLastWarnSw.reset().start();
                 isReaderIdle = true;
-                forceBlockingRead = true;
+                forceBlockingRead = this.forceReadEnabled;
             }
         }
 
@@ -305,6 +311,10 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             LOG.error("registerNotification encountered exception", exc);
             notifyOnError();
         }
+    }
+
+    protected synchronized boolean getForceBlockingRead() {
+        return forceBlockingRead;
     }
 
     @VisibleForTesting
