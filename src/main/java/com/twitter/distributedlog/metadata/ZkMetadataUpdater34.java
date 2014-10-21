@@ -25,9 +25,9 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
             Transaction txn = zkc.get().transaction();
             byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
             // delete old log segment
-            zkc.get().delete(oldSegment.getZkPath(), -1);
+            txn.delete(oldSegment.getZkPath(), -1);
             // create new log segment
-            zkc.get().create(newSegment.getZkPath(), finalisedData, zkc.getDefaultACL(), CreateMode.PERSISTENT);
+            txn.create(newSegment.getZkPath(), finalisedData, zkc.getDefaultACL(), CreateMode.PERSISTENT);
             // commit the transaction
             txn.commit();
         } catch (InterruptedException e) {
