@@ -13,6 +13,7 @@ import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
+import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
@@ -110,6 +111,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final OpStatsLogger createWriteHandlerStats;
 
     final private PendingReaders pendingReaders;
+
+    private PermitLimiter writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
 
     BKDistributedLogManager(String name,
                             DistributedLogConfiguration conf,
@@ -341,7 +344,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool, metadataExecutor,
-                getLockStateExecutor(true), ledgerAllocator, statsLogger, clientId, regionId);
+                getLockStateExecutor(true), ledgerAllocator, statsLogger, clientId, regionId, writeLimiter);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
             writeHandler.register((Watcher) manager);
@@ -375,6 +378,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     void setLogSegmentRollingPermitManager(PermitManager manager) {
         this.logSegmentRollingPermitManager = manager;
+    }
+
+    void setWriteLimiter(PermitLimiter limiter) {
+        this.writeLimiter = limiter;
     }
 
     @VisibleForTesting

@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -109,7 +110,7 @@ public class DLMTestUtil {
                 Executors.newScheduledThreadPool(1,
                         new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
                 null, null, OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
-                null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID);
+                null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID, PermitLimiter.NULL_PERMIT_LIMITER);
     }
 
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
@@ -318,7 +319,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         if (writeEntries) {
             long txid = startTxID;
             for (long j = 1; j <= segmentSize; j++) {
@@ -356,7 +357,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {

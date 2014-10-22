@@ -15,7 +15,9 @@ import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
+import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -142,6 +144,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     protected boolean closed = false;
 
+    private final PermitLimiter writeLimiter;
+
     public DistributedLogManagerFactory(DistributedLogConfiguration conf, URI uri) throws IOException, IllegalArgumentException {
         this(conf, uri, NullStatsLogger.INSTANCE);
     }
@@ -237,6 +241,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
                 conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
+
+        if (conf.getGlobalOutstandingWriteLimit() < 0) {
+            this.writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
+        } else {
+            this.writeLimiter = new SimplePermitLimiter(conf.getGlobalOutstandingWriteLimit(), 
+                statsLogger.scope("writeLimiter"));
+        }
 
         // propagate bkdlConfig to configuration
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);
@@ -633,6 +644,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
+        distLogMgr.setWriteLimiter(writeLimiter);
 
         if (clientSharingOption == ClientSharingOption.SharedClients) {
             distLogMgr.setLedgerAllocator(allocator);

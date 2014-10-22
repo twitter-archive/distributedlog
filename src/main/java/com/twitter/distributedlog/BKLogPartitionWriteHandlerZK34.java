@@ -8,6 +8,8 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
 
+import com.twitter.distributedlog.util.PermitLimiter;
+
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.FuturePool;
 
@@ -61,10 +63,11 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
                                    String clientId,
-                                   int regionId) throws IOException {
+                                   int regionId,
+                                   PermitLimiter writeLimiter) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, orderedFuturePool, metadataExecutor, lockStateExecutor,
-              allocator, true, statsLogger, clientId, regionId);
+              allocator, true, statsLogger, clientId, regionId, writeLimiter);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -281,7 +284,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf,
-                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger);
+                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger, writeLimiter);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed
             // to be best effort, we can retry this later

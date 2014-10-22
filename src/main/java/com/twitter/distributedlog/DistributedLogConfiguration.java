@@ -271,8 +271,14 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT = "perWriterOutstandingWriteLimit";
     public static final int BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
 
+    public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT = "globalOutstandingWriteLimit";
+    public static final int BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
+
     public static final String BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DARKMODE = "perWriterOutstandingWriteLimitDarkmode";
-    public static final boolean BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = false;
+    public static final boolean BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
+
+    public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE = "globalOutstandingWriteLimitDarkmode";
+    public static final boolean BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
 
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
@@ -1911,19 +1917,19 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get the per stream write rate limit for dl proxy.
+     * Get the per stream outstanding write limit for dl.
      *
-     * @return the per stream write rate limit for dl proxy
+     * @return the per stream outstanding write limit for dl 
      */
     public int getPerWriterOutstandingWriteLimit() {
         return getInt(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT, BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT);
     }
 
     /**
-     * Set the per stream write rate limit for dl proxy.
+     * Set the per stream outstanding write limit for dl.
      *
      * @param limit
-     *          per stream write rate limit for dl proxy in writes per sec
+     *          per stream outstanding write limit for dl
      * @return dl configuration
      */
     public DistributedLogConfiguration setPerWriterOutstandingWriteLimit(int limit) {
@@ -1932,7 +1938,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Whether to darkmode outstanding writes limit.
+     * Get the global write limit for dl.
+     *
+     * @return the global write limit for dl
+     */
+    public int getGlobalOutstandingWriteLimit() {
+        return getInt(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set the global write limit for dl.
+     *
+     * @param limit
+     *          global write limit for dl
+     * @return dl configuration
+     */
+    public DistributedLogConfiguration setGlobalOutstandingWriteLimit(int limit) {
+        setProperty(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, limit);
+        return this;
+    }
+
+    /**
+     * Whether to darkmode outstanding writes limit (per stream).
      *
      * @return flag to darmkode pending write limit.
      */
@@ -1941,7 +1968,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Set the flag to darkmode outstanding writes limit.
+     * Set the flag to darkmode outstanding writes limit (per stream).
      *
      * @param darmkoded
      *          flag to darmkode pending write limit
@@ -1951,5 +1978,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DARKMODE, darmkoded);
         return this;
     }
+
+    /**
+     * Whether to darkmode outstanding writes limit (global).
+     *
+     * @return flag to darmkode pending write limit.
+     */
+    public boolean getGlobalOutstandingWriteLimitDarkmode() {
+        return getBoolean(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE, BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT);
+    }
+
+    /**
+     * Set the flag to darkmode outstanding writes limit (global).
+     *
+     * @param darmkoded
+     *          flag to darmkode pending write limit
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setGlobalOutstandingWriteLimitDarkmode(boolean darmkoded) {
+        setProperty(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE, darmkoded);
+        return this;
+    }
+
 
 }

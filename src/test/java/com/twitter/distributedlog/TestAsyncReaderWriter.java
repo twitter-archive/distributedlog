@@ -6,6 +6,7 @@ import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
@@ -15,6 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -1319,45 +1322,18 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
-    public void writeRecordsWithOutstandingWriteLimit(int limit) throws Exception {
+    public void writeRecordsWithOutstandingWriteLimit(int stream, int global, boolean shouldFail) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.addConfiguration(conf);
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
-        confLocal.setPerWriterOutstandingWriteLimit(limit);
+        confLocal.setPerWriterOutstandingWriteLimit(stream);
+        confLocal.setPerWriterOutstandingWriteLimitDarkmode(false);
+        confLocal.setGlobalOutstandingWriteLimitDarkmode(false);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
-        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
-        for (int i = 0; i < 1000; i++) {
-            results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        if (global > -1) {
+            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(global, new NullStatsLogger()));
         }
-        for (Future<DLSN> result : results) {
-            Await.result(result);
-        }
-        writer.closeAndComplete();
-        dlm.close();
-    }
-
-    @Test(timeout = 60000)
-    public void testOutstandingWriteLimitNoLimit() throws Exception {
-        // Must not throw.
-        writeRecordsWithOutstandingWriteLimit(-1);
-    }
-
-    @Test(timeout = 60000)
-    public void testOutstandingWriteLimitVeryHighLimit() throws Exception {
-        // Must not throw.
-        writeRecordsWithOutstandingWriteLimit(Integer.MAX_VALUE);
-    }
-
-    @Test(timeout = 60000)
-    public void testOutstandingWriteLimitBlockAllLimit() throws Exception {
-        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.addConfiguration(conf);
-        confLocal.setOutputBufferSize(0);
-        confLocal.setImmediateFlushEnabled(true);
-        confLocal.setPerWriterOutstandingWriteLimit(0);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
         for (int i = 0; i < 1000; i++) {
@@ -1366,12 +1342,35 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (Future<DLSN> result : results) {
             try {
                 Await.result(result);
-                fail("should fail due to no outstanding writes permitted");
+                if (shouldFail) {
+                    fail("should fail due to no outstanding writes permitted");
+                }
             } catch (OverCapacityException ex) {
+                assertTrue(shouldFail);
             }
         }
         writer.closeAndComplete();
         dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitNoLimit() throws Exception {
+        writeRecordsWithOutstandingWriteLimit(-1, -1, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitVeryHighLimit() throws Exception {
+        writeRecordsWithOutstandingWriteLimit(Integer.MAX_VALUE, Integer.MAX_VALUE, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitBlockAllStreamLimit() throws Exception {
+        writeRecordsWithOutstandingWriteLimit(0, Integer.MAX_VALUE, true);
+    }
+
+    @Test(timeout = 60000)
+    public void testOutstandingWriteLimitBlockAllGlobalLimit() throws Exception {
+        writeRecordsWithOutstandingWriteLimit(Integer.MAX_VALUE, 0, true);
     }
 
     @Test(timeout = 60000)
@@ -1382,6 +1381,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(0);
         confLocal.setPerWriterOutstandingWriteLimitDarkmode(true);
+        confLocal.setGlobalOutstandingWriteLimitDarkmode(true);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
