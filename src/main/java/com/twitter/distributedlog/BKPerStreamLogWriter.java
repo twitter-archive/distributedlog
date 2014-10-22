@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
@@ -34,7 +35,6 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
-import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.Counter;
@@ -49,7 +49,6 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -67,7 +66,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCallback {
+class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
     private static class BKTransmitPacket {
@@ -401,50 +400,21 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable, CloseCal
             }
         }
 
-        closeLedgerHandle(0);
+        if (null == throwExc && !isStreamInError()) {
+            // Synchronous closing the ledger handle, if we couldn't close a ledger handle successfully.
+            // we should throw the exception to #closeToFinalize, so it would fail completing a log segment.
+            try {
+                lh.close();
+            } catch (BKException bke) {
+                throwExc = new IOException("Failed to close ledger for " + fullyQualifiedLogSegment, bke);
+            } catch (InterruptedException ie) {
+                throwExc = new DLInterruptedException("Interrupted on closing ledger for " + fullyQualifiedLogSegment, ie);
+            }
+        }
+
         lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         return throwExc;
-    }
-
-    private void closeLedgerHandle(long delayInMs) {
-        if (null != executorService && delayInMs > 0) {
-            LOG.debug("Log segment {}: scheduling closing ledger handle {} in {} ms.",
-                    new Object[] {fullyQualifiedLogSegment, lh.getId(), delayInMs});
-            executorService.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    LOG.debug("Closing ledger handle {} for {}.", lh.getId(), fullyQualifiedLogSegment);
-                    lh.asyncClose(BKPerStreamLogWriter.this, null);
-                }
-            }, delayInMs, TimeUnit.MILLISECONDS);
-        } else {
-            LOG.debug("Closing ledger handle {} for {}.", lh.getId(), fullyQualifiedLogSegment);
-            lh.asyncClose(this, null);
-        }
-    }
-
-    /**
-     * Close ledger handle callback.
-     *
-     * @param rc
-     *          return code.
-     * @param ledgerHandle
-     *          ledger handle.
-     * @param ctx
-     *          callback ctx
-     */
-    @Override
-    public void closeComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
-        if (BKException.Code.OK == rc ||
-            BKException.Code.NoSuchLedgerExistsException == rc ||
-            BKException.Code.LedgerClosedException == rc) {
-            LOG.debug("Closed ledger handle {} for {} successfully: {}", new Object[] {lh.getId(), fullyQualifiedLogSegment, rc});
-        } else {
-            LOG.warn("Failed to close ledger handle {} for {}, backoff and retry in {} ms.",
-                new Object[] {lh.getId(), fullyQualifiedLogSegment, conf.getBKClientZKSessionTimeoutMilliSeconds()});
-            closeLedgerHandle(conf.getBKClientZKSessionTimeoutMilliSeconds());
-        }
     }
 
     @Override

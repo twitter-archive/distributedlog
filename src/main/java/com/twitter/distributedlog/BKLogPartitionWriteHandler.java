@@ -47,7 +47,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -64,7 +63,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 
-class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncCallback.CloseCallback {
+class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
     static Class<? extends BKLogPartitionWriteHandler> WRITER_HANDLER_CLASS = null;
@@ -481,9 +480,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
                                         final DataWithStat maxTxIdData,
                                         final DataWithStat ledgersData) throws IOException {
 
-        // Note re. persistent lock state initialization: the read lock persistent state (path) is 
-        // initialized here but only used in the read handler. The reason is its more convenient and 
-        // less error prone to manage all stream structure in one place. 
+        // Note re. persistent lock state initialization: the read lock persistent state (path) is
+        // initialized here but only used in the read handler. The reason is its more convenient and
+        // less error prone to manage all stream structure in one place.
         final String ledgerPath = partitionRootPath + BKLogPartitionHandler.LEDGERS_PATH;
         final String maxTxIdPath = partitionRootPath + BKLogPartitionHandler.MAX_TXID_PATH;
         final String lockPath = partitionRootPath + BKLogPartitionHandler.LOCK_PATH;
@@ -640,31 +639,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler implements AsyncC
 
     void register(Watcher watcher) {
         this.zooKeeperClient.register(watcher);
-    }
-
-    @Override
-    public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
-        if (BKException.Code.LedgerClosedException == rc) {
-            LOG.debug("Ledger is already closed.");
-        } else if (BKException.Code.OK != rc) {
-            LOG.error("Error closing ledger ", BKException.create(rc));
-        } else {
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Ledger {} is closed.", lh.getId());
-            }
-        }
-    }
-
-    /**
-     * Close ledger handle.
-     *
-     * @param lh
-     *          ledger handle to close.
-     */
-    protected void closeLedger(LedgerHandle lh) {
-        if (null != lh) {
-            lh.asyncClose(this, null);
-        }
     }
 
     /**
