@@ -64,6 +64,7 @@ public class BKDLConfig implements DLConfig {
     private boolean encodeRegionID = false;
     private String dlZkServersForWriter;
     private String dlZkServersForReader;
+    private String aclRootPath;
 
     /**
      * Construct a empty config with given <i>uri</i>.
@@ -172,6 +173,27 @@ public class BKDLConfig implements DLConfig {
         return encodeRegionID;
     }
 
+    /**
+     * Set the root path of zk based ACL manager.
+     *
+     * @param aclRootPath
+     *          root path of zk based ACL manager.
+     * @return bk dl config
+     */
+    public BKDLConfig setACLRootPath(String aclRootPath) {
+        this.aclRootPath = aclRootPath;
+        return this;
+    }
+
+    /**
+     * Get the root path of zk based ACL manager.
+     *
+     * @return root path of zk based ACL manager.
+     */
+    public String getACLRootPath() {
+        return aclRootPath;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hashCode(bkZkServersForWriter, bkZkServersForReader,
@@ -191,7 +213,8 @@ public class BKDLConfig implements DLConfig {
                Objects.equal(dlZkServersForReader, another.dlZkServersForReader) &&
                Objects.equal(bkLedgersPath, another.bkLedgersPath) &&
                sanityCheckTxnID == another.sanityCheckTxnID &&
-               encodeRegionID == another.encodeRegionID;
+               encodeRegionID == another.encodeRegionID &&
+               Objects.equal(aclRootPath, another.aclRootPath);
     }
 
     @Override
@@ -219,6 +242,9 @@ public class BKDLConfig implements DLConfig {
         }
         configFormat.setSanityCheckTxnID(sanityCheckTxnID);
         configFormat.setEncodeRegionID(encodeRegionID);
+        if (null != aclRootPath) {
+            configFormat.setAclRootPath(aclRootPath);
+        }
         return serialize(configFormat);
     }
 
@@ -271,6 +297,9 @@ public class BKDLConfig implements DLConfig {
         // dl settings
         sanityCheckTxnID = !configFormat.isSetSanityCheckTxnID() || configFormat.isSanityCheckTxnID();
         encodeRegionID = configFormat.isSetEncodeRegionID() && configFormat.isEncodeRegionID();
+        if (configFormat.isSetAclRootPath()) {
+            aclRootPath = configFormat.getAclRootPath();
+        }
 
         // Validate the settings
         if (null == bkZkServersForWriter || null == bkZkServersForReader || null == bkLedgersPath ||

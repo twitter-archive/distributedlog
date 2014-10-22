@@ -4,10 +4,15 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -16,7 +21,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -403,6 +407,33 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         assertEquals(10, numRead);
         reader.close();
         readDLM.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testRequestDenied() throws Exception {
+        String name = "request-denied";
+
+        dlClient.routingService.addHost(name, dlServer.getAddress());
+
+        AccessControlEntry ace = new AccessControlEntry();
+        ace.setDenyWrite(true);
+        DistributedLogManagerFactory factory = dlServer.dlServer.getLeft().getDlFactory();
+        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), uri);
+        String zkPath = uri.getPath() + "/" + bkdlConfig.getACLRootPath() + "/" + name;
+        ZKAccessControl accessControl = new ZKAccessControl(ace, zkPath);
+        accessControl.create(factory.getSharedWriterZKCForDL());
+
+        AccessControlManager acm = factory.createAccessControlManager();
+        while (acm.allowWrite(name)) {
+            Thread.sleep(100);
+        }
+
+        try {
+            Await.result(dlClient.dlClient.write(name, ByteBuffer.wrap("1".getBytes(UTF_8))));
+            fail("Should fail with request denied exception");
+        } catch (DLException dle) {
+            assertEquals(StatusCode.REQUEST_DENIED, dle.getCode());
+        }
     }
 
     @Test(timeout = 60000)

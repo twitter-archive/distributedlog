@@ -1021,7 +1021,8 @@ public class DistributedLogClientBuilder {
                         case TRANSACTION_OUT_OF_ORDER:
                         case INVALID_STREAM_NAME:
                         case OVER_CAPACITY:
-                            logger.error("Failed to write request to {} : {}", op.stream, header); 
+                        case REQUEST_DENIED:
+                            logger.error("Failed to write request to {} : {}", op.stream, header);
                             op.fail(DLException.of(header));
                             break;
                         case SERVICE_UNAVAILABLE:

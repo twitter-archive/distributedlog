@@ -2,6 +2,8 @@ package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LocalDLMEmulator;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.thrift.ClientId$;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -72,6 +74,8 @@ public abstract class DistributedLogServerTestCase {
         bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
         bkutil.start();
         uri = LocalDLMEmulator.createDLMURI("127.0.0.1:7000", "");
+        BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "/ledgers").setACLRootPath(".acl");
+        DLMetadata.create(bkdlConfig).update(uri);
     }
 
     @AfterClass

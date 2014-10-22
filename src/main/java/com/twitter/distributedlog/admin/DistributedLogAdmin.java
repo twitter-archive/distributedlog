@@ -9,12 +9,14 @@ import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.ReadUtils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.tools.DistributedLogTool;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -25,6 +27,7 @@ import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -695,6 +698,169 @@ public class DistributedLogAdmin extends DistributedLogTool {
         }
     }
 
+    static class DeleteStreamACLCommand extends PerDLCommand {
+
+        String stream = null;
+
+        DeleteStreamACLCommand() {
+            super("delete_stream_acl", "Delete ACL for a given stream");
+            options.addOption("s", "stream", true, "Stream to set ACL");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (!cmdline.hasOption("s")) {
+                throw new ParseException("No stream to set ACL");
+            }
+            stream = cmdline.getOptionValue("s");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
+                if (null == bkdlConfig.getACLRootPath()) {
+                    // acl isn't enabled for this namespace.
+                    println("ACL isn't enabled for namespace " + getUri());
+                    return -1;
+                }
+                String zkPath = getUri() + "/" + bkdlConfig.getACLRootPath() + "/" + stream;
+                ZKAccessControl.delete(factory.getSharedWriterZKCForDL(), zkPath);
+            } finally {
+                factory.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return null;
+        }
+    }
+
+    static class SetStreamACLCommand extends SetACLCommand {
+
+        String stream = null;
+
+        SetStreamACLCommand() {
+            super("set_stream_acl", "Set Default ACL for a given stream");
+            options.addOption("s", "stream", true, "Stream to set ACL");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (!cmdline.hasOption("s")) {
+                throw new ParseException("No stream to set ACL");
+            }
+            stream = cmdline.getOptionValue("s");
+        }
+
+        @Override
+        protected String getZKPath(String zkRootPath) {
+            return zkRootPath + "/" + stream;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "set_stream_acl [options]";
+        }
+    }
+
+    static class SetDefaultACLCommand extends SetACLCommand {
+
+        SetDefaultACLCommand() {
+            super("set_default_acl", "Set Default ACL for a namespace");
+        }
+
+        @Override
+        protected String getZKPath(String zkRootPath) {
+            return zkRootPath;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "set_default_acl [options]";
+        }
+    }
+
+    static abstract class SetACLCommand extends PerDLCommand {
+
+        boolean denyWrite = false;
+        boolean denyTruncate = false;
+        boolean denyDelete = false;
+        boolean denyAcquire = false;
+        boolean denyRelease = false;
+
+        protected SetACLCommand(String name, String description) {
+            super(name, description);
+            options.addOption("dw", "deny-write", false, "Deny write/bulkWrite requests");
+            options.addOption("dt", "deny-truncate", false, "Deny truncate requests");
+            options.addOption("dd", "deny-delete", false, "Deny delete requests");
+            options.addOption("da", "deny-acquire", false, "Deny acquire requests");
+            options.addOption("dr", "deny-release", false, "Deny release requests");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            denyWrite = cmdline.hasOption("dw");
+            denyTruncate = cmdline.hasOption("dt");
+            denyDelete = cmdline.hasOption("dd");
+            denyAcquire = cmdline.hasOption("da");
+            denyRelease = cmdline.hasOption("dr");
+        }
+
+        protected abstract String getZKPath(String zkRootPath);
+
+        protected ZKAccessControl getZKAccessControl(ZooKeeperClient zkc, String zkPath) throws Exception {
+            ZKAccessControl accessControl;
+            try {
+                accessControl = Await.result(ZKAccessControl.read(zkc, zkPath, null));
+            } catch (KeeperException.NoNodeException nne) {
+                accessControl = new ZKAccessControl(new AccessControlEntry(), zkPath);
+            }
+            return accessControl;
+        }
+
+        protected void setZKAccessControl(ZooKeeperClient zkc, ZKAccessControl accessControl) throws Exception {
+            String zkPath = accessControl.getZKPath();
+            if (null == zkc.get().exists(zkPath, false)) {
+                accessControl.create(zkc);
+            } else {
+                accessControl.update(zkc);
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
+                if (null == bkdlConfig.getACLRootPath()) {
+                    // acl isn't enabled for this namespace.
+                    println("ACL isn't enabled for namespace " + getUri());
+                    return -1;
+                }
+                String zkPath = getZKPath(getUri().getPath() + "/" + bkdlConfig.getACLRootPath());
+                ZKAccessControl accessControl = getZKAccessControl(factory.getSharedWriterZKCForDL(), zkPath);
+                AccessControlEntry acl = accessControl.getAccessControlEntry();
+                acl.setDenyWrite(denyWrite);
+                acl.setDenyTruncate(denyTruncate);
+                acl.setDenyDelete(denyDelete);
+                acl.setDenyAcquire(denyAcquire);
+                acl.setDenyRelease(denyRelease);
+                setZKAccessControl(factory.getSharedWriterZKCForDL(), accessControl);
+            } finally {
+                factory.close();
+            }
+            return 0;
+        }
+
+    }
+
     public DistributedLogAdmin() {
         super();
         commands.clear();
@@ -703,6 +869,9 @@ public class DistributedLogAdmin extends DistributedLogTool {
         addCommand(new UnbindCommand());
         addCommand(new RepairSeqNoCommand());
         addCommand(new DLCKCommand());
+        addCommand(new SetDefaultACLCommand());
+        addCommand(new SetStreamACLCommand());
+        addCommand(new DeleteStreamACLCommand());
     }
 
     @Override

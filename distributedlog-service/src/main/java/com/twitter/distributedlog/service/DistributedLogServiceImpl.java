@@ -13,6 +13,7 @@ import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
@@ -93,6 +94,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     static enum ServerMode {
         DURABLE,
         MEM
+    }
+
+    static ResponseHeader operationDeniedResponseHeader() {
+        return new ResponseHeader(StatusCode.REQUEST_DENIED);
     }
 
     static ResponseHeader ownerToResponseHeader(String owner) {
@@ -1097,6 +1102,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final OpStatsLogger releaseStat;
     private final Counter redirects;
     private final Counter unexpectedExceptions;
+    // denied operations counters
+    private final Counter deniedBulkWriteCounter;
+    private final Counter deniedWriteCounter;
+    private final Counter deniedHeartbeatCounter;
+    private final Counter deniedTruncateCounter;
+    private final Counter deniedDeleteCounter;
+    private final Counter deniedReleaseCounter;
     // records stats
     private final Counter receivedRecordCounter;
     private final Counter successRecordCounter;
@@ -1117,9 +1129,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final String clientId;
     private final ServerMode serverMode;
     private final ScheduledExecutorService executorService;
+    private final AccessControlManager accessControlManager;
     private final long delayMs;
 
-    DistributedLogServiceImpl(DistributedLogConfiguration dlConf, URI uri, StatsLogger statsLogger,
+    DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
+                              URI uri,
+                              StatsLogger statsLogger,
                               CountDownLatch keepAliveLatch)
             throws IOException {
         // Configuration.
@@ -1137,6 +1152,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         dlConf.setLedgerAllocatorPoolName(allocatorPoolName);
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
         this.keepAliveLatch = keepAliveLatch;
+
+        // Access Control Manager
+        this.accessControlManager = this.dlFactory.createAccessControlManager();
 
         // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(numThreads,
@@ -1174,6 +1192,15 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
         this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
+
+        // Stats on denied requests
+        StatsLogger deniedRequestsStatsLogger = requestsStatsLogger.scope("denied");
+        this.deniedBulkWriteCounter = deniedRequestsStatsLogger.getCounter("bulkWrite");
+        this.deniedWriteCounter = deniedRequestsStatsLogger.getCounter("write");
+        this.deniedHeartbeatCounter = deniedRequestsStatsLogger.getCounter("heartbeat");
+        this.deniedTruncateCounter = deniedRequestsStatsLogger.getCounter("truncate");
+        this.deniedDeleteCounter = deniedRequestsStatsLogger.getCounter("delete");
+        this.deniedReleaseCounter = deniedRequestsStatsLogger.getCounter("release");
 
         // Stats on records
         StatsLogger recordsStatsLogger = statsLogger.scope("records");
@@ -1214,6 +1241,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
+    }
+
+    @VisibleForTesting
+    public DistributedLogManagerFactory getDlFactory() {
+        return dlFactory;
     }
 
     @VisibleForTesting
@@ -1318,12 +1350,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
+        if (!accessControlManager.allowWrite(stream)) {
+            deniedWriteCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         receivedRecordCounter.inc();
         return doWrite(stream, data, new WriteContext());
     }
 
     @Override
     public Future<BulkWriteResponse> writeBulkWithContext(final String stream, List<ByteBuffer> data, WriteContext ctx) {
+        if (!accessControlManager.allowWrite(stream)) {
+            deniedBulkWriteCounter.inc();
+            return Future.value(new BulkWriteResponse(operationDeniedResponseHeader()));
+        }
         receivedRecordCounter.add(data.size());
         BulkWriteOp op = new BulkWriteOp(stream, data, ctx);
         doExecuteStreamOp(op);
@@ -1332,11 +1372,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> writeWithContext(final String stream, ByteBuffer data, WriteContext ctx) {
+        if (!accessControlManager.allowWrite(stream)) {
+            deniedWriteCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         return doWrite(stream, data, ctx);
     }
 
     @Override
     public Future<WriteResponse> heartbeat(String stream, WriteContext ctx) {
+        if (!accessControlManager.allowAcquire(stream)) {
+            deniedHeartbeatCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         HeartbeatOp op = new HeartbeatOp(stream, ctx);
         doExecuteStreamOp(op);
         return op.result;
@@ -1344,6 +1392,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> truncate(String stream, String dlsn, WriteContext ctx) {
+        if (!accessControlManager.allowTruncate(stream)) {
+            deniedTruncateCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), ctx);
         doExecuteStreamOp(op);
         return op.result;
@@ -1351,6 +1403,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> delete(String stream, WriteContext ctx) {
+        if (!accessControlManager.allowTruncate(stream)) {
+            deniedDeleteCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         DeleteOp op = new DeleteOp(stream, ctx);
         doExecuteStreamOp(op);
         return op.result;
@@ -1358,6 +1414,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<WriteResponse> release(String stream, WriteContext ctx) {
+        if (!accessControlManager.allowRelease(stream)) {
+            deniedReleaseCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
         ReleaseOp op = new ReleaseOp(stream, ctx);
         doExecuteStreamOp(op);
         return op.result;

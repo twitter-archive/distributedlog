@@ -8,4 +8,13 @@ struct BKDLConfigFormat {
     5: optional string bkZkServersForReader
     6: optional string dlZkServersForWriter
     7: optional string dlZkServersForReader
+    8: optional string aclRootPath
+}
+
+struct AccessControlEntry {
+    1: optional bool denyWrite
+    2: optional bool denyTruncate
+    3: optional bool denyDelete
+    4: optional bool denyAcquire
+    5: optional bool denyRelease
 }

@@ -17,6 +17,8 @@ enum StatusCode {
 
     // request cannot be fulfilled due to bad syntax.
     BAD_REQUEST = 400,
+    // request is denied for some reason
+    REQUEST_DENIED = 403,
     // request record too large
     TOO_LARGE_RECORD = 413,
 

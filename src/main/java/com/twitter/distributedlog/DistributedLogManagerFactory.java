@@ -3,6 +3,9 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.acl.DefaultAccessControlManager;
+import com.twitter.distributedlog.acl.ZKAccessControlManager;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
@@ -124,6 +127,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final BookKeeperClient readerBKC;
     // ledger allocator
     private final LedgerAllocator allocator;
+    // access control manager
+    private AccessControlManager accessControlManager;
     // log segment rolling permit manager
     private final PermitManager logSegmentRollingPermitManager;
     // namespace listener
@@ -636,11 +641,35 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return distLogMgr;
     }
 
-
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);
         return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace,
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, statsLogger);
+    }
+
+    public synchronized AccessControlManager createAccessControlManager() throws IOException {
+        // Resolve uri to get bk dl config
+        BKDLConfig bkdlConfig = resolveBKDLConfig();
+        if (null == accessControlManager) {
+            String aclRootPath = bkdlConfig.getACLRootPath();
+            // Build the access control manager
+            if (aclRootPath == null) {
+                accessControlManager = DefaultAccessControlManager.INSTANCE;
+                LOG.info("Created default access control manager for {}", namespace);
+            } else {
+                if (!isReservedStreamName(aclRootPath)) {
+                    throw new IOException("Invalid Access Control List Root Path : " + aclRootPath);
+                }
+                String zkRootPath = namespace.getPath() + "/" + aclRootPath;
+                LOG.info("Creating zk based access control manager @ {} for {}",
+                        zkRootPath, namespace);
+                accessControlManager = new ZKAccessControlManager(conf, sharedReaderZKCForDL,
+                        zkRootPath, scheduledThreadPoolExecutor);
+                LOG.info("Created zk based access control manager @ {} for {}",
+                        zkRootPath, namespace);
+            }
+        }
+        return accessControlManager;
     }
 
     public boolean checkIfLogExists(String nameOfLogStream)
@@ -895,6 +924,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public void close() {
         ZooKeeperClient writerZKC;
         ZooKeeperClient readerZKC;
+        AccessControlManager acm;
         synchronized (this) {
             if (closed) {
                 return;
@@ -902,6 +932,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             closed = true;
             writerZKC = sharedWriterZKCForBK;
             readerZKC = sharedReaderZKCForBK;
+            acm = accessControlManager;
+        }
+
+        if (null != acm) {
+            acm.close();
+            LOG.info("Access Control Manager Stopped.");
         }
 
         SchedulerUtils.shutdownScheduler(scheduledThreadPoolExecutor, 5000, TimeUnit.MILLISECONDS);
