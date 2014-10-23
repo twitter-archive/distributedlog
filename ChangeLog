@@ -1,3 +1,12 @@
+0.3.24
+------
+- Ability to block operations to a stream on proxies
+- Synchronous close ledger handle 
+- Backpressure via write queue length
+- DistributedLog Client Changes to Support Rebalancing
+- BookKeeper Version 4.2.20 
+- Fix transactional add and delete log segment
+
 0.3.23
 ------
 - Fix AppendOnlyStreamWriter empty log bug
