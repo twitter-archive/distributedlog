@@ -59,6 +59,7 @@ where command is one of:
     local               Run distributedlog sandbox
     example             Run distributedlog example
     tool                Run distributedlog tool
+    proxy_tool          Run distributedlog proxy tool to interact with proxies
     admin               Run distributedlog admin tool
     help                This help message
 

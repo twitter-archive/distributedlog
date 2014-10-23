@@ -3,12 +3,16 @@ package org.apache.bookkeeper.client;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.proto.BookkeeperProtocol;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * TODO: move this to bookkeeper project?
  */
 public class LedgerReader {
+
+    static final Logger logger = LoggerFactory.getLogger(LedgerReader.class);
 
     public static class ReadResult {
         final long entryId;
@@ -57,8 +63,66 @@ public class LedgerReader {
         bookieClient = bkc.getBookieClient();
     }
 
-    public void readEntries(final LedgerHandle lh, long eid,
-                            final GenericCallback<Set<ReadResult>> callback) {
+    /**
+     * Forward reading entries from last add confirmed.
+     *
+     * @param lh
+     *          ledger handle to read entries
+     * @param callback
+     *          callback with the entries from last add confirmed.
+     */
+    public void forwardReadEntriesFromLastConfirmed(final LedgerHandle lh,
+                                                    final GenericCallback<List<LedgerEntry>> callback) {
+        final List<LedgerEntry> resultList = new ArrayList<LedgerEntry>();
+
+        final AsyncCallback.ReadCallback readCallback = new AsyncCallback.ReadCallback() {
+            @Override
+            public void readComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> entries, Object ctx) {
+                if (BKException.Code.NoSuchEntryException == rc) {
+                    callback.operationComplete(BKException.Code.OK, resultList);
+                } else if (BKException.Code.OK == rc) {
+                    while (entries.hasMoreElements()) {
+                        resultList.add(entries.nextElement());
+                    }
+                    long entryId = (Long) ctx;
+                    ++entryId;
+                    PendingReadOp readOp = new PendingReadOp(lh, lh.bk.scheduler, entryId, entryId, this, entryId);
+                    readOp.initiate();
+                } else {
+                    callback.operationComplete(rc, resultList);
+                }
+            }
+        };
+
+        ReadLastConfirmedOp.LastConfirmedDataCallback readLACCallback = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
+            @Override
+            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData recoveryData) {
+                if (BKException.Code.OK != rc) {
+                    callback.operationComplete(rc, resultList);
+                    return;
+                }
+
+                if (LedgerHandle.INVALID_ENTRY_ID >= recoveryData.lastAddConfirmed) {
+                    callback.operationComplete(BKException.Code.OK, resultList);
+                    return;
+                }
+
+                long entryId = recoveryData.lastAddConfirmed;
+                PendingReadOp readOp = new PendingReadOp(lh, lh.bk.scheduler, entryId, entryId, readCallback, entryId);
+                try {
+                    readOp.initiate();
+                } catch (Throwable t) {
+                    logger.error("Failed to initialize pending read entry {} for ledger {} : ",
+                                 new Object[] { entryId, lh.getLedgerMetadata(), t });
+                }
+            }
+        };
+        // Read Last AddConfirmed
+        new ReadLastConfirmedOp(lh, readLACCallback).initiate();
+    }
+
+    public void readEntriesFromAllBookies(final LedgerHandle lh, long eid,
+                                          final GenericCallback<Set<ReadResult>> callback) {
         if (eid < 0 || eid > lh.getLastAddConfirmed()) {
             callback.operationComplete(BKException.Code.ReadException, null);
             return;

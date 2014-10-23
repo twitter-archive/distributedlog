@@ -21,8 +21,11 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.MetadataUpdater;
+import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerReader;
@@ -52,6 +55,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -1065,6 +1069,189 @@ public class DistributedLogTool extends Tool {
     }
 
     /**
+     * TODO: refactor inspect & inspectstream
+     * TODO: support force
+     *
+     * inspectstream -lac -gap (different options for different operations for a single stream)
+     * inspect -lac -gap (inspect the namespace, which will use inspect stream)
+     */
+    static class InspectStreamCommand extends PerStreamCommand {
+
+        InspectStreamCommand() {
+            super("inspectstream", "Inspect a given stream to identify any metadata corruptions");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
+                    getStreamName(), getConf(), getUri());
+            try {
+                return inspectAndRepair(dlm.getLogSegments());
+            } finally {
+                dlm.close();
+            }
+        }
+
+        protected int inspectAndRepair(List<LogSegmentLedgerMetadata> segments) throws Exception {
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).zkAclId(null).build();
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                        .dlConfig(getConf())
+                        .zkServers(bkdlConfig.getBkZkServersForReader())
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
+                try {
+                    List<LogSegmentLedgerMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
+                    if (segmentsToRepair.isEmpty()) {
+                        System.out.println("Stream is good. No log segments to repair.");
+                        return 0;
+                    }
+                    System.out.println(segmentsToRepair.size() + " segments to repair : ");
+                    System.out.println(segmentsToRepair);
+                    System.out.println();
+                    if (!IOUtils.confirmPrompt("Are u sure to repair them (Y/N): ")) {
+                        System.out.println("Gave up! Bye!");
+                        return -1;
+                    }
+                    repairLogSegments(zkc, bkc, segmentsToRepair);
+                    return 0;
+                } finally {
+                    bkc.close();
+                }
+            } finally {
+                zkc.close();
+            }
+        }
+
+        protected List<LogSegmentLedgerMetadata> inspectLogSegments(
+                BookKeeperClient bkc, List<LogSegmentLedgerMetadata> segments) throws Exception {
+            List<LogSegmentLedgerMetadata> segmentsToRepair = new ArrayList<LogSegmentLedgerMetadata>();
+            for (LogSegmentLedgerMetadata segment : segments) {
+                if (!segment.isInProgress() && !inspectLogSegment(bkc, segment)) {
+                    segmentsToRepair.add(segment);
+                }
+            }
+            return segmentsToRepair;
+        }
+
+        /**
+         * Inspect a given log segment.
+         *
+         * @param bkc
+         *          bookkeeper client
+         * @param metadata
+         *          metadata of the log segment to
+         * @return true if it is a good stream, false if the stream has inconsistent metadata.
+         * @throws Exception
+         */
+        protected boolean inspectLogSegment(BookKeeperClient bkc,
+                                            LogSegmentLedgerMetadata metadata) throws Exception {
+            if (metadata.isInProgress()) {
+                System.out.println("Skip inprogress log segment " + metadata);
+                return true;
+            }
+            long ledgerId = metadata.getLedgerId();
+            LedgerHandle lh = bkc.get().openLedger(ledgerId, BookKeeper.DigestType.CRC32,
+                    getConf().getBKDigestPW().getBytes(UTF_8));
+            LedgerHandle readLh = bkc.get().openLedger(ledgerId, BookKeeper.DigestType.CRC32,
+                    getConf().getBKDigestPW().getBytes(UTF_8));
+            LedgerReader lr = new LedgerReader(bkc.get());
+            final AtomicReference<List<LedgerEntry>> entriesHolder = new AtomicReference<List<LedgerEntry>>(null);
+            final AtomicInteger rcHolder = new AtomicInteger(-1234);
+            final CountDownLatch doneLatch = new CountDownLatch(1);
+            try {
+                lr.forwardReadEntriesFromLastConfirmed(readLh, new BookkeeperInternalCallbacks.GenericCallback<List<LedgerEntry>>() {
+                    @Override
+                    public void operationComplete(int rc, List<LedgerEntry> entries) {
+                        rcHolder.set(rc);
+                        entriesHolder.set(entries);
+                        doneLatch.countDown();
+                    }
+                });
+                doneLatch.await();
+                if (BKException.Code.OK != rcHolder.get()) {
+                    throw BKException.create(rcHolder.get());
+                }
+                List<LedgerEntry> entries = entriesHolder.get();
+                long lastEntryId;
+                if (entries.isEmpty()) {
+                    lastEntryId = LedgerHandle.INVALID_ENTRY_ID;
+                } else {
+                    LedgerEntry lastEntry = entries.get(entries.size() - 1);
+                    lastEntryId = lastEntry.getEntryId();
+                }
+                if (lastEntryId != lh.getLastAddConfirmed()) {
+                    System.out.println("Inconsistent Last Add Confirmed Found for LogSegment " + metadata.getLedgerSequenceNumber() + ": ");
+                    System.out.println("\t metadata: " + metadata);
+                    System.out.println("\t lac in ledger metadata is " + lh.getLastAddConfirmed() + ", but lac in bookies is " + lastEntryId);
+                    return false;
+                } else {
+                    return true;
+                }
+            } finally {
+                lh.close();
+                readLh.close();
+            }
+        }
+
+        protected void repairLogSegments(ZooKeeperClient zkc,
+                                         BookKeeperClient bkc,
+                                         List<LogSegmentLedgerMetadata> segments) throws Exception {
+            BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
+            try {
+                MetadataUpdater metadataUpdater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+                for (LogSegmentLedgerMetadata segment : segments) {
+                    repairLogSegment(bkAdmin, metadataUpdater, segment);
+                }
+            } finally {
+                bkAdmin.close();
+            }
+        }
+
+        protected void repairLogSegment(BookKeeperAdmin bkAdmin,
+                                        MetadataUpdater metadataUpdater,
+                                        LogSegmentLedgerMetadata segment) throws Exception {
+            if (segment.isInProgress()) {
+                System.out.println("Skip inprogress log segment " + segment);
+                return;
+            }
+            LedgerHandle lh = bkAdmin.openLedger(segment.getLedgerId(), true);
+            long lac = lh.getLastAddConfirmed();
+            Enumeration<LedgerEntry> entries = lh.readEntries(lac, lac);
+            if (!entries.hasMoreElements()) {
+                throw new IOException("Entry " + lac + " isn't found for " + segment);
+            }
+            LedgerEntry lastEntry = entries.nextElement();
+            LedgerEntryReader reader = new LedgerEntryReader("dlog", segment.getLedgerSequenceNumber(), lastEntry);
+            LogRecordWithDLSN record = reader.readOp();
+            LogRecordWithDLSN lastRecord = null;
+            while (null != record) {
+                lastRecord = record;
+                record = reader.readOp();
+            }
+            if (null == lastRecord) {
+                throw new IOException("No record found in entry " + lac + " for " + segment);
+            }
+            System.out.println("Updating last record for " + segment + " to " + lastRecord);
+            if (!IOUtils.confirmPrompt("Are u sure to make the change (Y/N): ")) {
+                System.out.println("Gave up on updating log segment " + segment);
+                return;
+            }
+            metadataUpdater.updateLastRecord(segment, lastRecord);
+        }
+
+        @Override
+        protected String getUsage() {
+            return "inspectstream [options]";
+        }
+    }
+
+    /**
      * Per Ledger Command, which parse common options for per ledger. e.g. ledger id.
      */
     abstract static class PerLedgerCommand extends PerDLCommand {
@@ -1217,7 +1404,7 @@ public class DistributedLogTool extends Tool {
                 final CountDownLatch doneLatch = new CountDownLatch(1);
                 final AtomicReference<Set<LedgerReader.ReadResult>> resultHolder =
                         new AtomicReference<Set<LedgerReader.ReadResult>>();
-                ledgerReader.readEntries(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult>>() {
+                ledgerReader.readEntriesFromAllBookies(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult>>() {
                     @Override
                     public void operationComplete(int rc, Set<LedgerReader.ReadResult> readResults) {
                         if (BKException.Code.OK == rc) {
@@ -1287,6 +1474,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new DeleteAllocatorPoolCommand());
         addCommand(new TruncateCommand());
         addCommand(new InspectCommand());
+        addCommand(new InspectStreamCommand());
         addCommand(new ReadLastConfirmedCommand());
         addCommand(new ReadEntriesCommand());
         addCommand(new CountCommand());
