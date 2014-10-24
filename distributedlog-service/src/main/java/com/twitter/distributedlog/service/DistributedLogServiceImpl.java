@@ -1130,6 +1130,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final OpStatsLogger releaseStat;
     private final Counter redirects;
     private final Counter unexpectedExceptions;
+    private final Counter bulkWriteBytes;
+    private final Counter writeBytes;
     // denied operations counters
     private final Counter deniedBulkWriteCounter;
     private final Counter deniedWriteCounter;
@@ -1220,6 +1222,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
         this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
+        this.bulkWriteBytes = requestsStatsLogger.scope("bulkWrite").getCounter("bytes");
+        this.writeBytes = requestsStatsLogger.scope("write").getCounter("bytes");
 
         // Stats on denied requests
         StatsLogger deniedRequestsStatsLogger = requestsStatsLogger.scope("denied");
@@ -1479,6 +1483,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             public void onSuccess(WriteResponse ignoreVal) {
               latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
               bytes.add(size);
+              writeBytes.add(size);
             }
 
             @Override
@@ -1495,6 +1500,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             public void onSuccess(BulkWriteResponse ignoreVal) {
               latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
               bytes.add(size);
+              bulkWriteBytes.add(size);
             }
 
             @Override
