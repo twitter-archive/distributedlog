@@ -3,14 +3,15 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
-class FailpointUtils {
-    enum FailPointName {
+public class FailpointUtils {
+    public enum FailPointName {
         FP_StartLogSegmentBeforeLedgerCreate,
         FP_StartLogSegmentAfterLedgerCreate,
         FP_StartLogSegmentAfterInProgressCreate,
         FP_FinalizeLedgerBeforeDelete,
         FP_TransmitBeforeAddEntry,
         FP_TransmitComplete,
+        FP_WriteInternalLostLock,
         FP_ZooKeeperConnectionLoss
     }
 
@@ -32,7 +33,7 @@ class FailpointUtils {
         }
     };
 
-    enum FailPointActions {
+    public enum FailPointActions {
         FailPointAction_Default,
         FailPointAction_Throw
     }

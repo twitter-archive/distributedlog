@@ -12,6 +12,7 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
@@ -26,6 +27,7 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.util.ConstFuture;
 import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
@@ -254,6 +256,23 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         final long payloadSize;
         final Promise<BulkWriteResponse> result = new Promise<BulkWriteResponse>();
 
+        // We need to pass these through to preserve ownership change behavior in 
+        // client/server. Only include failures which are guaranteed to have failed 
+        // all subsequent writes.
+        boolean isDefiniteFailure(Try<DLSN> result) {
+            boolean def = false;
+            try {
+                result.get();
+            } catch (Exception ex) {
+                if (ex instanceof OwnershipAcquireFailedException || 
+                    ex instanceof AlreadyClosedException ||
+                    ex instanceof LockingException) {
+                    def = true; 
+                }
+            } 
+            return def;
+        }
+
         BulkWriteOp(String stream, List<ByteBuffer> buffers, WriteContext context) {
             super(stream, context, bulkWriteStat);
             this.buffers = buffers;
@@ -280,10 +299,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             // Collect into a list of tries to make it easier to extract exception or DLSN.
             Future<List<Try<DLSN>>> writes = asTryList(futureList);
 
-            Future<BulkWriteResponse> response = writes.map(
-                new AbstractFunction1<List<Try<DLSN>>, BulkWriteResponse>() {
+            Future<BulkWriteResponse> response = writes.flatMap(
+                new AbstractFunction1<List<Try<DLSN>>, Future<BulkWriteResponse>>() {
                     @Override
-                    public BulkWriteResponse apply(List<Try<DLSN>> results) {
+                    public Future<BulkWriteResponse> apply(List<Try<DLSN>> results) {
 
                         // Considered a success at batch level even if no individual writes succeeed.
                         // The reason is that its impossible to make an appropriate decision re retries without
@@ -291,6 +310,15 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         List<WriteResponse> writeResponses = new ArrayList<WriteResponse>(results.size());
                         BulkWriteResponse bulkWriteResponse =
                             new BulkWriteResponse(successResponseHeader()).setWriteResponses(writeResponses);
+
+                        // Promote the first result to an op-level failure if we're sure all other writes have 
+                        // failed.
+                        if (results.size() > 0) {
+                            Try<DLSN> firstResult = results.get(0);
+                            if (isDefiniteFailure(firstResult)) {
+                                return new ConstFuture(firstResult);
+                            }
+                        }
 
                         // Translate all futures to write responses.
                         Iterator<Try<DLSN>> iterator = results.iterator();
@@ -301,14 +329,14 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 WriteResponse writeResponse = new WriteResponse(successResponseHeader()).setDlsn(dlsn.serialize());
                                 writeResponses.add(writeResponse);
                                 successRecordCounter.inc();
-                            } catch (Throwable t) {
-                                WriteResponse writeResponse = new WriteResponse(exceptionToResponseHeader(t));
+                            } catch (Exception ioe) {
+                                WriteResponse writeResponse = new WriteResponse(exceptionToResponseHeader(ioe));
                                 writeResponses.add(writeResponse);
                                 failureRecordCounter.inc();
-                            }
+                            } 
                         }
 
-                        return bulkWriteResponse;
+                        return Future.value(bulkWriteResponse);
                     }
                 }
             );

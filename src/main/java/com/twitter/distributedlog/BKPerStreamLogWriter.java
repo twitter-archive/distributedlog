@@ -586,6 +586,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             setReadyToFlush();
         }
 
+        if (FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_WriteInternalLostLock)) {
+            throw new LockingException("/failpoint/lockpath", "failpoint is simulating a lost lock");
+        }
+
         Promise<DLSN> dlsn = new Promise<DLSN>();
 
         if (enableRecordCounts) {

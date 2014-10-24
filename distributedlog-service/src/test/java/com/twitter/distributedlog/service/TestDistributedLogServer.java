@@ -4,6 +4,7 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.FailpointUtils;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
@@ -14,6 +15,11 @@ import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.distributedlog.thrift.service.WriteContext;
+import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.builder.Server;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -242,6 +248,38 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         validateFailedAsLogRecordTooLong(futures.get(0));
         int failed = validateAllFailedAsCancelled(futures, 1, futures.size());
         assertEquals(writeCount, failed);
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkWriteTotalFailureLostLock() throws Exception {
+        String name = String.format("dlserver-bulk-write-%s", "lost-lock");
+
+        dlClient.routingService.addHost(name, dlServer.getAddress());
+
+        final int writeCount = 8;
+        List<ByteBuffer> writes = new ArrayList<ByteBuffer>(writeCount + 1);
+        ByteBuffer buf = ByteBuffer.allocate(8);
+        writes.add(buf);
+        for (long i = 1; i <= writeCount; i++) {
+            writes.add(ByteBuffer.wrap(("" + i).getBytes()));
+        }
+        // Warm it up with a write.
+        Await.result(dlClient.dlClient.write(name, ByteBuffer.allocate(8)));
+
+        // Failpoint a lost lock, make sure the failure gets promoted to an operation failure.
+        DistributedLogServiceImpl svcImpl = (DistributedLogServiceImpl) dlServer.dlServer.getLeft();
+        try {
+            FailpointUtils.setFailpoint(
+                FailpointUtils.FailPointName.FP_WriteInternalLostLock,
+                FailpointUtils.FailPointActions.FailPointAction_Default
+            );
+            Future<BulkWriteResponse> futures = svcImpl.writeBulkWithContext(name, writes, new WriteContext());
+            assertEquals(StatusCode.LOCKING_EXCEPTION, Await.result(futures).header.code);
+        } finally {
+            FailpointUtils.removeFailpoint(
+                FailpointUtils.FailPointName.FP_WriteInternalLostLock
+            );
+        }
     }
 
     @Test(timeout = 60000)
