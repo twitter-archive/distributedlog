@@ -43,7 +43,6 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -226,16 +225,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                                    PermitLimiter globalWriteLimiter)
         throws IOException {
         super();
-        
+
         // set up a write limiter
         PermitLimiter streamWriteLimiter = null;
         if (conf.getPerWriterOutstandingWriteLimit() < 0) {
             streamWriteLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
-            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(), 
+            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(),
                 statsLogger.scope("streamWriteLimiter"));
         }
-        this.writeLimiter = new WriteLimiter(streamName, 
+        this.writeLimiter = new WriteLimiter(streamName,
             conf.getPerWriterOutstandingWriteLimitDarkmode(),
             conf.getGlobalOutstandingWriteLimitDarkmode(),
             streamWriteLimiter, globalWriteLimiter);
@@ -245,7 +244,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
         pFlushSuccesses = pFlushStatsLogger.getCounter("success");
         pFlushMisses = pFlushStatsLogger.getCounter("miss");
-        
+
         // transmit
         StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
         StatsLogger transmitDataStatsLogger = statsLogger.scope("data");
@@ -254,7 +253,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
-        
+
         // outstanding transmit requests
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
         String statPrefixForStream = streamName.replaceAll(":|<|>|/", "_");
@@ -317,6 +316,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         assert(!this.immediateFlushEnabled || (null != this.executorService));
         this.closed = false;
         this.lastTransmit = Stopwatch.createStarted();
+    }
+
+    String getFullyQualifiedLogSegment() {
+        return fullyQualifiedLogSegment;
     }
 
     @VisibleForTesting
@@ -402,6 +405,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             // we should throw the exception to #closeToFinalize, so it would fail completing a log segment.
             try {
                 lh.close();
+            } catch (BKException.BKLedgerClosedException lce) {
+                // if a ledger is already closed, we don't need to throw exception
             } catch (BKException bke) {
                 throwExc = new IOException("Failed to close ledger for " + fullyQualifiedLogSegment, bke);
             } catch (InterruptedException ie) {
@@ -410,6 +415,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+
+        /**
+         * If add entry failed because of closing ledger above, we don't need to fail the close operation
+         */
+        if (null == throwExc && shouldFailCompleteLogSegment()) {
+            throwExc = new BKTransmitException("Closing an errored stream : ", transmitResult.get());
+        }
 
         return throwExc;
     }
@@ -536,7 +548,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         // Will check write rate limits and throw if exceeded.
         writeLimiter.acquire();
-            
+
         // The count represents the number of user records up to the
         // current record
         // Increment the record count only when writing a user log record
@@ -568,6 +580,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     public boolean isStreamInError() {
         return (transmitResult.get() != BKException.Code.OK);
+    }
+
+    public boolean shouldFailCompleteLogSegment() {
+        return (transmitResult.get() != BKException.Code.OK) &&
+                (transmitResult.get() != BKException.Code.LedgerClosedException);
     }
 
     synchronized public Future<DLSN> writeInternal(LogRecord record) throws IOException {

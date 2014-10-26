@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -1330,12 +1331,14 @@ public class DistributedLogTool extends Tool {
         Long fromEntryId;
         Long untilEntryId;
         boolean readAllBookies = false;
+        boolean readLac = false;
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
             options.addOption("fid", "from", true, "Entry id to start reading");
             options.addOption("uid", "until", true, "Entry id to read until");
             options.addOption("bks", "all-bookies", false, "Read entry from all bookies");
+            options.addOption("lac", "last-add-confirmed", false, "Return last add confirmed rather than entry payload");
         }
 
         @Override
@@ -1348,6 +1351,7 @@ public class DistributedLogTool extends Tool {
                 untilEntryId = Long.parseLong(cmdline.getOptionValue("uid"));
             }
             readAllBookies = cmdline.hasOption("bks");
+            readLac = cmdline.hasOption("lac");
         }
 
         @Override
@@ -1373,13 +1377,15 @@ public class DistributedLogTool extends Tool {
                         }
                         if (null == untilEntryId) {
                             untilEntryId = lh.readLastConfirmed();
-                        } else {
-                            untilEntryId = Math.min(lh.readLastConfirmed(), untilEntryId);
                         }
                         if (untilEntryId >= fromEntryId) {
                             if (readAllBookies) {
                                 LedgerReader lr = new LedgerReader(bkc.get());
-                                readEntriesFromAllBookies(lr, lh, fromEntryId, untilEntryId);
+                                if (readLac) {
+                                    readLacsFromAllBookies(lr, lh, fromEntryId, untilEntryId);
+                                } else {
+                                    readEntriesFromAllBookies(lr, lh, fromEntryId, untilEntryId);
+                                }
                             } else {
                                 simpleReadEntries(lh, fromEntryId, untilEntryId);
                             }
@@ -1402,11 +1408,11 @@ public class DistributedLogTool extends Tool {
                 throws Exception {
             for (long eid = fromEntryId; eid <= untilEntryId; ++eid) {
                 final CountDownLatch doneLatch = new CountDownLatch(1);
-                final AtomicReference<Set<LedgerReader.ReadResult>> resultHolder =
-                        new AtomicReference<Set<LedgerReader.ReadResult>>();
-                ledgerReader.readEntriesFromAllBookies(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult>>() {
+                final AtomicReference<Set<LedgerReader.ReadResult<InputStream>>> resultHolder =
+                        new AtomicReference<Set<LedgerReader.ReadResult<InputStream>>>();
+                ledgerReader.readEntriesFromAllBookies(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult<InputStream>>>() {
                     @Override
-                    public void operationComplete(int rc, Set<LedgerReader.ReadResult> readResults) {
+                    public void operationComplete(int rc, Set<LedgerReader.ReadResult<InputStream>> readResults) {
                         if (BKException.Code.OK == rc) {
                             resultHolder.set(readResults);
                         } else {
@@ -1416,17 +1422,53 @@ public class DistributedLogTool extends Tool {
                     }
                 });
                 doneLatch.await();
-                Set<LedgerReader.ReadResult> readResults = resultHolder.get();
+                Set<LedgerReader.ReadResult<InputStream>> readResults = resultHolder.get();
                 if (null == readResults) {
                     throw new IOException("Failed to read entry " + eid);
                 }
                 System.out.println("\t" + eid + "\t:");
-                for (LedgerReader.ReadResult rr : readResults) {
+                for (LedgerReader.ReadResult<InputStream> rr : readResults) {
                     System.out.println("\tbookie=" + rr.getBookieAddress());
                     System.out.println("\t-------------------------------");
                     if (BKException.Code.OK == rr.getResultCode()) {
-                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getEntryStream());
+                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue());
                         printEntry(reader);
+                    } else {
+                        System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
+                    }
+                    System.out.println("\t-------------------------------");
+                }
+            }
+        }
+
+        private void readLacsFromAllBookies(LedgerReader ledgerReader, LedgerHandle lh, long fromEntryId, long untilEntryId)
+                throws Exception {
+            for (long eid = fromEntryId; eid <= untilEntryId; ++eid) {
+                final CountDownLatch doneLatch = new CountDownLatch(1);
+                final AtomicReference<Set<LedgerReader.ReadResult<Long>>> resultHolder =
+                        new AtomicReference<Set<LedgerReader.ReadResult<Long>>>();
+                ledgerReader.readLacs(lh, eid, new BookkeeperInternalCallbacks.GenericCallback<Set<LedgerReader.ReadResult<Long>>>() {
+                    @Override
+                    public void operationComplete(int rc, Set<LedgerReader.ReadResult<Long>> readResults) {
+                        if (BKException.Code.OK == rc) {
+                            resultHolder.set(readResults);
+                        } else {
+                            resultHolder.set(null);
+                        }
+                        doneLatch.countDown();
+                    }
+                });
+                doneLatch.await();
+                Set<LedgerReader.ReadResult<Long>> readResults = resultHolder.get();
+                if (null == readResults) {
+                    throw new IOException("Failed to read entry " + eid);
+                }
+                System.out.println("\t" + eid + "\t:");
+                for (LedgerReader.ReadResult<Long> rr : readResults) {
+                    System.out.println("\tbookie=" + rr.getBookieAddress());
+                    System.out.println("\t-------------------------------");
+                    if (BKException.Code.OK == rr.getResultCode()) {
+                        System.out.println("Eid = " + rr.getEntryId() + ", Lac = " + rr.getValue());
                     } else {
                         System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
                     }

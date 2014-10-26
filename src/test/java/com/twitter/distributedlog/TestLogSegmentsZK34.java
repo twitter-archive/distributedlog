@@ -11,6 +11,7 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 
@@ -220,8 +221,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         try {
             out1.closeAndComplete(true);
             fail("Should fail closeAndComplete since other people already completed it.");
-        } catch (ZKException zke) {
-            assertEquals(KeeperException.Code.BADVERSION, zke.getKeeperExceptionCode());
+        } catch (IOException ioe) {
         }
     }
 }

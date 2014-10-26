@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
@@ -180,7 +182,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             );
         }
 
-        writer.closeAndComplete();
+        writer.abort();
         dlm.close();
     }
 
@@ -355,7 +357,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 FailpointUtils.FailPointName.FP_TransmitComplete
             );
         }
-        writer.closeAndComplete();
+        writer.abort();
         dlm.close();
     }
 
@@ -1392,6 +1394,86 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(result);
         }
         writer.closeAndComplete();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testCloseAndCompleteLogSegmentWhenStreamIsInError() throws Exception {
+        String name = "distrlog-close-and-complete-logsegment-when-stream-is-in-error";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        long txId = 1L;
+        for (int i = 0; i < 5; i++) {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
+        }
+
+        BKPerStreamLogWriter logWriter = writer.perStreamWriter;
+
+        // fence the ledger
+        dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
+                BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
+
+        try {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
+            fail("Should fail write to a fenced ledger with BKTransmitException");
+        } catch (BKTransmitException bkte) {
+            // expected
+        }
+
+        try {
+            writer.closeAndComplete();
+            fail("Should fail to complete a log segment when its ledger is fenced");
+        } catch (BKTransmitException bkte) {
+            // expected
+        }
+
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+        assertTrue(segments.get(0).isInProgress());
+
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testCloseAndCompleteLogSegmentWhenCloseFailed() throws Exception {
+        String name = "distrlog-close-and-complete-logsegment-when-close-failed";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        long txId = 1L;
+        for (int i = 0; i < 5; i++) {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
+        }
+
+        BKPerStreamLogWriter logWriter = writer.perStreamWriter;
+
+        // fence the ledger
+        dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
+                BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
+
+        try {
+            writer.closeAndComplete();
+            fail("Should fail to complete a log segment when its ledger is fenced");
+        } catch (IOException ioe) {
+            // expected
+            LOG.error("Failed to close and complete log segment {} : ", logWriter.getFullyQualifiedLogSegment(), ioe);
+        }
+
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+        assertTrue(segments.get(0).isInProgress());
+
         dlm.close();
     }
 }
