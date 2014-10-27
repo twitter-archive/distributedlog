@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
@@ -148,22 +149,17 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         int count = 5;
         final CountDownLatch acquiredLatch = new CountDownLatch(count);
-        final ArrayList<Future<AsyncLogReader>> readers = new ArrayList<Future<AsyncLogReader>>(5);
+        final ArrayList<Future<AsyncLogReader>> readers = new ArrayList<Future<AsyncLogReader>>(count);
         for (int i = 0; i < count; i++) {
             readers.add(null);
         }
         final DistributedLogManager[] dlms = new DistributedLogManager[count];
-        final AtomicInteger acquired = new AtomicInteger(0);
-
         for (int i = 0; i < count; i++) {
-            final int index = i;
-
             dlms[i] = DLMTestUtil.createNewDLM(conf, name);
             readers.set(i, dlms[i].getAsyncLogReaderWithLock(DLSN.InitialDLSN));
             readers.get(i).addEventListener(new FutureEventListener<AsyncLogReader>() {
                 @Override
                 public void onSuccess(AsyncLogReader reader) {
-                    assertEquals(countDefined(readers), acquired.incrementAndGet());
                     acquiredLatch.countDown();
                     try {
                         reader.close();
@@ -202,21 +198,12 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         BKDistributedLogManager dlm2 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
-        final CountDownLatch latch = new CountDownLatch(1);
-        dlm2.getReaderFuturePool().apply(new Function0<Void>() {
-            @Override
-            public Void apply() {
-                latch.countDown();
-                return null;
-            }
-        });
-        latch.await();
-
         dlm2.close();
         try {
             Await.result(futureReader2);
             fail("should have thrown exception!");
         } catch (LockClosedException ex) {
+        } catch (LockCancelledException ex) {
         }
 
         dlm0.close();
@@ -274,6 +261,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             futureReader2.cancel();
             Await.result(futureReader2);
         } catch (LockClosedException ex) {
+        } catch (LockCancelledException ex) {
         }
 
         futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);

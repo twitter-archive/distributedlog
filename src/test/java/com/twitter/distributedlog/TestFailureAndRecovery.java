@@ -31,8 +31,8 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
     @Test
     public void testSimpleRecovery() throws Exception {
-        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplerecovery");
-        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplerecovery");
+        BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -50,13 +50,13 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         out.close();
 
 
-        assertNull(zkc.exists(bkdlm.completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
-        assertNotNull(zkc.exists(bkdlm.inprogressZNode(out.getLedgerHandle().getId(), 1, out.getLedgerSequenceNumber()), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLedgerHandle().getId(), 1, out.getLedgerSequenceNumber()), false));
 
-        bkdlm.recoverIncompleteLogSegments();
+        bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
 
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
-        assertNull(zkc.exists(bkdlm.inprogressZNode(out.getLedgerHandle().getId(), 1, out.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLedgerHandle().getId(), 1, out.getLedgerSequenceNumber()), false));
     }
 
     /**
@@ -81,8 +81,8 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             conf.setWriteQuorumSize(ensembleSize);
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
-            BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-allbookiefailure");
-            BKPerStreamLogWriter out = bkdlm.startLogSegment(txid);
+            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-allbookiefailure");
+            BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
 
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -112,7 +112,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
             assertEquals("Replacement: New bookie didn't start",
                 numBookies + 1, bkutil.checkBookiesUp(numBookies + 1, 10));
-            out = bkdlm.startLogSegment(txid);
+            out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -158,8 +158,8 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             conf.setWriteQuorumSize(ensembleSize);
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
-            BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-onebookiefailure");
-            BKPerStreamLogWriter out = bkdlm.startLogSegment(txid);
+            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-onebookiefailure");
+            BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -197,8 +197,8 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
     @Test
     public void testRecoveryEmptyLedger() throws Exception {
-        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
-        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
+        BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -212,18 +212,18 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         out.setReadyToFlush();
         out.flushAndSync();
         out.close();
-        bkdlm.completeAndCloseLogSegment(out.getLedgerSequenceNumber(), out.getLedgerHandle().getId(), 1, 100, 100);
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
-        BKPerStreamLogWriter outEmpty = bkdlm.startLogSegment(101);
+        bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(out.getLedgerSequenceNumber(), out.getLedgerHandle().getId(), 1, 100, 100);
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100, out.getLedgerSequenceNumber()), false));
+        BKPerStreamLogWriter outEmpty = bkdlmAndClients.getWriteHandler().startLogSegment(101);
         outEmpty.abort();
 
-        assertNull(zkc.exists(bkdlm.completedLedgerZNode(outEmpty.getLedgerHandle().getId(), 101, 101, outEmpty.getLedgerSequenceNumber()), false));
-        assertNotNull(zkc.exists(bkdlm.inprogressZNode(outEmpty.getLedgerHandle().getId(), 101, outEmpty.getLedgerSequenceNumber()), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(outEmpty.getLedgerHandle().getId(), 101, 101, outEmpty.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(outEmpty.getLedgerHandle().getId(), 101, outEmpty.getLedgerSequenceNumber()), false));
 
-        bkdlm.recoverIncompleteLogSegments();
+        bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
 
-        assertNull(zkc.exists(bkdlm.inprogressZNode(outEmpty.getLedgerHandle().getId(), outEmpty.getLedgerSequenceNumber(), 101), false));
-        assertNotNull(zkc.exists(bkdlm.completedLedgerZNode(outEmpty.getLedgerHandle().getId(), 101, 101, outEmpty.getLedgerSequenceNumber()), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(outEmpty.getLedgerHandle().getId(), outEmpty.getLedgerSequenceNumber(), 101), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(outEmpty.getLedgerHandle().getId(), 101, 101, outEmpty.getLedgerSequenceNumber()), false));
     }
 
     @Test

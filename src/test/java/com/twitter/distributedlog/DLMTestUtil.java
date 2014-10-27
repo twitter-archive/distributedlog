@@ -83,7 +83,7 @@ public class DLMTestUtil {
         return LocalDLMEmulator.createDLMURI("127.0.0.1:7000", path);
     }
 
-    static BKLogPartitionWriteHandler createNewBKDLM(DistributedLogConfiguration conf,
+    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(DistributedLogConfiguration conf,
                                                      String path) throws Exception {
         return createNewBKDLM(new PartitionId(0), conf, path);
     }
@@ -103,14 +103,71 @@ public class DLMTestUtil {
         return DistributedLogManagerFactory.createMetadataAccessor(name, createDLMURI("/" + name), conf);
     }
 
-    static BKLogPartitionWriteHandler createNewBKDLM(PartitionId p,
+    public static class BKLogPartitionWriteHandlerAndClients {
+        private BKLogPartitionWriteHandler writeHandler;
+        private ZooKeeperClient zooKeeperClient;
+        private BookKeeperClient bookKeeperClient;
+
+        public BKLogPartitionWriteHandlerAndClients(BKLogPartitionWriteHandler writeHandler, ZooKeeperClient zooKeeperClient, BookKeeperClient bookKeeperClient) {
+            this.writeHandler = writeHandler;
+            this.zooKeeperClient = zooKeeperClient;
+            this.bookKeeperClient = bookKeeperClient;
+        }
+
+        public void close() {
+            bookKeeperClient.close();
+            zooKeeperClient.close();
+            writeHandler.close();
+        }
+
+        public BKLogPartitionWriteHandler getWriteHandler() {
+            return writeHandler;
+        }
+    }
+
+    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(PartitionId p,
                                                      DistributedLogConfiguration conf, String path) throws Exception {
-        return BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(
-                path, p.toString(), conf, createDLMURI("/" + path), null, null,
-                Executors.newScheduledThreadPool(1,
-                        new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
-                null, null, OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
-                null, NullStatsLogger.INSTANCE, "localhost", DistributedLogConstants.LOCAL_REGION_ID, PermitLimiter.NULL_PERMIT_LIMITER);
+        String name = path;
+        URI uri = createDLMURI("/" + path);
+
+        ZooKeeperClientBuilder zkcBuilder = ZooKeeperClientBuilder.newBuilder()
+            .name(String.format("dlzk:%s:handler_dedicated", name))
+            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+            .uri(uri)
+            .statsLogger(NullStatsLogger.INSTANCE.scope("dlzk_handler_dedicated"))
+            .retryThreadCount(conf.getZKClientNumberRetryThreads())
+            .requestRateLimit(conf.getZKRequestRateLimit())
+            .zkAclId(conf.getZkAclId());
+
+        ZooKeeperClient zkClient = zkcBuilder.build();
+        // resolve uri
+        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkClient, uri);
+        BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+        BookKeeperClientBuilder bkcBuilder = BookKeeperClientBuilder.newBuilder()
+            .dlConfig(conf)
+            .name(String.format("bk:%s:handler_dedicated", name))
+            .zkServers(bkdlConfig.getBkZkServersForWriter())
+            .ledgersPath(bkdlConfig.getBkLedgersPath())
+            .statsLogger(NullStatsLogger.INSTANCE);
+
+        BKLogPartitionWriteHandler writeHandler = BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name,
+            p.toString(),
+            conf,
+            uri,
+            zkcBuilder,
+            bkcBuilder,
+            Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
+            null,
+            null,
+            OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
+            null,
+            NullStatsLogger.INSTANCE,
+            "localhost",
+            DistributedLogConstants.LOCAL_REGION_ID,
+            PermitLimiter.NULL_PERMIT_LIMITER);
+
+        return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
 
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {

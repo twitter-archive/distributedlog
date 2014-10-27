@@ -32,20 +32,20 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public TestName runtime = new TestName();
 
     private void prepareLogSegments(String name, int numSegments, int numEntriesPerSegment) throws Exception {
-        BKLogPartitionWriteHandler writer = DLMTestUtil.createNewBKDLM(conf, name);
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, name);
         long txid = 1;
         for (int sid = 0; sid < numSegments; ++sid) {
-            BKPerStreamLogWriter out = writer.startLogSegment(txid);
+            BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
             for (int eid = 0; eid < numEntriesPerSegment; ++eid) {
                 LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
                 out.write(record);
                 ++txid;
             }
             out.close();
-            writer.completeAndCloseLogSegment(out.getLedgerSequenceNumber(), out.getLedgerHandle().getId(),
+            bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(out.getLedgerSequenceNumber(), out.getLedgerHandle().getId(),
                     1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
         }
-        writer.close();
+        bkdlmAndClients.close();
     }
 
     private void prepareLogSegmentsNonPartitioned(String name, int numSegments, int numEntriesPerSegment) throws Exception {
@@ -347,7 +347,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         try {
-            readHandler.lockStream();
+            Await.result(readHandler.lockStream());
         } catch (LogNotFoundException ex) {
         }
     }

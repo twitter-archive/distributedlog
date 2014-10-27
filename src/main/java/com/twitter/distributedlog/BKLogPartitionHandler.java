@@ -17,6 +17,8 @@
  */
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.LogSegmentListener;
@@ -116,9 +118,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final String streamIdentifier;
     protected final DistributedLogConfiguration conf;
     protected final ZooKeeperClient zooKeeperClient;
-    protected final boolean ownZKC;
     protected final BookKeeperClient bookKeeperClient;
-    protected final boolean ownBKC;
     protected final String partitionRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
@@ -142,6 +142,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final ConcurrentMap<Long, LogSegmentLedgerMetadata> lid2LogSegments =
         new ConcurrentHashMap<Long, LogSegmentLedgerMetadata>();
     protected volatile SyncGetLedgersCallback firstGetLedgersTask = null;
+
     protected final AsyncNotification notification;
     // log segment filter
     protected final LogSegmentFilter filter;
@@ -271,7 +272,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                           StatsLogger statsLogger,
                           AsyncNotification notification,
                           LogSegmentFilter filter,
-                          String lockClientId) throws IOException {
+                          String lockClientId) {
+        Preconditions.checkNotNull(zkcBuilder);
+        Preconditions.checkNotNull(bkcBuilder);
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
@@ -285,36 +288,8 @@ abstract class BKLogPartitionHandler implements Watcher {
         digestpw = conf.getBKDigestPW();
         firstNumEntriesPerReadLastRecordScan = conf.getFirstNumEntriesPerReadLastRecordScan();
         maxNumEntriesPerReadLastRecordScan = conf.getMaxNumEntriesPerReadLastRecordScan();
-
-        if (null == zkcBuilder) {
-            zkcBuilder = ZooKeeperClientBuilder.newBuilder()
-                    .name(String.format("dlzk:%s:handler_dedicated", name))
-                    .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                    .uri(uri)
-                    .statsLogger(statsLogger.scope("dlzk_handler_dedicated"))
-                    .retryThreadCount(conf.getZKClientNumberRetryThreads())
-                    .requestRateLimit(conf.getZKRequestRateLimit())
-                    .zkAclId(conf.getZkAclId());
-            ownZKC = true;
-        } else {
-            ownZKC = false;
-        }
         this.zooKeeperClient = zkcBuilder.build();
         LOG.debug("Using ZK Path {}", partitionRootPath);
-        if (null == bkcBuilder) {
-            // resolve uri
-            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(this.zooKeeperClient, uri);
-            BKDLConfig.propagateConfiguration(bkdlConfig, conf);
-            bkcBuilder = BookKeeperClientBuilder.newBuilder()
-                    .dlConfig(conf)
-                    .name(String.format("bk:%s:handler_dedicated", name))
-                    .zkServers(bkdlConfig.getBkZkServersForWriter())
-                    .ledgersPath(bkdlConfig.getBkLedgersPath())
-                    .statsLogger(statsLogger);
-            ownBKC = true;
-        } else {
-            ownBKC = false;
-        }
         this.bookKeeperClient = bkcBuilder.build();
 
         if (lockClientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)) {
@@ -782,12 +757,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     public void close() {
-        if (ownBKC) {
-            bookKeeperClient.close();
-        }
-        if (ownZKC) {
-            zooKeeperClient.close();
-        }
+        // No-op
     }
 
     /**
@@ -1381,5 +1351,4 @@ abstract class BKLogPartitionHandler implements Watcher {
     boolean unregister(Watcher watcher) {
         return zooKeeperClient.unregister(watcher);
     }
-
 }

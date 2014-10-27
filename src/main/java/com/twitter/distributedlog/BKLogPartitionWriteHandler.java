@@ -11,6 +11,7 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.zk.DataWithStat;
@@ -74,6 +75,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         ScheduledExecutorService.class, FuturePool.class, ExecutorService.class, OrderedSafeExecutor.class,
         LedgerAllocator.class, StatsLogger.class, String.class, int.class, PermitLimiter.class
     };
+
 
     static BKLogPartitionWriteHandler createBKLogPartitionWriteHandler(String name,
                                                                        String streamIdentifier,

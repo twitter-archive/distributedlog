@@ -3,13 +3,19 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 
+import com.twitter.util.ExceptionalFunction;
+import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
+import com.twitter.util.Promise;
 
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -40,6 +46,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
+import scala.runtime.BoxedUnit;
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -114,7 +122,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      StatsLogger statsLogger,
                                      String clientId,
                                      AsyncNotification notification,
-                                     boolean isHandleForReading) throws IOException {
+                                     boolean isHandleForReading) {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
               statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
@@ -168,46 +176,63 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     /**
      * Elective stream lock--readers are not required to acquire the lock before using the stream.
      */
-    synchronized Future<Void> lockStream() throws IOException {
-        if (null == readLock) {
-            if (!doesLogExist()) {
-                throw new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName()));
-            }
-
-            ensureReadLockPathExist();
-
-            this.readLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, readLockPath,
-                    conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger,
-                    conf.getZKNumRetries());
-
-            LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
-            readLockRequestStat.inc();
-
-            lockAcquireFuture = readLock.asyncAcquire(
-                    DistributedReentrantLock.LockReason.READHANDLER);
-            lockAcquireFuture.addEventListener(new FutureEventListener<Void>() {
+    synchronized Future<Void> lockStream() {
+        if (null == lockAcquireFuture) {
+            lockAcquireFuture = ensureReadLockPathExist().flatMap(new ExceptionalFunction<Void, Future<Void>>() {
                 @Override
-                public void onSuccess(Void complete) {
-                    readLockAcquireSuccessStat.inc();
-                    LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
-                }
+                public Future<Void> applyE(Void in) throws Throwable {
+                    return (new ExecutorServiceFuturePool(executorService)).apply(new ExceptionalFunction0<DistributedReentrantLock>() {
+                        @Override
+                        public DistributedReentrantLock applyE() throws IOException {
+                            // Unfortunately this has a blocking call which we should not execute on the
+                            // ZK completion thread
+                            BKLogPartitionReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
+                                zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
+                                getLockClientId(), statsLogger, conf.getZKNumRetries());
 
-                @Override
-                public void onFailure(Throwable cause) {
-                    readLockAcquireFailureStat.inc();
-                    LOG.info("failed to acquire readlock {} at {}",
-                            new Object[]{getLockClientId(), readLockPath, cause});
+                            LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
+                            readLockRequestStat.inc();
+                            return BKLogPartitionReadHandler.this.readLock;
+                        }
+                    }).flatMap(new ExceptionalFunction<DistributedReentrantLock, Future<Void>>() {
+                        @Override
+                        public Future<Void> applyE(DistributedReentrantLock lock) throws IOException {
+                            Future<Void> lockAcquireFutureLocal = lock.asyncAcquire(
+                                DistributedReentrantLock.LockReason.READHANDLER);
+                            lockAcquireFutureLocal.addEventListener(new FutureEventListener<Void>() {
+                                @Override
+                                public void onSuccess(Void complete) {
+                                    readLockAcquireSuccessStat.inc();
+                                    LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
+                                }
+
+                                @Override
+                                public void onFailure(Throwable cause) {
+                                    readLockAcquireFailureStat.inc();
+                                    LOG.info("failed to acquire readlock {} at {}",
+                                        new Object[]{getLockClientId(), readLockPath, cause});
+                                }
+                            });
+                            return lockAcquireFutureLocal;
+                        }
+                    });
                 }
             });
         }
-
         return lockAcquireFuture;
     }
 
     /**
      * Check ownership of elective stream lock.
      */
-    void checkReadLock() throws LockingException {
+    void checkReadLock() throws DLIllegalStateException, LockingException {
+        synchronized (this) {
+            if ((null == lockAcquireFuture) ||
+                (!lockAcquireFuture.isDefined())) {
+                throw new DLIllegalStateException("Attempt to check for lock before it has been acquired successfully");
+            }
+        }
+
         readLock.checkOwnership();
     }
 
@@ -413,6 +438,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             super.close();
         } finally {
             synchronized (this) {
+                if (null != lockAcquireFuture && !lockAcquireFuture.isDefined()) {
+                    lockAcquireFuture.cancel();
+                }
                 if (null != readLock) {
                     // Force close--we may or may not have
                     // actually acquired the lock by now. The
@@ -470,23 +498,48 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    void ensureReadLockPathExist() throws IOException {
+    private Future<Void> ensureReadLockPathExist() {
+        final Promise<Void> promise = new Promise<Void>();
+        promise.setInterruptHandler(new com.twitter.util.Function<Throwable, BoxedUnit>() {
+            @Override
+            public BoxedUnit apply(Throwable t) {
+                promise.setException(new LockCancelledException(readLockPath, "Could not ensure read lock path", t));
+                return null;
+            }
+        });
         try {
-            if (null == zooKeeperClient.get().exists(readLockPath, false)) {
-                zooKeeperClient.get().create(readLockPath, new byte[0],
-                        zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT);
-            }
-        } catch (KeeperException e) {
-            if (KeeperException.Code.NODEEXISTS == e.code()) {
-                // someone create the lock path, we are fine
-                return;
-            }
+            zooKeeperClient.get().create(readLockPath, new byte[0],
+                zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
+                new org.apache.zookeeper.AsyncCallback.StringCallback() {
+                    @Override
+                    public void processResult(final int rc, final String path, Object ctx, String name) {
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (KeeperException.Code.NONODE.intValue() == rc) {
+                                    promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                                } else if (KeeperException.Code.OK.intValue() == rc) {
+                                    promise.setValue(null);
+                                    LOG.trace("Created path {}.", path);
+                                } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
+                                    promise.setValue(null);
+                                    LOG.trace("Path {} is already existed.", path);
+                                } else {
+                                    promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                                }
+                            }
+                        });
+                    }
+                }, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             LOG.error("Error ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
-            throw new ZKException("Error ensuring readlock path existed for " + getFullyQualifiedName(), e);
+            promise.setException(e);
         } catch (InterruptedException e) {
             LOG.error("Interrupted while ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
-            throw new DLInterruptedException("Interrupted while ensuring read lock path existed for " + getFullyQualifiedName(), e);
+            promise.setException(new DLInterruptedException("Interrupted while ensuring read lock path existed for " + getFullyQualifiedName(), e));
         }
+
+        return promise;
     }
 
     public boolean doesLogExist() throws IOException {

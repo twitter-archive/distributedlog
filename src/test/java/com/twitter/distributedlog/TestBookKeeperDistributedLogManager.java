@@ -299,16 +299,19 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     @Test
     public void testTwoWriters() throws Exception {
         long start = 1;
-        BKLogPartitionWriteHandler bkdlm1 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
-        BKLogPartitionWriteHandler bkdlm2 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm1 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm2 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
 
-        bkdlm1.startLogSegment(start);
+        bkdlm1.getWriteHandler().startLogSegment(start);
         try {
-            bkdlm2.startLogSegment(start);
+            bkdlm2.getWriteHandler().startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
             assertEquals(ioe.getCurrentOwner(), "localhost");
         }
+
+        bkdlm1.close();
+        bkdlm2.close();
     }
 
     @Test
@@ -1624,9 +1627,9 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
     @Test
     public void testMaxLogRecSize() throws Exception {
-        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
-        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         boolean exceptionEncountered = false;
         try {
             LogRecord op = new LogRecord(txid, DLMTestUtil.repeatString(
@@ -1637,7 +1640,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         } finally {
             out.close();
         }
-        bkdlm.close();
+        bkdlmAndClients.close();
         assert(exceptionEncountered);
     }
 
@@ -1646,9 +1649,10 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024 * 1024);
-        BKLogPartitionWriteHandler bkdlm = DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients =
+                DLMTestUtil.createNewBKDLM(confLocal, "distrlog-transmissionSize");
         long txid = 1;
-        BKPerStreamLogWriter out = bkdlm.startLogSegment(1);
+        BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         boolean exceptionEncountered = false;
         byte[] largePayload = DLMTestUtil.repeatString(DLMTestUtil.repeatString("abcdefgh", 256), 256).getBytes();
         try {
@@ -1662,7 +1666,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         } finally {
             out.close();
         }
-        bkdlm.close();
+        bkdlmAndClients.close();
         assert(!exceptionEncountered);
     }
 

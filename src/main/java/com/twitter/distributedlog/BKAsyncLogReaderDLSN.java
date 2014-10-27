@@ -47,8 +47,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     protected boolean closed = false;
 
-    private final boolean lockStream;
-    private final Future<Void> lockAcquireFuture;
+    private boolean lockStream = false;
 
     // Stats
     private final OpStatsLogger readNextExecTime;
@@ -86,8 +85,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                 OrderedSafeExecutor lockStateExecutor,
                                 String streamIdentifier,
                                 DLSN startDLSN,
-                                StatsLogger statsLogger,
-                                boolean lockStream) throws IOException {
+                                StatsLogger statsLogger) {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
         this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, lockStateExecutor, this, true);
@@ -106,20 +104,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
 
         // Lock the stream if requested. The lock will be released when the reader is closed.
-        this.lockStream = lockStream;
-        if (this.lockStream) {
-            lockAcquireFuture = bkLedgerManager.lockStream();
-        } else {
-            lockAcquireFuture = null;
-        }
-    }
-
-    /**
-     * If stream lock was requested, return a future that is satisfied when the lock is acquired.
-     * Else returns null.
-     */
-    Future<Void> getLockAcquireFuture() {
-        return lockAcquireFuture;
+        this.lockStream = false;
     }
 
     @Override
@@ -129,6 +114,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         // reader has hit an error
         scheduleBackgroundRead();
     }
+
+    public Future<Void> lockStream() {
+        this.lockStream = true;
+        return bkLedgerManager.lockStream();
+    }
+
 
     private boolean checkClosedOrInError(String operation) {
         if (null == lastException.get()) {
@@ -146,7 +137,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         if (lockStream) {
             try {
                 bkLedgerManager.checkReadLock();
-            } catch (LockingException ex) {
+            } catch (IOException ex) {
                 setLastException(ex);
             }
         }
