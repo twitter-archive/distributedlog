@@ -41,6 +41,7 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Stopwatch idleReaderLastLogRecordSw = Stopwatch.createStarted();
     private boolean isReaderIdle = false;
     private boolean forceBlockingRead = false;
+    private boolean disableReadAheadZKNotification = false;
 
     private final Counter idleReaderWarnCounter;
     private final Counter idleReaderErrorCounter;
@@ -174,6 +175,9 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
             if ((null != currentReader)) {
                 if(readAheadEnabled) {
                     bkLedgerManager.startReadAhead(currentReader.getNextLedgerEntryToRead(), simulateErrors);
+                    if (disableReadAheadZKNotification) {
+                        bkLedgerManager.disableReadAheadZKNotification();
+                    }
                 }
                 LOG.info("Opened reader on partition {}", bkLedgerManager.getFullyQualifiedName());
             }
@@ -320,5 +324,11 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     @VisibleForTesting
     synchronized void setForceBlockingRead(boolean force) {
         forceBlockingRead = force;
+    }
+
+    @VisibleForTesting
+    synchronized void disableReadAheadZKNotification() {
+        disableReadAheadZKNotification = true;
+        bkLedgerManager.disableReadAheadZKNotification();
     }
 }

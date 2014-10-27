@@ -24,8 +24,16 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
-    private void readNonBlocking(DistributedLogManager dlm, boolean notification, boolean forceBlockingRead) throws Exception {
+    private void readNonBlocking(DistributedLogManager dlm, boolean notification, boolean forceBlockingRead, boolean forceStall) throws Exception {
+        readNonBlocking(dlm, notification, forceBlockingRead, forceStall, DEFAULT_SEGMENT_SIZE);
+    }
+
+    private void readNonBlocking(DistributedLogManager dlm, boolean notification, boolean forceBlockingRead, boolean forceStall, long segmentSize) throws Exception {
         BKContinuousLogReaderTxId reader = (BKContinuousLogReaderTxId)dlm.getInputStream(1);
+        if (forceStall) {
+            reader.disableReadAheadZKNotification();
+        }
+
         long numTrans = 0;
         long lastTxId = -1;
 
@@ -45,7 +53,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                     continue;
                 }
 
-                if (numTrans >= (3 * DEFAULT_SEGMENT_SIZE)) {
+                if (numTrans >= (3 * segmentSize)) {
                     break;
                 }
 
@@ -72,10 +80,14 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     }
 
     void writeRecordsForNonBlockingReads(DistributedLogManager dlm, boolean recover) throws Exception {
+        writeRecordsForNonBlockingReads(dlm, recover, DEFAULT_SEGMENT_SIZE);
+    }
+
+    void writeRecordsForNonBlockingReads(DistributedLogManager dlm, boolean recover, long segmentSize) throws Exception {
         long txId = 1;
         for (long i = 0; i < 3; i++) {
             BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
-            for (long j = 1; j < DEFAULT_SEGMENT_SIZE; j++) {
+            for (long j = 1; j < segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txId++));
             }
             if (recover) {
@@ -124,7 +136,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        readNonBlocking(dlm, false, false);
+        readNonBlocking(dlm, false, false, false);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
@@ -154,7 +166,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        readNonBlocking(dlm, false, true);
+        readNonBlocking(dlm, false, true, false);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
@@ -184,7 +196,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        readNonBlocking(dlm, false, false);
+        readNonBlocking(dlm, false, false, false);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
@@ -213,7 +225,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        readNonBlocking(dlm, true, false);
+        readNonBlocking(dlm, true, false, false);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
@@ -244,7 +256,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 }
             }, 100, TimeUnit.MILLISECONDS);
 
-        readNonBlocking(dlm, true, false);
+        readNonBlocking(dlm, true, false, false);
 
         assert(!currentThread.isInterrupted());
         executor.shutdown();
@@ -278,7 +290,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
         boolean exceptionEncountered = false;
         try {
-            readNonBlocking(dlm, false, false);
+            readNonBlocking(dlm, false, false, false);
         } catch (IdleReaderException exc) {
             exceptionEncountered = true;
         }
@@ -286,6 +298,45 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
+
+    @Test(timeout = 10000)
+    public void nonBlockingReadAheadStall() throws Exception {
+        String name = "distrlog-non-blocking-reader-stall";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(3);
+        confLocal.setReaderIdleWarnThresholdMillis(500);
+        confLocal.setReaderIdleErrorThresholdMillis(30000);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        writeRecordsForNonBlockingReads(dlm, false, 3);
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+
+                }
+            }, 10, TimeUnit.MILLISECONDS);
+
+        boolean exceptionEncountered = false;
+        try {
+            readNonBlocking(dlm, false, false, true, 3);
+        } catch (IdleReaderException exc) {
+            LOG.info("Exception encountered", exc);
+            exceptionEncountered = true;
+        }
+        assert(!exceptionEncountered);
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
+
 
     @Test(timeout = 10000)
     public void nonBlockingReadWithForceRead() throws Exception {

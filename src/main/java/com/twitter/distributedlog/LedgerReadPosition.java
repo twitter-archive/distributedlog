@@ -9,6 +9,13 @@ import org.slf4j.LoggerFactory;
 public class LedgerReadPosition {
     static final Logger LOG = LoggerFactory.getLogger(LedgerReadPosition.class);
 
+    private static enum PartialOrderingComparisonResult {
+        NotComparable,
+        GreaterThan,
+        LessThan,
+        EqualTo
+    }
+
     long ledgerId = DistributedLogConstants.UNRESOLVED_LEDGER_ID;
     long ledgerSequenceNo;
     long entryId;
@@ -67,19 +74,41 @@ public class LedgerReadPosition {
     }
 
     public boolean definitelyLessThanOrEqualTo(LedgerReadPosition threshold) {
+        PartialOrderingComparisonResult result = comparePartiallyOrdered(threshold);
+        return ((result == PartialOrderingComparisonResult.LessThan) ||
+            (result == PartialOrderingComparisonResult.EqualTo));
+    }
+
+    public boolean definitelyLessThan(LedgerReadPosition threshold) {
+        PartialOrderingComparisonResult result = comparePartiallyOrdered(threshold);
+        return result == PartialOrderingComparisonResult.LessThan;
+    }
+
+    private PartialOrderingComparisonResult comparePartiallyOrdered(LedgerReadPosition threshold) {
         // If no threshold is passed we cannot make a definitive comparison
         if (null == threshold) {
-            return false;
+            return PartialOrderingComparisonResult.NotComparable;
         }
 
         if (this.ledgerSequenceNo != threshold.ledgerSequenceNo) {
-            return this.ledgerSequenceNo < threshold.ledgerSequenceNo;
+            if (this.ledgerSequenceNo < threshold.ledgerSequenceNo) {
+                return PartialOrderingComparisonResult.LessThan;
+            } else {
+                return PartialOrderingComparisonResult.GreaterThan;
+            }
+        } else if (this.ledgerId != threshold.ledgerId) {
+            // When ledgerSequenceNo is equal we cannot definitely say that this
+            // position is less than the threshold unless ledgerIds are equal
+            // since LedgerSequenceNumber maybe inferred from transactionIds in older
+            // versions of the metadata.
+            return PartialOrderingComparisonResult.NotComparable;
+        } else if (this.getEntryId() < threshold.getEntryId()) {
+            return PartialOrderingComparisonResult.LessThan;
+        } else if (this.getEntryId() > threshold.getEntryId()) {
+            return PartialOrderingComparisonResult.GreaterThan;
+        } else {
+            return PartialOrderingComparisonResult.EqualTo;
         }
-
-        // When ledgerSequenceNo is equal we cannot definitely say that this
-        // position is less than the threshold unless ledgerIds are equal
-        return (this.ledgerId == threshold.ledgerId) &&
-            (this.entryId <= threshold.entryId);
     }
 
     /**

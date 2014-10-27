@@ -254,11 +254,11 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         }
         assertEquals(expectedWriterPosition, writer.getLedgerHandle().getLastAddConfirmed());
         assertEquals(expectedLac, inspector.readLastConfirmed());
-        LedgerReadPosition readPosition = reader.bkLedgerManager.readAheadWorker.nextReadPosition;
+        LedgerReadPosition readPosition = reader.bkLedgerManager.readAheadWorker.nextReadAheadPosition;
         logger.info("ReadAhead moved read position {} : ", readPosition);
         while (readPosition.getEntryId() < expectedReaderPosition) {
             Thread.sleep(1000);
-            readPosition = reader.bkLedgerManager.readAheadWorker.nextReadPosition;
+            readPosition = reader.bkLedgerManager.readAheadWorker.nextReadAheadPosition;
             logger.info("ReadAhead moved read position {} : ", readPosition);
         }
         assertEquals(expectedReaderPosition, readPosition.getEntryId());
