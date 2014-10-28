@@ -321,6 +321,18 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }).flatMap(new TruncationFunction(dlsn));
     }
 
+    // Ordered sync operation. Calling fsync outside of the ordered future pool may result in 
+    // fsync happening out of program order. For certain applications this is a problem.
+    Future<Long> flushAndSyncAll() {
+        return orderedFuturePool.apply(new ExceptionalFunction0<Long>() {
+            @Override
+            public Long applyE() throws Throwable {
+                setReadyToFlush();
+                return flushAndSync();
+            }
+        });
+    }
+
     @Override
     public void closeAndComplete() throws IOException {
         // Insert a request to future pool to wait until all writes are completed.
