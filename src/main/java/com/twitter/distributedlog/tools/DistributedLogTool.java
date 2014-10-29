@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.tools;
 
 import com.google.common.collect.Lists;
+import com.twitter.util.Await;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DLSN;
@@ -87,6 +88,9 @@ public class DistributedLogTool extends Tool {
     };
 
     static DLSN parseDLSN(String dlsnStr) throws IOException {
+        if (dlsnStr.equals("InitialDLSN")) {
+            return DLSN.InitialDLSN;
+        }
         String[] parts = dlsnStr.split(",");
         if (parts.length != 3) {
             throw new IOException("Invalid dlsn : " + dlsnStr);
@@ -641,10 +645,12 @@ public class DistributedLogTool extends Tool {
     protected static class ShowCommand extends PerStreamCommand {
 
         PartitionId partitionId = null;
+        boolean listSegments = true;
 
         ShowCommand() {
-            super("show", "show metadata of a given stream");
+            super("show", "show metadata of a given stream and list segments");
             options.addOption("p", "partition", true, "Partition of given stream");
+            options.addOption("ns", "no-log-segments", false, "Do not list log segment metadata");
         }
 
         @Override
@@ -657,7 +663,8 @@ public class DistributedLogTool extends Tool {
                     throw new ParseException("Invalid partition " + cmdline.getOptionValue("p"));
                 }
             }
-        }
+            listSegments = !cmdline.hasOption("ns");
+        }   
 
         @Override
         protected int runCmd() throws Exception {
@@ -706,18 +713,31 @@ public class DistributedLogTool extends Tool {
         }
 
         private void printMetadata(DistributedLogManager dlm, PartitionId pid) throws Exception {
+            DLSN firstDlsn = null == pid ? Await.result(dlm.getFirstDLSNAsync()) : DLSN.InvalidDLSN;
+            DLSN lastDlsn = null == pid ? dlm.getLastDLSN() : dlm.getLastDLSN(pid);
             long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
             long lastTxnId = null == pid ? dlm.getLastTxId() : dlm.getLastTxId(pid);
             long recordCount = null == pid ? dlm.getLogRecordCount() : dlm.getLogRecordCount(pid);
-            println("Stream " + (null == pid ? "<default>" : "partition " + pid)
-                    + " : (first = " + firstTxnId + ", last = " + lastTxnId
-                    + ", recordCount = " + recordCount + ")");
-            if (null == pid) {
+            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s)",
+                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn));
+            println(result);
+            if (null == pid && listSegments) {
                 List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
                 for (LogSegmentLedgerMetadata segment : segments) {
                     println(segment.getLedgerSequenceNumber() + "\t: " + segment);
                 }
             }
+        }
+        
+        String getStreamName(PartitionId pid) {
+            return (null == pid ? "<default>" : "partition " + pid);
+        }
+
+        String getDlsnName(DLSN dlsn) {
+            if (dlsn.equals(DLSN.InvalidDLSN)) {
+                return "InvalidDLSN";
+            } 
+            return dlsn.toString();
         }
 
         @Override
@@ -728,8 +748,8 @@ public class DistributedLogTool extends Tool {
 
     static class CountCommand extends PerStreamCommand {
 
-        DLSN startDLSN;
-        DLSN endDLSN;
+        DLSN startDLSN = null;
+        DLSN endDLSN = null;
 
         protected CountCommand() {
             super("count", "count number records between dlsns");
@@ -739,12 +759,16 @@ public class DistributedLogTool extends Tool {
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
             String[] args = cmdline.getArgs();
-            if (args.length < 2) {
-                throw new ParseException("Expected specifying start and end dlsns.");
+            if (args.length < 1) {
+                throw new ParseException("Must specify at least start dlsn.");
             }
             try {
-                startDLSN = parseDLSN(args[0]);
-                endDLSN = parseDLSN(args[1]);
+                if (args.length >= 1) {
+                    startDLSN = parseDLSN(args[0]);
+                }
+                if (args.length >= 2) {
+                    endDLSN = parseDLSN(args[1]);
+                }   
             } catch (IOException ioe) {
                 throw new ParseException("Invalid dlsn found : " + ioe.getMessage());
             }
@@ -754,6 +778,17 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
                     getStreamName(), getConf(), getUri());
+            long count = 0;
+            if (null == endDLSN) {
+                count = countToLastRecord(dlm);
+            } else {
+                count = countFromStartToEnd(dlm);
+            }
+            println("total is " + count + " records.");
+            return 0;
+        }
+
+        int countFromStartToEnd(DistributedLogManager dlm) throws Exception {
             int count = 0;
             try {
                 LogReader reader = dlm.getInputStream(startDLSN);
@@ -773,14 +808,17 @@ public class DistributedLogTool extends Tool {
                         record = reader.readNext(false);
                     }
                     println("last record : " + preRecord);
-                    println("total is " + count + " records.");
                 } finally {
                     reader.close();
                 }
             } finally {
                 dlm.close();
             }
-            return 0;
+            return count;
+        }
+
+        long countToLastRecord(DistributedLogManager dlm) throws Exception {
+            return Await.result(dlm.getLogRecordCountAsync(startDLSN)).longValue();
         }
 
         @Override

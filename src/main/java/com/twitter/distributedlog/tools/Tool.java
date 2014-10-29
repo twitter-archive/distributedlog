@@ -156,7 +156,7 @@ public abstract class Tool {
      *          message to print
      */
     protected static void println(String msg) {
-        System.err.println(msg);
+        System.out.println(msg);
     }
 
     /**
@@ -202,6 +202,7 @@ public abstract class Tool {
     }
 
     public static void main(String args[]) {
+        int rc = -1;
         if (args.length <= 0) {
             System.err.println("No tool to run.");
             System.err.println("");
@@ -213,11 +214,11 @@ public abstract class Tool {
             Tool tool = ReflectionUtils.newInstance(toolClass, Tool.class);
             String[] newArgs = new String[args.length - 1];
             System.arraycopy(args, 1, newArgs, 0, newArgs.length);
-            tool.run(newArgs);
+            rc = tool.run(newArgs);
         } catch (Throwable t) {
             System.err.println("Fail to run tool " + toolClass + " : ");
             t.printStackTrace();
-            System.exit(-1);
         }
+        System.exit(rc);
     }
 }

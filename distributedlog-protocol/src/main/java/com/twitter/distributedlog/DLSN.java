@@ -12,7 +12,7 @@ public class DLSN implements Comparable<DLSN> {
 
     public static final DLSN InitialDLSN = new DLSN(1, 0 , 0);
     public static final DLSN NonInclusiveLowerBound = new DLSN(1, 0 , -1);
-    static final DLSN InvalidDLSN = new DLSN(0,-1,-1);
+    public static final DLSN InvalidDLSN = new DLSN(0,-1,-1);
     static final byte CUR_VERSION = VERSION1;
 
     static final int VERSION0_LEN = Long.SIZE * 3 + Byte.SIZE;
