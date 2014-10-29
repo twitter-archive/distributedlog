@@ -57,6 +57,9 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -226,39 +229,86 @@ public class DistributedLogTool extends Tool {
 
     protected static class DeleteAllocatorPoolCommand extends PerDLCommand {
 
+        int concurrency = 1;
+        String allocationPoolPath = DistributedLogConstants.ALLOCATION_POOL_NODE;
+
         DeleteAllocatorPoolCommand() {
             super("delete_allocator_pool", "Delete allocator pool for a given distributedlog instance");
+            options.addOption("t", "concurrency", true, "Concurrency on deleting allocator pool.");
+            options.addOption("ap", "allocation-pool-path", true, "Ledger Allocation Pool Path");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("t")) {
+                concurrency = Integer.parseInt(cmdline.getOptionValue("t"));
+                if (concurrency <= 0) {
+                    throw new ParseException("Invalid concurrency value : " + concurrency);
+                }
+            }
+            if (cmdline.hasOption("ap")) {
+                allocationPoolPath = cmdline.getOptionValue("ap");
+                if (!allocationPoolPath.startsWith(".") || !allocationPoolPath.contains("allocation")) {
+                    throw new ParseException("Invalid allocation pool path : " + allocationPoolPath);
+                }
+            }
         }
 
         @Override
         protected int runCmd() throws Exception {
-            String rootPath = getUri().getPath() + "/" + DistributedLogConstants.ALLOCATION_POOL_NODE;
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+            String rootPath = getUri().getPath() + "/" + allocationPoolPath;
+            final ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
                     .uri(getUri()).zkAclId(getZkAclId()).build();
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-            BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+            final BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
                     .dlConfig(getConf())
                     .zkServers(bkdlConfig.getBkZkServersForWriter())
                     .ledgersPath(bkdlConfig.getBkLedgersPath())
                     .name("dlog_tool")
                     .build();
+            ExecutorService executorService = Executors.newFixedThreadPool(concurrency);
             try {
                 List<String> pools = zkc.get().getChildren(rootPath, false);
+                final LinkedBlockingQueue<String> poolsToDelete = new LinkedBlockingQueue<String>();
                 if (getForce() || IOUtils.confirmPrompt("Are you sure you want to delete allocator pools : " + pools)) {
                     for (String pool : pools) {
-                        String poolPath = rootPath + "/" + pool;
-                        LedgerAllocator allocator =
-                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc);
-                        if (null == allocator) {
-                            println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
-                        } else {
-                            allocator.delete();
-                            println("Deleted allocator pool : " + poolPath + " .");
-                        }
+                        poolsToDelete.add(rootPath + "/" + pool);
                     }
+                    final CountDownLatch doneLatch = new CountDownLatch(concurrency);
+                    for (int i = 0; i < concurrency; i++) {
+                        final int tid = i;
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                while (!poolsToDelete.isEmpty()) {
+                                    String poolPath = poolsToDelete.poll();
+                                    if (null == poolPath) {
+                                        break;
+                                    }
+                                    try {
+                                        LedgerAllocator allocator =
+                                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc);
+                                        if (null == allocator) {
+                                            println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
+                                        } else {
+                                            allocator.delete();
+                                            println("Deleted allocator pool : " + poolPath + " .");
+                                        }
+                                    } catch (IOException ioe) {
+                                        println("Failed to delete allocator pool " + poolPath + " : " + ioe.getMessage());
+                                    }
+                                }
+                                doneLatch.countDown();
+                                println("Thread " + tid + " is done.");
+                            }
+                        });
+                    }
+                    doneLatch.await();
                 }
             } finally {
+                executorService.shutdown();
                 bkc.close();
                 zkc.close();
             }
