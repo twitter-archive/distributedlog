@@ -157,9 +157,9 @@ public class LogRecord {
      * Class for writing log records
      */
     static class Writer {
-        private final DataOutputBuffer buf;
+        private final DataOutputStream buf;
 
-        Writer(DataOutputBuffer out) {
+        Writer(DataOutputStream out) {
             this.buf = out;
         }
 
@@ -174,7 +174,7 @@ public class LogRecord {
         }
 
         int getPendingBytes() {
-            return buf.getLength();
+            return buf.size();
         }
     }
 

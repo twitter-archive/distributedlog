@@ -46,6 +46,8 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -71,12 +73,22 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
+    private static class Buffer extends ByteArrayOutputStream {
+        Buffer(int initialCapacity) {
+            super(initialCapacity);
+        }
+
+        byte[] getData() {
+            return buf;
+        }
+    }
+
     private static class BKTransmitPacket {
         public BKTransmitPacket(long ledgerSequenceNo, int initialBufferSize) {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
             this.isControl = false;
-            this.buffer = new DataOutputBuffer(initialBufferSize * 6 / 5);
+            this.buffer = new Buffer(initialBufferSize * 6 / 5);
         }
 
         public void reset() {
@@ -99,7 +111,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             promiseList.add(nextPromise);
         }
 
-        public DataOutputBuffer getBuffer() {
+        public Buffer getBuffer() {
             return buffer;
         }
 
@@ -154,7 +166,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         private long ledgerSequenceNo;
         private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
-        DataOutputBuffer buffer;
+        Buffer buffer;
     }
 
     private final String fullyQualifiedLogSegment;
@@ -287,7 +299,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         this.ledgerSequenceNumber = ledgerSequenceNumber;
         this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, Math.max(transmissionThreshold, 1024));
-        this.writer = new LogRecord.Writer(packetCurrent.getBuffer());
+        this.writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
         this.startTxId = startTxId;
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
@@ -849,20 +861,20 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
         }
 
-        if (packetCurrent.getBuffer().getLength() > 0) {
+        if (packetCurrent.getBuffer().size() > 0) {
             BKTransmitPacket packet = packetCurrent;
             packet.setControl(isControl);
             outstandingBytes = 0;
             packetCurrent = getTransmitPacket();
-            writer = new LogRecord.Writer(packetCurrent.getBuffer());
+            writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
             lastTxIdFlushed = lastTxId;
 
             if (!isControl) {
-                numBytes += packet.getBuffer().getLength();
+                numBytes += packet.getBuffer().size();
                 numFlushesSinceRestart++;
             }
 
-            lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().getLength(),
+            lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().size(),
                 this, packet);
 
             if (isControl) {
@@ -892,7 +904,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             return false;
         }
 
-        return (packetCurrent.getBuffer().getLength() > 0);
+        return (packetCurrent.getBuffer().size() > 0);
     }
 
     @Override
@@ -950,14 +962,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
             if (transmitResult.get() != BKException.Code.OK) {
                 if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.getLength());
+                    transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.size());
                 }
             } else {
                 // If we had data that we flushed then we need it to make sure that
                 // background flush in the next pass will make the previous writes
                 // visible by advancing the lastAck
                 if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.getLength());
+                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.size());
                     controlFlushNeeded = true;
                     if (immediateFlushEnabled) {
                         scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
