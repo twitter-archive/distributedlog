@@ -1339,7 +1339,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setGlobalOutstandingWriteLimitDarkmode(false);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
         if (global > -1) {
-            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(global, new NullStatsLogger()));
+            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(global, new NullStatsLogger(), true));
         }
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);

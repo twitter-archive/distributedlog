@@ -243,8 +243,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (conf.getPerWriterOutstandingWriteLimit() < 0) {
             streamWriteLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
-            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(),
-                statsLogger.scope("streamWriteLimiter"));
+            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(), 
+                statsLogger.scope("streamWriteLimiter"), false);
         }
         this.writeLimiter = new WriteLimiter(streamName,
             conf.getPerWriterOutstandingWriteLimitDarkmode(),
