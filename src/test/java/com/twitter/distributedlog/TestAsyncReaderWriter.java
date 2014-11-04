@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
@@ -38,6 +39,7 @@ import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
 
+import junit.framework.Assert;
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -47,6 +49,9 @@ import static org.junit.Assert.fail;
 
 public class TestAsyncReaderWriter extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestAsyncReaderWriter.class);
+
+    protected static DistributedLogConfiguration conf =
+        new DistributedLogConfiguration().setLockTimeout(10).setReaderIdleErrorThresholdMillis(1200000);
 
     @Rule
     public TestName runtime = new TestName();
@@ -1476,4 +1481,73 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         dlm.close();
     }
+
+    @Test(timeout = 10000)
+    public void testAsyncReadIdleError() throws Exception {
+        String name = "distrlog-async-reader-idle-error";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReaderIdleWarnThresholdMillis(50);
+        confLocal.setReaderIdleErrorThresholdMillis(1000);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+        final int segmentSize = 10;
+        final int numSegments = 3;
+        final CountDownLatch latch = new CountDownLatch(1);
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        int txid = 1;
+                        for (long i = 0; i < numSegments; i++) {
+                            long start = txid;
+                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+                            for (long j = 1; j <= segmentSize; j++) {
+                                if ((i == 0) && (j == 1)) {
+                                    latch.countDown();
+                                }
+                                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
+                            }
+
+                            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
+                            writer.closeAndComplete();
+                            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+                            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
+                                start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
+                            blplm.close();
+                            Thread.sleep(2000);
+                        }
+                    } catch (Exception exc) {
+                        currentThread.interrupt();
+                    }
+                }
+            }, 0, TimeUnit.MILLISECONDS);
+
+        latch.await();
+        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        boolean exceptionEncountered = false;
+        int recordCount = 0;
+        try {
+            while (true) {
+                Future<LogRecordWithDLSN> record = reader.readNext();
+                Await.result(record);
+                recordCount++;
+
+                if (recordCount >= segmentSize * numSegments) {
+                    break;
+                }
+            }
+        } catch (IdleReaderException exc) {
+            exceptionEncountered = true;
+        }
+        assert(exceptionEncountered);
+        Assert.assertEquals(recordCount, segmentSize);
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
+
 }

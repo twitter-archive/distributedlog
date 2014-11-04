@@ -1,8 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.twitter.conversions.time;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
+import com.twitter.util.Awaitable;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -12,6 +15,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,6 +48,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean readAheadStarted = false;
     private int lastPosition = 0;
     private final boolean positionGapDetectionEnabled;
+    private final int idleErrorThresholdMillis;
 
     protected boolean closed = false;
 
@@ -58,6 +63,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private class PendingReadRequest {
         private final Promise<LogRecordWithDLSN> promise;
+        private AtomicReference<ScheduledFuture<?>> timeoutTaskRef = new AtomicReference<ScheduledFuture<?>>(null);
 
         PendingReadRequest() {
             promise = new Promise<LogRecordWithDLSN>();
@@ -71,12 +77,29 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             Stopwatch stopwatch = Stopwatch.createStarted();
             promise.updateIfEmpty(new Throw(throwable));
             futureSetLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            cancelTimeoutTask();
         }
 
         void setValue(LogRecordWithDLSN record) {
             Stopwatch stopwatch = Stopwatch.createStarted();
             promise.setValue(record);
             futureSetLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            cancelTimeoutTask();
+        }
+
+        void cancelTimeoutTask() {
+            ScheduledFuture<?> timeoutTask;
+            do {
+                timeoutTask = timeoutTaskRef.get();
+            } while ((timeoutTask != null) && (timeoutTaskRef.compareAndSet(timeoutTask, null)));
+
+            if (timeoutTask != null) {
+                timeoutTask.cancel(false);
+            }
+        }
+
+        void setTimeoutTask(ScheduledFuture<?> timeoutTask) {
+            this.timeoutTaskRef.set(timeoutTask);
         }
     }
 
@@ -95,6 +118,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         this.scheduleDelayStopwatch = Stopwatch.createUnstarted();
         this.readNextDelayStopwatch = Stopwatch.createStarted();
         this.positionGapDetectionEnabled = bkdlm.getConf().getPositionGapDetectionEnabled();
+        this.idleErrorThresholdMillis = bkdlm.getConf().getReaderIdleErrorThresholdMillis();
 
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
         futureSetLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
@@ -170,7 +194,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     public synchronized Future<LogRecordWithDLSN> readNext() {
         timeBetweenReadNexts.registerSuccessfulEvent(readNextDelayStopwatch.elapsed(TimeUnit.MICROSECONDS));
         readNextDelayStopwatch.reset().start();
-        PendingReadRequest promise = new PendingReadRequest();
+        final PendingReadRequest promise = new PendingReadRequest();
 
         if (!readAheadStarted) {
             bkLedgerManager.checkLogStreamExistsAsync().addEventListener(new FutureEventListener<Void>() {
@@ -210,6 +234,24 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
         readNextExecTime.registerSuccessfulEvent(readNextDelayStopwatch.elapsed(TimeUnit.MICROSECONDS));
         readNextDelayStopwatch.reset().start();
+
+        if (idleErrorThresholdMillis < Integer.MAX_VALUE) {
+            promise.setTimeoutTask(executorService.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    if (promise.getPromise().isDefined()) {
+                        return;
+                    }
+
+                    setLastException(new IdleReaderException("Reader on stream" +
+                        bkLedgerManager.getFullyQualifiedName()
+                        + "is idle for " + idleErrorThresholdMillis +"ms"));
+                    notifyOnError();
+                }
+            }, idleErrorThresholdMillis, TimeUnit.MILLISECONDS));
+        }
+
+
         return promise.getPromise();
     }
 
