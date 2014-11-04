@@ -5,6 +5,7 @@ import com.twitter.util.Await;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -131,6 +132,39 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         List<LogSegmentLedgerMetadata> filteredLedgerList = writeHandler1.getFilteredLedgerList(false, false);
         assertEquals(1, filteredLedgerList.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerList.get(0));
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFirstDLSNWithOpenLedger() throws Exception {
+        String dlName = runtime.getMethodName();
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+
+        int numEntriesPerSegment = 100;
+        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(confLocal, dlName);
+        long txid = 1;
+
+        ArrayList<Future<DLSN>> futures = new ArrayList<Future<DLSN>>(numEntriesPerSegment);
+        AsyncLogWriter out = dlm1.startAsyncLogSegmentNonPartitioned();
+        for (int eid = 0; eid < numEntriesPerSegment; ++eid) {
+            futures.add(out.write(DLMTestUtil.getLogRecordInstance(txid)));
+            ++txid;
+        }
+        for (Future<DLSN> future : futures) {
+            Await.result(future);
+        }
+
+        BKLogPartitionReadHandler readHandler =
+            ((BKDistributedLogManager) dlm1).createReadLedgerHandler(confLocal.getUnpartitionedStreamName());
+
+        DLSN last = dlm1.getLastDLSN();
+        assertEquals(new DLSN(1,99,0), last);
+        DLSN first = Await.result(dlm1.getFirstDLSNAsync());
+        assertEquals(new DLSN(1,0,0), first);
+        out.close();
     }
 
     @Test(timeout = 60000)

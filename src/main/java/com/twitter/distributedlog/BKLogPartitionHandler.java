@@ -388,7 +388,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                         }
                         Future<LogRecordWithDLSN> firstRecord = null;
                         for (LogSegmentLedgerMetadata ledger : ledgerList) {
-                            if (!ledger.isTruncated() && ledger.getRecordCount() > 0) {
+                            if (!ledger.isTruncated() && (ledger.getRecordCount() > 0 || ledger.isInProgress())) {
                                 firstRecord = asyncReadFirstUserRecord(ledger, DLSN.InitialDLSN);
                                 break;
                             }
