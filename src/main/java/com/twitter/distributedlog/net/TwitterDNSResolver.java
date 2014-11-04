@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.net;
 
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,18 +25,20 @@ public class TwitterDNSResolver implements DNSToSwitchMapping {
         new ConcurrentHashMap<String, String>();
 
     public TwitterDNSResolver(String hostRegionOverrides) {
-        // Host Region Overrides are of the form
-        // HN1:R1;HN2:R2;...
-        String[] overrides = hostRegionOverrides.split(";");
+        if (StringUtils.isNotBlank(hostRegionOverrides)) {
+            // Host Region Overrides are of the form
+            // HN1:R1;HN2:R2;...
+            String[] overrides = hostRegionOverrides.split(";");
 
-        for(String override: overrides) {
-            String[] parts = override.split(":");
-            if (parts.length != 2) {
-                LOG.warn("Incorrect override specified", override);
-            } else {
-                hostNameToRegion.putIfAbsent(parts[0], parts[1]);
+            for (String override : overrides) {
+                String[] parts = override.split(":");
+                if (parts.length != 2) {
+                    LOG.warn("Incorrect override specified", override);
+                } else {
+                    hostNameToRegion.putIfAbsent(parts[0], parts[1]);
+                }
             }
-        }
+        } // otherwise, no overrides were specified
     }
 
 
