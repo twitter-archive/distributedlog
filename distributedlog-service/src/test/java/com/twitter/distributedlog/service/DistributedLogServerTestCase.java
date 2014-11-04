@@ -6,6 +6,8 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.thrift.ClientId$;
+import com.twitter.finagle.builder.ClientBuilder;
+import com.twitter.util.Duration;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.util.LocalBookKeeper;
@@ -57,6 +59,10 @@ public abstract class DistributedLogServerTestCase {
                         .name(name)
                         .clientId(ClientId$.MODULE$.apply(name))
                         .routingService(routingService)
+                        .clientBuilder(ClientBuilder.get()
+                            .hostConnectionLimit(1)
+                            .connectionTimeout(Duration.fromSeconds(1))
+                            .requestTimeout(Duration.fromSeconds(10)))
                         .build();
         }
 
