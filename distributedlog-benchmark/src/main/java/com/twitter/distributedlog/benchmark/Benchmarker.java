@@ -44,6 +44,7 @@ public class Benchmarker {
     int truncationInterval = 3600;
     Integer startStreamId = null;
     Integer endStreamId = null;
+    boolean thriftmux = false;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -70,6 +71,7 @@ public class Benchmarker {
         options.addOption("ti", "truncation-interval", true, "Truncation interval in seconds");
         options.addOption("ssid", "start-stream-id", true, "Start Stream ID");
         options.addOption("esid", "end-stream-id", true, "Start Stream ID");
+        options.addOption("mx", "thriftmux", false, "Enable thriftmux (write mode only)");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -139,6 +141,7 @@ public class Benchmarker {
         if (cmdline.hasOption("esid")) {
             endStreamId = Integer.parseInt(cmdline.getOptionValue("esid"));
         }
+        thriftmux = cmdline.hasOption("mx");
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -197,8 +200,8 @@ public class Benchmarker {
                 batchSize,
                 serversetPath,
                 statsReceiver.scope("write_client"),
-                statsProvider.getStatsLogger("write")
-                );
+                statsProvider.getStatsLogger("write"),
+                thriftmux);
     }
 
     Worker runDLWriter() throws IOException {

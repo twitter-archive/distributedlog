@@ -13,6 +13,7 @@ import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId$;
+import com.twitter.finagle.thrift.ClientId;
 import com.twitter.util.Duration$;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -50,6 +51,7 @@ public class WriterWorker implements Worker {
     final List<String> streamNames;
     final int numStreams;
     final int batchSize;
+    final boolean thriftmux;
 
     volatile boolean running = true;
 
@@ -66,7 +68,8 @@ public class WriterWorker implements Worker {
                         int batchSize,
                         String serverSetPath,
                         StatsReceiver statsReceiver,
-                        StatsLogger statsLogger) {
+                        StatsLogger statsLogger,
+                        boolean thriftmux) {
         Preconditions.checkArgument(startStreamId <= endStreamId);
         this.streamPrefix = streamPrefix;
         this.startStreamId = startStreamId;
@@ -81,6 +84,7 @@ public class WriterWorker implements Worker {
         this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
         this.batchSize = batchSize;
+        this.thriftmux = thriftmux;
 
         // ServerSet
         String[] serverSetParts = StringUtils.split(serverSetPath, '/');
@@ -106,13 +110,18 @@ public class WriterWorker implements Worker {
     }
 
     private DistributedLogClient buildDlogClient() {
+        ClientBuilder clientBuilder = ClientBuilder.get()
+            .hostConnectionLimit(10)
+            .hostConnectionCoresize(10)
+            .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
+            .requestTimeout(Duration$.MODULE$.fromSeconds(2));
+
+        ClientId clientId = ClientId$.MODULE$.apply("dlog_loadtest_writer");
+
         return DistributedLogClientBuilder.newBuilder()
-            .clientId(ClientId$.MODULE$.apply("dlog_loadtest_writer"))
-            .clientBuilder(ClientBuilder.get()
-                .hostConnectionLimit(10)
-                .hostConnectionCoresize(10)
-                .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
-                .requestTimeout(Duration$.MODULE$.fromSeconds(2)))
+            .clientId(clientId)
+            .clientBuilder(clientBuilder)
+            .thriftmux(thriftmux)
             .redirectBackoffStartMs(100)
             .redirectBackoffMaxMs(500)
             .requestTimeoutMs(2000)
@@ -167,7 +176,7 @@ public class WriterWorker implements Worker {
                 if (null == data) {
                     break;
                 }
-                
+
                 dlc.write(streamName, data).addEventListener(new FutureEventListener<DLSN>() {
                     @Override
                     public void onSuccess(DLSN value) {
@@ -199,7 +208,7 @@ public class WriterWorker implements Worker {
             LOG.info("Started writer {}.", idx);
             while (running) {
                 rateLimiter.acquire(batchSize);
-                
+
                 String streamName = streamNames.get(random.nextInt(numStreams));
                 final long requestMillis = System.currentTimeMillis();
                 final List<ByteBuffer> data = buildBufferList(batchSize, requestMillis, messageSizeBytes);

@@ -5,6 +5,7 @@ import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.finagle.ThriftMuxServer$;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -61,6 +62,7 @@ public class DistributedLogServer implements Runnable {
         options.addOption("sp", "stats-port", true, "DistributedLog Stats Port");
         options.addOption("si", "shard-id", true, "DistributedLog Shard ID");
         options.addOption("a", "announce", true, "ServerSet Path to Announce");
+        options.addOption("mx", "thriftmux", false, "Is thriftmux enabled");
     }
 
     void printUsage() {
@@ -126,9 +128,11 @@ public class DistributedLogServer implements Runnable {
             announcer = new NOPAnnouncer();
         }
 
+        boolean thriftmux = cmdline.hasOption("mx");
+
         Pair<DistributedLogServiceImpl, Server>
             serverPair = runServer(dlConf, uri, statsProvider, servicePort,
-                  keepAliveLatch, statsReceiver);
+                  keepAliveLatch, statsReceiver, thriftmux);
         this.dlService = serverPair.getLeft();
         this.server = serverPair.getRight();
 
@@ -139,13 +143,14 @@ public class DistributedLogServer implements Runnable {
     static Pair<DistributedLogServiceImpl, Server> runServer(
             DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
         return runServer(dlConf, dlUri, provider, port,
-                         new CountDownLatch(0), new NullStatsReceiver());
+                         new CountDownLatch(0), new NullStatsReceiver(), false);
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
             DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port,
-            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver) throws IOException {
+            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver, boolean thriftmux) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
+
         // dl service
         DistributedLogServiceImpl dlService =
                 new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
@@ -153,16 +158,24 @@ public class DistributedLogServer implements Runnable {
         StatsReceiver serviceStatsReceiver = statsReceiver.scope("service");
         StatsLogger serviceStatsLogger = provider.getStatsLogger("service");
 
+        ServerBuilder serverBuilder = ServerBuilder.get()
+                .name("DistributedLogServer")
+                .codec(ThriftServerFramedCodec.get())
+                .reportTo(statsReceiver)
+                .bindTo(new InetSocketAddress(port));
+
+        if (thriftmux) {
+            logger.info("Using thriftmux.");
+            serverBuilder = serverBuilder.stack(ThriftMuxServer$.MODULE$);
+        }
+
         // starts dl server
         Server server = ServerBuilder.safeBuild(
                 new ClientIdRequiredFilter<byte[], byte[]>(serviceStatsReceiver).andThen(
                     new StatsFilter<byte[], byte[]>(serviceStatsLogger).andThen(
                         new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory()))),
-                ServerBuilder.get()
-                        .name("DistributedLogServer")
-                        .codec(ThriftServerFramedCodec.get())
-                        .reportTo(statsReceiver)
-                        .bindTo(new InetSocketAddress(port)));
+                serverBuilder);
+
         logger.info("Started DistributedLog Server.");
         return Pair.of(dlService, server);
     }

@@ -23,12 +23,12 @@
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-core_2.10</artifactId>
-      <version>6.20.1-TWOTEN-1407871523</version>
+      <version>6.21.0.4</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-thrift_2.10</artifactId>
-      <version>6.20.1-TWOTEN-1407871523</version>
+      <version>6.21.0.4</version>
     </dependency>
     <dependency>
       <groupId>commons-lang</groupId>

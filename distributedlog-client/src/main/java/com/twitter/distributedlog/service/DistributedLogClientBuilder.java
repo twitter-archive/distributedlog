@@ -31,6 +31,8 @@ import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
+import com.twitter.finagle.ThriftMuxClient;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.finagle.thrift.ClientId;
 import com.twitter.finagle.thrift.ThriftClientFramedCodec;
 import com.twitter.finagle.thrift.ThriftClientRequest;
@@ -223,6 +225,18 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    /**
+     * Set thriftmux enabled.
+     *
+     * @param enabled
+     *          is thriftmux enabled
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder thriftmux(boolean enabled) {
+        this._clientConfig.setThriftMux(enabled);
+        return this;
+    }
+
     public DistributedLogClient build() {
         return buildClient();
     }
@@ -249,6 +263,7 @@ public class DistributedLogClientBuilder {
         int redirectBackoffMaxMs = 100;
         int maxRedirects = -1;
         int requestTimeoutMs = -1;
+        boolean thriftmux = false;
 
         ClientConfig setMaxRedirects(int maxRedirects) {
             this.maxRedirects = maxRedirects;
@@ -285,6 +300,16 @@ public class DistributedLogClientBuilder {
         int getRedirectBackoffMaxMs() {
             return this.redirectBackoffMaxMs;
         }
+
+        ClientConfig setThriftMux(boolean enabled) {
+            this.thriftmux = enabled;
+            return this;
+        }
+
+        boolean getThriftMux() {
+            return this.thriftmux;
+        }
+
     }
 
     static class DistributedLogClientImpl implements DistributedLogClient, MonitorServiceClient, RoutingService.RoutingListener {
@@ -781,9 +806,13 @@ public class DistributedLogClientBuilder {
             proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
 
             // client builder
-            this.clientBuilder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
-            logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}",
-                        new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass() });
+            ClientBuilder builder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
+            if (clientConfig.getThriftMux()) {
+                builder = builder.stack(ThriftMuxClient.withClientId(clientId));
+            }
+            this.clientBuilder = builder;
+            logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}, thriftmux = {}",
+                        new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass(), clientConfig.getThriftMux() });
         }
 
         private void handshake() {
