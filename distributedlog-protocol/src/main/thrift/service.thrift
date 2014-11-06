@@ -120,4 +120,7 @@ service DistributedLogService {
     WriteResponse release(string stream, WriteContext ctx);
 
     WriteResponse delete(string stream, WriteContext ctx);
+
+    // Admin Methods
+    void setAcceptNewStream(bool enabled);
 }

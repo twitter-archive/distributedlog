@@ -488,6 +488,28 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         checkStream(0, 0, 0, name, dlServer.getAddress(), false, false);
     }
 
+    @Test(timeout = 60000)
+    public void testAcceptNewStream() throws Exception {
+        String name = "dlserver-accept-new-stream";
+
+        dlClient.routingService.addHost(name, dlServer.getAddress());
+        dlClient.routingService.setAllowRetrySameHost(false);
+
+        Await.result(dlClient.dlClient.setAcceptNewStream(false));
+
+        try {
+            Await.result(dlClient.dlClient.write(name, ByteBuffer.wrap("1".getBytes(UTF_8))));
+            fail("Should fail because the proxy couldn't accept new stream");
+        } catch (NoBrokersAvailableException nbae) {
+            // expected
+        }
+        checkStream(0, 0, 0, name, dlServer.getAddress(), false, false);
+
+        Await.result(dlServer.dlServer.getLeft().setAcceptNewStream(true));
+        Await.result(dlClient.dlClient.write(name, ByteBuffer.wrap("1".getBytes(UTF_8))));
+        checkStream(1, 1, 1, name, dlServer.getAddress(), true, true);
+    }
+
     private void checkStream(int expectedNumProxiesInClient, int expectedClientCacheSize, int expectedServerCacheSize,
                              String name, SocketAddress owner, boolean existedInServer, boolean existedInClient) {
         Map<SocketAddress, Set<String>> distribution = dlClient.dlClient.getStreamOwnershipDistribution();

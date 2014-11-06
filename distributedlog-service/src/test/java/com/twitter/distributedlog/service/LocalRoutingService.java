@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Objects;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
@@ -12,6 +13,8 @@ public class LocalRoutingService implements RoutingService {
             new HashMap<String, SocketAddress>();
     private final CopyOnWriteArrayList<RoutingListener> listeners =
             new CopyOnWriteArrayList<RoutingListener>();
+
+    boolean allowRetrySameHost = true;
 
     @Override
     public void startService() {
@@ -35,6 +38,11 @@ public class LocalRoutingService implements RoutingService {
         return this;
     }
 
+    public LocalRoutingService setAllowRetrySameHost(boolean enabled) {
+        allowRetrySameHost = enabled;
+        return this;
+    }
+
     void addHost(String stream, SocketAddress address) {
         boolean notify = false;
         synchronized (this) {
@@ -53,7 +61,11 @@ public class LocalRoutingService implements RoutingService {
     @Override
     public synchronized SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
         SocketAddress address = localAddresses.get(key);
+
         if (null != address) {
+            if (!allowRetrySameHost && Objects.equal(address, previousAddr)) {
+                throw new NoBrokersAvailableException("No host available");
+            }
             return address;
         }
         throw new NoBrokersAvailableException("No host available");

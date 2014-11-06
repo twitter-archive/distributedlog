@@ -23,4 +23,13 @@ public interface MonitorServiceClient {
      * @return current ownership distribution
      */
     Map<SocketAddress, Set<String>> getStreamOwnershipDistribution();
+
+    /**
+     * Enable/Disable accepting new stream on a given proxy
+     *
+     * @param enabled
+     *          flag to enable/disable accepting new streams on a given proxy
+     * @return void
+     */
+    Future<Void> setAcceptNewStream(boolean enabled);
 }

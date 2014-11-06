@@ -37,6 +37,7 @@ import com.twitter.finagle.thrift.ClientId;
 import com.twitter.finagle.thrift.ThriftClientFramedCodec;
 import com.twitter.finagle.thrift.ThriftClientRequest;
 import com.twitter.util.Duration;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -945,6 +946,22 @@ public class DistributedLogClientBuilder {
         @Override
         public Map<SocketAddress, Set<String>> getStreamOwnershipDistribution() {
             return ImmutableMap.copyOf(address2Streams);
+        }
+
+        @Override
+        public Future<Void> setAcceptNewStream(boolean enabled) {
+            Map<SocketAddress, ServiceWithClient> snapshot =
+                    new HashMap<SocketAddress, ServiceWithClient>(address2Services);
+            List<Future<Void>> futures = new ArrayList<Future<Void>>(snapshot.size());
+            for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
+                futures.add(entry.getValue().service.setAcceptNewStream(enabled));
+            }
+            return Future.collect(futures).map(new Function<List<Void>, Void>() {
+                @Override
+                public Void apply(List<Void> list) {
+                    return null;
+                }
+            });
         }
 
         @Override

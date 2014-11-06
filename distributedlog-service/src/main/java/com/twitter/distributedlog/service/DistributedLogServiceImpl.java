@@ -1,7 +1,9 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import com.twitter.distributedlog.AlreadyClosedException;
@@ -27,7 +29,9 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.util.Await;
 import com.twitter.util.ConstFuture;
+import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
@@ -256,20 +260,20 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         final long payloadSize;
         final Promise<BulkWriteResponse> result = new Promise<BulkWriteResponse>();
 
-        // We need to pass these through to preserve ownership change behavior in 
-        // client/server. Only include failures which are guaranteed to have failed 
+        // We need to pass these through to preserve ownership change behavior in
+        // client/server. Only include failures which are guaranteed to have failed
         // all subsequent writes.
         boolean isDefiniteFailure(Try<DLSN> result) {
             boolean def = false;
             try {
                 result.get();
             } catch (Exception ex) {
-                if (ex instanceof OwnershipAcquireFailedException || 
+                if (ex instanceof OwnershipAcquireFailedException ||
                     ex instanceof AlreadyClosedException ||
                     ex instanceof LockingException) {
-                    def = true; 
+                    def = true;
                 }
-            } 
+            }
             return def;
         }
 
@@ -311,7 +315,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         BulkWriteResponse bulkWriteResponse =
                             new BulkWriteResponse(successResponseHeader()).setWriteResponses(writeResponses);
 
-                        // Promote the first result to an op-level failure if we're sure all other writes have 
+                        // Promote the first result to an op-level failure if we're sure all other writes have
                         // failed.
                         if (results.size() > 0) {
                             Try<DLSN> firstResult = results.get(0);
@@ -333,7 +337,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 WriteResponse writeResponse = new WriteResponse(exceptionToResponseHeader(ioe));
                                 writeResponses.add(writeResponse);
                                 failureRecordCounter.inc();
-                            } 
+                            }
                         }
 
                         return Future.value(bulkWriteResponse);
@@ -705,7 +709,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             }
             if (shouldClose) {
-                requestClose(null);
+                requestClose();
             }
         }
 
@@ -1022,17 +1026,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         }
 
-        void requestClose(final CountDownLatch closeLatch) {
+        Future<Void> requestClose() {
             closeLock.writeLock().lock();
             try {
                 if (StreamStatus.CLOSING == status) {
-                    return;
+                    return Future.Void();
                 }
                 status = StreamStatus.CLOSING;
                 acquiredStreams.remove(name, this);
             } finally {
                 closeLock.writeLock().unlock();
             }
+            final Promise<Void> promise = new Promise<Void>();
             // we will fail the requests that are coming in between closing and closed only
             // after the async writer is closed. so we could clear up the lock before redirect
             // them.
@@ -1041,18 +1046,15 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     @Override
                     public void run() {
                         close();
-                        if (null != closeLatch) {
-                            closeLatch.countDown();
-                        }
+                        promise.setValue(null);
                     }
                 });
             } catch (RejectedExecutionException ree) {
                 logger.warn("Failed to schedule closing stream {}, close it directly : ", name, ree);
                 close();
-                if (null != closeLatch) {
-                    closeLatch.countDown();
-                }
+                promise.setValue(null);
             }
+            return promise;
         }
 
         void delete() throws IOException {
@@ -1115,6 +1117,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             new ConcurrentHashMap<String, Stream>();
 
     private boolean closed = false;
+    private boolean acceptNewStream = true;
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
@@ -1204,7 +1207,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
             @Override
             public Number getSample() {
-                return closed ? -1 : 1;
+                return closed ? -1 : (acceptNewStream ? 1 : 2);
             }
         });
 
@@ -1360,7 +1363,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             closeLock.readLock().lock();
             try {
                 // if it is closed, we would not acquire stream again.
-                if (closed) {
+                if (closed || !acceptNewStream) {
                     return null;
                 }
                 writer = new Stream(stream);
@@ -1455,6 +1458,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return op.result;
     }
 
+    @Override
+    public Future<Void> setAcceptNewStream(boolean enabled) {
+        closeLock.writeLock().lock();
+        try {
+            logger.info("Set AcceptNewStream = {}", enabled);
+            acceptNewStream = enabled;
+        } finally {
+            closeLock.writeLock().unlock();
+        }
+        return Future.Void();
+    }
+
     private Future<WriteResponse> doWrite(final String name, ByteBuffer data, WriteContext ctx) {
         WriteOp op = new WriteOp(name, data, ctx);
         doExecuteStreamOp(op);
@@ -1512,6 +1527,27 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         stream.waitIfNeededAndWrite(op);
     }
 
+    Future<List<Void>> closeStreams(Set<Stream> streamsToClose, Optional<RateLimiter> rateLimiter) {
+        if (streamsToClose.isEmpty()) {
+            logger.info("No streams to close.");
+            List<Void> emptyList = new ArrayList<Void>();
+            return Future.value(emptyList);
+        }
+        List<Future<Void>> futures = new ArrayList<Future<Void>>(streamsToClose.size());
+        for (Stream stream : streamsToClose) {
+            if (rateLimiter.isPresent()) {
+                rateLimiter.get().acquire();
+            }
+
+            if (streams.remove(stream.name, stream)) {
+                futures.add(stream.requestClose());
+            } else {
+                futures.add(Future.Void());
+            }
+        }
+        return Future.collect(futures);
+    }
+
     void shutdown() {
         closeLock.writeLock().lock();
         try {
@@ -1528,24 +1564,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     numAcquired, numCached);
         Set<Stream> streamsToClose = new HashSet<Stream>();
         streamsToClose.addAll(streams.values());
-        CountDownLatch closeLatch = new CountDownLatch(streamsToClose.size());
-        for (Stream stream: streamsToClose) {
-            if (streams.remove(stream.name, stream)) {
-                stream.requestClose(closeLatch);
-            } else {
-                closeLatch.countDown();
-            }
-        }
+
+        Future<List<Void>> closeResult = closeStreams(streamsToClose, Optional.<RateLimiter>absent());
 
         logger.info("Waiting for closing all streams ...");
         try {
-            if (closeLatch.await(5, TimeUnit.MINUTES)) {
-                logger.info("Closed all streams.");
-            } else {
-                logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes.");
-            }
+            Await.result(closeResult, Duration.fromTimeUnit(5, TimeUnit.MINUTES));
+            logger.info("Closed all streams.");
         } catch (InterruptedException e) {
             logger.warn("Interrupted on waiting for closing all streams : ", e);
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes : ", e);
         }
 
         // shutdown the executor after requesting closing streams.
