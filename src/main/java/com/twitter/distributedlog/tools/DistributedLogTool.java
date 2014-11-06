@@ -1,6 +1,8 @@
 package com.twitter.distributedlog.tools;
 
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
@@ -10,7 +12,6 @@ import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LedgerEntryReader;
-import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
@@ -29,9 +30,11 @@ import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.client.LedgerReader;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.bookkeeper.util.StringUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -41,9 +44,12 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -51,6 +57,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -60,6 +68,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -399,6 +408,7 @@ public class DistributedLogTool extends Tool {
         boolean dumpEntries = false;
         boolean orderByTime = false;
         boolean printStreamsOnly = false;
+        boolean checkInprogressOnly = false;
 
         InspectCommand() {
             super("inspect", "Inspect streams under a given dl uri to find any potential corruptions");
@@ -408,6 +418,7 @@ public class DistributedLogTool extends Tool {
             options.addOption("d", "dump", false, "Dump entries of inprogress log segments");
             options.addOption("ot", "orderbytime", false, "Order the log segments by completion time");
             options.addOption("pso", "print-stream-only", false, "Print streams only");
+            options.addOption("cio", "check-inprogress-only", false, "Check duplicated inprogress only");
         }
 
         @Override
@@ -423,6 +434,7 @@ public class DistributedLogTool extends Tool {
             dumpEntries = cmdline.hasOption("d");
             orderByTime = cmdline.hasOption("ot");
             printStreamsOnly = cmdline.hasOption("pso");
+            checkInprogressOnly = cmdline.hasOption("cio");
         }
 
         @Override
@@ -519,16 +531,31 @@ public class DistributedLogTool extends Tool {
                     if (segments.size() <= 1) {
                         continue;
                     }
-                    LogSegmentLedgerMetadata firstSegment = segments.get(0);
-                    long lastSeqNo = firstSegment.getLedgerSequenceNumber();
                     boolean isCandidate = false;
-                    for (int j = 1; j < segments.size(); j++) {
-                        LogSegmentLedgerMetadata nextSegment = segments.get(j);
-                        if (lastSeqNo + 1 != nextSegment.getLedgerSequenceNumber()) {
-                            isCandidate = true;
-                            break;
+                    if (checkInprogressOnly) {
+                        Set<Long> inprogressSeqNos = new HashSet<Long>();
+                        for (LogSegmentLedgerMetadata segment : segments) {
+                            if (segment.isInProgress()) {
+                                inprogressSeqNos.add(segment.getLedgerSequenceNumber());
+                            }
                         }
-                        ++lastSeqNo;
+                        for (LogSegmentLedgerMetadata segment : segments) {
+                            if (!segment.isInProgress() && inprogressSeqNos.contains(segment.getLedgerSequenceNumber())) {
+                                isCandidate = true;
+                            }
+                        }
+                    } else {
+                        LogSegmentLedgerMetadata firstSegment = segments.get(0);
+                        long lastSeqNo = firstSegment.getLedgerSequenceNumber();
+
+                        for (int j = 1; j < segments.size(); j++) {
+                            LogSegmentLedgerMetadata nextSegment = segments.get(j);
+                            if (lastSeqNo + 1 != nextSegment.getLedgerSequenceNumber()) {
+                                isCandidate = true;
+                                break;
+                            }
+                            ++lastSeqNo;
+                        }
                     }
                     if (isCandidate) {
                         if (orderByTime) {
@@ -714,7 +741,7 @@ public class DistributedLogTool extends Tool {
                 }
             }
             listSegments = !cmdline.hasOption("ns");
-        }   
+        }
 
         @Override
         protected int runCmd() throws Exception {
@@ -778,7 +805,7 @@ public class DistributedLogTool extends Tool {
                 }
             }
         }
-        
+
         String getStreamName(PartitionId pid) {
             return (null == pid ? "<default>" : "partition " + pid);
         }
@@ -786,7 +813,7 @@ public class DistributedLogTool extends Tool {
         String getDlsnName(DLSN dlsn) {
             if (dlsn.equals(DLSN.InvalidDLSN)) {
                 return "InvalidDLSN";
-            } 
+            }
             return dlsn.toString();
         }
 
@@ -818,7 +845,7 @@ public class DistributedLogTool extends Tool {
                 }
                 if (args.length >= 2) {
                     endDLSN = parseDLSN(args[1]);
-                }   
+                }
             } catch (IOException ioe) {
                 throw new ParseException("Invalid dlsn found : " + ioe.getMessage());
             }
@@ -1340,6 +1367,365 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    static interface BKCommandRunner {
+        int run(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception;
+    }
+
+    abstract static class PerBKCommand extends PerDLCommand {
+
+        protected PerBKCommand(String name, String description) {
+            super(name, description);
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            return runBKCommand(new BKCommandRunner() {
+                @Override
+                public int run(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception {
+                    return runBKCmd(zkc, bkc);
+                }
+            });
+        }
+
+        protected int runBKCommand(BKCommandRunner runner) throws Exception {
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
+                    .zkAclId(getConf().getZkAclId())
+                    .uri(getUri())
+                    .build();
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                        .zkc(zkc)
+                        .dlConfig(getConf())
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
+                try {
+                    return runner.run(zkc, bkc);
+                } finally {
+                    bkc.close();
+                }
+            } finally {
+                zkc.close();
+            }
+        }
+
+        abstract protected int runBKCmd(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception;
+    }
+
+    static class RecoverCommand extends PerBKCommand {
+
+        final List<Long> ledgers = new ArrayList<Long>();
+        boolean query = false;
+        boolean force = false;
+        boolean dryrun = false;
+        boolean skipOpenLedgers = false;
+        boolean fenceOnly = false;
+        int fenceRate = 1;
+        int concurrency = 1;
+        final Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        int partition = 0;
+        int numPartitions = 0;
+
+        RecoverCommand() {
+            super("recover", "Recover the ledger data that stored on failed bookies");
+            options.addOption("l", "ledger", true, "Specific ledger to recover");
+            options.addOption("lf", "ledgerfile", true, "File contains ledgers list");
+            options.addOption("q", "query", false, "Query the ledgers that contain given bookies");
+            options.addOption("d", "dryrun", false, "Print the recovery plan w/o actually recovering");
+            options.addOption("f", "force", false, "Force recovery without confirmation");
+            options.addOption("cy", "concurrency", true, "Number of ledgers could be recovered in parallel");
+            options.addOption("sk", "skipOpenLedgers", false, "Skip recovering open ledgers");
+            options.addOption("p", "partition", true, "partition");
+            options.addOption("n", "num-partitions", true, "num partitions");
+            options.addOption("fo", "fence-only", true, "fence the ledgers only w/o re-replicating entries");
+            options.addOption("fr", "fence-rate", true, "rate on fencing ledgers");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            query = cmdline.hasOption("q");
+            force = cmdline.hasOption("f");
+            dryrun = cmdline.hasOption("d");
+            skipOpenLedgers = cmdline.hasOption("sk");
+            fenceOnly = cmdline.hasOption("fo");
+            if (cmdline.hasOption("l")) {
+                String[] lidStrs = cmdline.getOptionValue("l").split(",");
+                try {
+                    for (String lidStr : lidStrs) {
+                        ledgers.add(Long.parseLong(lidStr));
+                    }
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid ledger id provided : " + cmdline.getOptionValue("l"));
+                }
+            }
+            if (cmdline.hasOption("lf")) {
+                String file = cmdline.getOptionValue("lf");
+                try {
+                    BufferedReader br = new BufferedReader(new FileReader(file));
+                    try {
+                        String line = br.readLine();
+
+                        while (line != null) {
+                            ledgers.add(Long.parseLong(line));
+                            line = br.readLine();
+                        }
+                    } finally {
+                        br.close();
+                    }
+                } catch (Exception e) {
+                    throw new ParseException("Invalid ledgers file provided : " + file);
+                }
+            }
+            if (cmdline.hasOption("cy")) {
+                try {
+                    concurrency = Integer.parseInt(cmdline.getOptionValue("cy"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid concurrency provided : " + cmdline.getOptionValue("cy"));
+                }
+            }
+            if (cmdline.hasOption("p")) {
+                partition = Integer.parseInt(cmdline.getOptionValue("p"));
+            }
+            if (cmdline.hasOption("n")) {
+                numPartitions = Integer.parseInt(cmdline.getOptionValue("n"));
+            }
+            if (cmdline.hasOption("fr")) {
+                fenceRate = Integer.parseInt(cmdline.getOptionValue("fr"));
+            }
+            // Get bookies list to recover
+            String[] args = cmdline.getArgs();
+            final String[] bookieStrs = args[0].split(",");
+            for (String bookieStr : bookieStrs) {
+                final String bookieStrParts[] = bookieStr.split(":");
+                if (bookieStrParts.length != 2) {
+                    throw new ParseException("BookieSrcs has invalid bookie address format (host:port expected) : "
+                            + bookieStr);
+                }
+                try {
+                    bookiesSrc.add(new InetSocketAddress(bookieStrParts[0],
+                            Integer.parseInt(bookieStrParts[1])));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid ledger id provided : " + cmdline.getOptionValue("l"));
+                }
+            }
+        }
+
+        @Override
+        protected int runBKCmd(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception {
+            BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
+            try {
+                if (query) {
+                    return bkQuery(bkAdmin, bookiesSrc);
+                }
+                if (fenceOnly) {
+                    return bkFence(bkc, ledgers, fenceRate);
+                }
+                if (!force) {
+                    System.err.println("Bookies : " + bookiesSrc);
+                    if (!IOUtils.confirmPrompt("Are you sure to recover them : (Y/N)")) {
+                        System.err.println("Give up!");
+                        return -1;
+                    }
+                }
+                if (!ledgers.isEmpty()) {
+                    System.err.println("Ledgers : " + ledgers);
+                    long numProcessed = 0;
+                    Iterator<Long> ledgersIter = ledgers.iterator();
+                    LinkedBlockingQueue<Long> ledgersToProcess = new LinkedBlockingQueue<Long>();
+                    while (ledgersIter.hasNext()) {
+                        long lid = ledgersIter.next();
+                        if (numPartitions <=0 || (numPartitions > 0 && lid % numPartitions == partition)) {
+                            ledgersToProcess.add(lid);
+                            ++numProcessed;
+                        }
+                        if (ledgersToProcess.size() == 10000) {
+                            System.out.println("Processing " + numProcessed + " ledgers");
+                            bkRecovery(ledgersToProcess, bookiesSrc, dryrun, skipOpenLedgers);
+                            ledgersToProcess.clear();
+                            System.out.println("Processed " + numProcessed + " ledgers");
+                        }
+                    }
+                    if (!ledgersToProcess.isEmpty()) {
+                        System.out.println("Processing " + numProcessed + " ledgers");
+                        bkRecovery(ledgersToProcess, bookiesSrc, dryrun, skipOpenLedgers);
+                        System.out.println("Processed " + numProcessed + " ledgers");
+                    }
+                    System.out.println("Done.");
+                    CountDownLatch latch = new CountDownLatch(1);
+                    latch.await();
+                    return 0;
+                }
+                return bkRecovery(bkAdmin, bookiesSrc, dryrun, skipOpenLedgers);
+            } finally {
+                bkAdmin.close();
+            }
+        }
+
+        private int bkFence(final BookKeeperClient bkc, List<Long> ledgers, int fenceRate) throws Exception {
+            if (ledgers.isEmpty()) {
+                System.out.println("Nothing to fence. Done.");
+                return 0;
+            }
+            ExecutorService executorService = Executors.newCachedThreadPool();
+            final RateLimiter rateLimiter = RateLimiter.create(fenceRate);
+            final byte[] passwd = getConf().getBKDigestPW().getBytes(UTF_8);
+            final CountDownLatch latch = new CountDownLatch(ledgers.size());
+            final AtomicInteger numPendings = new AtomicInteger(ledgers.size());
+            final LinkedBlockingQueue<Long> ledgersQueue = new LinkedBlockingQueue<Long>();
+            ledgersQueue.addAll(ledgers);
+
+            for (int i = 0; i < concurrency; i++) {
+                executorService.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        while (!ledgersQueue.isEmpty()) {
+                            rateLimiter.acquire();
+                            Long lid = ledgersQueue.poll();
+                            if (null == lid) {
+                                break;
+                            }
+                            System.out.println("Fencing ledger " + lid);
+                            int numRetries = 3;
+                            while (numRetries > 0) {
+                                try {
+                                    LedgerHandle lh = bkc.get().openLedger(lid, BookKeeper.DigestType.CRC32, passwd);
+                                    lh.close();
+                                    System.out.println("Fenced ledger " + lid + ", " + numPendings.decrementAndGet() + " left.");
+                                    latch.countDown();
+                                } catch (BKException.BKNoSuchLedgerExistsException bke) {
+                                    System.out.println("Skipped fence non-exist ledger " + lid + ", " + numPendings.decrementAndGet() + " left.");
+                                    latch.countDown();
+                                } catch (BKException.BKLedgerRecoveryException lre) {
+                                    --numRetries;
+                                    continue;
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                    break;
+                                }
+                                numRetries = 0;
+                            }
+                        }
+                        System.err.println("Thread exits");
+                    }
+                });
+            }
+            latch.await();
+            SchedulerUtils.shutdownScheduler(executorService, 2, TimeUnit.MINUTES);
+            return 0;
+        }
+
+        private int bkQuery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs)
+                throws InterruptedException, BKException {
+            SortedMap<Long, LedgerMetadata> ledgersContainBookies =
+                    bkAdmin.getLedgersContainBookies(bookieAddrs);
+            System.err.println("NOTE: Bookies in inspection list are marked with '*'.");
+            for (Map.Entry<Long, LedgerMetadata> ledger : ledgersContainBookies.entrySet()) {
+                System.out.println("ledger " + ledger.getKey() + " : " + ledger.getValue().getState());
+                Map<Long, Integer> numBookiesToReplacePerEnsemble =
+                        inspectLedger(ledger.getValue(), bookieAddrs);
+                System.out.print("summary: [");
+                for (Map.Entry<Long, Integer> entry : numBookiesToReplacePerEnsemble.entrySet()) {
+                    System.out.print(entry.getKey() + "=" + entry.getValue() + ", ");
+                }
+                System.out.println("]");
+                System.out.println();
+            }
+            System.err.println("Done");
+            return 0;
+        }
+
+        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<InetSocketAddress> bookiesToInspect) {
+            Map<Long, Integer> numBookiesToReplacePerEnsemble = new TreeMap<Long, Integer>();
+            for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
+                ArrayList<InetSocketAddress> bookieList = ensemble.getValue();
+                System.out.print(ensemble.getKey() + ":\t");
+                int numBookiesToReplace = 0;
+                for (InetSocketAddress bookie: bookieList) {
+                    System.out.print(StringUtils.addrToString(bookie));
+                    if (bookiesToInspect.contains(bookie)) {
+                        System.out.print("*");
+                        ++numBookiesToReplace;
+                    } else {
+                        System.out.print(" ");
+                    }
+                    System.out.print(" ");
+                }
+                System.out.println();
+                numBookiesToReplacePerEnsemble.put(ensemble.getKey(), numBookiesToReplace);
+            }
+            return numBookiesToReplacePerEnsemble;
+        }
+
+        private int bkRecovery(final LinkedBlockingQueue<Long> ledgers, final Set<InetSocketAddress> bookieAddrs,
+                               final boolean dryrun, final boolean skipOpenLedgers)
+                throws Exception {
+            return runBKCommand(new BKCommandRunner() {
+                @Override
+                public int run(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception {
+                    BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
+                    try {
+                        bkRecovery(bkAdmin, ledgers, bookieAddrs, dryrun, skipOpenLedgers);
+                        return 0;
+                    } finally {
+                        bkAdmin.close();
+                    }
+                }
+            });
+        }
+
+        private int bkRecovery(final BookKeeperAdmin bkAdmin, final LinkedBlockingQueue<Long> ledgers,
+                               final Set<InetSocketAddress> bookieAddrs,
+                               final boolean dryrun, final boolean skipOpenLedgers)
+                throws InterruptedException, BKException {
+            final AtomicInteger numPendings = new AtomicInteger(ledgers.size());
+            final ExecutorService executorService = Executors.newCachedThreadPool();
+            final CountDownLatch doneLatch = new CountDownLatch(concurrency);
+            Runnable r = new Runnable() {
+                @Override
+                public void run() {
+                    while (!ledgers.isEmpty()) {
+                        long lid = -1L;
+                        try {
+                            lid = ledgers.take();
+                            System.out.println("Recovering ledger " + lid);
+                            bkAdmin.recoverBookieData(lid, bookieAddrs, dryrun, skipOpenLedgers);
+                            System.out.println("Recovered ledger completed : " + lid + ", " + numPendings.decrementAndGet() + " left");
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            doneLatch.countDown();
+                            break;
+                        } catch (BKException ke) {
+                            System.out.println("Recovered ledger failed : " + lid + ", rc = " + BKException.getMessage(ke.getCode()));
+                        }
+                    }
+                    doneLatch.countDown();
+                }
+            };
+            for (int i = 0; i < concurrency; i++) {
+                executorService.submit(r);
+            }
+            doneLatch.await();
+            SchedulerUtils.shutdownScheduler(executorService, 2, TimeUnit.MINUTES);
+            return 0;
+        }
+
+        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs,
+                               boolean dryrun, boolean skipOpenLedgers)
+                throws InterruptedException, BKException {
+            bkAdmin.recoverBookieData(bookieAddrs, dryrun, skipOpenLedgers);
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "recover [options] <bookiesSrc>";
+        }
+    }
+
     /**
      * Per Ledger Command, which parse common options for per ledger. e.g. ledger id.
      */
@@ -1420,6 +1806,9 @@ public class DistributedLogTool extends Tool {
         Long untilEntryId;
         boolean readAllBookies = false;
         boolean readLac = false;
+
+        long startEntryId = 0L;
+        int numEntries = 100;
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
@@ -1597,6 +1986,7 @@ public class DistributedLogTool extends Tool {
     public DistributedLogTool() {
         super();
         addCommand(new CreateCommand());
+        addCommand(new CountCommand());
         addCommand(new ListCommand());
         addCommand(new DumpCommand());
         addCommand(new ShowCommand());
@@ -1607,7 +1997,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new InspectStreamCommand());
         addCommand(new ReadLastConfirmedCommand());
         addCommand(new ReadEntriesCommand());
-        addCommand(new CountCommand());
+        addCommand(new RecoverCommand());
     }
 
     @Override
