@@ -12,7 +12,8 @@ public class FailpointUtils {
         FP_TransmitBeforeAddEntry,
         FP_TransmitComplete,
         FP_WriteInternalLostLock,
-        FP_ZooKeeperConnectionLoss
+        FP_ZooKeeperConnectionLoss,
+        FP_RecoverIncompleteLogSegments
     }
 
     static interface FailPointAction {

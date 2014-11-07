@@ -135,8 +135,17 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
         // to release underlying lock when rolling or completing log segments, which would reduce
         // the possibility of ownership change during rolling / completing log segments.
-        writeHandler.lockHandler().recoverIncompleteLogSegments();
-        return this;
+        writeHandler.lockHandler();
+        boolean success = false;
+        try {
+            writeHandler.recoverIncompleteLogSegments();
+            success = true;
+            return this;
+        } finally {
+            if (!success) {
+                writeHandler.unlockHandler();
+            }
+        }
     }
 
     /**
@@ -321,7 +330,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }).flatMap(new TruncationFunction(dlsn));
     }
 
-    // Ordered sync operation. Calling fsync outside of the ordered future pool may result in 
+    // Ordered sync operation. Calling fsync outside of the ordered future pool may result in
     // fsync happening out of program order. For certain applications this is a problem.
     Future<Long> flushAndSyncAll() {
         return orderedFuturePool.apply(new ExceptionalFunction0<Long>() {

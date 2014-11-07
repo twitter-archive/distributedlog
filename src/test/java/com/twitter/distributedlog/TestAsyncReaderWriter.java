@@ -962,7 +962,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             readCounts[s] = new AtomicInteger(0);
             dlms[s] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", s));
             positionReader(currentThread, syncLatch, dlms[s], false,
-                DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, readCounts[s], executionCounts[s]);
+                    DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, readCounts[s], executionCounts[s]);
         }
 
 
@@ -1548,6 +1548,47 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         Assert.assertEquals(recordCount, segmentSize);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
+    }
+
+    @Test(timeout = 60000)
+    public void testReleaseLockAfterFailedToRecover() throws Exception {
+        String name = "release-lock-after-failed-to-recover";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setLockTimeout(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer =
+                (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        Await.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        writer.abort();
+
+        for (int i = 0; i < 2; i++) {
+            FailpointUtils.setFailpoint(
+                    FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments,
+                    FailpointUtils.FailPointActions.FailPointAction_Throw);
+
+            try {
+                dlm.startAsyncLogSegmentNonPartitioned();
+                fail("Should fail during recovering incomplete log segments");
+            } catch (IOException ioe) {
+                // expected;
+            } finally {
+                FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
+            }
+        }
+
+        writer = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
+
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+        assertFalse(segments.get(0).isInProgress());
+
+        writer.close();
+        dlm.close();
     }
 
 }

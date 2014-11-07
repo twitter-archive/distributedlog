@@ -479,6 +479,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         return this;
     }
 
+    BKLogPartitionWriteHandler unlockHandler() throws LockingException {
+        if (lockHandler) {
+            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
+            lockHandler = false;
+        }
+        return this;
+    }
+
     static void createStreamIfNotExists(final String partitionRootPath,
                                         final ZooKeeper zk,
                                         final List<ACL> acl,
@@ -1031,6 +1039,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         if (recoverInitiated) {
             return;
         }
+        FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
         new RecoverOp().process();
     }
 
