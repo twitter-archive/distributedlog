@@ -2,6 +2,9 @@ package com.twitter.distributedlog.bk;
 
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.bk.SimpleLedgerAllocator.AllocationException;
+import com.twitter.distributedlog.bk.SimpleLedgerAllocator.ConcurrentObtainException;
+import com.twitter.distributedlog.bk.SimpleLedgerAllocator.Phase;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -21,7 +24,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
@@ -110,8 +112,11 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         try {
             allocator2.tryObtain(txn2);
             fail("Should fail allocating on second allocator as allocator1 is starting allocating something.");
-        } catch (IOException ioe2) {
+        } catch (ConcurrentObtainException ioe2) {
             // as expected
+            assertEquals(Phase.HANDING_OVER, ioe2.getPhase());
+        } catch (AllocationException ae) {
+            assertEquals(Phase.ERROR, ae.getPhase());
         }
         List<OpResult> results = null;
         try {
@@ -135,6 +140,31 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
             ++i;
         }
         assertEquals(1, i);
+    }
+
+    @Test(timeout = 60000)
+    public void testAllocatorWithoutEnoughBookies() throws Exception {
+        String allocationPath = "/allocator-without-enough-bookies";
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setEnsembleSize(numBookies * 2);
+        confLocal.setWriteQuorumSize(numBookies * 2);
+
+        SimpleLedgerAllocator allocator1 =
+                new SimpleLedgerAllocator(allocationPath, confLocal, zkc, bkc);
+        allocator1.allocate();
+        Transaction txn1 = zkc.get().transaction();
+
+        try {
+            allocator1.tryObtain(txn1);
+            fail("Should fail allocating ledger if there aren't enough bookies");
+        } catch (AllocationException ioe) {
+            // expected
+            assertEquals(Phase.ERROR, ioe.getPhase());
+        }
+        byte[] data = zkc.get().getData(allocationPath, false, null);
+        assertEquals(0, data.length);
     }
 
     @Test(timeout = 60000)

@@ -22,7 +22,7 @@ public class TestDistributedLogBase {
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;
     protected static String zkServers;
-    static int numBookies = 3;
+    protected static int numBookies = 3;
     protected static final List<File> tmpDirs = new ArrayList<File>();
 
     @BeforeClass

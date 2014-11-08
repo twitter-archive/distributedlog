@@ -36,6 +36,32 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         ALLOCATING, ALLOCATED, HANDING_OVER, HANDED_OVER, ERROR
     }
 
+    static class AllocationException extends IOException {
+
+        private static final long serialVersionUID = -1111397872059426882L;
+
+        private final Phase phase;
+
+        public AllocationException(Phase phase, String msg) {
+            super(msg);
+            this.phase = phase;
+        }
+
+        public Phase getPhase() {
+            return this.phase;
+        }
+
+    }
+
+    static class ConcurrentObtainException extends AllocationException {
+
+        private static final long serialVersionUID = -8532471098537176913L;
+
+        public ConcurrentObtainException(Phase phase, String msg) {
+            super(phase, msg);
+        }
+    }
+
     // zookeeper client
     final ZooKeeperClient zkc;
     // bookkeeper client
@@ -158,7 +184,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
     @Override
     public synchronized void allocate() throws IOException {
         if (Phase.ERROR == phase) {
-            throw new IOException("Error on ledger allocator for " + allocatePath);
+            throw new AllocationException(Phase.ERROR, "Error on ledger allocator for " + allocatePath);
         }
         if (Phase.HANDED_OVER == phase) {
             // issue an allocate request when ledger is already handed over.
@@ -181,10 +207,10 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
 
     private synchronized LedgerHandle tryObtainLedgerHandle() throws IOException {
         if (Phase.ERROR == phase) {
-            throw new IOException("Error on allocating ledger under " + allocatePath);
+            throw new AllocationException(Phase.ERROR, "Error on allocating ledger under " + allocatePath);
         }
         if (Phase.HANDING_OVER == phase || Phase.HANDED_OVER == phase) {
-            throw new IOException("Ledger handle is handling over to another thread : " + phase);
+            throw new ConcurrentObtainException(phase, "Ledger handle is handling over to another thread : " + phase);
         }
         while (Phase.ALLOCATING == phase) {
             try {
@@ -194,7 +220,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
             }
         }
         if (Phase.ALLOCATED != phase) {
-            throw new IOException("Failed on allocating ledger on " + allocatePath);
+            throw new AllocationException(phase, "Failed on allocating ledger on " + allocatePath);
         }
         return allocated;
     }

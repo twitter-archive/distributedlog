@@ -256,7 +256,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (conf.getEnableLedgerAllocatorPool()) {
             String allocatorPoolPath = validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
             allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(allocatorPoolPath, conf.getLedgerAllocatorPoolCoreSize(),
-                    conf, sharedWriterZKCForDL, writerBKC);
+                    conf, sharedWriterZKCForDL, writerBKC, scheduledThreadPoolExecutor);
             if (null != allocator) {
                 allocator.start();
             }

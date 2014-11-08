@@ -68,6 +68,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -277,6 +278,7 @@ public class DistributedLogTool extends Tool {
                     .ledgersPath(bkdlConfig.getBkLedgersPath())
                     .name("dlog_tool")
                     .build();
+            final ScheduledExecutorService allocationExecutor = Executors.newSingleThreadScheduledExecutor();
             ExecutorService executorService = Executors.newFixedThreadPool(concurrency);
             try {
                 List<String> pools = zkc.get().getChildren(rootPath, false);
@@ -298,7 +300,7 @@ public class DistributedLogTool extends Tool {
                                     }
                                     try {
                                         LedgerAllocator allocator =
-                                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc);
+                                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc, allocationExecutor);
                                         if (null == allocator) {
                                             println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
                                         } else {
@@ -320,6 +322,7 @@ public class DistributedLogTool extends Tool {
                 executorService.shutdown();
                 bkc.close();
                 zkc.close();
+                allocationExecutor.shutdown();
             }
             return 0;
         }

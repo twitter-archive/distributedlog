@@ -22,6 +22,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class LedgerAllocatorPool implements LedgerAllocator {
@@ -31,25 +34,30 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     private final DistributedLogConfiguration conf;
     private final BookKeeperClient bkc;
     private final ZooKeeperClient zkc;
+    private final ScheduledExecutorService scheduledExecutorService;
     private final String poolPath;
     private final int corePoolSize;
 
-    private final LinkedList<LedgerAllocator> pendingList =
-            new LinkedList<LedgerAllocator>();
-    private final LinkedList<LedgerAllocator> allocatingList =
-            new LinkedList<LedgerAllocator>();
-    private final Map<LedgerHandle, LedgerAllocator> obtainMap =
-            new HashMap<LedgerHandle, LedgerAllocator>();
+    private final LinkedList<SimpleLedgerAllocator> pendingList =
+            new LinkedList<SimpleLedgerAllocator>();
+    private final LinkedList<SimpleLedgerAllocator> allocatingList =
+            new LinkedList<SimpleLedgerAllocator>();
+    private final Map<String, SimpleLedgerAllocator> rescueMap =
+            new HashMap<String, SimpleLedgerAllocator>();
+    private final Map<LedgerHandle, SimpleLedgerAllocator> obtainMap =
+            new HashMap<LedgerHandle, SimpleLedgerAllocator>();
 
     public LedgerAllocatorPool(String poolPath, int corePoolSize,
                                DistributedLogConfiguration conf,
                                ZooKeeperClient zkc,
-                               BookKeeperClient bkc) throws IOException {
+                               BookKeeperClient bkc,
+                               ScheduledExecutorService scheduledExecutorService) throws IOException {
         this.poolPath = poolPath;
         this.corePoolSize = corePoolSize;
         this.conf = conf;
         this.zkc = zkc;
         this.bkc = bkc;
+        this.scheduledExecutorService = scheduledExecutorService;
         initializePool();
     }
 
@@ -74,6 +82,16 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     @VisibleForTesting
     synchronized int obtainMapSize() {
         return obtainMap.size();
+    }
+
+    @VisibleForTesting
+    synchronized int rescueSize() {
+        return rescueMap.size();
+    }
+
+    @VisibleForTesting
+    synchronized SimpleLedgerAllocator getLedgerAllocator(LedgerHandle lh) {
+        return obtainMap.get(lh);
     }
 
     private void initializePool() throws IOException {
@@ -149,7 +167,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 }
                 DataWithStat dataWithStat = new DataWithStat();
                 dataWithStat.setDataWithStat(data, stat);
-                LedgerAllocator allocator;
+                SimpleLedgerAllocator allocator;
                 try {
                     allocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
                     allocator.start();
@@ -174,44 +192,115 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         }
     }
 
-    private LedgerAllocator newAllocator() throws IOException {
-        String allocatePath;
+    private void scheduleAllocatorRescue(final SimpleLedgerAllocator ledgerAllocator) {
         try {
-            allocatePath = zkc.get().create(poolPath + "/A", new byte[0],
-                    zkc.getDefaultACL(), CreateMode.PERSISTENT_SEQUENTIAL);
-        } catch (KeeperException e) {
-            throw new IOException("Failed to create allocator path under " + poolPath + " : ", e);
-        } catch (InterruptedException e) {
-            throw new IOException("Interrupted on creating allocator path under " + poolPath + " : ", e);
+            scheduledExecutorService.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        rescueAllocator(ledgerAllocator);
+                    } catch (DLInterruptedException dle) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }, conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ree) {
+            logger.warn("Failed to schedule rescuing ledger allocator {} : ", ledgerAllocator.allocatePath, ree);
         }
-        LedgerAllocator allocator = new SimpleLedgerAllocator(allocatePath, conf, zkc, bkc);
-        allocator.start();
-        return allocator;
+    }
+
+    /**
+     * Rescue a ledger allocator from an ERROR state
+     * @param ledgerAllocator
+     *          ledger allocator to rescue
+     */
+    private void rescueAllocator(final SimpleLedgerAllocator ledgerAllocator) throws DLInterruptedException {
+        SimpleLedgerAllocator oldAllocator;
+        synchronized (this) {
+            oldAllocator = rescueMap.put(ledgerAllocator.allocatePath, ledgerAllocator);
+        }
+        if (oldAllocator != null) {
+            logger.info("ledger allocator {} is being rescued.", ledgerAllocator.allocatePath);
+            return;
+        }
+        try {
+            zkc.get().getData(ledgerAllocator.allocatePath, false, new AsyncCallback.DataCallback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                    boolean retry = false;
+                    SimpleLedgerAllocator newAllocator = null;
+                    if (KeeperException.Code.OK.intValue() == rc) {
+                        DataWithStat dataWithStat = new DataWithStat();
+                        dataWithStat.setDataWithStat(data, stat);
+                        try {
+                            logger.info("Rescuing ledger allocator {}.", path);
+                            newAllocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                            newAllocator.start();
+                            logger.info("Rescued ledger allocator {}.", path);
+                        } catch (IOException ioe) {
+                            logger.warn("Failed to rescue ledger allocator {}, retry rescuing it later : ", path, ioe);
+                            retry = true;
+                        }
+                    } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                        logger.info("Ledger allocator {} doesn't exist, skip rescuing it.", path);
+                    } else {
+                        retry = true;
+                    }
+                    synchronized (LedgerAllocatorPool.this) {
+                        rescueMap.remove(ledgerAllocator.allocatePath);
+                        if (null != newAllocator) {
+                            pendingList.addLast(newAllocator);
+                        }
+                    }
+                    if (retry) {
+                        scheduleAllocatorRescue(ledgerAllocator);
+                    }
+                }
+            }, null);
+        } catch (InterruptedException ie) {
+            logger.warn("Interrupted on rescuing ledger allocator {} : ", ledgerAllocator.allocatePath, ie);
+            synchronized (LedgerAllocatorPool.this) {
+                rescueMap.remove(ledgerAllocator.allocatePath);
+            }
+            throw new DLInterruptedException("Interrupted on rescuing ledger allocator " + ledgerAllocator.allocatePath, ie);
+        } catch (IOException ioe) {
+            logger.warn("Failed to rescue ledger allocator {}, retry rescuing it later : ", ledgerAllocator.allocatePath, ioe);
+            synchronized (LedgerAllocatorPool.this) {
+                rescueMap.remove(ledgerAllocator.allocatePath);
+            }
+            scheduleAllocatorRescue(ledgerAllocator);
+        }
     }
 
     @Override
     public void allocate() throws IOException {
-        LedgerAllocator allocator = null;
-        boolean newAllocator = false;
+        SimpleLedgerAllocator allocator;
         synchronized (this) {
             if (pendingList.isEmpty()) {
-                newAllocator = true;
+                // if no ledger allocator available, we should fail it immediately, which the request will be redirected to other
+                // proxies
+                throw new IOException("No ledger allocator available under " + poolPath + ".");
             } else {
                 allocator = pendingList.removeFirst();
             }
         }
-        if (newAllocator) {
-            allocator = newAllocator();
-        }
-        allocator.allocate();
-        synchronized (this) {
-            allocatingList.addLast(allocator);
+        boolean success = false;
+        try {
+            allocator.allocate();
+            synchronized (this) {
+                allocatingList.addLast(allocator);
+            }
+            success = true;
+        } finally {
+            if (!success) {
+                rescueAllocator(allocator);
+            }
         }
     }
 
     @Override
     public LedgerHandle tryObtain(Object txn) throws IOException {
-        LedgerAllocator allocator;
+        SimpleLedgerAllocator allocator;
         synchronized (this) {
             if (allocatingList.isEmpty()) {
                 throw new IOException("No ledger allocator available under " + poolPath + ".");
@@ -219,16 +308,24 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 allocator = allocatingList.removeFirst();
             }
         }
-        LedgerHandle lh = allocator.tryObtain(txn);
-        synchronized (this) {
-            obtainMap.put(lh, allocator);
+        boolean success = false;
+        try {
+            LedgerHandle lh = allocator.tryObtain(txn);
+            synchronized (this) {
+                obtainMap.put(lh, allocator);
+            }
+            success = true;
+            return lh;
+        } finally {
+            if (!success) {
+                rescueAllocator(allocator);
+            }
         }
-        return lh;
     }
 
     @Override
     public void confirmObtain(LedgerHandle ledger, Object result) {
-        LedgerAllocator allocator;
+        SimpleLedgerAllocator allocator;
         synchronized (this) {
             allocator = obtainMap.remove(ledger);
             if (null == allocator) {
@@ -245,7 +342,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
 
     @Override
     public void abortObtain(LedgerHandle ledger) {
-        LedgerAllocator allocator;
+        SimpleLedgerAllocator allocator;
         synchronized (this) {
             allocator = obtainMap.remove(ledger);
             if (null == allocator) {

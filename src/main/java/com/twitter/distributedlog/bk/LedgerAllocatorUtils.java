@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK33;
@@ -20,7 +21,7 @@ public class LedgerAllocatorUtils {
     static Class<? extends LedgerAllocator> LEDGER_ALLOCATOR_POOL_CLASS = null;
     static final Class[] LEDGER_ALLOCATOR_POOL_ARGS = {
         String.class, int.class, DistributedLogConfiguration.class,
-        ZooKeeperClient.class, BookKeeperClient.class
+        ZooKeeperClient.class, BookKeeperClient.class, ScheduledExecutorService.class
     };
 
     /**
@@ -40,9 +41,12 @@ public class LedgerAllocatorUtils {
      * @throws IOException
      */
     public static LedgerAllocator createLedgerAllocatorPool(
-            String poolPath, int corePoolSize,
+            String poolPath,
+            int corePoolSize,
             DistributedLogConfiguration conf,
-            ZooKeeperClient zkc, BookKeeperClient bkc) throws IOException {
+            ZooKeeperClient zkc,
+            BookKeeperClient bkc,
+            ScheduledExecutorService scheduledExecutorService) throws IOException {
         if (ZK_VERSION.getVersion().equals(ZK33)) {
             return null;
         } else {
@@ -65,7 +69,7 @@ public class LedgerAllocatorUtils {
                         + LEDGER_ALLOCATOR_POOL_CLASS + " : ", nsme);
             }
             Object[] arguments = {
-                    poolPath, corePoolSize, conf, zkc, bkc
+                    poolPath, corePoolSize, conf, zkc, bkc, scheduledExecutorService
             };
             try {
                 return constructor.newInstance(arguments);
