@@ -219,9 +219,11 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
             String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
             String inprogressZnodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(inprogressZnodePath,
-                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId,
-                    DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+            LogSegmentLedgerMetadata l =
+                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(inprogressZnodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId)
+                    .setLedgerSequenceNo(ledgerSeqNo)
+                    .setRegionId(regionId).build();
             tryWrite(txn, zooKeeperClient.getDefaultACL(), l, inprogressZnodePath);
 
             // Try storing max sequence number.

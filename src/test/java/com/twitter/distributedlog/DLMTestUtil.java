@@ -305,20 +305,25 @@ public class DLMTestUtil {
     }
 
     public static LogSegmentLedgerMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
-        return new LogSegmentLedgerMetadata(ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
-                                            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                                            ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID,
-                                            DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+        return new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
+                    ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
+                    DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                    ledgerId, firstTxId)
+                .setLedgerSequenceNo(ledgerSeqNo)
+                .build();
     }
 
     public static LogSegmentLedgerMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
                                                                long lastTxId, int recordCount, long ledgerSeqNo,
                                                                long lastEntryId, long lastSlotId) {
         LogSegmentLedgerMetadata metadata =
-                new LogSegmentLedgerMetadata(ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
-                                             DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                                             ledgerId, firstTxId, ledgerSeqNo, DistributedLogConstants.LOCAL_REGION_ID,
-                                             DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
+                        ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
+                        DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                        ledgerId, firstTxId)
+                    .setInprogress(false)
+                    .setLedgerSequenceNo(ledgerSeqNo)
+                    .build();
         metadata.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId);
         return metadata;
     }
@@ -368,9 +373,11 @@ public class DLMTestUtil {
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
         String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
         String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
-        LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID, ledgerSeqNo,
-                DistributedLogConstants.LOCAL_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+        LogSegmentLedgerMetadata l =
+            new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
+                .setLedgerSequenceNo(ledgerSeqNo)
+                .build();
         l.write(dlm.writerZKC, znodePath);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
@@ -406,9 +413,12 @@ public class DLMTestUtil {
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
         String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
         String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
-        LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID, ledgerSeqNo,
-                DistributedLogConstants.LOCAL_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+        LogSegmentLedgerMetadata l =
+            new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
+                conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
+            .setLedgerSequenceNo(ledgerSeqNo)
+            .setInprogress(false)
+            .build();
         l.write(dlm.writerZKC, znodePath);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);

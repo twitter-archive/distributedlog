@@ -755,9 +755,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
             String znodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
-            LogSegmentLedgerMetadata l = new LogSegmentLedgerMetadata(znodePath,
-                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId, ledgerSeqNo, regionId,
-                    DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+            LogSegmentLedgerMetadata l =
+                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
+                    conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId)
+                    .setLedgerSequenceNo(ledgerSeqNo)
+                    .setRegionId(regionId).build();
 
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterLedgerCreate);
 

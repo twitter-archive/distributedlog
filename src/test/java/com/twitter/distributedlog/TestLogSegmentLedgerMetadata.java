@@ -39,9 +39,8 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata("/metadata1",
-                DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1,
-                TEST_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata1",
+            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc, "/metadata1");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
@@ -73,8 +72,8 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadMetadataCrossVersion() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata(
-            "/metadata2", 1, 1000, 1, TEST_REGION_ID, DistributedLogConstants.LOGSEGMENT_DEFAULT_STATUS);
+        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata2",
+            1, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc, "/metadata2");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
