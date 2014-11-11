@@ -458,8 +458,6 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                         currentThread.interrupt();
                     }
                 });
-
-                boolean success = false;
             }
             writer.closeAndComplete();
         }
@@ -646,12 +644,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
             }
-            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
             writer.closeAndComplete();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
-                start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
-            blplm.close();
         }
 
         long start = txid;
@@ -705,12 +698,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             for (long j = 1; j <= 10; j++) {
                 writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
             }
-            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
             writer.closeAndComplete();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
-                start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
-            blplm.close();
         }
 
         long start = txid;
@@ -1285,7 +1273,6 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final CountDownLatch syncLatch = new CountDownLatch(3000);
-        final AtomicReference<DLSN> maxDLSN = new AtomicReference<DLSN>(DLSN.InvalidDLSN);
         int txid = 1;
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         Stopwatch executionTime = Stopwatch.createStarted();
@@ -1487,6 +1474,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         String name = "distrlog-async-reader-idle-error";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
@@ -1496,7 +1485,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final int segmentSize = 10;
         final int numSegments = 3;
         final CountDownLatch latch = new CountDownLatch(1);
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
         executor.schedule(
             new Runnable() {
                 @Override
@@ -1507,22 +1496,18 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                             long start = txid;
                             BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
                             for (long j = 1; j <= segmentSize; j++) {
+                                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
                                 if ((i == 0) && (j == 1)) {
                                     latch.countDown();
                                 }
-                                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
                             }
-
-                            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
                             writer.closeAndComplete();
-                            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
-                            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(),
-                                start, txid - 1, perStreamLogWriter.getLedgerSequenceNumber()), false));
-                            blplm.close();
                             Thread.sleep(2000);
                         }
                     } catch (Exception exc) {
-                        currentThread.interrupt();
+                        if (!executor.isShutdown()) {
+                            currentThread.interrupt();
+                        }
                     }
                 }
             }, 0, TimeUnit.MILLISECONDS);
