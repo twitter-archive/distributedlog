@@ -167,7 +167,7 @@ public class ReadUtils {
                                             return;
                                         }
                                     }
-                                    
+
                                     record = selector.result();
                                     if (LOG.isDebugEnabled()) {
                                         LOG.debug("{} got record from entries [{} - {}] of {} : {}",
@@ -290,7 +290,8 @@ public class ReadUtils {
             final Promise<LogRecordWithDLSN> promise,
             final AtomicInteger numRecordsScanned,
             final LogRecordSelector selector,
-            final boolean backward) {
+            final boolean backward,
+            final long startEntryId) {
         final long lastAddConfirmed;
         try {
             lastAddConfirmed = handleCache.getLastAddConfirmed(ledgerDescriptor);
@@ -306,7 +307,7 @@ public class ReadUtils {
             return;
         }
         final ScanContext context = new ScanContext(
-                0L, lastAddConfirmed,
+                startEntryId, lastAddConfirmed,
                 scanStartBatchSize, scanMaxBatchSize,
                 includeControl, includeEndOfStream, backward, numRecordsScanned);
         asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService,
@@ -353,9 +354,9 @@ public class ReadUtils {
             final BookKeeperClient bookKeeperClient,
             final String digestpw) {
         final LogRecordSelector selector = new LastRecordSelector();
-        return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize, 
+        return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize,
                                scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
-                               selector, true /* backward */);
+                               selector, true /* backward */, 0L);
     }
 
     /**
@@ -391,10 +392,14 @@ public class ReadUtils {
             final BookKeeperClient bookKeeperClient,
             final String digestpw,
             final DLSN dlsn) {
+        long startEntryId = 0L;
+        if (l.getLedgerSequenceNumber() == dlsn.getLedgerSequenceNo()) {
+            startEntryId = dlsn.getEntryId();
+        }
         final LogRecordSelector selector = new FirstDLSNGreaterThanSelector(dlsn);
-        return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize, 
+        return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize,
                                scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
-                               selector, false /* backward */);
+                               selector, false /* backward */, startEntryId);
     }
 
     private static Future<LogRecordWithDLSN> asyncReadRecord(
@@ -410,10 +415,11 @@ public class ReadUtils {
             final BookKeeperClient bookKeeperClient,
             final String digestpw,
             final LogRecordSelector selector,
-            final boolean backward) {
-        
+            final boolean backward,
+            final long startEntryId) {
+
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
-        
+
         // Create a ledger handle cache && open ledger handle
         final LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
         handleCachePriv.asyncOpenLedger(l, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
@@ -431,14 +437,14 @@ public class ReadUtils {
                             promise.setException(new IOException(errMsg, BKException.create(rc)));
                         } else {
                             if (LOG.isDebugEnabled()) {
-                                LOG.debug("{} {} scanning {}.", new Object[] { 
+                                LOG.debug("{} {} scanning {}.", new Object[] {
                                         (backward ? "backward" : "forward"), streamName, l });
                             }
                             asyncReadRecordFromLedger(
                                     streamName, ledgerDescriptor, handleCachePriv, executorService,
                                     scanStartBatchSize, scanMaxBatchSize,
                                     includeControl, includeEndOfStream,
-                                    promise, numRecordsScanned, selector, backward);
+                                    promise, numRecordsScanned, selector, backward, startEntryId);
                         }
                     }
                 });
