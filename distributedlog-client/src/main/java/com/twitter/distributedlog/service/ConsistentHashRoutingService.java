@@ -39,21 +39,35 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             this.circle = new TreeMap<Long, SocketAddress>();
         }
 
-        private String replicaName(int shardId, int replica, SocketAddress address) {
+        private String replicaName(int shardId, int replica, String address) {
             if (shardId < 0) {
                 shardId = UNKNOWN_SHARD_ID;
             }
 
-            return String.format("shard-%d-%d-%s", shardId, replica, address);
+            StringBuilder sb = new StringBuilder(100);
+            sb.append("shard-");
+            sb.append(shardId);
+            sb.append('-');
+            sb.append(replica);
+            sb.append('-');
+            sb.append(address);
+
+            return sb.toString();
         }
 
-        private Long replicaHash(int shardId, int replica, SocketAddress address) {
+        private Long replicaHash(int shardId, int replica, String address) {
             return hashFunction.hashUnencodedChars(replicaName(shardId, replica, address)).asLong();
         }
 
+        private Long replicaHash(int shardId, int replica, SocketAddress address) {
+            return replicaHash(shardId, replica, address.toString());
+        }
+
         public synchronized void add(int shardId, SocketAddress address) {
+            String addressStr = address.toString();
             for (int i = 0; i < numOfReplicas; i++) {
-                circle.put(replicaHash(shardId, i, address), address);
+                Long hash = replicaHash(shardId, i, addressStr);
+                circle.put(hash, address);
             }
         }
 
