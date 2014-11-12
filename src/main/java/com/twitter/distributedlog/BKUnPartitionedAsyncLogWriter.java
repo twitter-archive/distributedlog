@@ -1,7 +1,10 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.annotations.VisibleForTesting;
+
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Function;
@@ -11,11 +14,15 @@ import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
@@ -115,13 +122,27 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private boolean encounteredError = false;
     private boolean queueingRequests = false;
 
+    private final StatsLogger statsLogger;
+    private final OpStatsLogger writeOpStatsLogger;
+    private final OpStatsLogger writeQueueOpStatsLogger;
+    private final OpStatsLogger bulkWriteOpStatsLogger;
+    private final OpStatsLogger bulkWriteQueueOpStatsLogger;
+    private final OpStatsLogger getWriterOpStatsLogger;
+
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
                                          FuturePool orderedFuturePool,
-                                         ExecutorService metadataExecutor) throws IOException {
+                                         ExecutorService metadataExecutor,
+                                         StatsLogger dlmStatsLogger) throws IOException {
         super(conf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool, metadataExecutor);
+        this.statsLogger = dlmStatsLogger.scope("log_writer");
+        this.writeOpStatsLogger = statsLogger.getOpStatsLogger("write");
+        this.writeQueueOpStatsLogger = statsLogger.getOpStatsLogger("write/queued");
+        this.bulkWriteOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write");
+        this.bulkWriteQueueOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write/queued");
+        this.getWriterOpStatsLogger = statsLogger.getOpStatsLogger("get_writer");
     }
 
     @VisibleForTesting
@@ -162,25 +183,26 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     private BKPerStreamLogWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
                                                        boolean rollLog) throws IOException {
-        if (encounteredError) {
-            throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
+        Stopwatch stopwatch = Stopwatch.createStarted();
+        boolean success = false;
+        try {
+            if (encounteredError) {
+                throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
+            }
+            BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
+            if (null == writer || rollLog) {
+                writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
+                                                   record.getTransactionId(), bestEffort, false);
+            }
+            success = true;
+            return writer;
+        } finally {
+            if (success) {
+                getWriterOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+            } else {
+                getWriterOpStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+            }
         }
-
-        BKPerStreamLogWriter writer = getPerStreamLogWriterNoWait(record, bestEffort, rollLog);
-        if (null == writer || rollLog) {
-            writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
-                                               record.getTransactionId(), bestEffort, false);
-        }
-        return writer;
-    }
-
-    private BKPerStreamLogWriter getPerStreamLogWriterNoWait(LogRecord record, boolean bestEffort,
-                                                             boolean rollLog) throws IOException {
-        if (encounteredError) {
-            throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
-        }
-
-        return getLedgerWriter(conf.getUnpartitionedStreamName());
     }
 
     Future<DLSN> queueRequest(LogRecord record) {
@@ -283,12 +305,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         // continuation, any new applied continuations will be run only after the current continuation
         // completes. Thus it is NOT safe to replace the single flattened future pool block below with
         // the flatMap alternative, "futurePool { getWriter } flatMap { asyncWrite }".
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
             public Future<DLSN> applyE() throws IOException {
+                writeQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 BKPerStreamLogWriter w = getPerStreamLogWriter(record, false, false);
                 return asyncWrite(w, record);
             }
-        }));
+        })).addEventListener(new OpStatsListener(writeOpStatsLogger, stopwatch));
     }
 
     /**
@@ -301,13 +325,15 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
      */
     @Override
     public Future<List<Future<DLSN>>> writeBulk(final List<LogRecord> records) {
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         return orderedFuturePool.apply(new ExceptionalFunction0<List<Future<DLSN>>>() {
             public List<Future<DLSN>> applyE() throws IOException {
+                bulkWriteQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 LogRecord firstRecord = records.get(0);
                 BKPerStreamLogWriter w = getPerStreamLogWriter(firstRecord, false, false);
                 return asyncWriteBulk(w, records);
             }
-        });
+        }).addEventListener(new OpStatsListener(bulkWriteOpStatsLogger, stopwatch));
     }
 
     @VisibleForTesting

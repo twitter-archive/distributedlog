@@ -26,7 +26,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
-
+import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 
@@ -218,6 +218,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final Counter transmitControlSuccesses;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
+    private final OpStatsLogger writeTime;
+
     private final FuturePool orderedFuturePool;
 
     // write rate limiter
@@ -243,7 +245,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (conf.getPerWriterOutstandingWriteLimit() < 0) {
             streamWriteLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
-            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(), 
+            streamWriteLimiter = new SimplePermitLimiter(conf.getPerWriterOutstandingWriteLimit(),
                 statsLogger.scope("streamWriteLimiter"), false);
         }
         this.writeLimiter = new WriteLimiter(streamName,
@@ -265,6 +267,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
+        writeTime = statsLogger.scope("seg_writer").getOpStatsLogger("write");
 
         // outstanding transmit requests
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
@@ -620,6 +623,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         Promise<DLSN> dlsn = new Promise<DLSN>();
+        dlsn.addEventListener(new OpStatsListener(writeTime));
 
         if (enableRecordCounts) {
             // Set the count here. The caller would appropriately increment it

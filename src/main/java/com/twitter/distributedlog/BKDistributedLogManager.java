@@ -485,7 +485,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             }
 
             // proactively recover incomplete logsegments for async log writer
-            writer = new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService);
+            writer = new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService, statsLogger);
         }
         return writer.recover();
     }
