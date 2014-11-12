@@ -23,7 +23,7 @@
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-ostrich4_2.10</artifactId>
-      <version>6.21.0.4</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
@@ -43,8 +43,8 @@
     <plugins>
       <plugin>
         <groupId>com.twitter</groupId>
-        <artifactId>scrooge-maven-plugin</artifactId>
-        <version>3.16.1-TWOTEN</version>
+        <artifactId>scrooge-maven-plugin_2.10</artifactId>
+        <version>${scrooge-maven-plugin.version}</version>
         <configuration>
           <language>java</language>
         </configuration>

@@ -18,17 +18,17 @@
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>scrooge-core_2.10</artifactId>
-      <version>3.16.4-TWOTEN-1407871523</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-core_2.10</artifactId>
-      <version>6.21.0.4</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-thrift_2.10</artifactId>
-      <version>6.21.0.4</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>commons-lang</groupId>
@@ -56,8 +56,8 @@
     <plugins>
       <plugin>
         <groupId>com.twitter</groupId>
-        <artifactId>scrooge-maven-plugin</artifactId>
-        <version>3.16.1-TWOTEN</version>
+        <artifactId>scrooge-maven-plugin_2.10</artifactId>
+        <version>${scrooge-maven-plugin.version}</version>
         <configuration>
           <language>java</language>
           <thriftOpts>

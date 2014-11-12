@@ -23,12 +23,12 @@
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-ostrich4_2.10</artifactId>
-      <version>6.21.0.4</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-thriftmux_2.10</artifactId>
-      <version>6.21.0.4</version>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
