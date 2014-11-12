@@ -43,6 +43,8 @@ public class WriterWorker implements Worker {
     final int writeRate;
     final int writeConcurrency;
     final int messageSizeBytes;
+    final int hostConnectionCoreSize;
+    final int hostConnectionLimit;
     final ExecutorService executorService;
     final RateLimiter rateLimiter;
     final ZooKeeperClient zkClient;
@@ -66,6 +68,8 @@ public class WriterWorker implements Worker {
                         int writeConcurrency,
                         int messageSizeBytes,
                         int batchSize,
+                        int hostConnectionCoreSize,
+                        int hostConnectionLimit,
                         String serverSetPath,
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger,
@@ -84,6 +88,8 @@ public class WriterWorker implements Worker {
         this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
         this.batchSize = batchSize;
+        this.hostConnectionCoreSize = hostConnectionCoreSize;
+        this.hostConnectionLimit = hostConnectionLimit;
         this.thriftmux = thriftmux;
 
         // ServerSet
@@ -111,8 +117,8 @@ public class WriterWorker implements Worker {
 
     private DistributedLogClient buildDlogClient() {
         ClientBuilder clientBuilder = ClientBuilder.get()
-            .hostConnectionLimit(10)
-            .hostConnectionCoresize(10)
+            .hostConnectionLimit(hostConnectionLimit)
+            .hostConnectionCoresize(hostConnectionCoreSize)
             .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
             .requestTimeout(Duration$.MODULE$.fromSeconds(2));
 

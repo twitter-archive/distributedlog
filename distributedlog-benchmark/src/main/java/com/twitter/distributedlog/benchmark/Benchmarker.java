@@ -44,6 +44,8 @@ public class Benchmarker {
     int truncationInterval = 3600;
     Integer startStreamId = null;
     Integer endStreamId = null;
+    int hostConnectionCoreSize = 10;
+    int hostConnectionLimit = 10;
     boolean thriftmux = false;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
@@ -71,6 +73,8 @@ public class Benchmarker {
         options.addOption("ti", "truncation-interval", true, "Truncation interval in seconds");
         options.addOption("ssid", "start-stream-id", true, "Start Stream ID");
         options.addOption("esid", "end-stream-id", true, "Start Stream ID");
+        options.addOption("hccs", "host-connection-core-size", true, "Finagle hostConnectionCoreSize");
+        options.addOption("hcl", "host-connection-limit", true, "Finagle hostConnectionLimit");
         options.addOption("mx", "thriftmux", false, "Enable thriftmux (write mode only)");
         options.addOption("h", "help", false, "Print usage.");
     }
@@ -141,12 +145,20 @@ public class Benchmarker {
         if (cmdline.hasOption("esid")) {
             endStreamId = Integer.parseInt(cmdline.getOptionValue("esid"));
         }
+        if (cmdline.hasOption("hccs")) {
+            hostConnectionCoreSize = Integer.parseInt(cmdline.getOptionValue("hccs"));
+        }
+        if (cmdline.hasOption("hcl")) {
+            hostConnectionLimit = Integer.parseInt(cmdline.getOptionValue("hcl"));
+        }
         thriftmux = cmdline.hasOption("mx");
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
         Preconditions.checkArgument(durationMins > 0, "durationMins must be > 0");
         Preconditions.checkArgument(streamPrefix != null, "streamPrefix must be defined");
+        Preconditions.checkArgument(hostConnectionCoreSize > 0, "host connection core size must be > 0");
+        Preconditions.checkArgument(hostConnectionLimit > 0, "host connection limit must be > 0");
 
         if (cmdline.hasOption("p")) {
             statsProvider = ReflectionUtils.newInstance(cmdline.getOptionValue("p"), StatsProvider.class);
@@ -158,13 +170,13 @@ public class Benchmarker {
         statsProvider.start(conf);
 
         Worker w = null;
-        if ("read".equals(mode)) {
+        if (mode.startsWith("read")) {
             w = runReader();
-        } else if ("write".equals(mode)) {
+        } else if (mode.startsWith("write")) {
             w = runWriter();
-        } else if ("dlwrite".equals(mode)) {
+        } else if (mode.startsWith("dlwrite")) {
             w = runDLWriter();
-        } else if ("dlread".equals(mode)) {
+        } else if (mode.startsWith("dlread")) {
             w = runDLReader();
         }
 
@@ -198,6 +210,8 @@ public class Benchmarker {
                 concurrency,
                 msgSize,
                 batchSize,
+                hostConnectionCoreSize,
+                hostConnectionLimit,
                 serversetPath,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
