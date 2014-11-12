@@ -1,3 +1,13 @@
+0.3.25
+------
+- BookKeeper Version 4.2.21
+- AsyncLogReader stall detection
+- DistributedLog self lock fix
+- Ledger Allocator throttling
+- DistributedLog Thrift Mux Support
+- Remove blocking calls in AsyncLogReader
+- Misc AsyncLogWriter fixes
+
 0.3.24
 ------
 - Ability to block operations to a stream on proxies
