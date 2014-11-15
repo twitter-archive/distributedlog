@@ -24,6 +24,10 @@ public class TwitterDNSResolver implements DNSToSwitchMapping {
     protected final ConcurrentMap<String, String> hostNameToRegion =
         new ConcurrentHashMap<String, String>();
 
+    public TwitterDNSResolver() {
+        this("");
+    }
+
     public TwitterDNSResolver(String hostRegionOverrides) {
         if (StringUtils.isNotBlank(hostRegionOverrides)) {
             // Host Region Overrides are of the form
