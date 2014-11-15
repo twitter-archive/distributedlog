@@ -2,7 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.annotations.VisibleForTesting;
-
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.util.ExceptionalFunction;
@@ -13,16 +13,20 @@ import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
+import com.twitter.util.Try;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import scala.Option;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
@@ -92,27 +96,6 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         public void onFailure(Throwable cause) {
             super.onFailure(cause);
             // error out pending requests.
-            errorOutPendingRequests(cause);
-        }
-    }
-
-    // Roll the log segment and apply pending results on success.
-    class LogRollingListener implements FutureEventListener<Void> {
-
-        LogRecord lastLogRecord;
-
-        LogRollingListener(LogRecord lastLogRecord) {
-            this.lastLogRecord = lastLogRecord;
-        }
-
-        @Override
-        public void onSuccess(Void value) {
-            rollLogSegmentAndIssuePendingRequests(lastLogRecord);
-        }
-
-        @Override
-        public void onFailure(Throwable cause) {
-            encounteredError = true;
             errorOutPendingRequests(cause);
         }
     }
@@ -233,37 +216,55 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         queueingRequests = true;
     }
 
+    private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record) {
+        return asyncWrite(w, record, true /* flush after write */);
+    }
+
     // for ordering guarantee, we shouldn't send requests to next log segments until
     // previous log segment is done.
-    private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record) {
-        Future<DLSN> result = null;
+    private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record, boolean flush) {
+        final Future<DLSN> result;
         if (queueingRequests) {
             result = queueRequest(record);
         } else if (shouldRollLog(w)) {
             // insert a last record, so when it called back, we will trigger a log segment rolling
             startQueueingRequests();
             LastPendingLogRecord lastLogRecordInCurrentSegment = new LastPendingLogRecord(record);
-            w.asyncWrite(record).addEventListener(lastLogRecordInCurrentSegment);
+            w.asyncWrite(record, true).addEventListener(lastLogRecordInCurrentSegment);
             result = lastLogRecordInCurrentSegment.promise;
         } else {
-            result = w.asyncWrite(record);
+            result = w.asyncWrite(record, flush);
         }
         return result;
     }
 
     private List<Future<DLSN>> asyncWriteBulk(BKPerStreamLogWriter w, List<LogRecord> records) {
-        List<Future<DLSN>> results = null;
-        if (queueingRequests) {
-            results = queueRequests(records);
-        } else if (shouldRollLog(w)) {
-            startQueueingRequests();
-            LogRollingListener logRollingListener = new LogRollingListener(records.get(records.size()-1));
-            results = w.asyncWriteBulk(records);
-            Future$.MODULE$.join(results).voided().addEventListener(logRollingListener);
-        } else {
-            results = w.asyncWriteBulk(records);
+        final ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(records.size());
+        Iterator<LogRecord> iterator = records.iterator();
+        while (iterator.hasNext()) {
+            LogRecord record = iterator.next();
+            Future<DLSN> future = asyncWrite(w, record, !iterator.hasNext());
+            results.add(future);
+
+            // Abort early if an individual write has already failed.
+            Option<Try<DLSN>> result = future.poll();
+            if (result.isDefined() && result.get().isThrow()) {
+                break;
+            }
+        }
+        if (records.size() > results.size()) {
+            appendCancelledFutures(results, records.size() - results.size());
         }
         return results;
+    }
+
+    private void appendCancelledFutures(List<Future<DLSN>> futures, int numToAdd) {
+        final WriteCancelledException cre =
+            new WriteCancelledException(getStreamName());
+        for (int i = 0; i < numToAdd; i++) {
+            Future<DLSN> cancelledFuture = Future.exception(cre);
+            futures.add(cancelledFuture);
+        }
     }
 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
@@ -274,7 +275,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             LinkedList<PendingLogRecord> requestsToIssue = pendingRequests;
             pendingRequests = null;
             for (PendingLogRecord pendingLogRecord : requestsToIssue) {
-                writer.asyncWrite(pendingLogRecord.record)
+                writer.asyncWrite(pendingLogRecord.record, true /* flush */)
                         .addEventListener(pendingLogRecord);
             }
         } catch (IOException ioe) {

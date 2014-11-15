@@ -461,94 +461,31 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         flushIfNeeded();
     }
 
-    // Record failure so we can quickly abort a bulk write.
-    static class FailfastWriteListener implements FutureEventListener<DLSN> {
-
-        private final AtomicReference<Throwable> failure;
-
-        FailfastWriteListener(AtomicReference<Throwable> failure) {
-            this.failure = failure;
-        }
-
-        @Override
-        public void onSuccess(DLSN dlsn) {
-            /* do nothing */
-        }
-
-        @Override
-        public void onFailure(Throwable t) {
-            failure.compareAndSet(null, t);
-        }
+    synchronized public Future<DLSN> asyncWrite(LogRecord record) {
+        return asyncWrite(record, true);
     }
 
-    synchronized public Future<DLSN> asyncWrite(LogRecord record) {
+    synchronized public Future<DLSN> asyncWrite(LogRecord record, boolean flush) {
+        Future<DLSN> result = null;
         try {
-            Future<DLSN> result = null;
             if (record.isControl()) {
-                // write control record.
                 result = writeControlLogRecord(record);
                 transmit(true);
-                return result;
+            } else {
+                result = writeUserRecord(record);
+                if (flush) {
+                    flushIfNeeded();
+                }
             }
-            result = writeUserRecord(record);
-            flushIfNeeded();
-            return result;
         } catch (IOException ioe) {
             LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
-            return Future.exception(ioe);
-        }
-    }
-
-    synchronized public List<Future<DLSN>> asyncWriteBulk(List<LogRecord> records) {
-        AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
-        ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(records.size());
-        FailfastWriteListener failfastListener = new FailfastWriteListener(failure);
-
-        for (LogRecord record : records) {
-            Future<DLSN> result = null;
-
-            // Need to be careful to terminate the bulk operation in case a client error occurs.
-            // Ex. some write in the middle of the list may end up being too large, and we must not
-            // attempt to apply any more writes after said write fails.
-            try {
-                result = writeUserRecord(record).addEventListener(failfastListener);
-            } catch (IOException ioe) {
-                LOG.error("Encountered exception during bulk write while writing a log record to stream {}",
-                    fullyQualifiedLogSegment, ioe);
+            if (null == result) {
                 result = Future.exception(ioe);
-                failure.compareAndSet(null, ioe);
             }
-
-            // If we hit any failure we must terminate the bulk write.
-            results.add(result);
-            if (null != failure.get()) {
-                break;
-            }
+            // Flush to ensure any prev. writes with flush=false are flushed despite failure.
+            flushIfNeededNoThrow();
         }
-
-        // Try to flush pending writes. If flush fails here it cancels all pending writes on the
-        // ordered future pool thread. Whether an error occurred or not earlier its safe to flush here
-        // again since either we end up flushing all writes prior to the failure, or we fail all pending
-        // writes. In both cases we haven't violated the requirement that all writes should fail after
-        // the first failure.
-        flushIfNeededNoThrow();
-
-        // If results are not fully specified, we hit a failure. Cancel the remaining futures.
-        if (results.size() < records.size()) {
-            assert(null != failure.get());
-            appendCancelledFutures(results, records.size() - results.size(), failure.get());
-        }
-
-        return (List) results;
-    }
-
-    private void appendCancelledFutures(List<Future<DLSN>> futures, int count, Throwable t) {
-        final WriteCancelledException cre =
-            new WriteCancelledException(fullyQualifiedLogSegment, t);
-        for (int i = 0; i < count; i++) {
-            Future<DLSN> cancelledFuture = Future.exception(cre);
-            futures.add(cancelledFuture);
-        }
+        return result;
     }
 
     synchronized private Future<DLSN> writeUserRecord(LogRecord record) throws IOException {
