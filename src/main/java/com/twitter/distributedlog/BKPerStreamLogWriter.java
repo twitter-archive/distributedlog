@@ -88,6 +88,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
             this.isControl = false;
+            this.transmitComplete = new CountDownLatch(1);
             this.buffer = new Buffer(initialBufferSize * 6 / 5);
         }
 
@@ -147,7 +148,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             }
         }
 
-        public DLSN markTransmitComplete(long entryId, int transmitResult) {
+        public DLSN finalize(long entryId, int transmitResult) {
             if (transmitResult == BKException.Code.OK) {
                 lastDLSN = new DLSN(ledgerSequenceNo, entryId, promiseList.size() - 1);
             }
@@ -162,20 +163,28 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             return isControl;
         }
 
-        boolean          isControl;
+        public boolean awaitTransmitComplete(long timeout, TimeUnit unit) throws InterruptedException {
+            return transmitComplete.await(timeout, unit);
+        }
+
+        public void setTransmitComplete() {
+            transmitComplete.countDown();
+        }
+
+        private boolean isControl;
         private long ledgerSequenceNo;
         private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
-        Buffer buffer;
+        private CountDownLatch transmitComplete;
+        private Buffer buffer;
     }
 
     private final String fullyQualifiedLogSegment;
     private BKTransmitPacket packetCurrent;
+    private BKTransmitPacket packetPrevious;
     private final AtomicInteger outstandingTransmits;
     private final int transmissionThreshold;
     protected final LedgerHandle lh;
-    private final Object syncLock = new Object();
-    private CountDownLatch syncLatch;
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
     private final DistributedReentrantLock lock;
@@ -286,7 +295,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         outstandingTransmits = new AtomicInteger(0);
-        syncLatch = null;
         this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
         this.lh = lh;
         this.lock = lock;
@@ -302,6 +310,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         this.ledgerSequenceNumber = ledgerSequenceNumber;
         this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, Math.max(transmissionThreshold, 1024));
+        this.packetPrevious = null;
         this.writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
         this.startTxId = startTxId;
         this.lastTxId = startTxId;
@@ -815,24 +824,23 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             txIdToBePersisted = lastTxIdFlushed;
         }
 
-        CountDownLatch latch;
-        synchronized (syncLock) {
-            latch = syncLatch = new CountDownLatch(outstandingTransmits.get());
+        boolean waitSuccessful = true;
+        final BKTransmitPacket lastPacket;
+        synchronized (this) {
+            lastPacket = packetPrevious;
         }
 
-        boolean waitSuccessful;
         try {
-            waitSuccessful = latch.await(flushTimeoutSeconds, TimeUnit.SECONDS);
+            // Since transmit completion is ordered, we can ensure all transmits to date have been
+            // completed by waiting on the last packet (if it exists).
+            if (null != lastPacket) {
+                waitSuccessful = lastPacket.awaitTransmitComplete(flushTimeoutSeconds, TimeUnit.SECONDS);
+            }
         } catch (InterruptedException ie) {
             throw new FlushException("Wait for Flush Interrupted", getLastTxId(), getLastTxIdAcknowledged(), ie);
         }
-
         if (!waitSuccessful) {
             throw new FlushException("Flush request timed out", getLastTxId(), getLastTxIdAcknowledged());
-        }
-
-        synchronized (syncLock) {
-            syncLatch = null;
         }
 
         if (transmitResult.get() != BKException.Code.OK) {
@@ -870,6 +878,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             packet.setControl(isControl);
             outstandingBytes = 0;
             packetCurrent = getTransmitPacket();
+            packetPrevious = packet;
             writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
             lastTxIdFlushed = lastTxId;
 
@@ -925,13 +934,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         assert (ctx instanceof BKTransmitPacket);
         final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
-
-        // notify the waiters before callback, otherwise, it might block flush
-        CountDownLatch l;
-        synchronized (syncLock) {
-            outstandingTransmits.decrementAndGet();
-            l = syncLatch;
-        }
+        outstandingTransmits.getAndDecrement();
 
         if (null != orderedFuturePool) {
             orderedFuturePool.apply(new Function0<Void>() {
@@ -944,9 +947,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
         }
 
-        if (l != null) {
-            l.countDown();
-        }
+        // Notify waiters (ex. fsync) that the transmit attempt has completed.
+        // Care must be taken to ensure that the only event this condition depends on
+        // is completion of the bk transmit operation. If we try to execute callbacks
+        // before satisfying the condition for example, or block, fsync and close can
+        // exhibit unpredictable behavior and deadlocks.
+        transmitPacket.setTransmitComplete();
     }
 
     private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
@@ -987,7 +993,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 }
             }
 
-            DLSN lastDLSNInPacket = transmitPacket.markTransmitComplete(entryId, transmitResult.get());
+            DLSN lastDLSNInPacket = transmitPacket.finalize(entryId, transmitResult.get());
 
             // update last dlsn before satisifying future
             if (BKException.Code.OK == transmitResult.get() && !transmitPacket.isControl()) {
@@ -1001,7 +1007,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (cancelPendingPromises) {
             packetCurrent.cancelPromises(new WriteCancelledException(fullyQualifiedLogSegment, transmitResultToException(transmitResult.get())));
         }
-
     }
 
     public synchronized int getAverageTransmitSize() {
