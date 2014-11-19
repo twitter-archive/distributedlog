@@ -623,37 +623,44 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         final Stopwatch lastAcquireWatch = new Stopwatch();
         // last acquire failure time
         final Stopwatch lastAcquireFailureWatch = new Stopwatch();
-        long nextAcquireWaitTimeMs;
+        final long nextAcquireWaitTimeMs;
 
         // Stats
-        StatsLogger streamLogger;
-        StatsLogger exceptionStatLogger;
+        final StatsLogger streamLogger;
+        final StatsLogger exceptionStatLogger;
 
+        // Since we may create and discard streams at initialization if there's a race,
+        // must not do any expensive intialization here (particularly any locking or
+        // significant resource allocation etc.).
         Stream(String name) {
             super("Stream-" + name);
             this.name = name;
-            status = StreamStatus.UNINITIALIZED;
+            this.status = StreamStatus.UNINITIALIZED;
+            this.streamLogger = perStreamStatLogger.scope(name);
+            this.exceptionStatLogger = streamLogger.scope("exceptions");
+            this.lastException = new IOException("Fail to write record to stream " + name);
+            this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
         }
 
+        // Expensive initialization, only called once per stream.
         public Stream initialize() throws IOException {
-            this.manager = dlFactory.createDistributedLogManagerWithSharedClients(name);
-            status = StreamStatus.INITIALIZING;
-            lastException = new IOException("Fail to write record to stream " + name);
-            nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
-            // expose stream status
-            this.streamLogger = perStreamStatLogger.scope(name);
-            this.streamLogger.registerGauge("stream_status", new Gauge<Number>() {
+            manager = dlFactory.createDistributedLogManagerWithSharedClients(name);
+
+            // Better to avoid registering the gauge multiple times, so do this in init
+            // which only gets called once.
+            streamLogger.registerGauge("stream_status", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return StreamStatus.UNINITIALIZED.getCode();
                 }
-
                 @Override
                 public Number getSample() {
                     return status.getCode();
                 }
             });
-            this.exceptionStatLogger = this.streamLogger.scope("exceptions");
+
+            // Signal initialization is complete, should be last in this method.
+            status = StreamStatus.INITIALIZING;
             return this;
         }
 
