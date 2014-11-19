@@ -19,6 +19,11 @@ import org.junit.BeforeClass;
 
 import java.net.SocketAddress;
 import java.net.URI;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.Assert.*;
 
 public abstract class DistributedLogServerTestCase {
 
@@ -31,15 +36,15 @@ public abstract class DistributedLogServerTestCase {
     protected static int numBookies = 3;
 
     protected static class DLServer {
-        final SocketAddress address;
-        final Pair<DistributedLogServiceImpl, Server> dlServer;
+        public final SocketAddress address;
+        public final Pair<DistributedLogServiceImpl, Server> dlServer;
 
         protected DLServer(int port) throws Exception {
             dlServer = DistributedLogServer.runServer(conf, uri, new NullStatsProvider(), port);
             address = DLSocketAddress.getSocketAddress(port);
         }
 
-        SocketAddress getAddress() {
+        public SocketAddress getAddress() {
             return address;
         }
 
@@ -49,8 +54,8 @@ public abstract class DistributedLogServerTestCase {
     }
 
     protected static class DLClient {
-        final LocalRoutingService routingService;
-        final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
+        public final LocalRoutingService routingService;
+        public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
 
         protected DLClient(String name) {
             routingService = new LocalRoutingService();
@@ -106,11 +111,47 @@ public abstract class DistributedLogServerTestCase {
         }
     }
 
-    DLServer createDistributedLogServer(int port) throws Exception {
+    protected DLServer createDistributedLogServer(int port) throws Exception {
         return new DLServer(port);
     }
 
-    DLClient createDistributedLogClient(String name) throws Exception {
+    protected DLClient createDistributedLogClient(String name) throws Exception {
         return new DLClient(name);
     }
+
+    protected static void checkStream(String name, DLClient dlClient, DLServer dlServer,
+                                      int expectedNumProxiesInClient, int expectedClientCacheSize,
+                                      int expectedServerCacheSize, boolean existedInServer, boolean existedInClient) {
+        Map<SocketAddress, Set<String>> distribution = dlClient.dlClient.getStreamOwnershipDistribution();
+        assertEquals(expectedNumProxiesInClient, distribution.size());
+
+        if (expectedNumProxiesInClient > 0) {
+            Map.Entry<SocketAddress, Set<String>> localEntry =
+                    distribution.entrySet().iterator().next();
+            assertEquals(dlServer.getAddress(), localEntry.getKey());
+            assertEquals(expectedClientCacheSize, localEntry.getValue().size());
+            assertEquals(existedInClient, localEntry.getValue().contains(name));
+        }
+
+        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+        Set<String> acquiredStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+
+        assertEquals(expectedServerCacheSize, cachedStreams.size());
+        assertEquals(existedInServer, cachedStreams.contains(name));
+        assertEquals(expectedServerCacheSize, acquiredStreams.size());
+        assertEquals(existedInServer, acquiredStreams.contains(name));
+    }
+
+    protected static Map<SocketAddress, Set<String>> getStreamOwnershipDistribution(DLClient dlClient) {
+        return dlClient.dlClient.getStreamOwnershipDistribution();
+    }
+
+    protected static Set<String> getAllStreamsFromDistribution(Map<SocketAddress, Set<String>> distribution) {
+        Set<String> allStreams = new HashSet<String>();
+        for (Map.Entry<SocketAddress, Set<String>> entry : distribution.entrySet()) {
+            allStreams.addAll(entry.getValue());
+        }
+        return allStreams;
+    }
+
 }

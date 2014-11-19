@@ -43,7 +43,7 @@ public class LocalRoutingService implements RoutingService {
         return this;
     }
 
-    void addHost(String stream, SocketAddress address) {
+    public void addHost(String stream, SocketAddress address) {
         boolean notify = false;
         synchronized (this) {
             if (!localAddresses.containsKey(stream)) {
