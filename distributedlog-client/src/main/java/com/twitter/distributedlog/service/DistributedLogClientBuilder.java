@@ -78,7 +78,7 @@ public class DistributedLogClientBuilder {
     private ClientBuilder _clientBuilder = null;
     private StatsReceiver _statsReceiver = new NullStatsReceiver();
     private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
-    private final ClientConfig _clientConfig = new ClientConfig();
+    private ClientConfig _clientConfig = new ClientConfig();
 
     /**
      * Create a client builder
@@ -87,6 +87,19 @@ public class DistributedLogClientBuilder {
      */
     public static DistributedLogClientBuilder newBuilder() {
         return new DistributedLogClientBuilder();
+    }
+
+    public static DistributedLogClientBuilder newBuilder(DistributedLogClientBuilder builder) {
+        DistributedLogClientBuilder newBuilder = new DistributedLogClientBuilder();
+        newBuilder
+                .name(builder._name)
+                .clientId(builder._clientId)
+                .routingService(builder._routingService)
+                .clientBuilder(builder._clientBuilder)
+                .statsReceiver(builder._statsReceiver)
+                .streamStatsReceiver(builder._streamStatsReceiver)
+                .clientConfig(builder._clientConfig);
+        return newBuilder;
     }
 
     // private constructor
@@ -155,7 +168,7 @@ public class DistributedLogClientBuilder {
      *          routing service
      * @return client builder.
      */
-    DistributedLogClientBuilder routingService(RoutingService routingService) {
+    public DistributedLogClientBuilder routingService(RoutingService routingService) {
         this._routingService = routingService;
         return this;
     }
@@ -169,6 +182,18 @@ public class DistributedLogClientBuilder {
      */
     public DistributedLogClientBuilder statsReceiver(StatsReceiver statsReceiver) {
         this._statsReceiver = statsReceiver;
+        return this;
+    }
+
+    /**
+     * Stream Stats Receiver to expose per stream stats.
+     *
+     * @param streamStatsReceiver
+     *          stream stats receiver
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder streamStatsReceiver(StatsReceiver streamStatsReceiver) {
+        this._streamStatsReceiver = streamStatsReceiver;
         return this;
     }
 
@@ -235,6 +260,11 @@ public class DistributedLogClientBuilder {
      */
     public DistributedLogClientBuilder thriftmux(boolean enabled) {
         this._clientConfig.setThriftMux(enabled);
+        return this;
+    }
+
+    DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
+        this._clientConfig = ClientConfig.newConfig(clientConfig);
         return this;
     }
 
@@ -311,6 +341,15 @@ public class DistributedLogClientBuilder {
             return this.thriftmux;
         }
 
+        static ClientConfig newConfig(ClientConfig config) {
+            ClientConfig newConfig = new ClientConfig();
+            newConfig.setMaxRedirects(config.getMaxRedirects())
+                     .setRequestTimeoutMs(config.getRequestTimeoutMs())
+                     .setRedirectBackoffStartMs(config.getRedirectBackoffStartMs())
+                     .setRedirectBackoffMaxMs(config.getRedirectBackoffMaxMs())
+                     .setThriftMux(config.getThriftMux());
+            return newConfig;
+        }
     }
 
     static class DistributedLogClientImpl implements DistributedLogClient, MonitorServiceClient, RoutingService.RoutingListener {

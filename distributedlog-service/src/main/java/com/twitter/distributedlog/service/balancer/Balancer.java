@@ -38,4 +38,9 @@ public interface Balancer {
                  double rebalanceTolerancePercentage,
                  int rebalanceConcurrency,
                  Optional<RateLimiter> rebalanceRateLimiter);
+
+    /**
+     * Close the balancer.
+     */
+    void close();
 }

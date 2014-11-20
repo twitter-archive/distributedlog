@@ -7,7 +7,7 @@ import java.net.SocketAddress;
 /**
  * Routing Service provides mechanism how to route requests.
  */
-interface RoutingService {
+public interface RoutingService {
 
     public static interface RoutingListener {
         void onServerLeft(SocketAddress address);

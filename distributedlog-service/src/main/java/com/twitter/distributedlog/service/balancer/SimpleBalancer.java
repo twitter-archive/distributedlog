@@ -223,4 +223,8 @@ public class SimpleBalancer implements Balancer {
         }
     }
 
+    @Override
+    public void close() {
+        // no-op
+    }
 }

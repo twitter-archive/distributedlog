@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -17,6 +18,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.util.HashSet;
@@ -36,7 +38,7 @@ public abstract class DistributedLogServerTestCase {
     protected static int numBookies = 3;
 
     protected static class DLServer {
-        public final SocketAddress address;
+        public final InetSocketAddress address;
         public final Pair<DistributedLogServiceImpl, Server> dlServer;
 
         protected DLServer(int port) throws Exception {
@@ -44,7 +46,7 @@ public abstract class DistributedLogServerTestCase {
             address = DLSocketAddress.getSocketAddress(port);
         }
 
-        public SocketAddress getAddress() {
+        public InetSocketAddress getAddress() {
             return address;
         }
 
@@ -55,20 +57,20 @@ public abstract class DistributedLogServerTestCase {
 
     protected static class DLClient {
         public final LocalRoutingService routingService;
+        public final DistributedLogClientBuilder dlClientBuilder;
         public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
 
         protected DLClient(String name) {
             routingService = new LocalRoutingService();
-            dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl)
-                DistributedLogClientBuilder.newBuilder()
+            dlClientBuilder = DistributedLogClientBuilder.newBuilder()
                         .name(name)
                         .clientId(ClientId$.MODULE$.apply(name))
                         .routingService(routingService)
                         .clientBuilder(ClientBuilder.get()
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
-                            .requestTimeout(Duration.fromSeconds(10)))
-                        .build();
+                            .requestTimeout(Duration.fromSeconds(10)));
+            dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
         }
 
         public void shutdown() {
@@ -117,6 +119,24 @@ public abstract class DistributedLogServerTestCase {
 
     protected DLClient createDistributedLogClient(String name) throws Exception {
         return new DLClient(name);
+    }
+
+    protected static void checkStreams(int numExpectedStreams, DLServer dlServer) {
+        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+        Set<String> acquiredStreams = dlServer.dlServer.getKey().getAcquiredStreams().keySet();
+
+        assertEquals(numExpectedStreams, cachedStreams.size());
+        assertEquals(numExpectedStreams, acquiredStreams.size());
+    }
+
+    protected static void checkStreams(Set<String> streams, DLServer dlServer) {
+        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+        Set<String> acquiredStreams = dlServer.dlServer.getKey().getAcquiredStreams().keySet();
+
+        assertEquals(streams.size(), cachedStreams.size());
+        assertEquals(streams.size(), acquiredStreams.size());
+        assertTrue(Sets.difference(streams, cachedStreams).isEmpty());
+        assertTrue(Sets.difference(streams, acquiredStreams).isEmpty());
     }
 
     protected static void checkStream(String name, DLClient dlClient, DLServer dlServer,
