@@ -321,9 +321,12 @@ public class ClusterBalancer implements Balancer {
     }
 
     private void doMoveStream(final String stream, final Host from, final Host to) throws Exception {
+        logger.info("Moving stream {} from {} to {}.",
+                    new Object[] { stream, from.address, to.address });
         Await.result(from.getClient().release(stream).flatMap(new Function<Void, Future<Void>>() {
             @Override
             public Future<Void> apply(Void result) {
+                logger.info("Released stream {} from {}.", stream, from.address);
                 return to.getMonitor().check(stream).addEventListener(new FutureEventListener<Void>() {
 
                     @Override

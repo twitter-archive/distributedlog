@@ -5,8 +5,12 @@ import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.common_internal.zookeeper.TwitterServerSet;
 import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.service.ClientUtils;
+import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
+import com.twitter.distributedlog.service.MonitorServiceClient;
+import com.twitter.distributedlog.service.balancer.SingleHostRoutingService;
 import com.twitter.distributedlog.tools.Tool;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.thrift.ClientId$;
@@ -16,6 +20,7 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,14 +45,14 @@ public class ProxyTool extends Tool {
         }
     }
 
-    protected abstract static class ProxyCommand extends OptsCommand {
+    protected abstract static class ClusterCommand extends OptsCommand {
 
         protected Options options = new Options();
         protected String dc;
         protected TwitterServerSet.Service zkService;
         protected final List<String> streams = new ArrayList<String>();
 
-        protected ProxyCommand(String name, String description) {
+        protected ClusterCommand(String name, String description) {
             super(name, description);
             options.addOption("s", "serverset", true, "DistributedLog Proxy ServerSet");
             options.addOption("r", "prefix", true, "Prefix of stream name. E.g. 'QuantumLeapTest-'.");
@@ -159,7 +164,7 @@ public class ProxyTool extends Tool {
         }
     }
 
-    static class ReleaseCommand extends ProxyCommand {
+    static class ReleaseCommand extends ClusterCommand {
 
         ReleaseCommand() {
             super("release", "Release Stream Ownerships");
@@ -185,7 +190,7 @@ public class ProxyTool extends Tool {
         }
     }
 
-    static class TruncateCommand extends ProxyCommand {
+    static class TruncateCommand extends ClusterCommand {
 
         DLSN dlsn = DLSN.InitialDLSN;
 
@@ -223,10 +228,99 @@ public class ProxyTool extends Tool {
         }
     }
 
+    protected abstract static class ProxyCommand extends OptsCommand {
+
+        protected Options options = new Options();
+        protected InetSocketAddress address;
+
+        protected ProxyCommand(String name, String description) {
+            super(name, description);
+            options.addOption("H", "host", true, "Single Proxy Address");
+        }
+
+        @Override
+        protected Options getOptions() {
+            return options;
+        }
+
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            if (!cmdline.hasOption("H")) {
+                throw new ParseException("No proxy address provided");
+            }
+            address = DLSocketAddress.parseSocketAddress(cmdline.getOptionValue("H"));
+        }
+
+        @Override
+        protected int runCmd(CommandLine commandLine) throws Exception {
+            try {
+                parseCommandLine(commandLine);
+            } catch (ParseException pe) {
+                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                printUsage();
+                return -1;
+            }
+
+            DistributedLogClientBuilder clientBuilder = DistributedLogClientBuilder.newBuilder()
+                    .name("proxy_tool")
+                    .clientId(ClientId$.MODULE$.apply("proxy_tool"))
+                    .maxRedirects(2)
+                    .routingService(SingleHostRoutingService.of(address))
+                    .clientBuilder(ClientBuilder.get()
+                            .connectionTimeout(Duration.fromSeconds(2))
+                            .tcpConnectTimeout(Duration.fromSeconds(2))
+                            .requestTimeout(Duration.fromSeconds(10))
+                            .hostConnectionLimit(1)
+                            .hostConnectionCoresize(1)
+                            .keepAlive(true)
+                            .failFast(false));
+            Pair<DistributedLogClient, MonitorServiceClient> clientPair =
+                    ClientUtils.buildClient(clientBuilder);
+            try {
+                return runCmd(clientPair);
+            } finally {
+                clientPair.getLeft().close();
+            }
+        }
+
+        protected abstract int runCmd(Pair<DistributedLogClient, MonitorServiceClient> client) throws Exception;
+    }
+
+    static class AcceptNewStreamCommand extends ProxyCommand {
+
+        boolean enabled = false;
+
+        AcceptNewStreamCommand() {
+            super("accept-new-stream", "Enable/Disable accepting new streams for one proxy");
+            options.addOption("e", "enabled", true, "Enable/Disable accepting new streams");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (!cmdline.hasOption("e")) {
+                throw new ParseException("No action 'enable/disable' provided");
+            }
+            enabled = Boolean.parseBoolean(cmdline.getOptionValue("e"));
+        }
+
+        @Override
+        protected int runCmd(Pair<DistributedLogClient, MonitorServiceClient> client)
+                throws Exception {
+            Await.result(client.getRight().setAcceptNewStream(enabled));
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "accept-new-stream [options]";
+        }
+    }
+
     public ProxyTool() {
         super();
         addCommand(new ReleaseCommand());
         addCommand(new TruncateCommand());
+        addCommand(new AcceptNewStreamCommand());
     }
 
     @Override

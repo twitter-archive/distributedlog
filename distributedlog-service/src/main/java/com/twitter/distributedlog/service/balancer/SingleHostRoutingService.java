@@ -23,6 +23,9 @@ public class SingleHostRoutingService implements RoutingService {
     @Override
     public void startService() {
         // no-op
+        for (RoutingListener listener : listeners) {
+            listener.onServerJoin(address);
+        }
     }
 
     @Override

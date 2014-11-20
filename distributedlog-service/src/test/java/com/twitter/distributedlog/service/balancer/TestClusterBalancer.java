@@ -10,6 +10,7 @@ import com.twitter.util.Await;
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -113,6 +114,7 @@ public class TestClusterBalancer extends DistributedLogServerTestCase {
         checkStreams(expectedStreams, cluster.get(proxyIdx));
     }
 
+    @Ignore
     @Test(timeout = 60000)
     public void testBalanceAll() throws Exception {
         String namePrefix = "clusterbalancer-balance-all-";

@@ -880,7 +880,7 @@ public class DistributedLogClientBuilder {
                 entry.getValue().service.handshake().addEventListener(listener);
             }
             try {
-                latch.await();
+                latch.await(1, TimeUnit.MINUTES);
             } catch (InterruptedException e) {
                 logger.warn("Interrupted on handshaking with servers : ", e);
             }
