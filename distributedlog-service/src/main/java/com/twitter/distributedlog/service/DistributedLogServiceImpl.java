@@ -158,6 +158,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return new WriteResponse(responseHeader);
     }
 
+    // BullkWriteResponse
+    BulkWriteResponse bulkWriteResponse(ResponseHeader responseHeader) {
+        countStatusCode(responseHeader.getCode());
+        return new BulkWriteResponse(responseHeader);
+    }
+
     static interface WriteOpWithPayload {
       // Return the payload size in bytes
       public long getPayloadSize();
@@ -313,7 +319,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         // individual buffer failure reasons.
                         List<WriteResponse> writeResponses = new ArrayList<WriteResponse>(results.size());
                         BulkWriteResponse bulkWriteResponse =
-                            new BulkWriteResponse(successResponseHeader()).setWriteResponses(writeResponses);
+                            bulkWriteResponse(successResponseHeader()).setWriteResponses(writeResponses);
 
                         // Promote the first result to an op-level failure if we're sure all other writes have
                         // failed.
@@ -373,7 +379,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         void fail(ResponseHeader header) {
             failureRecordCounter.add(buffers.size());
-            result.setValue(new BulkWriteResponse(header));
+            result.setValue(bulkWriteResponse(header));
         }
     }
 
@@ -1404,7 +1410,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     public Future<BulkWriteResponse> writeBulkWithContext(final String stream, List<ByteBuffer> data, WriteContext ctx) {
         if (!accessControlManager.allowWrite(stream)) {
             deniedBulkWriteCounter.inc();
-            return Future.value(new BulkWriteResponse(operationDeniedResponseHeader()));
+            return Future.value(bulkWriteResponse(operationDeniedResponseHeader()));
         }
         receivedRecordCounter.add(data.size());
         BulkWriteOp op = new BulkWriteOp(stream, data, ctx);
