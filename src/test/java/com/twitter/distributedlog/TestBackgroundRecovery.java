@@ -16,6 +16,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
 import com.twitter.util.Await;
 
 import static org.junit.Assert.*;
@@ -172,11 +173,13 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         readDLM.close();
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testRecoverInForeground() throws Exception {
         recoveryTest(false, DistributedLogConstants.LOGSEGMENT_NAME_VERSION);
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testRecoverInForegroundWithOldNaming() throws Exception {
         try {
@@ -189,16 +192,19 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         }
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testRecoverInBackground() throws Exception {
         recoveryTest(true, DistributedLogConstants.LOGSEGMENT_NAME_VERSION);
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testWriteOldNameRecoverNewName() throws Exception {
         backwardTest(0, DistributedLogConstants.LOGSEGMENT_NAME_VERSION, 3, 4, 4, 0);
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testWriteNewNameRecoverOldName() throws Exception {
         backwardTest(DistributedLogConstants.LOGSEGMENT_NAME_VERSION, 0, 3, 4, 4, 0);
@@ -411,6 +417,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         readThread.join();
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testWriteReadWithMultipleInprogressSegmentsByTxID1() throws Exception {
         writeReadWithMultipleInprogressSegments("test-by-txid-1", true, 1L, DLSN.InvalidDLSN);
@@ -426,6 +433,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         writeReadWithMultipleInprogressSegments("test-by-txid-3", true, 44L, DLSN.InvalidDLSN);
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testWriteReadWithMultipleInprogressSegmentsByDLSN1() throws Exception {
         writeReadWithMultipleInprogressSegments("test-by-dlsn-1", false, 1L, new DLSN(1L, 0L, 0L));

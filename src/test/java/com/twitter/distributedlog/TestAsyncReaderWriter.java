@@ -1,15 +1,8 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.IdleReaderException;
-import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
-import com.twitter.distributedlog.exceptions.OverCapacityException;
-import com.twitter.distributedlog.exceptions.ReadCancelledException;
-import com.twitter.distributedlog.exceptions.WriteCancelledException;
-import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
-import com.twitter.distributedlog.util.SimplePermitLimiter;
-
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -17,9 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.bookkeeper.client.BKException;
+import com.google.common.base.Stopwatch;
+
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
 import org.junit.Test;
@@ -27,25 +20,23 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.util.Future;
-import com.twitter.util.FutureEventListener;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import com.google.common.base.Stopwatch;
-
+import com.twitter.distributedlog.exceptions.IdleReaderException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
+import com.twitter.distributedlog.exceptions.ReadCancelledException;
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
+import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
 
 import junit.framework.Assert;
 import static com.google.common.base.Charsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 public class TestAsyncReaderWriter extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestAsyncReaderWriter.class);
@@ -1262,6 +1253,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
+    @FlakyTest
     @Test
     public void testAsyncWriteWithMinDelayBetweenFlushes() throws Exception {
         String name = "distrlog-asyncwrite-mindelay";

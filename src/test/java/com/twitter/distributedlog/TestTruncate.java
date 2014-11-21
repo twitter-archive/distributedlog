@@ -1,6 +1,9 @@
 package com.twitter.distributedlog;
 
-import com.twitter.util.Await;
+import java.net.URI;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
@@ -8,10 +11,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URI;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
+import com.twitter.util.Await;
 
 import static org.junit.Assert.*;
 
@@ -28,7 +29,7 @@ public class TestTruncate extends TestDistributedLogBase {
         DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
     }
 
-
+    @FlakyTest
     @Test
     public void testPurgeLogs() throws Exception {
         String name = "distrlog-purge-logs";
