@@ -1160,7 +1160,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             @Override
             public Object apply() {
                 LOG.info("error out pending requests");
-                writer.errorOutPendingRequests(new IOException("simulate error out pending records"));
+                writer.errorOutPendingRequests(new IOException("simulate error out pending records"), false);
                 return null;
             }
         });

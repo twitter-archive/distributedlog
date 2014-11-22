@@ -8,7 +8,7 @@ public class WriteException extends DLException {
 
     public WriteException(String stream, String transmitError) {
         super(StatusCode.WRITE_EXCEPTION,
-            "Stream " + stream + " has already encountered an error : " +
-                transmitError + " write rejected");
+            "Write rejected because stream " + stream + " has encountered an error : " +
+                transmitError);
     }
 }

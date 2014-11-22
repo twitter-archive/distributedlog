@@ -96,13 +96,13 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         public void onFailure(Throwable cause) {
             super.onFailure(cause);
             // error out pending requests.
-            errorOutPendingRequests(cause);
+            errorOutPendingRequestsAndWriter(cause);
         }
     }
 
     private final FuturePool orderedFuturePool;
     private LinkedList<PendingLogRecord> pendingRequests = null;
-    private boolean encounteredError = false;
+    private volatile boolean encounteredError = false;
     private boolean queueingRequests = false;
 
     private final StatsLogger statsLogger;
@@ -164,6 +164,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return write(record);
     }
 
+    private BKPerStreamLogWriter getCachedPerStreamLogWriter() throws WriteException {
+        if (encounteredError) {
+            throw new WriteException(bkDistributedLogManager.getStreamName(),
+                    "writer has been closed due to error.");
+        }
+        return getCachedLogWriter(conf.getUnpartitionedStreamName());
+    }
+
     private BKPerStreamLogWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
                                                        boolean rollLog) throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
@@ -216,14 +224,25 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         queueingRequests = true;
     }
 
-    private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record) {
-        return asyncWrite(w, record, true /* flush after write */);
+    private Future<DLSN> asyncWrite(LogRecord record) throws IOException {
+        return asyncWrite(record, true /* flush after write */);
+    }
+
+    private Future<DLSN> asyncWrite(LogRecord record, boolean flush) throws IOException {
+        BKPerStreamLogWriter w = getPerStreamLogWriter(record, false, false);
+        return asyncWrite(w, record, flush);
     }
 
     // for ordering guarantee, we shouldn't send requests to next log segments until
     // previous log segment is done.
-    private Future<DLSN> asyncWrite(BKPerStreamLogWriter w, LogRecord record, boolean flush) {
-        final Future<DLSN> result;
+    private synchronized Future<DLSN> asyncWrite(BKPerStreamLogWriter writer, LogRecord record, boolean flush) throws IOException {
+        // The passed in writer may be stale since we acquire the writer outside of sync
+        // lock. If we recently rolled and the new writer is cached, use that instead.
+        Future<DLSN> result = null;
+        BKPerStreamLogWriter w = getCachedPerStreamLogWriter();
+        if (null == w) {
+            w = writer;
+        }
         if (queueingRequests) {
             result = queueRequest(record);
         } else if (shouldRollLog(w)) {
@@ -238,12 +257,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return result;
     }
 
-    private List<Future<DLSN>> asyncWriteBulk(BKPerStreamLogWriter w, List<LogRecord> records) {
+    private List<Future<DLSN>> asyncWriteBulk(List<LogRecord> records) throws IOException {
         final ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(records.size());
         Iterator<LogRecord> iterator = records.iterator();
         while (iterator.hasNext()) {
             LogRecord record = iterator.next();
-            Future<DLSN> future = asyncWrite(w, record, !iterator.hasNext());
+            Future<DLSN> future = asyncWrite(record, !iterator.hasNext());
             results.add(future);
 
             // Abort early if an individual write has already failed.
@@ -270,28 +289,39 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
         try {
             BKPerStreamLogWriter writer = getPerStreamLogWriter(record, true, true);
-            queueingRequests = false;
-            // issue pending requests
-            LinkedList<PendingLogRecord> requestsToIssue = pendingRequests;
-            pendingRequests = null;
-            for (PendingLogRecord pendingLogRecord : requestsToIssue) {
-                writer.asyncWrite(pendingLogRecord.record, true /* flush */)
-                        .addEventListener(pendingLogRecord);
+            synchronized (this) {
+                for (PendingLogRecord pendingLogRecord : pendingRequests) {
+                    writer.asyncWrite(pendingLogRecord.record, true /* flush after write */)
+                            .addEventListener(pendingLogRecord);
+                }
+                queueingRequests = false;
+                pendingRequests = null;
             }
         } catch (IOException ioe) {
-            encounteredError = true;
-            errorOutPendingRequests(ioe);
+            errorOutPendingRequestsAndWriter(ioe);
         }
     }
 
     @VisibleForTesting
-    void errorOutPendingRequests(Throwable cause) {
-        LinkedList<PendingLogRecord> requestsToErrorOut = pendingRequests;
-        pendingRequests = null;
-        queueingRequests = false;
-        for (PendingLogRecord pendingLogRecord : requestsToErrorOut) {
+    void errorOutPendingRequests(Throwable cause, boolean errorOutWriter) {
+        final List<PendingLogRecord> pendingLogRecords;
+        synchronized (this) {
+            pendingLogRecords = pendingRequests;
+            encounteredError = errorOutWriter;
+            pendingRequests = null;
+            queueingRequests = false;
+        }
+
+        // After erroring out the writer above, no more requests
+        // will be enqueued to pendingRequests
+        for (PendingLogRecord pendingLogRecord : pendingLogRecords) {
             pendingLogRecord.promise.setException(cause);
         }
+    }
+
+    @VisibleForTesting
+    void errorOutPendingRequestsAndWriter(Throwable cause) {
+        errorOutPendingRequests(cause, true /* error out writer */);
     }
 
     /**
@@ -310,8 +340,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
             public Future<DLSN> applyE() throws IOException {
                 writeQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                BKPerStreamLogWriter w = getPerStreamLogWriter(record, false, false);
-                return asyncWrite(w, record);
+                return asyncWrite(record);
             }
         })).addEventListener(new OpStatsListener(writeOpStatsLogger, stopwatch));
     }
@@ -330,9 +359,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return orderedFuturePool.apply(new ExceptionalFunction0<List<Future<DLSN>>>() {
             public List<Future<DLSN>> applyE() throws IOException {
                 bulkWriteQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                LogRecord firstRecord = records.get(0);
-                BKPerStreamLogWriter w = getPerStreamLogWriter(firstRecord, false, false);
-                return asyncWriteBulk(w, records);
+                return asyncWriteBulk(records);
             }
         }).addEventListener(new OpStatsListener(bulkWriteOpStatsLogger, stopwatch));
     }
