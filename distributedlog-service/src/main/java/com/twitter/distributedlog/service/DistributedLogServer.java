@@ -5,9 +5,11 @@ import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.finagle.filter.MonitorFilter;
 import com.twitter.finagle.ThriftMuxServer$;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
+import com.twitter.finagle.builder.SourceTrackingMonitor;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -27,6 +29,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 
 import java.io.File;
 import java.io.IOException;
@@ -169,11 +172,14 @@ public class DistributedLogServer implements Runnable {
             serverBuilder = serverBuilder.stack(ThriftMuxServer$.MODULE$);
         }
 
+        java.util.logging.Logger finagleLogger = java.util.logging.Logger.getLogger("finagle");
+
         // starts dl server
         Server server = ServerBuilder.safeBuild(
                 new ClientIdRequiredFilter<byte[], byte[]>(serviceStatsReceiver).andThen(
-                    new StatsFilter<byte[], byte[]>(serviceStatsLogger).andThen(
-                        new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory()))),
+                new StatsFilter<byte[], byte[]>(serviceStatsLogger).andThen(
+                new MonitorFilter<byte[], byte[]>(new SourceTrackingMonitor(finagleLogger, "dlog")).andThen(
+                new DistributedLogService.Service(dlService, new TBinaryProtocol.Factory())))),
                 serverBuilder);
 
         logger.info("Started DistributedLog Server.");
@@ -231,6 +237,8 @@ public class DistributedLogServer implements Runnable {
     }
 
     public static void main(String[] args) {
+        SLF4JBridgeHandler.removeHandlersForRootLogger();
+        SLF4JBridgeHandler.install();
         final DistributedLogServer server = run(args);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override

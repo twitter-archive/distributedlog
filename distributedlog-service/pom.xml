@@ -11,6 +11,11 @@
   <name>DistributedLog Service</name>
   <dependencies>
     <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>jul-to-slf4j</artifactId>
+      <version>1.6.5</version>
+    </dependency>
+    <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>distributedlog-client</artifactId>
       <version>${project.parent.version}</version>
