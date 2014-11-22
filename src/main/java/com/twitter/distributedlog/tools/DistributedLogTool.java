@@ -878,12 +878,13 @@ public class DistributedLogTool extends Tool {
 
         private void printHeader(DistributedLogManager dlm, PartitionId pid) throws Exception {
             DLSN firstDlsn = null == pid ? Await.result(dlm.getFirstDLSNAsync()) : DLSN.InvalidDLSN;
+            boolean endOfStreamMarked = null == pid ? dlm.isEndOfStreamMarked() : false;
             DLSN lastDlsn = null == pid ? dlm.getLastDLSN() : dlm.getLastDLSN(pid);
             long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
             long lastTxnId = null == pid ? dlm.getLastTxId() : dlm.getLastTxId(pid);
             long recordCount = null == pid ? dlm.getLogRecordCount() : dlm.getLogRecordCount(pid);
-            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s)",
-                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn));
+            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b)",
+                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked);
             println(result);
             if (listEppStats) {
                 printEppStatsHeader(dlm);
