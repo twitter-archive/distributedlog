@@ -57,6 +57,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -722,15 +723,58 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    public static class SimpleBookKeeperClient {
+        BookKeeperClient bkc;
+        ZooKeeperClient zkc;
+
+        public SimpleBookKeeperClient(DistributedLogConfiguration conf, URI uri) {
+            try {
+                zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                    .zkAclId(conf.getZkAclId())
+                    .uri(uri)
+                    .build();
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
+                BKDLConfig.propagateConfiguration(bkdlConfig, conf);
+                bkc = BookKeeperClientBuilder.newBuilder()
+                        .zkc(zkc)
+                        .dlConfig(conf)
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
+            } catch (Exception e) {
+                close();
+            }
+        }
+        public BookKeeperClient client() {
+            return bkc;
+        }
+        public void close() {
+            if (null != bkc) {
+                bkc.close();
+            }
+            if (null != zkc) {
+                zkc.close();
+            }
+        }
+    }
+
     protected static class ShowCommand extends PerStreamCommand {
 
+        SimpleBookKeeperClient bkc = null;
         PartitionId partitionId = null;
         boolean listSegments = true;
+        boolean listEppStats = false;
+        long firstLid = 0;
+        long lastLid = -1;
 
         ShowCommand() {
             super("show", "show metadata of a given stream and list segments");
             options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("ns", "no-log-segments", false, "Do not list log segment metadata");
+            options.addOption("lp", "placement-stats", false, "Show ensemble placement stats");
+            options.addOption("fl", "first-ledger", true, "First log sement no");
+            options.addOption("ll", "last-ledger", true, "Last log sement no");
         }
 
         @Override
@@ -743,7 +787,28 @@ public class DistributedLogTool extends Tool {
                     throw new ParseException("Invalid partition " + cmdline.getOptionValue("p"));
                 }
             }
+            if (cmdline.hasOption("fl")) {
+                try {
+                    firstLid = Long.parseLong(cmdline.getOptionValue("fl"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid ledger id " + cmdline.getOptionValue("fl"));
+                }
+            }
+            if (firstLid < 0) {
+                throw new IllegalArgumentException("Invalid ledger id " + firstLid);
+            }
+            if (cmdline.hasOption("ll")) {
+                try {
+                    lastLid = Long.parseLong(cmdline.getOptionValue("ll"));
+                } catch (NumberFormatException nfe) {
+                    throw new ParseException("Invalid ledger id " + cmdline.getOptionValue("ll"));
+                }
+            }
+            if (lastLid != -1 && firstLid > lastLid) {
+                throw new IllegalArgumentException("Invalid ledger ids " + firstLid + " " + lastLid);
+            }
             listSegments = !cmdline.hasOption("ns");
+            listEppStats = cmdline.hasOption("lp");
         }
 
         @Override
@@ -751,9 +816,15 @@ public class DistributedLogTool extends Tool {
             DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
                     getStreamName(), getConf(), getUri());
             try {
+                if (listEppStats) {
+                    bkc = new SimpleBookKeeperClient(getConf(), getUri());
+                }
                 printMetadata(dlm);
             } finally {
                 dlm.close();
+                if (null != bkc) {
+                    bkc.close();
+                }
             }
             return 0;
         }
@@ -793,6 +864,19 @@ public class DistributedLogTool extends Tool {
         }
 
         private void printMetadata(DistributedLogManager dlm, PartitionId pid) throws Exception {
+            printHeader(dlm, pid);
+            if (null == pid && listSegments) {
+                println("Ledgers : ");
+                List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+                for (LogSegmentLedgerMetadata segment : segments) {
+                    if (include(segment)) {
+                        printLedgerRow(segment);
+                    }
+                }
+            }
+        }
+
+        private void printHeader(DistributedLogManager dlm, PartitionId pid) throws Exception {
             DLSN firstDlsn = null == pid ? Await.result(dlm.getFirstDLSNAsync()) : DLSN.InvalidDLSN;
             DLSN lastDlsn = null == pid ? dlm.getLastDLSN() : dlm.getLastDLSN(pid);
             long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
@@ -801,11 +885,74 @@ public class DistributedLogTool extends Tool {
             String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s)",
                 getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn));
             println(result);
-            if (null == pid && listSegments) {
-                List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
-                for (LogSegmentLedgerMetadata segment : segments) {
-                    println(segment.getLedgerSequenceNumber() + "\t: " + segment);
+            if (listEppStats) {
+                printEppStatsHeader(dlm);
+            }
+        }
+
+        boolean include(LogSegmentLedgerMetadata segment) {
+            return (firstLid <= segment.getLedgerSequenceNumber() && (lastLid == -1 || lastLid >= segment.getLedgerSequenceNumber()));
+        }
+
+        private void printEppStatsHeader(DistributedLogManager dlm) throws Exception {
+            String label = "Ledger Placement :";
+            println(label);
+            Map<InetSocketAddress, Integer> totals = new HashMap<InetSocketAddress, Integer>();
+            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            for (LogSegmentLedgerMetadata segment : segments) {
+                if (include(segment)) {
+                    merge(totals, getBookieStats(segment));
                 }
+            }
+            List<Map.Entry<InetSocketAddress, Integer>> entries = new ArrayList<Map.Entry<InetSocketAddress, Integer>>(totals.entrySet());
+            Collections.sort(entries, new Comparator<Map.Entry<InetSocketAddress, Integer>>() {
+                @Override
+                public int compare(Map.Entry<InetSocketAddress, Integer> o1, Map.Entry<InetSocketAddress, Integer> o2) {
+                    return o2.getValue() - o1.getValue();
+                }
+            });
+            int width = 0;
+            int totalEntries = 0;
+            for (Map.Entry<InetSocketAddress, Integer> entry : entries) {
+                width = Math.max(width, label.length() + 1 + entry.getKey().toString().length());
+                totalEntries += entry.getValue();
+            }
+            for (Map.Entry<InetSocketAddress, Integer> entry : entries) {
+                println(String.format("%"+width+"s\t%6.2f%%\t\t%d", entry.getKey(), entry.getValue()*1.0/totalEntries, entry.getValue()));
+            }
+        }
+
+        private void printLedgerRow(LogSegmentLedgerMetadata segment) throws Exception {
+            println(segment.getLedgerSequenceNumber() + "\t: " + segment);
+        }
+
+        private Map<InetSocketAddress, Integer> getBookieStats(LogSegmentLedgerMetadata segment) throws Exception {
+            Map<InetSocketAddress, Integer> stats = new HashMap<InetSocketAddress, Integer>();
+            LedgerHandle lh = bkc.client().get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
+                    getConf().getBKDigestPW().getBytes(UTF_8));
+            long eidFirst = 0;
+            for (SortedMap.Entry<Long, ArrayList<InetSocketAddress>> entry : LedgerReader.bookiesForLedger(lh).entrySet()) {
+                long eidLast = entry.getKey().longValue();
+                long count = eidLast - eidFirst + 1;
+                for (InetSocketAddress bookie : entry.getValue()) {
+                    merge(stats, bookie, (int) count);
+                }
+                eidFirst = eidLast;
+            }
+            return stats;
+        }
+
+        void merge(Map<InetSocketAddress, Integer> m, InetSocketAddress bookie, Integer count) {
+            if (m.containsKey(bookie)) {
+                m.put(bookie, count + m.get(bookie).intValue());
+            } else {
+                m.put(bookie, count);
+            }
+        }
+
+        void merge(Map<InetSocketAddress, Integer> m1, Map<InetSocketAddress, Integer> m2) {
+            for (Map.Entry<InetSocketAddress, Integer> entry : m2.entrySet()) {
+                merge(m1, entry.getKey(), entry.getValue());
             }
         }
 

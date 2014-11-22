@@ -16,6 +16,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -61,6 +62,10 @@ public class LedgerReader {
 
     public LedgerReader(BookKeeper bkc) {
         bookieClient = bkc.getBookieClient();
+    }
+
+    static public SortedMap<Long, ArrayList<InetSocketAddress>> bookiesForLedger(final LedgerHandle lh) {
+        return lh.getLedgerMetadata().getEnsembles();
     }
 
     public void readEntriesFromAllBookies(final LedgerHandle lh, long eid,
