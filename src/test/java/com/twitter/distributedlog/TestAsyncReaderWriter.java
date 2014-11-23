@@ -97,7 +97,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         try {
             Await.result(future, Duration.fromSeconds(10));
         } catch (Exception ex) {
-            LOG.info("Expect: {} Actual:{}", exClass.getName(), ex.getClass().getName());
+            LOG.info("Expected: {} Actual: {}", exClass.getName(), ex.getClass().getName());
             assertTrue("exceptions types equal", exClass.isInstance(ex));
         }
     }

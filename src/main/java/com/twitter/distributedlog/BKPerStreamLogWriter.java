@@ -28,13 +28,17 @@ import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.SafeQueueingFuturePool;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
 import com.twitter.util.Function0;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
+import com.twitter.util.TimeoutException;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -88,7 +92,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             this.ledgerSequenceNo = ledgerSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
             this.isControl = false;
-            this.transmitComplete = new CountDownLatch(1);
+            this.transmitComplete = new Promise<Integer>();
             this.buffer = new Buffer(initialBufferSize * 6 / 5);
         }
 
@@ -163,19 +167,24 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             return isControl;
         }
 
-        public boolean awaitTransmitComplete(long timeout, TimeUnit unit) throws InterruptedException {
-            return transmitComplete.await(timeout, unit);
+        public void awaitTransmitComplete(long timeout, TimeUnit unit)
+            throws InterruptedException, TimeoutException {
+            Await.ready(transmitComplete, Duration.fromTimeUnit(timeout, unit));
         }
 
-        public void setTransmitComplete() {
-            transmitComplete.countDown();
+        public Future<Integer> awaitTransmitComplete() {
+            return transmitComplete;
+        }
+
+        public void setTransmitComplete(int transmitResult) {
+            transmitComplete.setValue(transmitResult);
         }
 
         private boolean isControl;
         private long ledgerSequenceNo;
         private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
-        private CountDownLatch transmitComplete;
+        private Promise<Integer> transmitComplete;
         private Buffer buffer;
     }
 
@@ -227,9 +236,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final Counter transmitControlSuccesses;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
-    private final OpStatsLogger writeTime;
 
-    private final FuturePool orderedFuturePool;
+    // add complete processing
+    private final SafeQueueingFuturePool<Void> addCompleteFuturePool;
+
+    private final OpStatsLogger writeTime;
 
     // write rate limiter
     private final WriteLimiter writeLimiter;
@@ -336,7 +347,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         this.conf = conf;
         this.executorService = executorService;
-        this.orderedFuturePool = orderedFuturePool;
+        if (null != orderedFuturePool) {
+            this.addCompleteFuturePool = new SafeQueueingFuturePool(orderedFuturePool);
+        } else {
+            this.addCompleteFuturePool = null;
+        }
         assert(!this.immediateFlushEnabled || (null != this.executorService));
         this.closed = false;
         this.lastTransmit = Stopwatch.createStarted();
@@ -387,6 +402,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
     }
 
+    private void flushAddCompletes() {
+        if (null != addCompleteFuturePool) {
+            addCompleteFuturePool.close();
+        }
+    }
+
+    private synchronized void flushCurrentPacket() {
+        if (null != packetCurrent) {
+            packetCurrent.reset();
+        }
+    }
+
     public IOException closeInternal(boolean attemptFlush, boolean enforceLock) {
         synchronized (this) {
             if (closed) {
@@ -396,6 +423,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         IOException throwExc = null;
+
         // Cancel the periodic flush schedule first
         // The task is allowed to exit gracefully
         // The attempt to flush will synchronize with the
@@ -417,11 +445,29 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             }
         }
 
-        // Packet reset will cancel any outstanding promises
+        final BKTransmitPacket lastPacket;
         synchronized (this) {
-            if (null != packetCurrent) {
-                packetCurrent.reset();
-            }
+            lastPacket = packetPrevious;
+        }
+
+        // Once the last packet been transmitted, apply any remaining promises asynchronously
+        // to avoid blocking close if bk client is slow for some reason.
+        if (null != lastPacket) {
+            lastPacket.awaitTransmitComplete().addEventListener(new FutureEventListener<Integer>() {
+                @Override
+                public void onSuccess(Integer transmitResult) {
+                    flushAddCompletes();
+                    flushCurrentPacket();
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    LOG.error("Unexpected error on transmit completion ", cause);
+                }
+            });
+        } else {
+            // In this case there are no pending add completes, but we still need to flush the
+            // current packet.
+            flushCurrentPacket();
         }
 
         if (null == throwExc && !isStreamInError()) {
@@ -761,22 +807,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             txIdToBePersisted = lastTxIdFlushed;
         }
 
-        boolean waitSuccessful = true;
         final BKTransmitPacket lastPacket;
         synchronized (this) {
             lastPacket = packetPrevious;
         }
 
         try {
-            // Since transmit completion is ordered, we can ensure all transmits to date have been
-            // completed by waiting on the last packet (if it exists).
             if (null != lastPacket) {
-                waitSuccessful = lastPacket.awaitTransmitComplete(flushTimeoutSeconds, TimeUnit.SECONDS);
+                lastPacket.awaitTransmitComplete(flushTimeoutSeconds, TimeUnit.SECONDS);
             }
         } catch (InterruptedException ie) {
             throw new FlushException("Wait for Flush Interrupted", getLastTxId(), getLastTxIdAcknowledged(), ie);
-        }
-        if (!waitSuccessful) {
+        } catch (TimeoutException te) {
             throw new FlushException("Flush request timed out", getLastTxId(), getLastTxIdAcknowledged());
         }
 
@@ -871,25 +913,33 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         assert (ctx instanceof BKTransmitPacket);
         final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
-        outstandingTransmits.getAndDecrement();
 
-        if (null != orderedFuturePool) {
-            orderedFuturePool.apply(new Function0<Void>() {
+        if (null != addCompleteFuturePool) {
+            addCompleteFuturePool.apply(new Function0<Void>() {
                 public Void apply() {
                     addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
                     return null;
                 }
+            }).addEventListener(new FutureEventListener<Void>() {
+                @Override
+                public void onSuccess(Void done) {
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                    LOG.error("addComplete processing failed for {} entry {} rc {} with error",
+                        new Object[] {fullyQualifiedLogSegment, entryId, rc, cause});
+                }
             });
+            // Race condition if we notify before the addComplete is enqueued.
+            transmitPacket.setTransmitComplete(effectiveRC.get());
+            outstandingTransmits.getAndDecrement();
         } else {
+            // Notify transmit complete must be called before deferred processing in the
+            // sync case since otherwise callbacks in deferred processing may deadlock.
+            transmitPacket.setTransmitComplete(effectiveRC.get());
+            outstandingTransmits.getAndDecrement();
             addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
         }
-
-        // Notify waiters (ex. fsync) that the transmit attempt has completed.
-        // Care must be taken to ensure that the only event this condition depends on
-        // is completion of the bk transmit operation. If we try to execute callbacks
-        // before satisfying the condition for example, or block, fsync and close can
-        // exhibit unpredictable behavior and deadlocks.
-        transmitPacket.setTransmitComplete();
     }
 
     private void addCompleteDeferredProcessing(final BKTransmitPacket transmitPacket,
