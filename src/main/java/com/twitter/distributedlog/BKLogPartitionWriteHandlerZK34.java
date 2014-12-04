@@ -194,8 +194,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             // in the stream
             long ledgerSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
 
-            if (conf.getDLLedgerMetadataLayoutVersion() >=
-                    DistributedLogConstants.FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO) {
+            if (LogSegmentLedgerMetadata.supportsLedgerSequenceNo(conf.getDLLedgerMetadataLayoutVersion())) {
                 List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
                 ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
                 if (!ledgerListDesc.isEmpty()) {

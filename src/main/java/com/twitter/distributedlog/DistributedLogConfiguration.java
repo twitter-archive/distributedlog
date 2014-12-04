@@ -34,7 +34,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ZK_ACL_ID_DEFAULT = null;
 
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
-    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
+    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = 2; //VERSION_V2_LEDGER_SEQNO
 
     // Name for the default (non-partitioned) stream
     public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
@@ -1380,7 +1380,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setDLLedgerMetadataLayoutVersion(int layoutVersion) throws IllegalArgumentException {
         if ((layoutVersion <= 0) ||
-            (layoutVersion > DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
+            (layoutVersion > LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
             // Incorrect version specified
             throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
         }

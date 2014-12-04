@@ -22,7 +22,7 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
-import com.twitter.util.Future;
+
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -67,7 +67,7 @@ public class DLMTestUtil {
             new HashMap<Long, LogSegmentLedgerMetadata>(children.size());
         for (String child : children) {
             LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child,
-                DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+                LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
             LOG.info("Read segment {} : {}", child, segment);
             segments.put(segment.getLedgerSequenceNumber(), segment);
         }
@@ -307,7 +307,7 @@ public class DLMTestUtil {
     public static LogSegmentLedgerMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
         return new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
                     ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
-                    DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                    LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                     ledgerId, firstTxId)
                 .setLedgerSequenceNo(ledgerSeqNo)
                 .build();
@@ -319,7 +319,7 @@ public class DLMTestUtil {
         LogSegmentLedgerMetadata metadata =
                 new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
                         ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
-                        DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                        LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                         ledgerId, firstTxId)
                     .setInprogress(false)
                     .setLedgerSequenceNo(ledgerSeqNo)

@@ -15,7 +15,6 @@ public class DistributedLogConstants {
     public static final long EMPTY_LEDGER_TX_ID = -99;
     public static final long MAX_TXID = Long.MAX_VALUE;
     public static final long SMALL_LEDGER_THRESHOLD = 10;
-    public static final int LEDGER_METADATA_CURRENT_LAYOUT_VERSION = 2;
     public static final int LOGSEGMENT_NAME_VERSION = 1;
     // Allow 4K overhead for metadata within the max transmission size
     public static final int MAX_LOGRECORD_SIZE = 1 * 1024 * 1024 - 8 * 1024; //1MB - 8KB
@@ -27,7 +26,6 @@ public class DistributedLogConstants {
     public static final int LOCAL_REGION_ID = 0;
     public static final long LOGSEGMENT_DEFAULT_STATUS = 0;
     public static final int INPUTSTREAM_MARK_LIMIT = 16;
-    public static final int FIRST_LEDGER_METADATA_VERSION_FOR_LEDGER_SEQNO = 2;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final long UNRESOLVED_LEDGER_ID = -1;

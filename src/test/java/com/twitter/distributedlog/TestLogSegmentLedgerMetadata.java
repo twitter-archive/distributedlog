@@ -40,12 +40,12 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
         LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata1",
-            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
+            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc, "/metadata1");
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
             "/metadata1",
-            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         assertEquals(metadata1, read1);
         assertEquals(TEST_REGION_ID, read1.getRegionId());
         final AtomicReference<LogSegmentLedgerMetadata> resultHolder =
@@ -54,7 +54,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
         // asynchronous read
         LogSegmentLedgerMetadata.read(zkc,
             "/metadata1",
-            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
             new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
             @Override
             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
@@ -78,7 +78,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
         // synchronous read
         LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
             "/metadata2",
-            DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
@@ -89,7 +89,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testParseInvalidMetadata() throws Exception {
         try {
-            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0], DistributedLogConstants.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0], LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
             fail("Should fail to parse invalid metadata");
         } catch (IOException ioe) {
             // expected
