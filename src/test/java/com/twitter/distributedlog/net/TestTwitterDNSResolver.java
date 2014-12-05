@@ -10,18 +10,18 @@ import static org.junit.Assert.*;
 public class TestTwitterDNSResolver {
 
     @Test
-    public void testTwitterDNSResolver() {
-        TwitterDNSResolver dnsResolver = new TwitterDNSResolver("");
+    public void testTwitterDNSResolverForRacks() {
+        TwitterDNSResolver dnsResolver = new TwitterDNSResolverForRacks("");
 
         List<String> ipList = new ArrayList<String>();
         ipList.add("192.0.0.1");
         List<String> racks = dnsResolver.resolve(ipList);
-        assertEquals(TwitterDNSResolver.DEFAULT_RACK, racks.get(0));
+        assertEquals(TwitterDNSResolverForRacks.DEFAULT_RACK, racks.get(0));
 
         List<String> unknownList = new ArrayList<String>();
         unknownList.add("unknown");
         racks = dnsResolver.resolve(unknownList);
-        assertEquals(TwitterDNSResolver.DEFAULT_RACK, racks.get(0));
+        assertEquals(TwitterDNSResolverForRacks.DEFAULT_RACK, racks.get(0));
 
         List<String> atlaList = new ArrayList<String>();
         atlaList.add("atla-bmj-37-sr1.prod.twttr.net");
@@ -34,9 +34,35 @@ public class TestTwitterDNSResolver {
         assertEquals("/smf1/bfk", racks.get(0));
     }
 
+
+    @Test
+    public void testTwitterDNSResolverForRows() {
+        TwitterDNSResolver dnsResolver = new TwitterDNSResolverForRows("");
+
+        List<String> ipList = new ArrayList<String>();
+        ipList.add("192.0.0.1");
+        List<String> rows = dnsResolver.resolve(ipList);
+        assertEquals(TwitterDNSResolverForRows.DEFAULT_ROW, rows.get(0));
+
+        List<String> unknownList = new ArrayList<String>();
+        unknownList.add("unknown");
+        rows = dnsResolver.resolve(unknownList);
+        assertEquals(TwitterDNSResolverForRows.DEFAULT_ROW, rows.get(0));
+
+        List<String> atlaList = new ArrayList<String>();
+        atlaList.add("atla-bmj-37-sr1.prod.twttr.net");
+        rows = dnsResolver.resolve(atlaList);
+        assertEquals("/atla/bm", rows.get(0));
+
+        List<String> smf1List = new ArrayList<String>();
+        smf1List.add("smf1-bfk-24-sr1.prod.twitter.com");
+        rows = dnsResolver.resolve(smf1List);
+        assertEquals("/smf1/bf", rows.get(0));
+    }
+
     @Test
     public void testTwitterDNSResolverOverrides() {
-        TwitterDNSResolver dnsResolver = new TwitterDNSResolver("atla-eap-37-sr1:atl3;atla-ean-27-sr1:atl3");
+        TwitterDNSResolver dnsResolver = new TwitterDNSResolverForRacks("atla-eap-37-sr1:atl3;atla-ean-27-sr1:atl3");
 
         List<String> atlaList = new ArrayList<String>();
         atlaList.add("atla-bmj-37-sr1.prod.twttr.net");

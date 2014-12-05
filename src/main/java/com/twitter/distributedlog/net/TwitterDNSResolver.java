@@ -13,12 +13,10 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * TODO: we might need to move a twitter specific module?
  */
-public class TwitterDNSResolver implements DNSToSwitchMapping {
+public abstract class TwitterDNSResolver implements DNSToSwitchMapping {
     static final Logger LOG = LoggerFactory.getLogger(TwitterDNSResolver.class);
 
-    static final String DEFAULT_RACK = "/default-region/default-rack";
-
-    protected final ConcurrentMap<String, String> domainName2Racks =
+    protected final ConcurrentMap<String, String> domainNameToNetworkLocation =
             new ConcurrentHashMap<String, String>();
 
     protected final ConcurrentMap<String, String> hostNameToRegion =
@@ -48,43 +46,26 @@ public class TwitterDNSResolver implements DNSToSwitchMapping {
 
     @Override
     public List<String> resolve(List<String> names) {
-        List<String> racks = new ArrayList<String>(names.size());
+        List<String> networkLocations = new ArrayList<String>(names.size());
         for (String name : names) {
-            racks.add(resolve(name));
+            networkLocations.add(resolve(name));
         }
-        return racks;
+        return networkLocations;
     }
 
     private String resolve(String domainName) {
-        String rack = domainName2Racks.get(domainName);
-        if (null == rack) {
-            rack = doResolve(domainName);
-            domainName2Racks.put(domainName, rack);
+        String networkLocation = domainNameToNetworkLocation.get(domainName);
+        if (null == networkLocation) {
+            networkLocation = resolveToNetworkLocation(domainName);
+            domainNameToNetworkLocation.put(domainName, networkLocation);
         }
-        return rack;
+        return networkLocation;
     }
 
-    private String doResolve(String domainName) {
-        String[] parts = domainName.split("\\.");
-        if (parts.length <= 0) {
-            return DEFAULT_RACK;
-        }
-        String hostName = parts[0];
-        String[] labels = hostName.split("-");
-        if (labels.length != 4) {
-            return DEFAULT_RACK;
-        }
-
-        String region = hostNameToRegion.get(hostName);
-        if (null == region) {
-            region = labels[0];
-        }
-
-        return String.format("/%s/%s", region, labels[1]);
-    }
+    protected abstract String resolveToNetworkLocation(String domainName);
 
     @Override
     public void reloadCachedMappings() {
-        domainName2Racks.clear();
+        domainNameToNetworkLocation.clear();
     }
 }

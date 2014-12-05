@@ -5,11 +5,14 @@ import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.net.TwitterDNSResolver;
+import com.twitter.distributedlog.net.TwitterDNSResolverForRacks;
+import com.twitter.distributedlog.net.TwitterDNSResolverForRows;
 import com.twitter.distributedlog.util.ConfUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
@@ -59,12 +62,19 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setZkRequestRateLimit(conf.getBKClientZKRequestRateLimit());
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
+        final DNSToSwitchMapping dnsResolver;
+        if (conf.getRowAwareEnsemblePlacementEnabled()) {
+            dnsResolver = new TwitterDNSResolverForRows(conf.getBkDNSResolverOverrides());
+        } else {
+            dnsResolver = new TwitterDNSResolverForRacks(conf.getBkDNSResolverOverrides());
+        }
+
         this.bkc = BookKeeper.newBuilder()
             .config(bkConfig)
             .zk(zkc.get())
             .channelFactory(channelFactory)
             .statsLogger(statsLogger)
-            .dnsResolver(new TwitterDNSResolver(conf.getBkDNSResolverOverrides()))
+            .dnsResolver(dnsResolver)
             .requestTimer(requestTimer).build();
 
         if (registerExpirationHandler) {

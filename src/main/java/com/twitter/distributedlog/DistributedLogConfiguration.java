@@ -69,6 +69,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_MAX_LOGSEGMENT_BYTES = "maxLogSegmentBytes";
     public static final int BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT = 256 * 1024 * 1024; // default 256MB
 
+    public static final String BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT = "row-aware-ensemble-placement";
+    public static final boolean BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT = false;
+
     // Bookkeeper ensemble size
     public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
     public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
@@ -465,6 +468,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_OUTPUT_BUFFER_SIZE, opBufferSize);
         return this;
     }
+
+    /**
+     * Set if we should enable row aware ensemble placement
+     *
+     * @param enableRowAwareEnsemblePlacement
+     *          enableRowAwareEnsemblePlacement
+     */
+    public DistributedLogConfiguration setRowAwareEnsemblePlacementEnabled(boolean enableRowAwareEnsemblePlacement) {
+        setProperty(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, enableRowAwareEnsemblePlacement);
+        return this;
+    }
+
+    /**
+     * Get if row aware ensemble placement is enabled
+     *
+     * @return if row aware ensemble placement is enabled
+     */
+    public boolean getRowAwareEnsemblePlacementEnabled() {
+        return getBoolean(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT);
+    }
+
+
 
     /**
      * Get ensemble size
