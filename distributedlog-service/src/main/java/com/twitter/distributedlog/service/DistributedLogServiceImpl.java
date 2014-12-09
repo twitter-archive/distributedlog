@@ -20,6 +20,7 @@ import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -65,6 +66,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -677,51 +679,56 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         public void run() {
-            boolean shouldClose = false;
-            while (running) {
-                boolean needAcquire = false;
-                synchronized (this) {
-                    switch (this.status) {
-                    case INITIALIZING:
-                        acquiredStreams.remove(name, this);
-                        needAcquire = true;
-                        break;
-                    case FAILED:
-                        this.status = StreamStatus.INITIALIZING;
-                        acquiredStreams.remove(name, this);
-                        needAcquire = true;
-                        break;
-                    case BACKOFF:
-                        // there are pending ops, try re-acquiring the stream again
-                        if (pendingOps.size() > 0) {
+            try {
+                boolean shouldClose = false;
+                while (running) {
+                    boolean needAcquire = false;
+                    synchronized (this) {
+                        switch (this.status) {
+                        case INITIALIZING:
+                            acquiredStreams.remove(name, this);
+                            needAcquire = true;
+                            break;
+                        case FAILED:
                             this.status = StreamStatus.INITIALIZING;
                             acquiredStreams.remove(name, this);
                             needAcquire = true;
+                            break;
+                        case BACKOFF:
+                            // there are pending ops, try re-acquiring the stream again
+                            if (pendingOps.size() > 0) {
+                                this.status = StreamStatus.INITIALIZING;
+                                acquiredStreams.remove(name, this);
+                                needAcquire = true;
+                            }
+                            break;
+                        default:
+                            break;
                         }
-                        break;
-                    default:
-                        break;
+                    }
+                    if (needAcquire) {
+                        lastAcquireWatch.reset().start();
+                        acquireStream();
+                    } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
+                        if (streams.remove(name, this)) {
+                            logger.info("Removed acquired stream {} -> writer {}", name, this);
+                            shouldClose = true;
+                            break;
+                        }
+                    }
+                    try {
+                        synchronized (streamLock) {
+                            streamLock.wait(nextAcquireWaitTimeMs);
+                        }
+                    } catch (InterruptedException e) {
+                        // interrupted
                     }
                 }
-                if (needAcquire) {
-                    lastAcquireWatch.reset().start();
-                    acquireStream();
-                } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
-                    if (streams.remove(name, this)) {
-                        logger.info("Removed acquired stream {} -> writer {}", name, this);
-                        shouldClose = true;
-                        break;
-                    }
+                if (shouldClose) {
+                    requestClose();
                 }
-                try {
-                    synchronized (streamLock) {
-                        streamLock.wait(nextAcquireWaitTimeMs);
-                    }
-                } catch (InterruptedException e) {
-                    // interrupted
-                }
-            }
-            if (shouldClose) {
+            } catch (Exception ex) {
+                logger.error("Stream thread {} threw unhandled exception : ", name, ex);
                 requestClose();
             }
         }
@@ -757,6 +764,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         success = false;
                     } else { // closing & initializing
                         pendingOps.add(op);
+                        pendingOpsCounter.incrementAndGet();
                         if (1 == pendingOps.size()) {
                             if (op instanceof HeartbeatOp) {
                                 ((HeartbeatOp) op).setWriteControlRecord(true);
@@ -796,9 +804,14 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         private void doExecuteOp(final StreamOp op, boolean success) {
-            AsyncLogWriter w = writer;
-            if (null != w && success) {
-                op.execute(w).addEventListener(new FutureEventListener<Void>() {
+            final AsyncLogWriter writer;
+            final Throwable lastException;
+            synchronized (this) {
+                writer = this.writer;
+                lastException = this.lastException;
+            }
+            if (null != writer && success) {
+                op.execute(writer).addEventListener(new FutureEventListener<Void>() {
                     @Override
                     public void onSuccess(Void value) {
                         // nop
@@ -974,6 +987,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             for (StreamOp op : oldPendingOps) {
                 executeOp(op, success);
+                pendingOpsCounter.decrementAndGet();
             }
         }
 
@@ -1042,7 +1056,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         Future<Void> requestClose() {
             closeLock.writeLock().lock();
             try {
-                if (StreamStatus.CLOSING == status) {
+                if (StreamStatus.CLOSING == status ||
+                    StreamStatus.CLOSED == status) {
                     return Future.Void();
                 }
                 status = StreamStatus.CLOSING;
@@ -1073,7 +1088,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         void delete() throws IOException {
             if (null != writer) {
                 writer.close();
-                writer = null;
+                synchronized (this) {
+                    writer = null;
+                    lastException = new StreamUnavailableException("Stream was deleted");
+                }
             }
             if (null == manager) {
                 throw new UnexpectedException("No stream " + name + " to delete");
@@ -1117,6 +1135,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             for (StreamOp op : oldPendingOps) {
                 op.fail(StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.");
+                pendingOpsCounter.decrementAndGet();
             }
             logger.info("Closed stream {}.", name);
         }
@@ -1135,6 +1154,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
     private final Object txnLock = new Object();
+    private final AtomicInteger pendingOpsCounter;
 
     // Stats
     // operation stats
@@ -1226,6 +1246,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         // Stats on server
         this.unexpectedExceptions = statsLogger.getCounter("unexpected_exceptions");
+        this.pendingOpsCounter = new AtomicInteger(0);
+        statsLogger.registerGauge("pending_ops", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return pendingOpsCounter.get();
+            }
+        });
 
         // Stats on requests
         StatsLogger requestsStatsLogger = statsLogger.scope("request");
