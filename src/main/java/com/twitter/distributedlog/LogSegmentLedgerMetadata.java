@@ -91,7 +91,6 @@ public class LogSegmentLedgerMetadata {
             this.firstTxId = firstTxId;
         }
 
-
         LogSegmentLedgerMetadataBuilder(String zkPath,
                                         int version,
                                         long ledgerId,
@@ -537,7 +536,7 @@ public class LogSegmentLedgerMetadata {
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
-                .setRecordCount((int) recordCount)
+                .setRecordCount((int)recordCount)
                 .setRegionId(regionId)
                 .setStatus(status)
                 .build();

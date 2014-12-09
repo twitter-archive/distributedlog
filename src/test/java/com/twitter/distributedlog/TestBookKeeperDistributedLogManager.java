@@ -27,6 +27,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -1917,7 +1918,11 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             .uri(uri)
             .zkAclId(null)
             .sessionTimeoutMs(10000).build();
-        BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -1948,7 +1953,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
                 name, conf.getUnpartitionedStreamName())));
 
         MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
-        updater.changeTruncationStatus(segmentList.get(1L), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+        updater.setLogSegmentTruncated(segmentList.get(1L));
 
         {
             LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
@@ -1965,10 +1970,10 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         }
 
         updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
-        updater.changeTruncationStatus(segmentList.get(1L), LogSegmentLedgerMetadata.TruncationStatus.ACTIVE);
+        updater.setLogSegmentActive(segmentList.get(1L));
 
         updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
-        updater.changeTruncationStatus(segmentList.get(2L), LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED);
+        updater.setLogSegmentTruncated(segmentList.get(2L));
 
         {
             AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
@@ -1987,6 +1992,18 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             assertTrue(exceptionEncountered);
             reader.close();
         }
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater.setLogSegmentActive(segmentList.get(2L));
+
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        DLSN truncDLSN = new DLSN (2, 3, 0);
+        Assert.assertTrue(Await.result(writer.truncate(truncDLSN)));
+        segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
+                name, conf.getUnpartitionedStreamName())));
+
+        Assert.assertTrue(segmentList.get(2L).getMinActiveDLSN().compareTo(truncDLSN) == 0);
 
         zookeeperClient.close();
     }

@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.metadata;
 
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 
@@ -37,18 +38,38 @@ public interface MetadataUpdater {
             throws IOException;
 
     /**
-     * Change the truncation status of a <i>log segment</i>
+     * Change the truncation status of a <i>log segment</i> to be active
      *
      * @param segment
-     *          log segment to change sequence number.
-     * @param isTruncated
-     *          is the segment truncated
-     * @param isPartiallyTruncated
-     *          is the segment partially truncated
+     *          log segment to change truncation status to active.
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata changeTruncationStatus(LogSegmentLedgerMetadata segment,
-                                                    LogSegmentLedgerMetadata.TruncationStatus truncationStatus)
+    LogSegmentLedgerMetadata setLogSegmentActive(LogSegmentLedgerMetadata segment)
             throws IOException;
+
+    /**
+     * Change the truncation status of a <i>log segment</i> to truncated
+     *
+     * @param segment
+     *          log segment to change truncation status to truncated.
+     * @return new log segment
+     * @throws IOException
+     */
+    LogSegmentLedgerMetadata setLogSegmentTruncated(LogSegmentLedgerMetadata segment)
+        throws IOException;
+
+    /**
+     * Change the truncation status of a <i>log segment</i> to partially truncated
+     *
+     * @param segment
+     *          log segment to change sequence number.
+     * @param minActiveDLSN
+     *          DLSN within the log segment before which log has been truncated
+     * @return new log segment
+     * @throws IOException
+     */
+    LogSegmentLedgerMetadata setLogSegmentPartiallyTruncated(LogSegmentLedgerMetadata segment, DLSN minActiveDLSN)
+        throws IOException;
+
 }

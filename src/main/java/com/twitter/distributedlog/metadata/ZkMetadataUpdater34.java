@@ -21,6 +21,7 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
     @Override
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
+        LOG.info("old segment {} new segment {}", oldSegment, newSegment);
         try {
             Transaction txn = zkc.get().transaction();
             byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
