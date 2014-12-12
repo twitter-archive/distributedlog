@@ -1,49 +1,5 @@
 package com.twitter.distributedlog.tools;
 
-import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.RateLimiter;
-import com.twitter.distributedlog.util.SchedulerUtils;
-import com.twitter.util.Await;
-import com.twitter.distributedlog.BookKeeperClient;
-import com.twitter.distributedlog.BookKeeperClientBuilder;
-import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.DistributedLogConstants;
-import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.LedgerEntryReader;
-import com.twitter.distributedlog.LogNotFoundException;
-import com.twitter.distributedlog.LogReader;
-import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
-import com.twitter.distributedlog.PartitionId;
-import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.bk.LedgerAllocator;
-import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
-import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.metadata.MetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.BookKeeperAdmin;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerMetadata;
-import org.apache.bookkeeper.client.LedgerReader;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.bookkeeper.util.IOUtils;
-import org.apache.bookkeeper.util.StringUtils;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
-import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.configuration.ConfigurationException;
-import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -73,6 +29,53 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.RateLimiter;
+
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookKeeperAdmin;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.LedgerMetadata;
+import org.apache.bookkeeper.client.LedgerReader;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.util.IOUtils;
+import org.apache.bookkeeper.util.StringUtils;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
+import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LedgerEntryReader;
+import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.LogReader;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.PartitionId;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.MetadataUpdater;
+import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.util.Await;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -1494,7 +1497,8 @@ public class DistributedLogTool extends Tool {
                 throw new IOException("Entry " + lac + " isn't found for " + segment);
             }
             LedgerEntry lastEntry = entries.nextElement();
-            LedgerEntryReader reader = new LedgerEntryReader("dlog", segment.getLedgerSequenceNumber(), lastEntry);
+            LedgerEntryReader reader = new LedgerEntryReader("dlog", segment.getLedgerSequenceNumber(), lastEntry,
+                                                             LogSegmentLedgerMetadata.supportsEnvelopedEntries(segment.getVersion()), new NullStatsLogger());
             LogRecordWithDLSN record = reader.readOp();
             LogRecordWithDLSN lastRecord = null;
             while (null != record) {
@@ -1957,6 +1961,7 @@ public class DistributedLogTool extends Tool {
         Long untilEntryId;
         boolean readAllBookies = false;
         boolean readLac = false;
+        int metadataVersion = LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
         long startEntryId = 0L;
         int numEntries = 100;
@@ -1967,6 +1972,7 @@ public class DistributedLogTool extends Tool {
             options.addOption("uid", "until", true, "Entry id to read until");
             options.addOption("bks", "all-bookies", false, "Read entry from all bookies");
             options.addOption("lac", "last-add-confirmed", false, "Return last add confirmed rather than entry payload");
+            options.addOption("ver", "metadata-version", true, "The log segment metadata version to use");
         }
 
         @Override
@@ -1977,6 +1983,9 @@ public class DistributedLogTool extends Tool {
             }
             if (cmdline.hasOption("uid")) {
                 untilEntryId = Long.parseLong(cmdline.getOptionValue("uid"));
+            }
+            if (cmdline.hasOption("ver")) {
+                this.metadataVersion = Integer.parseInt(cmdline.getOptionValue("ver"));
             }
             readAllBookies = cmdline.hasOption("bks");
             readLac = cmdline.hasOption("lac");
@@ -2059,7 +2068,9 @@ public class DistributedLogTool extends Tool {
                     System.out.println("\tbookie=" + rr.getBookieAddress());
                     System.out.println("\t-------------------------------");
                     if (BKException.Code.OK == rr.getResultCode()) {
-                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue());
+                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
+                                                                         LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
+                                                                         new NullStatsLogger());
                         printEntry(reader);
                     } else {
                         System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
@@ -2112,7 +2123,9 @@ public class DistributedLogTool extends Tool {
             while (entries.hasMoreElements()) {
                 LedgerEntry entry = entries.nextElement();
                 System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
-                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry);
+                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry,
+                                                                 LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
+                                                                 new NullStatsLogger());
                 printEntry(reader);
                 ++i;
             }

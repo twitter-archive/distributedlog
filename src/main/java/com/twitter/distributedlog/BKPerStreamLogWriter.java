@@ -17,28 +17,22 @@
  */
 package com.twitter.distributedlog;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
-import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-import com.twitter.distributedlog.exceptions.WriteCancelledException;
-import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.stats.OpStatsListener;
-import com.twitter.distributedlog.util.PermitLimiter;
-import com.twitter.distributedlog.util.SafeQueueingFuturePool;
-import com.twitter.distributedlog.util.SimplePermitLimiter;
-
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
-import com.twitter.util.Function0;
-import com.twitter.util.FutureEventListener;
-import com.twitter.util.Future;
-import com.twitter.util.FuturePool;
-import com.twitter.util.Promise;
-import com.twitter.util.TimeoutException;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -50,19 +44,27 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
+import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.stats.OpStatsListener;
+import com.twitter.distributedlog.util.CompressionCodec;
+import com.twitter.distributedlog.util.CompressionUtils;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.SafeQueueingFuturePool;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
+
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Function0;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.FuturePool;
+import com.twitter.util.Promise;
+import com.twitter.util.TimeoutException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -77,7 +79,7 @@ import static com.google.common.base.Charsets.UTF_8;
 class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
 
-    private static class Buffer extends ByteArrayOutputStream {
+    public static class Buffer extends ByteArrayOutputStream {
         Buffer(int initialCapacity) {
             super(initialCapacity);
         }
@@ -189,11 +191,15 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     }
 
     private final String fullyQualifiedLogSegment;
+    private final String streamName;
+    private final int logSegmentMetadataVersion;
     private BKTransmitPacket packetCurrent;
     private BKTransmitPacket packetPrevious;
     private final AtomicInteger outstandingTransmits;
     private final int transmissionThreshold;
     protected final LedgerHandle lh;
+    private final CompressionCodec.Type compressionType;
+    private final ReentrantLock transmitLock = new ReentrantLock();
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
     private final DistributedReentrantLock lock;
@@ -213,7 +219,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     // Indicates whether there are writes that have been successfully transmitted that would need
     // a control record to be transmitted to make them visible to the readers by updating the last
     // add confirmed
-    private boolean controlFlushNeeded = false;
+    volatile private boolean controlFlushNeeded = false;
     private boolean immediateFlushEnabled = false;
     private int minDelayBetweenImmediateFlushMs = 0;
     private Stopwatch lastTransmit;
@@ -226,10 +232,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final boolean enableRecordCounts;
     private int positionWithinLogSegment = 0;
     private final long ledgerSequenceNumber;
+    // Used only for values that *could* change (e.g. buffer size etc.)
     private final DistributedLogConfiguration conf;
     private final ScheduledExecutorService executorService;
 
     // stats
+    private final StatsLogger envelopeStatsLogger;
     private final Counter transmitDataSuccesses;
     private final Counter transmitDataMisses;
     private final OpStatsLogger transmitDataPacketSize;
@@ -251,6 +259,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     protected BKPerStreamLogWriter(String streamName,
                                    String logSegmentName,
                                    DistributedLogConfiguration conf,
+                                   int logSegmentMetadataVersion,
                                    LedgerHandle lh, DistributedReentrantLock lock,
                                    long startTxId, long ledgerSequenceNumber,
                                    ScheduledExecutorService executorService,
@@ -274,6 +283,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             streamWriteLimiter, globalWriteLimiter);
 
         // stats
+        if (conf.getEnablePerStreamStat()) {
+            this.envelopeStatsLogger = statsLogger.scope(streamName);
+        } else {
+            this.envelopeStatsLogger = statsLogger;
+        }
         StatsLogger flushStatsLogger = statsLogger.scope("flush");
         StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
         pFlushSuccesses = pFlushStatsLogger.getCounter("success");
@@ -307,6 +321,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         outstandingTransmits = new AtomicInteger(0);
         this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
+        this.streamName = streamName;
+        this.logSegmentMetadataVersion = logSegmentMetadataVersion;
         this.lh = lh;
         this.lock = lock;
         this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
@@ -355,6 +371,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         assert(!this.immediateFlushEnabled || (null != this.executorService));
         this.closed = false;
         this.lastTransmit = Stopwatch.createStarted();
+        this.compressionType = CompressionUtils.stringToType(conf.getCompressionType());
     }
 
     String getFullyQualifiedLogSegment() {
@@ -381,6 +398,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private BKTransmitPacket getTransmitPacket() {
         return new BKTransmitPacket(ledgerSequenceNumber,
             Math.max(transmissionThreshold, getAverageTransmitSize()));
+    }
+
+    private boolean envelopeBeforeTransmit() {
+        return LogSegmentLedgerMetadata.supportsEnvelopedEntries(logSegmentMetadataVersion);
     }
 
     public void closeToFinalize() throws IOException {
@@ -837,53 +858,93 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
      * Transmit the current buffer to bookkeeper.
      * Synchronised at the class. #write() and #setReadyToFlush()
      * are never called at the same time.
+     *
+     * NOTE: This method should only throw known exceptions so that we don't accidentally
+     *       add new code that throws in an inappropriate place.
      */
-    synchronized private boolean transmit(boolean isControl)
-        throws BKTransmitException, LockingException {
-        checkWriteLock();
+    private boolean transmit(boolean isControl)
+        throws BKTransmitException, LockingException, WriteException {
+        BKTransmitPacket packet;
+        transmitLock.lock();
+        try {
+            synchronized (this) {
+                checkWriteLock();
+                // If transmitResult is anything other than BKException.Code.OK, it means that the
+                // stream has encountered an error and cannot be written to.
+                if (!transmitResult.compareAndSet(BKException.Code.OK,
+                                                  BKException.Code.OK)) {
+                    LOG.error("Log Segment {} Trying to write to an errored stream; Error is {}",
+                              fullyQualifiedLogSegment,
+                              BKException.getMessage(transmitResult.get()));
+                    throw new BKTransmitException("Trying to write to an errored stream;"
+                                                          + " Error code : (" + transmitResult.get()
+                                                          + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
+                }
 
-        if (!transmitResult.compareAndSet(BKException.Code.OK,
-            BKException.Code.OK)) {
-            LOG.error("Log Segment {} Trying to write to an errored stream; Error is {}",
-                fullyQualifiedLogSegment,
-                BKException.getMessage(transmitResult.get()));
-            throw new BKTransmitException("Trying to write to an errored stream;"
-                + " Error code : (" + transmitResult.get()
-                + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
-        }
+                if (packetCurrent.getBuffer().size() == 0) {
+                    // Control flushes always have at least the control record to flush
+                    transmitDataMisses.inc();
+                    return false;
+                }
 
-        if (packetCurrent.getBuffer().size() > 0) {
-            BKTransmitPacket packet = packetCurrent;
-            packet.setControl(isControl);
-            outstandingBytes = 0;
-            packetCurrent = getTransmitPacket();
-            packetPrevious = packet;
-            writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
-            lastTxIdFlushed = lastTxId;
+                packet = packetCurrent;
+                packet.setControl(isControl);
+                outstandingBytes = 0;
+                packetCurrent = getTransmitPacket();
+                packetPrevious = packet;
+                writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
+                lastTxIdFlushed = lastTxId;
 
-            if (!isControl) {
-                numBytes += packet.getBuffer().size();
-                numFlushesSinceRestart++;
+                if (!isControl) {
+                    numBytes += packet.getBuffer().size();
+                    numFlushesSinceRestart++;
+                }
             }
 
-            lh.asyncAddEntry(packet.getBuffer().getData(), 0, packet.getBuffer().size(),
-                this, packet);
-
-            if (isControl) {
-                transmitDataSuccesses.inc();
-            } else {
-                transmitControlSuccesses.inc();
+            Buffer toSend = packet.getBuffer();
+            if (envelopeBeforeTransmit()) {
+                try {
+                    // We can't escape this allocation because things need to be read from one byte array
+                    // and then written to another. This is the destination.
+                    toSend = new Buffer(packet.getBuffer().size());
+                    byte[] decompressed = packet.getBuffer().getData();
+                    int length = packet.getBuffer().size();
+                    EnvelopedEntry entry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
+                                                              compressionType,
+                                                              decompressed,
+                                                              length,
+                                                              envelopeStatsLogger);
+                    // This will cause an allocation of a byte[] for compression. This can be avoided
+                    // but we can do that later only if needed.
+                    entry.writeFully(new DataOutputStream(toSend));
+                } catch (IOException e) {
+                    LOG.error("Exception while enveloping entries for segment: {}",
+                              new Object[] {fullyQualifiedLogSegment}, e);
+                    // If a write fails here, we need to set the transmit result to an error so that
+                    // no future writes go through and violate ordering guarantees.
+                    transmitResult.set(BKException.Code.WriteException);
+                    throw new WriteException(streamName, "Envelope Error");
+                }
             }
 
-            lastTransmit.reset().start();
-            outstandingTransmits.incrementAndGet();
-            controlFlushNeeded = false;
+            synchronized (this) {
+                lh.asyncAddEntry(toSend.getData(), 0, toSend.size(),
+                                 this, packet);
+
+                if (isControl) {
+                    transmitControlSuccesses.inc();
+                } else {
+                    transmitDataSuccesses.inc();
+                }
+
+                lastTransmit.reset().start();
+                outstandingTransmits.incrementAndGet();
+                controlFlushNeeded = false;
+            }
             return true;
-        } else {
-            // Control flushes always have at least the control record to flush
-            transmitDataMisses.inc();
+        } finally {
+            transmitLock.unlock();
         }
-        return false;
     }
 
     /**

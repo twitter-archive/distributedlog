@@ -1,20 +1,22 @@
 package com.twitter.distributedlog;
 
-import com.twitter.util.Future;
-import com.twitter.util.FutureEventListener;
-import com.twitter.util.Promise;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 
 /**
  * Utility function for readers
@@ -127,6 +129,7 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             LedgerHandleCache handleCache,
+            final LogSegmentLedgerMetadata metadata,
             final ExecutorService executorService,
             final ScanContext context,
             final LogRecordSelector selector) {
@@ -159,7 +162,7 @@ public class ReadUtils {
                                         LedgerEntry entry = entries.nextElement();
                                         try {
                                             visitEntryRecords(
-                                                streamName, ledgerDescriptor.getLedgerSequenceNo(), entry, context, selector);
+                                                streamName, metadata, ledgerDescriptor.getLedgerSequenceNo(), entry, context, selector);
                                         } catch (IOException ioe) {
                                             // exception is only thrown due to bad ledger entry, so it might be corrupted
                                             // we shouldn't do anything beyond this point. throw the exception to application
@@ -199,11 +202,12 @@ public class ReadUtils {
      */
     private static void visitEntryRecords(
             String streamName,
+            LogSegmentLedgerMetadata metadata,
             long ledgerSeqNo,
             LedgerEntry entry,
             ScanContext context,
             LogRecordSelector selector) throws IOException {
-        LogRecord.Reader reader = new LedgerEntryReader(streamName, ledgerSeqNo, entry);
+        LogRecord.Reader reader = new LedgerEntryReader(streamName, ledgerSeqNo, entry, metadata.getEnvelopeEntries(), new NullStatsLogger());
         LogRecordWithDLSN nextRecord = reader.readOp();
         while (nextRecord != null) {
             LogRecordWithDLSN record = nextRecord;
@@ -239,11 +243,12 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
+            final LogSegmentLedgerMetadata metadata,
             final ExecutorService executorService,
             final Promise<LogRecordWithDLSN> promise,
             final ScanContext context,
             final LogRecordSelector selector) {
-        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService, context, selector)
+        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, metadata, executorService, context, selector)
                 .addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
                     @Override
                     public void onSuccess(LogRecordWithDLSN value) {
@@ -265,6 +270,7 @@ public class ReadUtils {
                         asyncReadRecordFromEntries(streamName,
                                 ledgerDescriptor,
                                 handleCache,
+                                metadata,
                                 executorService,
                                 promise,
                                 context,
@@ -282,6 +288,7 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
+            final LogSegmentLedgerMetadata metadata,
             final ExecutorService executorService,
             final int scanStartBatchSize,
             final int scanMaxBatchSize,
@@ -310,7 +317,7 @@ public class ReadUtils {
                 startEntryId, lastAddConfirmed,
                 scanStartBatchSize, scanMaxBatchSize,
                 includeControl, includeEndOfStream, backward, numRecordsScanned);
-        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, executorService,
+        asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, metadata, executorService,
                                    promise, context, selector);
     }
 
@@ -441,7 +448,7 @@ public class ReadUtils {
                                         (backward ? "backward" : "forward"), streamName, l });
                             }
                             asyncReadRecordFromLedger(
-                                    streamName, ledgerDescriptor, handleCachePriv, executorService,
+                                    streamName, ledgerDescriptor, handleCachePriv, l, executorService,
                                     scanStartBatchSize, scanMaxBatchSize,
                                     includeControl, includeEndOfStream,
                                     promise, numRecordsScanned, selector, backward, startEntryId);

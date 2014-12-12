@@ -1,17 +1,10 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.bk.LedgerAllocator;
-import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
-import com.twitter.distributedlog.exceptions.DLIllegalStateException;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-import com.twitter.distributedlog.exceptions.ZKException;
-
-import com.twitter.distributedlog.util.PermitLimiter;
-
-import com.twitter.distributedlog.zk.DataWithStat;
-import com.twitter.util.FuturePool;
+import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -24,11 +17,16 @@ import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
+import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.zk.DataWithStat;
+import com.twitter.util.FuturePool;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -284,7 +282,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             }
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
-            return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf,
+            return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
                 lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger, writeLimiter);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed

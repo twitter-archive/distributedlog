@@ -781,7 +781,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.info("Created inprogress log segment {} for {} : {}",
                      new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName,
-                conf, lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger,
                 writeLimiter);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);

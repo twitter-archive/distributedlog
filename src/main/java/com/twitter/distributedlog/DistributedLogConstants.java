@@ -1,14 +1,13 @@
 package com.twitter.distributedlog;
 
-import com.google.common.collect.ImmutableList;
-import org.apache.bookkeeper.shims.Version;
-import org.apache.zookeeper.data.ACL;
-import org.apache.zookeeper.ZooDefs.Ids;
-
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import com.twitter.distributedlog.exceptions.InternalServerException;
+import com.google.common.collect.ImmutableList;
+
+import org.apache.bookkeeper.shims.Version;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.ACL;
 
 public class DistributedLogConstants {
     public static final long INVALID_TXID = -999;

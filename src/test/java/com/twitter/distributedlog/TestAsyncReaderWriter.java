@@ -787,6 +787,23 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         testSimpleAsyncReadWriteInternal("distrlog-simpleasyncreadwrite-imm-flush", true);
     }
 
+    /**
+     * Test if entries written using log segment metadata that doesn't support enveloping
+     * can be read correctly by a reader supporting both.
+     *
+     * NOTE: An older reader cannot read enveloped entry, so we don't have a test case covering
+     *       the other scenario.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testNoEnvelopeWriterEnvelopeReader() throws Exception {
+        System.out.println("envelop test start");
+        testSimpleAsyncReadWriteInternal("distributedlog-envelope-test", true,
+                                         LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value - 1);
+        System.out.println("envelop test end");
+    }
+
     class WriteFutureEventListener implements FutureEventListener<DLSN> {
         private final LogRecord record;
         private final long currentLedgerSeqNo;
@@ -826,13 +843,20 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         }
     }
 
+    public void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush)
+            throws Exception {
+        testSimpleAsyncReadWriteInternal(name, immediateFlush,
+                                         LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+    }
 
-    public void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush) throws Exception {
+    public void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush,
+                                                 int logSegmentVersion) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
+        confLocal.setDLLedgerMetadataLayoutVersion(logSegmentVersion);
         confLocal.setImmediateFlushEnabled(immediateFlush);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 

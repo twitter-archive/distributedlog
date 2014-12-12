@@ -17,6 +17,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 
 public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
@@ -282,6 +283,16 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE = "globalOutstandingWriteLimitDarkmode";
     public static final boolean BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
+
+    /**
+     *  CompressionCodec.Type     String to use (See CompressionUtils)
+     *  ---------------------     ------------------------------------
+     *          NONE               none
+     *          LZ4                lz4
+     *          UNKNOWN            any other instance of String.class
+     */
+    public static final String BKDL_COMPRESSION_TYPE = "compressionType";
+    public static final String BKDL_COMPRESSION_TYPE_DEFAULT = "none";
 
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
@@ -2025,5 +2036,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * The compression type to use while sending data to bookkeeper.
+     * @return
+     */
+    public String getCompressionType() {
+        return getString(BKDL_COMPRESSION_TYPE, BKDL_COMPRESSION_TYPE_DEFAULT);
+    }
 
+    /**
+     * Set the compression type to use while sending data to bookkeeper.
+     * @param compressionType
+     *          CompressionCodec.Type     String to use (see CompressionUtils)
+     *          ---------------------     ------------------------------------
+     *                  NONE               none
+     *                  LZ4                lz4
+     *                  UNKNOWN            any other instance of String.class
+     * @return
+     */
+    public DistributedLogConfiguration setCompressionType(String compressionType) {
+        Preconditions.checkArgument(null != compressionType && !compressionType.isEmpty());
+        setProperty(BKDL_COMPRESSION_TYPE, compressionType);
+        return this;
+    }
 }

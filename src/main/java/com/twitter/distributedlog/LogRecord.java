@@ -31,6 +31,30 @@ import org.slf4j.LoggerFactory;
  * Helper classes for reading the ops from an InputStream.
  * All ops derive from LogRecord and are only
  * instantiated from Reader#readOp()
+
+ * Data type in brackets. Interpretation should be on the basis of data types and not individual
+ * bytes to honor Endianness.
+ *
+ * LogRecord structure:
+ * -------------------
+ * Bytes 0 - 7                      : Metadata (Long)
+ * Bytes 8 - 15                     : TxId (Long)
+ * Bytes 16 - 19                    : Payload length (Integer)
+ * Bytes 20 - 20+payload.length-1   : Payload (Byte[])
+ *
+ * Metadata: 8 Bytes (Long)
+ * --------
+ *
+ * 0x 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ *            |_____________| |_____|
+ *                   |           |
+ *               position      flags
+ *
+ * Flags: 2 Bytes (least significant)
+ * -----
+ * Bit  0      : If set, control record, else record with payload.
+ * Bit  1      : If set, end of stream.
+ * Bits 2 - 15 : Unused
  */
 public class LogRecord {
     static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);

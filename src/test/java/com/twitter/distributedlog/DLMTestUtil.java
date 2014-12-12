@@ -382,7 +382,7 @@ public class DLMTestUtil {
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         if (writeEntries) {
             long txid = startTxID;
@@ -423,7 +423,7 @@ public class DLMTestUtil {
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         long txid = startTxID;
         DLSN wrongDLSN = null;

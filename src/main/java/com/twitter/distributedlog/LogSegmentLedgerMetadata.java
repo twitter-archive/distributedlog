@@ -17,8 +17,11 @@
  */
 package com.twitter.distributedlog;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.Comparator;
+
 import com.google.common.annotations.VisibleForTesting;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
@@ -28,9 +31,7 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Comparator;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -45,9 +46,10 @@ public class LogSegmentLedgerMetadata {
         VERSION_INVALID(0),
         VERSION_V1_ORIGINAL(1),
         VERSION_V2_LEDGER_SEQNO(2),
-        VERSION_V3_MIN_ACTIVE_DLSN(3);
+        VERSION_V3_MIN_ACTIVE_DLSN(3),
+        VERSION_V4_ENVELOPED_ENTRIES(4);
 
-        private final int value;
+        public final int value;
 
         private LogSegmentLedgerMetadataVersion(int value) {
             this.value = value;
@@ -79,6 +81,13 @@ public class LogSegmentLedgerMetadata {
         protected long minActiveEntryId;
         protected long minActiveSlotId;
         protected boolean inprogress;
+
+        // This is a derived attribute.
+        // Since we overwrite the original version with the target version, information that is
+        // derived from the original version (e.g. does it support enveloping of entries)
+        // is lost while parsing.
+        // NOTE: This value is not stored in the Metadata store.
+        protected boolean envelopeEntries = false;
 
         LogSegmentLedgerMetadataBuilder(String zkPath,
                                         LogSegmentLedgerMetadataVersion version,
@@ -161,6 +170,11 @@ public class LogSegmentLedgerMetadata {
             return this;
         }
 
+        LogSegmentLedgerMetadataBuilder setEnvelopeEntries(boolean envelopeEntries) {
+            this.envelopeEntries = envelopeEntries;
+            return this;
+        }
+
         LogSegmentLedgerMetadataBuilder setMinActiveEntryId(long minActiveEntryId) {
             this.minActiveEntryId = minActiveEntryId;
             return this;
@@ -187,7 +201,8 @@ public class LogSegmentLedgerMetadata {
                 regionId,
                 status,
                 minActiveEntryId,
-                minActiveSlotId
+                minActiveSlotId,
+                envelopeEntries
             );
         }
 
@@ -258,6 +273,12 @@ public class LogSegmentLedgerMetadata {
     private DLSN lastDLSN = DLSN.InvalidDLSN;
     private DLSN minActiveDLSN = DLSN.InitialDLSN;
     private boolean inprogress;
+    // This is a derived attribute.
+    // Since we overwrite the original version with the target version, information that is
+    // derived from the original version (e.g. does it support enveloping of entries)
+    // is lost while parsing.
+    // NOTE: This value is not stored in the Metadata store.
+    private final boolean envelopeEntries;
 
     public static final Comparator COMPARATOR
         = new Comparator<LogSegmentLedgerMetadata>() {
@@ -333,7 +354,7 @@ public class LogSegmentLedgerMetadata {
                                      LogSegmentLedgerMetadataVersion version,
                                      long ledgerId,
            long firstTxId, long lastTxId, long completionTime, boolean inprogress, int recordCount,
-           long ledgerSequenceNumber, long lastEntryId, long lastSlotId, int regionId, long status, long minActiveEntryId, long minActiveSlotId) {
+           long ledgerSequenceNumber, long lastEntryId, long lastSlotId, int regionId, long status, long minActiveEntryId, long minActiveSlotId, boolean envelopeEntries) {
         this.zkPath = zkPath;
         this.ledgerId = ledgerId;
         this.version = version;
@@ -346,6 +367,7 @@ public class LogSegmentLedgerMetadata {
         this.minActiveDLSN = new DLSN(ledgerSequenceNumber, minActiveEntryId, minActiveSlotId);
         this.regionId = regionId;
         this.status = status;
+        this.envelopeEntries = envelopeEntries;
     }
 
     public String getZkPath() {
@@ -376,8 +398,12 @@ public class LogSegmentLedgerMetadata {
         return lastDLSN.getLedgerSequenceNo();
     }
 
-    int getVersion() {
+    public int getVersion() {
         return version.value;
+    }
+
+    public boolean getEnvelopeEntries() {
+        return envelopeEntries;
     }
 
     public long getLastEntryId() {
@@ -598,13 +624,16 @@ public class LogSegmentLedgerMetadata {
 
     }
 
-    static LogSegmentLedgerMetadata parseDataLatestVersion(String path, byte[] data, String[] parts, int targetVersion)
+    static LogSegmentLedgerMetadata parseDataVersionGreaterThan2(String path, byte[] data,
+                                                                 String[] parts, int targetVersion
+    )
         throws IOException {
         long versionStatusCount = Long.valueOf(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
-        assert (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version);
+        assert (LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version &&
+                LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version);
 
         int regionId = (int)((versionStatusCount & REGION_MASK) >> REGION_SHIFT);
         assert (regionId >= 0 && regionId <= 0xf);
@@ -619,13 +648,16 @@ public class LogSegmentLedgerMetadata {
             long minActiveEntryId = Long.valueOf(parts[4]);
             long minActiveSlotId = Long.valueOf(parts[5]);
 
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, txId)
+            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, txId)
                 .setLedgerSequenceNo(ledgerSequenceNumber)
                 .setMinActiveEntryId(minActiveEntryId)
                 .setMinActiveSlotId(minActiveSlotId)
                 .setRegionId(regionId)
-                .setStatus(status)
-                .build();
+                .setStatus(status);
+            if (supportsEnvelopedEntries((int) version)) {
+                builder = builder.setEnvelopeEntries(true);
+            }
+            return builder.build();
         } else if (parts.length == 10) {
             long recordCount = (versionStatusCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
@@ -639,7 +671,7 @@ public class LogSegmentLedgerMetadata {
             long lastSlotId = Long.valueOf(parts[7]);
             long minActiveEntryId = Long.valueOf(parts[8]);
             long minActiveSlotId = Long.valueOf(parts[9]);
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, firstTxId)
+            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
@@ -650,8 +682,11 @@ public class LogSegmentLedgerMetadata {
                 .setMinActiveEntryId(minActiveEntryId)
                 .setMinActiveSlotId(minActiveSlotId)
                 .setRegionId(regionId)
-                .setStatus(status)
-                .build();
+                .setStatus(status);
+            if (supportsEnvelopedEntries((int) version)) {
+                builder = builder.setEnvelopeEntries(true);
+            }
+            return builder.build();
         } else {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
@@ -674,11 +709,19 @@ public class LogSegmentLedgerMetadata {
         } else if (LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value == version) {
             return parseDataV2(path, data, parts, targetVersion);
         } else if (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version) {
-            return parseDataLatestVersion(path, data, parts, targetVersion);
+            return parseDataVersionGreaterThan2(path, data, parts, targetVersion);
         } else {
             throw new IOException("Unsupported log segment ledger metadata version, "
                 + new String(data, UTF_8));
         }
+    }
+
+    /**
+     * Whether the provided version supports enveloping entries before writing to bookkeeper.
+     * @param version
+     */
+    public static boolean supportsEnvelopedEntries(int version) {
+        return version >= LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value;
     }
 
     public String getFinalisedData() {

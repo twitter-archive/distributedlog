@@ -1,21 +1,21 @@
 package com.twitter.distributedlog;
 
+import java.io.IOException;
+import java.net.URI;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
+import scala.runtime.BoxedUnit;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-
-import com.twitter.distributedlog.exceptions.DLIllegalStateException;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.LockCancelledException;
-import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.stats.AlertStatsLogger;
-import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
-
-import com.twitter.util.ExceptionalFunction;
-import com.twitter.util.ExceptionalFunction0;
-import com.twitter.util.ExecutorServiceFuturePool;
-import com.twitter.util.FutureEventListener;
-import com.twitter.util.Future;
-import com.twitter.util.Promise;
 
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -36,19 +36,18 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.Enumeration;
-import java.util.List;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
-import scala.runtime.BoxedUnit;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.LockCancelledException;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
+import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
+import com.twitter.util.ExceptionalFunction;
+import com.twitter.util.ExceptionalFunction0;
+import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -1534,7 +1533,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             nextReadAheadPosition.advance();
 
                             ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()),
-                                                   entry, null != ctx ? ctx.toString() : "");
+                                                   entry, null != ctx ? ctx.toString() : "", currentMetadata.getEnvelopeEntries());
 
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
@@ -1628,7 +1627,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             nextReadAheadPosition.advance();
                             LedgerEntry e = seq.nextElement();
                             LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLedgerSequenceNumber(), e.getEntryId());
-                            ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "");
+                            ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "", currentMetadata.getEnvelopeEntries());
                             ++numReads;
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Read entry {} of {}.", readPosition, fullyQualifiedName);

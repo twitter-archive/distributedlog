@@ -1,14 +1,35 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.client.LedgerEntry;
-
 import java.io.DataInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Help class on reading records batched in a {@link org.apache.bookkeeper.client.LedgerEntry}.
  */
 public class LedgerEntryReader extends LogRecord.Reader {
+
+    private final static Logger LOGGER = LoggerFactory.getLogger(LedgerEntryReader.class);
+
+    public static DataInputStream getInputStream(InputStream src, boolean envelopeEntries,
+                                                 StatsLogger statsLogger) {
+        InputStream stream = src;
+        if (envelopeEntries) {
+            try {
+                stream = EnvelopedEntry.fromInputStream(src, statsLogger);
+            } catch (IOException e) {
+                LOGGER.error("Exception while decompressing entry.", e);
+                throw new Error("Error while decompressing entry", e);
+            }
+        }
+        return new DataInputStream(stream);
+    }
+
     /**
      * Construct the reader
      *
@@ -18,9 +39,12 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          ledger sequence number
      * @param ledgerEntry
      *          ledger entry
+     * @param envelopeEntries
+     *          Are the entries enveloped.
      */
-    public LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry) {
-        this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream());
+    public LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry,
+                             final boolean envelopeEntries, StatsLogger statsLogger) {
+        this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(), envelopeEntries, statsLogger);
     }
 
     /**
@@ -35,7 +59,8 @@ public class LedgerEntryReader extends LogRecord.Reader {
      * @param in
      *          input stream of the data
      */
-    public LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in) {
+    public LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in,
+                             final boolean envelopeEntries, StatsLogger statsLogger) {
         super(new RecordStream() {
             long slotId = 0;
 
@@ -53,6 +78,6 @@ public class LedgerEntryReader extends LogRecord.Reader {
             public String getName() {
                 return name;
             }
-        }, new DataInputStream(in), 0);
+        }, getInputStream(in, envelopeEntries, statsLogger), 0);
     }
 }

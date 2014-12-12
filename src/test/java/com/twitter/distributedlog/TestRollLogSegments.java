@@ -5,14 +5,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
-import com.twitter.util.Await;
-import com.twitter.util.Function0;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
+import com.twitter.util.Await;
+import com.twitter.util.Function0;
 import com.twitter.util.FutureEventListener;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -264,6 +265,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         assertEquals(expectedReaderPosition, readPosition.getEntryId());
     }
 
+    @FlakyTest
     @Test(timeout = 60000)
     public void testCaughtUpReaderOnLogSegmentRolling() throws Exception {
         String name = "distrlog-caughtup-reader-on-logsegment-rolling";

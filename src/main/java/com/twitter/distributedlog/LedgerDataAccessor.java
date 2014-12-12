@@ -1,13 +1,5 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.OpStatsLogger;
-import org.apache.bookkeeper.stats.StatsLogger;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -18,9 +10,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.RetryableReadException;
 
 public class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
@@ -37,6 +35,7 @@ public class LedgerDataAccessor {
     private final Counter readAheadAddMisses;
     private final OpStatsLogger readAheadDeliveryLatencyStat;
     private final OpStatsLogger negativeReadAheadDeliveryLatencyStat;
+    private final StatsLogger statsLogger;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
     private final ConcurrentLinkedQueue<LogRecordWithDLSN> readAheadRecords;
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
@@ -59,6 +58,7 @@ public class LedgerDataAccessor {
         this.ledgerHandleCache = ledgerHandleCache;
         this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
+        this.statsLogger = readAheadStatsLogger;
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
@@ -231,13 +231,13 @@ public class LedgerDataAccessor {
         return record;
     }
 
-    public void set(LedgerReadPosition key, LedgerEntry entry, String reason) {
+    public void set(LedgerReadPosition key, LedgerEntry entry, String reason, boolean envelopeEntries) {
         LOG.trace("Set Called");
         if (null != readAheadCache) {
             setReadAheadCacheEntry(key, entry);
         } else {
             LOG.trace("Calling process");
-            processNewLedgerEntry(key, entry, reason);
+            processNewLedgerEntry(key, entry, reason, envelopeEntries);
             AsyncNotification n = notification;
             if (null != n) {
                 n.notifyOnOperationComplete();
@@ -355,8 +355,9 @@ public class LedgerDataAccessor {
     }
 
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
-                               final String reason) {
-        LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(), ledgerEntry);
+                               final String reason, boolean envelopeEntries) {
+        LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
+                                                        ledgerEntry, envelopeEntries, statsLogger);
         try {
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();

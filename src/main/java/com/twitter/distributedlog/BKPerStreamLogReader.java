@@ -17,7 +17,14 @@
  */
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Stopwatch;
+
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -26,13 +33,7 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.concurrent.TimeUnit;
-
-import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 
 /**
  * Input stream which reads from a BookKeeper ledger.
@@ -90,7 +91,7 @@ class BKPerStreamLogReader {
     protected synchronized void positionInputStream(LedgerDescriptor desc, LedgerDataAccessor ledgerDataAccessor,
                                                     long firstBookKeeperEntry)
         throws IOException {
-        this.lin = new LedgerInputStream(fullyQualifiedName, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger, enableTrace);
+        this.lin = new LedgerInputStream(fullyQualifiedName, logVersion, desc, ledgerDataAccessor, firstBookKeeperEntry, statsLogger, enableTrace);
         this.reader = new LogRecord.Reader(lin, new DataInputStream(
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
@@ -188,6 +189,7 @@ class BKPerStreamLogReader {
         private InputStream entryStream = null;
         LedgerReadPosition readPosition = null;
         private long currentSlotId = 0;
+        private final int logVersion;
         private final LedgerDescriptor ledgerDesc;
         private LedgerDataAccessor ledgerDataAccessor;
         private final String fullyQualifiedName;
@@ -195,6 +197,7 @@ class BKPerStreamLogReader {
         private boolean enableTrace = false;
 
         // Stats
+        private final StatsLogger statsLogger;
         private final Counter getWithNoWaitCount;
         private final Counter getWithWaitCount;
         private final OpStatsLogger getWithNoWaitStat;
@@ -208,17 +211,19 @@ class BKPerStreamLogReader {
          * @param ledgerDataAccessor ledger data accessor
          * @param firstBookKeeperEntry ledger entry to start reading from
          */
-        LedgerInputStream(String fullyQualifiedName,
+        LedgerInputStream(String fullyQualifiedName, int logVersion,
                           LedgerDescriptor ledgerDesc, LedgerDataAccessor ledgerDataAccessor,
                           long firstBookKeeperEntry, StatsLogger statsLogger, boolean enableTrace) {
             LOG.debug("{} : First BookKeeper Entry {}", fullyQualifiedName, firstBookKeeperEntry);
             this.fullyQualifiedName = fullyQualifiedName;
+            this.logVersion = logVersion;
             this.ledgerDesc = ledgerDesc;
             readEntries = firstBookKeeperEntry;
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.enableTrace = enableTrace;
 
             StatsLogger getEntryStatsLogger = statsLogger.scope("get_entry");
+            this.statsLogger = getEntryStatsLogger;
             getWithWaitCount = getEntryStatsLogger.getCounter("block");
             getWithNoWaitCount = getEntryStatsLogger.getCounter("no_block");
             getWithNoWaitStat = getEntryStatsLogger.getOpStatsLogger("no_block_latency");
@@ -240,6 +245,10 @@ class BKPerStreamLogReader {
             } else {
                 return getWithWaitStat;
             }
+        }
+
+        private boolean shouldRemoveEnvelope() {
+            return LogSegmentLedgerMetadata.supportsEnvelopedEntries(logVersion);
         }
 
         /**
@@ -283,7 +292,12 @@ class BKPerStreamLogReader {
             ledgerDataAccessor.remove(readPosition);
             readEntries++;
             currentSlotId = 0;
-            return e.getEntryInputStream();
+            InputStream ret = e.getEntryInputStream();
+            if (shouldRemoveEnvelope()) {
+                // Decompress here.
+                ret = EnvelopedEntry.fromInputStream(ret, statsLogger);
+            }
+            return ret;
         }
 
         @Override
