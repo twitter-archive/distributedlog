@@ -1301,7 +1301,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
                                             new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
                                     callbackImmediately = setMetadataNotification(pCallback);
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), true, pCallback, ctx);
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
+                                            conf.getReadLACLongPollTimeout(), true, pCallback, ctx);
                                     pCallback.callbackImmediately(callbackImmediately);
                                     readAheadReadLACAndEntryCounter.inc();
                                     break;
@@ -1310,7 +1311,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
                                             new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
                                     callbackImmediately = setMetadataNotification(sCallback);
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, conf.getReadLACLongPollTimeout(), false, sCallback, ctx);
+                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
+                                            conf.getReadLACLongPollTimeout(), false, sCallback, ctx);
                                     sCallback.callbackImmediately(callbackImmediately);
                                     readAheadReadLACAndEntryCounter.inc();
                                     break;

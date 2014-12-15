@@ -47,7 +47,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <bookkeeper.version>4.2.21-TWTTR-NETTY</bookkeeper.version>
+    <bookkeeper.version>4.2.22-TWTTR-NETTY</bookkeeper.version>
     <birdcage.sha>20141105130443-d5b6c6c</birdcage.sha> <!-- go/publishing-birdcage -->
     <scrooge-maven-plugin.version>3.16.3</scrooge-maven-plugin.version>
   </properties>
