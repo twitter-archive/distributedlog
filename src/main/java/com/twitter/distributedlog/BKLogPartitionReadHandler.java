@@ -840,6 +840,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
         final ReadAheadTracker tracker;
         final Stopwatch resumeStopWatch;
+        final Stopwatch lastLedgerCloseDetected = Stopwatch.createUnstarted();
 
         // ReadAhead Status
         private volatile boolean isCatchingUp = true;
@@ -954,14 +955,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             exceptionHandler.process(returnCode);
         }
 
-        private void closeCurrentLedgerHandle() {
+        private boolean closeCurrentLedgerHandle() {
             if (currentLH == null) {
-                return;
+                return true;
             }
+            boolean retVal = false;
             LedgerDescriptor ld = currentLH;
             try {
                 bkLedgerManager.getHandleCache().closeLedger(ld);
                 currentLH = null;
+                retVal = true;
             } catch (InterruptedException ie) {
                 LOG.debug("Interrupted during closing {} : ", ld, ie);
                 handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.InterruptedException);
@@ -969,6 +972,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 LOG.debug("BK Exception during closing {} : ", ld, bke);
                 handleException(ReadAheadPhase.CLOSE_LEDGER, bke.getCode());
             }
+
+            return retVal;
         }
 
         abstract class Phase {
@@ -1162,10 +1167,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                     }
                                 } else {
                                     // We are positioning on a new ledger => reset the current ledger handle
-                                    if (LOG.isTraceEnabled()) {
-                                        LOG.trace("Positioning {} on a new ledger {}", fullyQualifiedName, l);
+                                    LOG.trace("Positioning {} on a new ledger {}", fullyQualifiedName, l);
+
+                                    if (!closeCurrentLedgerHandle()) {
+                                        return;
                                     }
-                                    closeCurrentLedgerHandle();
                                 }
 
                                 nextReadAheadPosition = new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry);
@@ -1240,17 +1246,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         nextReadAheadPosition.definitelyLessThan(readerPosition)) {
                         LOG.info("{}: Advancing ReadAhead position to {}", fullyQualifiedName, readerPosition);
                         nextReadAheadPosition = readerPosition;
-                        if (null != currentLH) {
-                            try {
-                                bkLedgerManager.getHandleCache().closeLedger(currentLH);
-                                currentLH = null;
-                            } catch (InterruptedException ie) {
-                                exceptionHandler.process(BKException.Code.InterruptedException);
-                                return;
-                            } catch (BKException bke) {
-                                exceptionHandler.process(bke.getCode());
-                                return;
-                            }
+                        if (!closeCurrentLedgerHandle()) {
+                            return;
                         }
                         currentMetadata = null;
                         ledgerDataAccessor.purgeReadAheadCache(readerPosition);
@@ -1304,14 +1301,41 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false, this);
                     } else {
                         long lastAddConfirmed;
+                        boolean isClosed;
                         try {
+                            isClosed = bkLedgerManager.getHandleCache().isLedgerHandleClosed(currentLH);
                             lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
                         } catch (IOException ie) {
                             // Exception is thrown due to no ledger handle
                             handleException(ReadAheadPhase.OPEN_LEDGER, BKException.Code.NoSuchLedgerExistsException);
                             return;
                         }
+
                         if (lastAddConfirmed < nextReadAheadPosition.getEntryId()) {
+                            if (isClosed) {
+                                // This indicates that the currentMetadata is still marked in
+                                // progress while the ledger has been closed. This specific ledger
+                                // is not going to produce any more entries - so we should
+                                // be reading metadata entries to mark the current metadata
+                                // as complete
+                                if (lastLedgerCloseDetected.isRunning()) {
+                                    if (lastLedgerCloseDetected.elapsed(TimeUnit.MILLISECONDS)
+                                        > conf.getReaderIdleWarnThresholdMillis()) {
+                                        LOG.info("{} Ledger {} for inprogress segment {} closed for idle reader warn threshold",
+                                            new Object[] { fullyQualifiedName, currentMetadata, currentLH });
+                                        reInitializeMetadata = true;
+                                    }
+                                } else {
+                                    lastLedgerCloseDetected.reset().start();
+                                    if (conf.getTraceReadAheadMetadataChanges()) {
+                                        LOG.info("{} Ledger {} for inprogress segment {} closed",
+                                            new Object[] { fullyQualifiedName, currentMetadata, currentLH });
+                                    }
+                                }
+                            } else {
+                                lastLedgerCloseDetected.reset();
+                            }
+
                             tracker.enterPhase(ReadAheadPhase.READ_LAST_CONFIRMED);
 
                             // the readahead is caught up if current ledger is in progress and read position moves over last add confirmed
@@ -1382,13 +1406,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         }
                     }
                 } else {
+                    lastLedgerCloseDetected.reset();
                     if (null != currentLH) {
                         try {
                             if (inProgressChanged) {
-                                if (LOG.isTraceEnabled()) {
-                                    LOG.trace("Closing completed ledger of {} for {}.", currentMetadata, fullyQualifiedName);
+                                LOG.trace("Closing completed ledger of {} for {}.", currentMetadata, fullyQualifiedName);
+                                if (!closeCurrentLedgerHandle()) {
+                                    return;
                                 }
-                                closeCurrentLedgerHandle();
                                 inProgressChanged = false;
                             } else {
                                 long lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
@@ -1414,11 +1439,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                     new Object[] {currentMetadata, getFullyQualifiedName(), lastAddConfirmed});
                                         }
 
-                                        if (LOG.isTraceEnabled()) {
-                                            LOG.trace("Past the last Add Confirmed {} in ledger {} for {}",
-                                                      new Object[] { lastAddConfirmed, currentMetadata, fullyQualifiedName });
+                                        LOG.trace("Past the last Add Confirmed {} in ledger {} for {}",
+                                                  new Object[] { lastAddConfirmed, currentMetadata, fullyQualifiedName });
+                                        if (!closeCurrentLedgerHandle()) {
+                                            return;
                                         }
-                                        closeCurrentLedgerHandle();
                                         LogSegmentLedgerMetadata oldMetadata = currentMetadata;
                                         currentMetadata = null;
                                         if (currentMetadataIndex + 1 < ledgerList.size()) {
@@ -1461,9 +1486,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.NoSuchLedgerExistsException);
                         }
                     } else {
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Opening completed ledger of {} for {}.", currentMetadata, fullyQualifiedName);
-                        }
+                        LOG.trace("Opening completed ledger of {} for {}.", currentMetadata, fullyQualifiedName);
                         bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, true, this);
                     }
                 }
@@ -1507,8 +1530,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 new Object[] { fullyQualifiedName, currentLH, conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() });
                         // set current ledger handle to null, so it would be re-opened again.
                         // if the ledger does disappear, it would trigger re-initialize log segments on handling openLedger exceptions
-                        closeCurrentLedgerHandle();
-                        next.process(BKException.Code.OK);
+                        if (closeCurrentLedgerHandle()) {
+                            next.process(BKException.Code.OK);
+                        }
                         return;
                     } else {
                         if (LOG.isTraceEnabled()) {

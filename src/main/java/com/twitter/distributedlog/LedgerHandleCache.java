@@ -178,6 +178,17 @@ public class LedgerHandleCache {
         return refhandle.handle.getLastAddConfirmed();
     }
 
+    public boolean isLedgerHandleClosed(LedgerDescriptor ledgerDesc) throws IOException {
+        RefCountedLedgerHandle refhandle = getLedgerHandle(ledgerDesc);
+
+        if (null == refhandle) {
+            throw new IOException("Accessing Ledger without opening");
+        }
+
+        return refhandle.handle.isClosed();
+    }
+
+
     public void asyncTryReadLastConfirmed(LedgerDescriptor ledgerDesc,
                                           AsyncCallback.ReadLastConfirmedCallback callback, Object ctx) {
         RefCountedLedgerHandle refHandle = handlesMap.get(ledgerDesc);

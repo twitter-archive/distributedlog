@@ -54,6 +54,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private boolean lockStream = false;
 
+    private boolean disableReadAheadZKNotification = false;
+
     // Stats
     private final OpStatsLogger readNextExecTime;
     private final OpStatsLogger timeBetweenReadNexts;
@@ -202,6 +204,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 public void onSuccess(Void value) {
                     try {
                         bkLedgerManager.startReadAhead(new LedgerReadPosition(startDLSN), simulateErrors);
+                        if (disableReadAheadZKNotification) {
+                            bkLedgerManager.disableReadAheadZKNotification();
+                        }
                     } catch (Exception exc) {
                         setLastException(new IOException(exc));
                         notifyOnError();
@@ -416,6 +421,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         if (null != bkLedgerManager) {
             bkLedgerManager.simulateErrors();
         }
+    }
+
+    @VisibleForTesting
+    synchronized void disableReadAheadZKNotification() {
+        disableReadAheadZKNotification = true;
+        bkLedgerManager.disableReadAheadZKNotification();
     }
 }
 

@@ -1592,4 +1592,70 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
+    @Test(timeout = 10000)
+    public void testAsyncReadMissingZKNotification() throws Exception {
+        String name = "distrlog-async-reader-missing-zk-notification";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReaderIdleWarnThresholdMillis(100);
+        confLocal.setReaderIdleErrorThresholdMillis(2000);
+        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final Thread currentThread = Thread.currentThread();
+        final int segmentSize = 10;
+        final int numSegments = 3;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor.schedule(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        int txid = 1;
+                        for (long i = 0; i < numSegments; i++) {
+                            long start = txid;
+                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+                            for (long j = 1; j <= segmentSize; j++) {
+                                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
+                                if ((i == 0) && (j == 1)) {
+                                    latch.countDown();
+                                }
+                            }
+                            writer.closeAndComplete();
+                            Thread.sleep(100);
+                        }
+                    } catch (Exception exc) {
+                        if (!executor.isShutdown()) {
+                            currentThread.interrupt();
+                        }
+                    }
+                }
+            }, 0, TimeUnit.MILLISECONDS);
+
+        latch.await();
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN)dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        reader.disableReadAheadZKNotification();
+        boolean exceptionEncountered = false;
+        int recordCount = 0;
+        try {
+            while (true) {
+                Future<LogRecordWithDLSN> record = reader.readNext();
+                Await.result(record);
+                recordCount++;
+
+                if (recordCount >= segmentSize * numSegments) {
+                    break;
+                }
+            }
+        } catch (IdleReaderException exc) {
+            exceptionEncountered = true;
+        }
+        assert(!exceptionEncountered);
+        Assert.assertEquals(recordCount, segmentSize * numSegments);
+        assert(!currentThread.isInterrupted());
+        executor.shutdown();
+    }
 }
