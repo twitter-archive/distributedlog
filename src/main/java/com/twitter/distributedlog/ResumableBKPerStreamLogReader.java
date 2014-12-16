@@ -64,17 +64,6 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         resume(true);
     }
 
-    /**
-     * Construct BookKeeper log record input stream.
-     */
-    ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
-                                  ZooKeeperClient zkc,
-                                  LedgerDataAccessor ledgerDataAccessor,
-                                  LogSegmentLedgerMetadata metadata,
-                                  StatsLogger statsLogger) throws IOException {
-        this(ledgerManager, zkc, ledgerDataAccessor, metadata, 0, statsLogger);
-    }
-
     public LogSegmentLedgerMetadata getLogSegmentLedgerMetadata() {
         return metadata;
     }

@@ -48,6 +48,8 @@ public class LedgerDataAccessor {
     private final boolean traceDeliveryLatencyEnabled;
     private volatile boolean suppressDeliveryLatency = true;
     private final long deliveryLatencyWarnThresholdMillis;
+    private AtomicReference<DLSN> minActiveDLSN = new AtomicReference<DLSN>(DLSN.NonInclusiveLowerBound);
+
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
         this(ledgerHandleCache, streamName, statsLogger, null, false, DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS);
@@ -354,6 +356,10 @@ public class LedgerDataAccessor {
         this.suppressDeliveryLatency = suppressed;
     }
 
+    void setMinActiveDLSN(DLSN minActiveDLSN) {
+        this.minActiveDLSN.set(minActiveDLSN);
+    }
+
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
                                final String reason, boolean envelopeEntries) {
         LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
@@ -373,6 +379,10 @@ public class LedgerDataAccessor {
                 lastReadAheadDLSN = record.getDlsn();
 
                 if (record.isControl()) {
+                    continue;
+                }
+
+                if (minActiveDLSN.get().compareTo(record.getDlsn()) > 0) {
                     continue;
                 }
 

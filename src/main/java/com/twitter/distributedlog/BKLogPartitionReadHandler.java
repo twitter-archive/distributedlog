@@ -286,9 +286,20 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                 if (fromDLSN.compareTo(lastDLSN) <= 0) {
                     try {
+                        final DLSN positionDLSN;
                         long startBKEntry = 0;
-                        if(l.getLedgerSequenceNumber() == fromDLSN.getLedgerSequenceNo()) {
-                            startBKEntry = Math.max(0, fromDLSN.getEntryId());
+                        if (l.isPartiallyTruncated() && !conf.getIgnoreTruncationStatus()) {
+                            if (l.getMinActiveDLSN().compareTo(fromDLSN) > 0) {
+                                positionDLSN = l.getMinActiveDLSN();
+                            } else {
+                                positionDLSN = fromDLSN;
+                            }
+                        } else {
+                            positionDLSN = fromDLSN;
+                        }
+
+                        if(l.getLedgerSequenceNumber() == positionDLSN.getLedgerSequenceNo()) {
+                            startBKEntry = Math.max(startBKEntry, positionDLSN.getEntryId());
                         }
 
                         ResumableBKPerStreamLogReader s = new ResumableBKPerStreamLogReader(this,
@@ -299,10 +310,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                                     statsLogger);
 
 
-                        if (s.skipTo(fromDLSN)) {
-                            if (l.isTruncated() && conf.getAlertWhenPositioningOnTruncated()) {
-                                raiseAlert("Trying to position reader on {} when {} is marked truncated",
-                                    fromDLSN, l);
+                        if (s.skipTo(positionDLSN)) {
+                            if (conf.getAlertWhenPositioningOnTruncated()) {
+                                if (l.isTruncated()) {
+                                    raiseAlert("Trying to position reader on {} when {} is marked truncated",
+                                        fromDLSN, l);
+                                } else if (l.isPartiallyTruncated() && (fromDLSN.compareTo(l.getMinActiveDLSN()) < 0)) {
+                                    raiseAlert("Trying to position reader on {} when {} is marked partially truncated",
+                                        fromDLSN, l);
+                                }
                             }
                             return s;
                         } else {
@@ -391,8 +407,21 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                 if (fromTxId <= lastTxId) {
                     try {
+                        long startBKEntry = 0;
+                        if (l.isPartiallyTruncated() && !conf.getIgnoreTruncationStatus()) {
+                            startBKEntry = l.getMinActiveDLSN().getEntryId();
+                        }
+
+
                         ResumableBKPerStreamLogReader s
-                            = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, statsLogger);
+                            = new ResumableBKPerStreamLogReader(this, zooKeeperClient, ledgerDataAccessor, l, startBKEntry, statsLogger);
+
+                        if (l.isPartiallyTruncated() && !conf.getIgnoreTruncationStatus()) {
+                            if (!s.skipTo(l.getMinActiveDLSN())) {
+                                s.close();
+                                return null;
+                            }
+                        }
 
                         if (s.skipTo(fromTxId)) {
                             if (l.isTruncated() && conf.getAlertWhenPositioningOnTruncated()) {
@@ -1083,9 +1112,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 continue;
                             }
 
+                            DLSN nextReadDLSN = new DLSN(nextReadAheadPosition.getLedgerSequenceNumber(), nextReadAheadPosition.getEntryId(), -1);
+
                             // next read position still inside a log segment
-                            final boolean hasDataToRead = (l.getLastDLSN().compareTo(
-                                    new DLSN(nextReadAheadPosition.getLedgerSequenceNumber(), nextReadAheadPosition.getEntryId(), -1)) >= 0);
+                            final boolean hasDataToRead = (l.getLastDLSN().compareTo(nextReadDLSN) >= 0);
 
                             // either there is data to read in current log segment or we are moving over a log segment that is
                             // still inprogress or was inprogress, we have check (or maybe close) this log segment.
@@ -1094,6 +1124,25 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 ((l.isInProgress() || (null != currentMetadata && currentMetadata.isInProgress())) &&
                                         l.getLedgerSequenceNumber() == nextReadAheadPosition.getLedgerSequenceNumber());
 
+                            // If we are positioning on a partially truncated log segment then the truncation point should
+                            // be before the nextReadPosition
+                            if (l.isPartiallyTruncated() &&
+                                !isInitialPositioning &&
+                                (l.getMinActiveDLSN().compareTo(nextReadDLSN) > 0)) {
+                                if (conf.getAlertWhenPositioningOnTruncated()) {
+                                    bkLedgerManager.raiseAlert("Trying to position reader on {} when {} is marked partially truncated",
+                                        nextReadAheadPosition, l);
+                                }
+
+                                if (!conf.getIgnoreTruncationStatus()) {
+                                    LOG.error("{}: Trying to position reader on {} when {} is marked partially truncated",
+                                        new Object[]{ getFullyQualifiedName(), nextReadAheadPosition, l});
+                                    setReadingFromTruncated(tracker);
+                                    return;
+                                }
+                            }
+
+
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("CheckLogSegment : newMetadata = {}, currentMetadata = {}, nextReadAheadPosition = {}",
                                           new Object[] { l, currentMetadata, nextReadAheadPosition});
@@ -1101,8 +1150,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                             if (checkOrCloseLedger) {
                                 long startBKEntry = 0;
+                                if (l.isPartiallyTruncated() && !conf.getIgnoreTruncationStatus()) {
+                                    startBKEntry = l.getMinActiveDLSN().getEntryId();
+                                    ledgerDataAccessor.setMinActiveDLSN(l.getMinActiveDLSN());
+                                }
+
                                 if(l.getLedgerSequenceNumber() == nextReadAheadPosition.getLedgerSequenceNumber()) {
-                                    startBKEntry = Math.max(0, nextReadAheadPosition.getEntryId());
+                                    startBKEntry = Math.max(startBKEntry, nextReadAheadPosition.getEntryId());
                                     if (currentMetadata != null) {
                                         inProgressChanged = currentMetadata.isInProgress() && !l.isInProgress();
                                     }

@@ -1921,24 +1921,31 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+        confLocal.setOutputBufferSize(0);
 
         BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(confLocal, name);
-
+        DLSN truncDLSN = DLSN.InitialDLSN;
+        DLSN beyondTruncDLSN = DLSN.InitialDLSN;
+        long beyondTruncTxId = 1;
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             long start = txid;
-            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
-            for (long j = 1; j <= DEFAULT_SEGMENT_SIZE; j++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+            BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+            for (long j = 1; j <= 10; j++) {
+                LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
+                Future<DLSN> dlsn = writer.write(record);
+
+                if (i == 1 && j == 2) {
+                    truncDLSN = Await.result(dlsn);
+                } else if (i == 2 && j == 3) {
+                    beyondTruncDLSN = Await.result(dlsn);
+                    beyondTruncTxId = record.getTransactionId();
+                } else if (j == 10) {
+                    Await.ready(dlsn);
+                }
             }
 
-            BKPerStreamLogWriter perStreamLogWriter = writer.getCachedLogWriter(conf.getUnpartitionedStreamName());
-
-            writer.closeAndComplete();
-            BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
-            assertNotNull(zkc.exists(blplm.completedLedgerZNode(perStreamLogWriter.getLedgerHandle().getId(), start, txid - 1,
-                perStreamLogWriter.getLedgerSequenceNumber()), false));
-            blplm.close();
+            writer.close();
         }
 
         {
@@ -1980,9 +1987,9 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             long expectedTxId = 1L;
             boolean exceptionEncountered = false;
             try {
-                for (int i = 0; i < 3 * DEFAULT_SEGMENT_SIZE; i++) {
+                for (int i = 0; i < 3 * 10; i++) {
                     LogRecordWithDLSN record = Await.result(reader.readNext());
-                    DLMTestUtil.verifyLogRecord(record);
+                    DLMTestUtil.verifyLargeLogRecord(record);
                     assertEquals(expectedTxId, record.getTransactionId());
                     expectedTxId++;
                 }
@@ -1997,13 +2004,63 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         updater.setLogSegmentActive(segmentList.get(2L));
 
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
-        DLSN truncDLSN = new DLSN (2, 3, 0);
         Assert.assertTrue(Await.result(writer.truncate(truncDLSN)));
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
             String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
                 name, conf.getUnpartitionedStreamName())));
 
-        Assert.assertTrue(segmentList.get(2L).getMinActiveDLSN().compareTo(truncDLSN) == 0);
+        Assert.assertTrue(segmentList.get(truncDLSN.getLedgerSequenceNo()).getMinActiveDLSN().compareTo(truncDLSN) == 0);
+
+        {
+            LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assertTrue(record != null);
+            assertEquals(truncDLSN, record.getDlsn());
+            reader.close();
+        }
+
+        {
+            LogReader reader = dlm.getInputStream(1);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assertTrue(record != null);
+            assertEquals(truncDLSN, record.getDlsn());
+            reader.close();
+        }
+
+        {
+            AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            assertTrue(record != null);
+            assertEquals(truncDLSN, record.getDlsn());
+            reader.close();
+        }
+
+
+        {
+            LogReader reader = dlm.getInputStream(beyondTruncDLSN);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assertTrue(record != null);
+            assertEquals(beyondTruncDLSN, record.getDlsn());
+            reader.close();
+        }
+
+        {
+            LogReader reader = dlm.getInputStream(beyondTruncTxId);
+            LogRecordWithDLSN record = reader.readNext(false);
+            assertTrue(record != null);
+            assertEquals(beyondTruncDLSN, record.getDlsn());
+            assertEquals(beyondTruncTxId, record.getTransactionId());
+            reader.close();
+        }
+
+        {
+            AsyncLogReader reader = dlm.getAsyncLogReader(beyondTruncDLSN);
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            assertTrue(record != null);
+            assertEquals(beyondTruncDLSN, record.getDlsn());
+            reader.close();
+        }
+
 
         zookeeperClient.close();
     }
