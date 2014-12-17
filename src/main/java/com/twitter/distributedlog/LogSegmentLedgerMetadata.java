@@ -334,7 +334,7 @@ public class LogSegmentLedgerMetadata {
     };
 
     public static final int LEDGER_METADATA_CURRENT_LAYOUT_VERSION =
-                LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value;
+                LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value;
 
     static final int LOGRECORD_COUNT_SHIFT = 32;
     static final long LOGRECORD_COUNT_MASK = 0xffffffff00000000L;
@@ -516,6 +516,7 @@ public class LogSegmentLedgerMetadata {
                         LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
                         callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
                     } catch (IOException ie) {
+                        LOG.error("Error on parsing log segment metadata from {} : ", path, ie);
                         // as we don't have return code for distributedlog. for now, we leveraged zk
                         // exception code.
                         callback.operationComplete(KeeperException.Code.BADARGUMENTS.intValue(), null);
@@ -702,13 +703,14 @@ public class LogSegmentLedgerMetadata {
         } catch (Exception exc) {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));
-        } 
+        }
 
         if (LogSegmentLedgerMetadataVersion.VERSION_V1_ORIGINAL.value == version) {
             return parseDataV1(path, data, parts, targetVersion);
         } else if (LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value == version) {
             return parseDataV2(path, data, parts, targetVersion);
-        } else if (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version) {
+        } else if (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version &&
+                   LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version) {
             return parseDataVersionGreaterThan2(path, data, parts, targetVersion);
         } else {
             throw new IOException("Unsupported log segment ledger metadata version, "
@@ -758,7 +760,8 @@ public class LogSegmentLedgerMetadata {
                         ledgerSeqNo, lastEntryId, lastSlotId);
                 }
             } else {
-                assert (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION == version.value);
+                assert (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version.value &&
+                        LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version.value);
                 if (inprogress) {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d",
                         versionStatusCount, ledgerId, firstTxId, ledgerSeqNo, minActiveEntryId, minActiveSlotId);
