@@ -546,9 +546,15 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             }
         } catch (IOException ioe) {
             LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
-            if (null == result) {
-                result = Future.exception(ioe);
+
+            // We may incorrectly report transmit failure here, but only if we happened to hit
+            // packet/xmit size limit conditions AND fail flush above, which should happen rarely
+            // (PUBSUB-4498)
+            if (null != result) {
+                LOG.error("Overriding first result with flush failure {}", result);
             }
+            result = Future.exception(ioe);
+
             // Flush to ensure any prev. writes with flush=false are flushed despite failure.
             flushIfNeededNoThrow();
         }
