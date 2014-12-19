@@ -11,12 +11,12 @@
     <repository>
       <id>artifactory-release</id>
       <name>Twitter Artifactory Releases</name>
-      <url>http://artifactory.local.twitter.com/libs-releases-local</url>
+      <url>https://artifactory.twitter.biz/libs-releases-local</url>
     </repository>
     <snapshotRepository>
       <id>artifactory-snapshot</id>
       <name>Twitter Artifactory Snapshots</name>
-      <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
+      <url>https://artifactory.twitter.biz/libs-snapshots-local</url>
     </snapshotRepository>
   </distributionManagement>
   <reporting>
