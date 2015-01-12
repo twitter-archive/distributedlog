@@ -2,9 +2,12 @@ package com.twitter.distributedlog.tools;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -31,8 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.RateLimiter;
 
+import com.twitter.distributedlog.auditor.DLAuditor;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
@@ -1080,6 +1085,121 @@ public class DistributedLogTool extends Tool {
         @Override
         protected String getUsage() {
             return "delete";
+        }
+    }
+
+    public static class DeleteLedgersCommand extends PerDLCommand {
+
+        private final List<Long> ledgers = new ArrayList<Long>();
+
+        int numThreads = 1;
+
+        protected DeleteLedgersCommand() {
+            super("delete_ledgers", "delete given ledgers");
+            options.addOption("l", "ledgers", true, "List of ledgers, separated by comma");
+            options.addOption("lf", "ledgers-file", true, "File of list of ledgers, each line has a ledger id");
+            options.addOption("t", "concurrency", true, "Number of threads to run deletions");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("l") && cmdline.hasOption("lf")) {
+                throw new ParseException("Please specify ledgers either use list or use file only.");
+            }
+            if (!cmdline.hasOption("l") && !cmdline.hasOption("lf")) {
+                throw new ParseException("No ledgers specified. Please specify ledgers either use list or use file only.");
+            }
+            if (cmdline.hasOption("l")) {
+                String ledgersStr = cmdline.getOptionValue("l");
+                String[] ledgerStrs = ledgersStr.split(",");
+                for (String ledgerStr : ledgerStrs) {
+                    ledgers.add(Long.parseLong(ledgerStr));
+                }
+            }
+            if (cmdline.hasOption("lf")) {
+                BufferedReader br = null;
+                try {
+                    br = new BufferedReader(new FileReader(new File(cmdline.getOptionValue("lf"))));
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        ledgers.add(Long.parseLong(line));
+                    }
+                } catch (FileNotFoundException e) {
+                    throw new ParseException("No ledgers file " + cmdline.getOptionValue("lf") + " found.");
+                } catch (IOException e) {
+                    throw new ParseException("Invalid ledgers file " + cmdline.getOptionValue("lf") + " found.");
+                } finally {
+                    if (null != br) {
+                        try {
+                            br.close();
+                        } catch (IOException e) {
+                            // no-op
+                        }
+                    }
+                }
+            }
+            if (cmdline.hasOption("t")) {
+                numThreads = Integer.parseInt(cmdline.getOptionValue("t"));
+            }
+        }
+
+        @Override
+        protected String getUsage() {
+            return "delete_ledgers [options]";
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
+            ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
+            try {
+                final AtomicInteger numLedgers = new AtomicInteger(0);
+                final CountDownLatch doneLatch = new CountDownLatch(numThreads);
+                final AtomicInteger numFailures = new AtomicInteger(0);
+                final LinkedBlockingQueue<Long> ledgerQueue =
+                        new LinkedBlockingQueue<Long>();
+                ledgerQueue.addAll(ledgers);
+                for (int i = 0; i < numThreads; i++) {
+                    final int tid = i;
+                    executorService.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            while (true) {
+                                Long ledger = ledgerQueue.poll();
+                                if (null == ledger) {
+                                    break;
+                                }
+                                try {
+                                    factory.getReaderBKC().get().deleteLedger(ledger);
+                                    int numLedgersDeleted = numLedgers.incrementAndGet();
+                                    if (numLedgersDeleted % 1000 == 0) {
+                                        println("Deleted " + numLedgersDeleted + " ledgers.");
+                                    }
+                                } catch (BKException.BKNoSuchLedgerExistsException e) {
+                                    int numLedgersDeleted = numLedgers.incrementAndGet();
+                                    if (numLedgersDeleted % 1000 == 0) {
+                                        println("Deleted " + numLedgersDeleted + " ledgers.");
+                                    }
+                                } catch (Exception e) {
+                                    numFailures.incrementAndGet();
+                                    break;
+                                }
+                            }
+                            doneLatch.countDown();
+                            println("Thread " + tid + " quits");
+                        }
+                    });
+                }
+                doneLatch.await();
+                if (numFailures.get() > 0) {
+                    throw new IOException("Encounter " + numFailures.get() + " failures during deleting ledgers");
+                }
+            } finally {
+                executorService.shutdown();
+                factory.close();
+            }
+            return 0;
         }
     }
 
@@ -2147,21 +2267,176 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    protected static abstract class AuditCommand extends OptsCommand {
+
+        protected final Options options = new Options();
+        protected final DistributedLogConfiguration dlConf;
+        protected final List<URI> uris = new ArrayList<URI>();
+        protected String zkAclId = null;
+        protected boolean force = false;
+
+        protected AuditCommand(String name, String description) {
+            super(name, description);
+            dlConf = new DistributedLogConfiguration();
+            options.addOption("u", "uris", true, "List of distributedlog uris, separated by comma");
+            options.addOption("c", "conf", true, "DistributedLog Configuration File");
+            options.addOption("a", "zk-acl-id", true, "ZooKeeper ACL ID");
+            options.addOption("f", "force", false, "Force command (no warnings or prompts)");
+        }
+
+        @Override
+        protected int runCmd(CommandLine commandLine) throws Exception {
+            try {
+                parseCommandLine(commandLine);
+            } catch (ParseException pe) {
+                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                printUsage();
+                return -1;
+            }
+            return runCmd();
+        }
+
+        protected abstract int runCmd() throws Exception;
+
+        @Override
+        protected Options getOptions() {
+            return options;
+        }
+
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            if (!cmdline.hasOption("u")) {
+                throw new ParseException("No distributedlog uri provided.");
+            }
+            String urisStr = cmdline.getOptionValue("u");
+            for (String uriStr : urisStr.split(",")) {
+                uris.add(URI.create(uriStr));
+            }
+            if (cmdline.hasOption("c")) {
+                String configFile = cmdline.getOptionValue("c");
+                try {
+                    dlConf.loadConf(new File(configFile).toURI().toURL());
+                } catch (ConfigurationException e) {
+                    throw new ParseException("Failed to load distributedlog configuration from " + configFile + ".");
+                } catch (MalformedURLException e) {
+                    throw new ParseException("Failed to load distributedlog configuration from malformed "
+                            + configFile + ".");
+                }
+            }
+            if (cmdline.hasOption("a")) {
+                zkAclId = cmdline.getOptionValue("a");
+            }
+            if (cmdline.hasOption("f")) {
+                force = true;
+            }
+        }
+
+        protected DistributedLogConfiguration getConf() {
+            return dlConf;
+        }
+
+        protected List<URI> getUris() {
+            return uris;
+        }
+
+        protected String getZkAclId() {
+            return zkAclId;
+        }
+
+        protected boolean getForce() {
+            return force;
+        }
+
+    }
+
+    static class AuditLedgersCommand extends AuditCommand {
+
+        String ledgersFilePrefix;
+        final List<List<String>> allocationPaths =
+                new ArrayList<List<String>>();
+
+        AuditLedgersCommand() {
+            super("audit_ledgers", "Audit ledgers between bookkeeper and DL uris");
+            options.addOption("lf", "ledgers-file", true, "Prefix of filename to store ledgers");
+            options.addOption("ap", "allocation-paths", true, "Allocation paths per uri. E.g ap10;ap11,ap20");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("lf")) {
+                ledgersFilePrefix = cmdline.getOptionValue("lf");
+            } else {
+                throw new ParseException("No file specified to store leak ledgers");
+            }
+            if (cmdline.hasOption("ap")) {
+                String[] aps = cmdline.getOptionValue("ap").split(",");
+                for(String ap : aps) {
+                    List<String> list = new ArrayList<String>();
+                    String[] array = ap.split(";");
+                    Collections.addAll(list, array);
+                    allocationPaths.add(list);
+                }
+            } else {
+                throw new ParseException("No allocation paths provided.");
+            }
+        }
+
+        void dumpLedgers(Set<Long> ledgers, File targetFile) throws Exception{
+            PrintWriter pw = new PrintWriter(new FileWriter(targetFile));
+            try {
+                for (Long ledger : ledgers) {
+                    pw.println(ledger);
+                }
+            } finally {
+                pw.close();
+            }
+            println("Dump " + ledgers.size() + " ledgers to file : " + targetFile);
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            if (!getForce() && !IOUtils.confirmPrompt("Are u sure to audit uris : "
+                    + getUris() + ", allocation paths = " + allocationPaths)) {
+                println("ByeBye");
+                return 0;
+            }
+
+            DLAuditor dlAuditor = new DLAuditor(getConf());
+            try {
+                Pair<Set<Long>, Set<Long>> bkdlLedgers = dlAuditor.collectLedgers(getUris(), allocationPaths);
+                dumpLedgers(bkdlLedgers.getLeft(), new File(ledgersFilePrefix + "-bkledgers.txt"));
+                dumpLedgers(bkdlLedgers.getRight(), new File(ledgersFilePrefix + "-dlledgers.txt"));
+                dumpLedgers(Sets.difference(bkdlLedgers.getLeft(), bkdlLedgers.getRight()),
+                            new File(ledgersFilePrefix + "-leakledgers.txt"));
+            } finally {
+                dlAuditor.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "audit_ledgers [options]";
+        }
+    }
+
     public DistributedLogTool() {
         super();
+        addCommand(new AuditLedgersCommand());
         addCommand(new CreateCommand());
         addCommand(new CountCommand());
-        addCommand(new ListCommand());
-        addCommand(new DumpCommand());
-        addCommand(new ShowCommand());
         addCommand(new DeleteCommand());
         addCommand(new DeleteAllocatorPoolCommand());
-        addCommand(new TruncateCommand());
+        addCommand(new DeleteLedgersCommand());
+        addCommand(new DumpCommand());
         addCommand(new InspectCommand());
         addCommand(new InspectStreamCommand());
+        addCommand(new ListCommand());
         addCommand(new ReadLastConfirmedCommand());
         addCommand(new ReadEntriesCommand());
         addCommand(new RecoverCommand());
+        addCommand(new ShowCommand());
+        addCommand(new TruncateCommand());
     }
 
     @Override

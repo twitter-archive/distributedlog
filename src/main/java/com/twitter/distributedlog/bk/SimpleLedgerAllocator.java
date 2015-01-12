@@ -3,6 +3,7 @@ package com.twitter.distributedlog.bk;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
@@ -165,7 +166,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         if (null != data && data.length > 0) {
             // delete the allocated ledger since this is left by last allocation.
             try {
-                ledgerIdLeftFromPrevAllocation = bytes2LedgerId(data);
+                ledgerIdLeftFromPrevAllocation = Utils.bytes2LedgerId(data);
             } catch (NumberFormatException nfe) {
                 LOG.warn("Invalid data found in allocator path {} : ", allocatePath, nfe);
             }
@@ -278,14 +279,6 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
         notifyAll();
     }
 
-    private static byte[] ledgerId2Bytes(long ledgerId) {
-        return Long.toString(ledgerId).getBytes(UTF_8);
-    }
-
-    private static long bytes2LedgerId(byte[] data) {
-        return Long.valueOf(new String(data, UTF_8));
-    }
-
     @Override
     public void createComplete(int rc, LedgerHandle lh, Object ctx) {
         if (BKException.Code.OK != rc || null == lh) {
@@ -348,7 +341,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
 
     private void markAsAllocated(final LedgerHandle lh)
             throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException {
-        byte[] data = ledgerId2Bytes(lh.getId());
+        byte[] data = Utils.ledgerId2Bytes(lh.getId());
         zkc.get().setData(allocatePath, data, getZkVersion(), new org.apache.zookeeper.AsyncCallback.StatCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, Stat stat) {

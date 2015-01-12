@@ -18,8 +18,18 @@ import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 public class Utils {
     private static final long NANOSECONDS_PER_MILLISECOND = 1000000;
+
+    public static byte[] ledgerId2Bytes(long ledgerId) {
+        return Long.toString(ledgerId).getBytes(UTF_8);
+    }
+
+    public static long bytes2LedgerId(byte[] data) {
+        return Long.valueOf(new String(data, UTF_8));
+    }
 
     /**
      * Current time from some arbitrary time base in the past, counting in
