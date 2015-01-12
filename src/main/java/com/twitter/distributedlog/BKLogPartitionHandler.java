@@ -168,6 +168,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     final static String READ_LOCK_PATH = "/readLock";
     final static String VERSION_PATH = "/version";
     final static String ALLOCATION_PATH = "/allocation";
+    final static String SUBSCRIBERS_PATH = "/subscribers";
 
     static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentLedgerMetadata>> {
 

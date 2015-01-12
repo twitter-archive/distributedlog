@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
 import com.twitter.conversions.time;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -105,15 +106,17 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         }
     }
 
-    public BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
-                                ScheduledExecutorService executorService,
-                                OrderedSafeExecutor lockStateExecutor,
-                                String streamIdentifier,
-                                DLSN startDLSN,
-                                StatsLogger statsLogger) {
+    BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
+                         ScheduledExecutorService executorService,
+                         OrderedSafeExecutor lockStateExecutor,
+                         String streamIdentifier,
+                         DLSN startDLSN,
+                         Optional<String> subscriberId,
+                         StatsLogger statsLogger) {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, lockStateExecutor, this, true);
+        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, subscriberId,
+                lockStateExecutor, this, true);
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;

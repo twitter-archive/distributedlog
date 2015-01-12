@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -297,19 +298,27 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
-        return createReadLedgerHandler(streamIdentifier, false);
+        Optional<String> subscriberId = Optional.absent();
+        return createReadLedgerHandler(streamIdentifier, subscriberId, false);
     }
 
-    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier, boolean isHandleForReading)
+    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier, Optional<String> subscriberId)
             throws IOException {
-        return createReadLedgerHandler(streamIdentifier, getLockStateExecutor(true), null, isHandleForReading);
+        return createReadLedgerHandler(streamIdentifier, subscriberId, false);
     }
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                          Optional<String> subscriberId, boolean isHandleForReading)
+            throws IOException {
+        return createReadLedgerHandler(streamIdentifier, subscriberId, getLockStateExecutor(true), null, isHandleForReading);
+    }
+
+    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                          Optional<String> subscriberId,
                                                                           OrderedSafeExecutor lockExecutor,
                                                                           AsyncNotification notification,
                                                                           boolean isHandleForReading) {
-        return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
+        return new BKLogPartitionReadHandler(name, streamIdentifier, subscriberId, conf, uri,
                 readerZKCBuilder, readerBKCBuilder, executorService, lockExecutor, readAheadExecutor,
                 alertStatsLogger, readAheadExceptionsLogger, statsLogger, clientId, notification, isHandleForReading);
     }
@@ -534,8 +543,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        Optional<String> subscriberId = Optional.absent();
         return new BKAsyncLogReaderDLSN(this, executorService, getLockStateExecutor(true),
-                                        conf.getUnpartitionedStreamName(), fromDLSN,
+                                        conf.getUnpartitionedStreamName(), fromDLSN, subscriberId,
                                         statsLogger);
     }
 
@@ -546,10 +556,21 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN) {
+        Optional<String> subscriberId = Optional.absent();
+        return getAsyncLogReaderWithLock(fromDLSN, subscriberId);
+    }
+
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN, final String subscriberId) {
+        return getAsyncLogReaderWithLock(fromDLSN, Optional.of(subscriberId));
+    }
+
+    protected Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN,
+                                                               final Optional<String> subscriberId) {
         final BKAsyncLogReaderDLSN reader = new BKAsyncLogReaderDLSN(
             BKDistributedLogManager.this, executorService,
             getLockStateExecutor(true), conf.getUnpartitionedStreamName(),
-            fromDLSN, statsLogger);
+            fromDLSN, subscriberId, statsLogger);
         pendingReaders.add(reader);
         return reader.lockStream().map(new Function<Void, AsyncLogReader>() {
             @Override
@@ -1158,6 +1179,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     private SubscriptionStateStore getSubscriptionStateStoreInternal(String streamIdentifier, String subscriberId) {
         return new ZKSubscriptionStateStore(writerZKC,
-            String.format("%s/subscribers/%s", getPartitionPath(uri, name, streamIdentifier), subscriberId));
+            String.format("%s%s/%s", getPartitionPath(uri, name, streamIdentifier),
+                    BKLogPartitionHandler.SUBSCRIBERS_PATH, subscriberId));
     }
 }

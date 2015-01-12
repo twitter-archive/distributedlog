@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import java.io.Closeable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -51,8 +52,9 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
                                      final DistributedLogConfiguration conf,
                                      StatsLogger statsLogger) throws IOException {
         this.bkDistributedLogManager = bkdlm;
+        Optional<String> subscriberId = Optional.absent();
         this.bkLedgerManager =
-                bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, true);
+                bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, subscriberId, true);
         this.readAheadEnabled = conf.getEnableReadAhead();
         this.forceReadEnabled = conf.getEnableForceRead();
         this.idleWarnThresholdMillis = conf.getReaderIdleWarnThresholdMillis();

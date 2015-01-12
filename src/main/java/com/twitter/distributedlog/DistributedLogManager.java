@@ -124,6 +124,19 @@ public interface DistributedLogManager extends MetadataAccessor {
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN);
 
     /**
+     * Get a log reader with lock starting from <i>fromDLSN</i> and using <i>subscriberId</i>.
+     * If two readers tried to open using same subscriberId, one would succeed, while the other
+     * will be blocked until it gets the lock.
+     *
+     * @param fromDLSN
+     *          start dlsn
+     * @param subscriberId
+     *          subscriber id
+     * @return async log reader
+     */
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN, String subscriberId);
+
+    /**
      * Get the last log record before the specified transactionId
      *
      * @param partition – the partition within the log stream to read from

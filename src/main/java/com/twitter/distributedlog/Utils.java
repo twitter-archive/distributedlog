@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 import scala.runtime.BoxedUnit;
 
 import org.apache.zookeeper.AsyncCallback;
@@ -95,15 +97,17 @@ public class Utils {
      *
      * @param zkc Zookeeper client
      * @param pathToCreate  Zookeeper full path
+     * @param parentPathShouldNotCreate The recursive creation should stop if this path doesn't exist
      * @param data Zookeeper data
      * @param acl Acl of the zk path
      * @param createMode Create mode of zk path
      * @param callback Callback
      * @param ctx Context object
      */
-    private static void zkAsyncCreateFullPathOptimisticRecursive(
+    static void zkAsyncCreateFullPathOptimisticRecursive(
         final ZooKeeperClient zkc,
         final String pathToCreate,
+        final Optional<String> parentPathShouldNotCreate,
         final byte[] data,
         final List<ACL> acl,
         final CreateMode createMode,
@@ -128,14 +132,19 @@ public class Utils {
                         return;
                     }
                     String parent = pathToCreate.substring(0, lastSlash);
-                    zkAsyncCreateFullPathOptimisticRecursive(zkc, parent, new byte[0], acl,
+                    if (parentPathShouldNotCreate.isPresent() && Objects.equal(parentPathShouldNotCreate.get(), parent)) {
+                        // we should stop here
+                        callback.processResult(rc, path, ctx, name);
+                        return;
+                    }
+                    zkAsyncCreateFullPathOptimisticRecursive(zkc, parent, parentPathShouldNotCreate, new byte[0], acl,
                         CreateMode.PERSISTENT, new AsyncCallback.StringCallback() {
                         @Override
                         public void processResult(int rc, String path, Object ctx, String name) {
                             if (rc == KeeperException.Code.OK.intValue() || rc == KeeperException.Code.NODEEXISTS.intValue()) {
                                 // succeeded in creating the parent, now create the original path
-                                zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, data,
-                                    acl, createMode, callback, ctx);
+                                zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
+                                        data, acl, createMode, callback, ctx);
                             } else {
                                 callback.processResult(rc, path, ctx, name);
                             }
@@ -167,7 +176,9 @@ public class Utils {
         final CreateMode createMode) {
         final Promise<BoxedUnit> result = new Promise<BoxedUnit>();
 
-        zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, data, acl, createMode, new AsyncCallback.StringCallback() {
+        Optional<String> parentPathShouldNotCreate = Optional.absent();
+        zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
+                data, acl, createMode, new AsyncCallback.StringCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, String name) {
                 Promise<BoxedUnit> result = (Promise<BoxedUnit>)ctx;
@@ -186,8 +197,6 @@ public class Utils {
      * @param data Zookeeper data
      * @param acl Acl of the zk path
      * @param createMode Create mode of zk path
-     * @param callback Callback
-     * @param ctx Context object
      */
     public static Future<BoxedUnit> zkAsyncCreateFullPathOptimisticAndSetData(
         final ZooKeeperClient zkc,
@@ -207,7 +216,9 @@ public class Utils {
                         return;
                     }
 
-                    zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, data, acl, createMode, new AsyncCallback.StringCallback() {
+                    Optional<String> parentPathShouldNotCreate = Optional.absent();
+                    zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
+                            data, acl, createMode, new AsyncCallback.StringCallback() {
                         @Override
                         public void processResult(int rc, String path, Object ctx, String name) {
                             Promise<BoxedUnit> result = (Promise<BoxedUnit>)ctx;

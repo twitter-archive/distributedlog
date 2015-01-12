@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.base.Optional;
 import scala.runtime.BoxedUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -93,6 +94,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
 
     private final OrderedSafeExecutor lockStateExecutor;
+    private final Optional<String> subscriberId;
     private final String readLockPath;
     private DistributedReentrantLock readLock;
     private Future<Void> lockAcquireFuture;
@@ -111,6 +113,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      */
     public BKLogPartitionReadHandler(String name,
                                      String streamIdentifier,
+                                     Optional<String> subscriberId,
                                      DistributedLogConfiguration conf,
                                      URI uri,
                                      ZooKeeperClientBuilder zkcBuilder,
@@ -138,7 +141,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         this.checkLogExistenceBackoffMaxMs = conf.getCheckLogExistenceBackoffMaxMillis();
         this.checkLogExistenceBackoffMs = this.checkLogExistenceBackoffStartMs;
 
-        this.readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
+        this.subscriberId = subscriberId;
+        if (subscriberId.isPresent()) {
+            this.readLockPath = partitionRootPath + BKLogPartitionHandler.SUBSCRIBERS_PATH
+                    + "/" + subscriberId.get() + BKLogPartitionHandler.READ_LOCK_PATH;
+        } else {
+            this.readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
+        }
         this.lockStateExecutor = lockStateExecutor;
 
         this.isHandleForReading = isHandleForReading;
@@ -540,38 +549,34 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 return null;
             }
         });
-        try {
-            zooKeeperClient.get().create(readLockPath, new byte[0],
-                zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
+        Optional<String> parentPathShouldNotCreate = Optional.of(partitionRootPath);
+        Utils.zkAsyncCreateFullPathOptimisticRecursive(zooKeeperClient, readLockPath, parentPathShouldNotCreate,
+                new byte[0], zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
                 new org.apache.zookeeper.AsyncCallback.StringCallback() {
-                    @Override
-                    public void processResult(final int rc, final String path, Object ctx, String name) {
-                        executorService.submit(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (KeeperException.Code.NONODE.intValue() == rc) {
-                                    promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
-                                } else if (KeeperException.Code.OK.intValue() == rc) {
-                                    promise.setValue(null);
-                                    LOG.trace("Created path {}.", path);
-                                } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                                    promise.setValue(null);
-                                    LOG.trace("Path {} is already existed.", path);
-                                } else {
-                                    promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
-                                }
+                @Override
+                public void processResult(final int rc, final String path, Object ctx, String name) {
+                    executorService.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (KeeperException.Code.NONODE.intValue() == rc) {
+                                promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                            } else if (KeeperException.Code.OK.intValue() == rc) {
+                                promise.setValue(null);
+                                LOG.trace("Created path {}.", path);
+                            } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
+                                promise.setValue(null);
+                                LOG.trace("Path {} is already existed.", path);
+                            } else if (DistributedLogConstants.ZK_CONNECTION_EXCEPTION_RESULT_CODE == rc) {
+                                promise.setException(new ZooKeeperClient.ZooKeeperConnectionException(path));
+                            } else if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
+                                promise.setException(new DLInterruptedException(path));
+                            } else {
+                                promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
                             }
-                        });
-                    }
-                }, null);
-        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            LOG.error("Error ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
-            promise.setException(e);
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted while ensuring read lock path existed for {} : ", getFullyQualifiedName(), e);
-            promise.setException(new DLInterruptedException("Interrupted while ensuring read lock path existed for " + getFullyQualifiedName(), e));
-        }
-
+                        }
+                    });
+                }
+            }, null);
         return promise;
     }
 

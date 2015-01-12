@@ -1,20 +1,19 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
+import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.Await;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.util.Await;
-import com.twitter.util.Future;
-
+import com.twitter.util.TimeoutException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.junit.Rule;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
@@ -382,16 +381,75 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         try {
             Await.result(readHandler.lockStream());
+            fail("Should fail lock stream if log not found");
         } catch (LogNotFoundException ex) {
+        }
+
+        BKLogPartitionReadHandler subscriberReadHandler =
+                bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("test-subscriber"));
+        try {
+            Await.result(subscriberReadHandler.lockStream());
+            fail("Subscriber should fail lock stream if log not found");
+        } catch (LogNotFoundException ex) {
+            // expected
         }
     }
 
     @Test(timeout = 60000)
-    public void testLockStream() throws Exception {
+    public void testLockStreamDifferentSubscribers() throws Exception {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1);
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
-        readHandler.lockStream();
+        Await.result(readHandler.lockStream());
+
+        // two subscribers could lock stream in parallel
+        BKDistributedLogManager bkdlm10 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKLogPartitionReadHandler s10Handler =
+                bkdlm10.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
+        Await.result(s10Handler.lockStream());
+        BKDistributedLogManager bkdlm20 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKLogPartitionReadHandler s20Handler =
+                bkdlm20.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s2"));
+        Await.result(s20Handler.lockStream());
+
+        readHandler.close();
+        bkdlm.close();
+        s10Handler.close();
+        bkdlm10.close();
+        s20Handler.close();
+        bkdlm20.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testLockStreamSameSubscriber() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1);
+        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        Await.result(readHandler.lockStream());
+
+        // same subscrbiers couldn't lock stream in parallel
+        BKDistributedLogManager bkdlm10 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKLogPartitionReadHandler s10Handler =
+                bkdlm10.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
+        Await.result(s10Handler.lockStream());
+
+        BKDistributedLogManager bkdlm11 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKLogPartitionReadHandler s11Handler =
+                bkdlm11.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
+        try {
+            Await.result(s11Handler.lockStream(), Duration.apply(10000, TimeUnit.MILLISECONDS));
+            fail("Should fail lock stream using same subscriber id");
+        } catch (TimeoutException te) {
+            // expected.
+        }
+
+        readHandler.close();
+        bkdlm.close();
+        s10Handler.close();
+        bkdlm10.close();
+        s11Handler.close();
+        bkdlm11.close();
     }
 }
