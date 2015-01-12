@@ -921,7 +921,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          the ownership exception received when executing <i>op</i>
          */
         private void handleOwnershipAcquireFailedException(StreamOp op, final OwnershipAcquireFailedException oafe) {
-            logger.error("Failed to write data into stream {} : ", name, oafe);
+            logger.warn("Failed to write data into stream {} because stream is acquired by {} : {}",
+                        new Object[] { name, oafe.getCurrentOwner(), oafe.getMessage() });
             AsyncLogWriter oldWriter = null;
             boolean statusChanged = false;
             synchronized (this) {
@@ -963,7 +964,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 handleAlreadyClosedException(ace);
                 return;
             } catch (final OwnershipAcquireFailedException oafe) {
-                logger.error("Failed to initialize stream {} : ", name, oafe);
+                logger.warn("Failed to acquire stream ownership for {}, current owner is {} : {}",
+                            new Object[] { name, oafe.getCurrentOwner(), oafe.getMessage() });
                 synchronized (this) {
                     setStreamStatus(StreamStatus.BACKOFF, null, oafe.getCurrentOwner(), oafe);
                     oldPendingOps = pendingOps;
