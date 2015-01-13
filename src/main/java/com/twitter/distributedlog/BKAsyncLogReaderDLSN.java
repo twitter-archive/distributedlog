@@ -264,6 +264,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     }
 
     public synchronized void scheduleBackgroundRead() {
+        // if the reader is already closed, we don't need to schedule background read again.
+        if (closed) {
+            return;
+        }
+
         long prevCount = scheduleCount.getAndIncrement();
         if (0 == prevCount) {
             scheduleDelayStopwatch.reset().start();
