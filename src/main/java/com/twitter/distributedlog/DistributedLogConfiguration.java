@@ -232,7 +232,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
 
     public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
-    public static final int BKDL_READLAC_OPTION_DEFAULT = 3;
+    public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
 
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES = "dnsResolverOverrides";
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";

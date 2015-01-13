@@ -1293,6 +1293,17 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 super(next);
             }
 
+            private void issueReadLastConfirmedAndEntry(boolean parallel, long lastAddConfirmed) {
+                String ctx = String.format("ReadLastConfirmedAndEntry(%s, %d)", parallel? "Parallel":"Sequential", lastAddConfirmed);
+                ReadLastConfirmedAndEntryCallbackWithNotification callback =
+                    new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
+                boolean callbackImmediately = setMetadataNotification(callback);
+                bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
+                    conf.getReadLACLongPollTimeout(), parallel, callback, ctx);
+                callback.callbackImmediately(callbackImmediately);
+                readAheadReadLACAndEntryCounter.inc();
+            }
+
             @Override
             void process(int rc) {
                 tracker.enterPhase(ReadAheadPhase.OPEN_LEDGER);
@@ -1353,54 +1364,29 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 }
                             }
 
-                            if (LOG.isTraceEnabled()) {
-                                LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
-                                        new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadAheadPosition, conf.getReadLACOption()});
-                            }
+                            LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
+                                    new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadAheadPosition, conf.getReadLACOption()});
+
                             if (nextReadAheadPosition.getEntryId() == 0 && conf.getTraceReadAheadMetadataChanges()) {
                                 // we are waiting for first entry to arrive
                                 LOG.info("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
                                          new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
                             } else {
-                                if (LOG.isTraceEnabled()) {
-                                    LOG.trace("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
-                                              new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
-                                }
+                                LOG.trace("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
+                                          new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
                             }
-                            String ctx;
                             boolean callbackImmediately;
                             switch(ReadLACOption.values()[conf.getReadLACOption()]) {
                                 case LONGPOLL:
-                                    ctx = String.format("LongPoll(%d)", lastAddConfirmed);
-                                    ReadLastConfirmedCallbackWithNotification lpCallback =
-                                            new ReadLastConfirmedCallbackWithNotification(lastAddConfirmed, this, ctx);
-                                    callbackImmediately = setMetadataNotification(lpCallback);
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedLongPoll(currentLH, conf.getReadLACLongPollTimeout(), lpCallback, ctx);
-                                    lpCallback.callbackImmediately(callbackImmediately);
-                                    readAheadReadLACCounter.inc();
-                                    break;
+                                    LOG.warn("Using deprecated option, falling back to {}", ReadLACOption.READENTRYPIGGYBACK_PARALLEL);
                                 case READENTRYPIGGYBACK_PARALLEL:
-                                    ctx = String.format("ReadLastConfirmedAndEntry(Parallel, %d)", lastAddConfirmed);
-                                    ReadLastConfirmedAndEntryCallbackWithNotification pCallback =
-                                            new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
-                                    callbackImmediately = setMetadataNotification(pCallback);
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
-                                            conf.getReadLACLongPollTimeout(), true, pCallback, ctx);
-                                    pCallback.callbackImmediately(callbackImmediately);
-                                    readAheadReadLACAndEntryCounter.inc();
+                                    issueReadLastConfirmedAndEntry(true, lastAddConfirmed);
                                     break;
                                 case READENTRYPIGGYBACK_SEQUENTIAL:
-                                    ctx = String.format("ReadLastConfirmedAndEntry(Sequential, %d)", lastAddConfirmed);
-                                    ReadLastConfirmedAndEntryCallbackWithNotification sCallback =
-                                            new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
-                                    callbackImmediately = setMetadataNotification(sCallback);
-                                    bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
-                                            conf.getReadLACLongPollTimeout(), false, sCallback, ctx);
-                                    sCallback.callbackImmediately(callbackImmediately);
-                                    readAheadReadLACAndEntryCounter.inc();
+                                    issueReadLastConfirmedAndEntry(false, lastAddConfirmed);
                                     break;
                                 default:
-                                    ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
+                                    String ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
                                     setMetadataNotification(null);
                                     bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, ctx);
                                     readAheadReadLACCounter.inc();
