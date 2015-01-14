@@ -263,6 +263,18 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    /**
+     * Set failfast stream exception handling enabled.
+     *
+     * @param enabled
+     *          is failfast exception handling enabled
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder streamFailfast(boolean enabled) {
+        this._clientConfig.setStreamFailfast(enabled);
+        return this;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         this._clientConfig = ClientConfig.newConfig(clientConfig);
         return this;
@@ -295,6 +307,7 @@ public class DistributedLogClientBuilder {
         int maxRedirects = -1;
         int requestTimeoutMs = -1;
         boolean thriftmux = false;
+        boolean streamFailfast = false;
 
         ClientConfig setMaxRedirects(int maxRedirects) {
             this.maxRedirects = maxRedirects;
@@ -341,13 +354,22 @@ public class DistributedLogClientBuilder {
             return this.thriftmux;
         }
 
+        void setStreamFailfast(boolean enabled) {
+            this.streamFailfast = enabled;
+        }
+
+        boolean getStreamFailfast() {
+            return this.streamFailfast;
+        }
+
         static ClientConfig newConfig(ClientConfig config) {
             ClientConfig newConfig = new ClientConfig();
             newConfig.setMaxRedirects(config.getMaxRedirects())
                      .setRequestTimeoutMs(config.getRequestTimeoutMs())
                      .setRedirectBackoffStartMs(config.getRedirectBackoffStartMs())
                      .setRedirectBackoffMaxMs(config.getRedirectBackoffMaxMs())
-                     .setThriftMux(config.getThriftMux());
+                     .setThriftMux(config.getThriftMux())
+                     .setStreamFailfast(config.getStreamFailfast());
             return newConfig;
         }
     }
@@ -375,6 +397,7 @@ public class DistributedLogClientBuilder {
         private final ClientConfig clientConfig;
         private final RoutingService routingService;
         private final ClientBuilder clientBuilder;
+        private final boolean streamFailfast;
 
         // Timer
         private final HashedWheelTimer dlTimer;
@@ -824,6 +847,7 @@ public class DistributedLogClientBuilder {
             this.routingService = routingService;
             this.clientConfig = clientConfig;
             this.statsReceiver = statsReceiver;
+            this.streamFailfast = clientConfig.getStreamFailfast();
             // Build the timer
             this.dlTimer = new HashedWheelTimer(
                     new ThreadFactoryBuilder().setNameFormat("DLClient-" + name + "-timer-%d").build(),
@@ -1107,6 +1131,9 @@ public class DistributedLogClientBuilder {
                         case INVALID_STREAM_NAME:
                         case OVER_CAPACITY:
                         case REQUEST_DENIED:
+                        // status code NOT_READY is returned if failfast is enabled in the server. don't redirect
+                        // since the proxy may still own the stream.
+                        case STREAM_NOT_READY:
                             logger.error("Failed to write request to {} : {}", op.stream, header);
                             op.fail(DLException.of(header));
                             break;
@@ -1128,7 +1155,12 @@ public class DistributedLogClientBuilder {
                             // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                             // redirect the request.
                             clearHostFromStream(op.stream, addr);
-                            redirect(op, addr, null);
+                            if (streamFailfast) {
+                                logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
+                                op.fail(DLException.of(header));
+                            } else {
+                                redirect(op, addr, null);
+                            }
                             break;
                     }
                 }

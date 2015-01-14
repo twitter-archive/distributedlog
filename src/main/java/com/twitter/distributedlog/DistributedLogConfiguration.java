@@ -284,6 +284,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE = "globalOutstandingWriteLimitDarkmode";
     public static final boolean BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
 
+    public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
+    public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
+
     /**
      *  CompressionCodec.Type     String to use (See CompressionUtils)
      *  ---------------------     ------------------------------------
@@ -2033,6 +2036,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setGlobalOutstandingWriteLimitDarkmode(boolean darmkoded) {
         setProperty(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DARKMODE, darmkoded);
+        return this;
+    }
+
+    /**
+     * Whether to fail immediately if the stream is not ready rather than queueing the request.
+     *
+     * @return should failfast.
+     */
+    public boolean getFailFastOnStreamNotReady() {
+        return getBoolean(BKDL_FAILFAST_ON_STREAM_NOT_READY, BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT);
+    }
+
+    /**
+     * Set the failfast on stream not ready flag.
+     *
+     * @param failFastOnStreamNotReady
+     *        set failfast flag
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setFailFastOnStreamNotReady(boolean failFastOnStreamNotReady) {
+        setProperty(BKDL_FAILFAST_ON_STREAM_NOT_READY, failFastOnStreamNotReady);
         return this;
     }
 

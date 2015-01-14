@@ -690,17 +690,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             needAcquire = true;
                             break;
                         case FAILED:
+                        case BACKOFF:
                             this.status = StreamStatus.INITIALIZING;
                             acquiredStreams.remove(name, this);
                             needAcquire = true;
-                            break;
-                        case BACKOFF:
-                            // there are pending ops, try re-acquiring the stream again
-                            if (pendingOps.size() > 0) {
-                                this.status = StreamStatus.INITIALIZING;
-                                acquiredStreams.remove(name, this);
-                                needAcquire = true;
-                            }
                             break;
                         default:
                             break;
@@ -740,6 +733,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          stream operation to execute.
          */
         void waitIfNeededAndWrite(StreamOp op) {
+            boolean notifyAcquireThread = false;
             boolean completeOpNow = false;
             boolean success = true;
             if (StreamStatus.CLOSED == status) {
@@ -762,23 +756,34 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             lastAcquireFailureWatch.elapsed(TimeUnit.MILLISECONDS) < nextAcquireWaitTimeMs) {
                         completeOpNow = true;
                         success = false;
+                    } else if (failFastOnStreamNotReady) {
+                        notifyAcquireThread = true;
+                        completeOpNow = false;
+                        success = false;
+                        op.fail(StatusCode.STREAM_NOT_READY, "Stream " + name + " is not ready; status = " + status);
                     } else { // closing & initializing
+                        notifyAcquireThread = true;
                         pendingOps.add(op);
                         pendingOpsCounter.incrementAndGet();
                         if (1 == pendingOps.size()) {
                             if (op instanceof HeartbeatOp) {
                                 ((HeartbeatOp) op).setWriteControlRecord(true);
                             }
-                            // when any op is added in pending queue, notify stream to acquire the stream.
-                            synchronized (streamLock) {
-                                streamLock.notifyAll();
-                            }
                         }
                     }
                 }
             }
+            if (notifyAcquireThread) {
+                notifyStreamLockWaiters();
+            }
             if (completeOpNow) {
                 executeOp(op, success);
+            }
+        }
+
+        void notifyStreamLockWaiters() {
+            synchronized (streamLock) {
+                streamLock.notifyAll();
             }
         }
 
@@ -1200,6 +1205,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final AccessControlManager accessControlManager;
     private final long delayMs;
 
+    private final boolean failFastOnStreamNotReady;
+
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
                               URI uri,
                               StatsLogger statsLogger,
@@ -1220,6 +1227,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         dlConf.setLedgerAllocatorPoolName(allocatorPoolName);
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
         this.keepAliveLatch = keepAliveLatch;
+        this.failFastOnStreamNotReady = dlConf.getFailFastOnStreamNotReady();
 
         // Access Control Manager
         this.accessControlManager = this.dlFactory.createAccessControlManager();

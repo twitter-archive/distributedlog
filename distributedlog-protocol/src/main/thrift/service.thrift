@@ -60,6 +60,12 @@ enum StatusCode {
     WRITE_CANCELLED_EXCEPTION = 516,
     // over-capacity/backpressure
     OVER_CAPACITY = 517,
+    // stream exists but is not ready (recovering etc.).
+    // the difference between NOT_READY and UNAVAILABLE is that UNAVAILABLE
+    // indicates the stream is no longer owned by the proxy and we should
+    // redirect. NOT_READY indicates the stream exist at the proxy but isn't
+    // ready for writes.
+    STREAM_NOT_READY = 518,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
