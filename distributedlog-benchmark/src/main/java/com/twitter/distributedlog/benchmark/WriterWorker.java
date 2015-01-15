@@ -7,6 +7,7 @@ import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.common_internal.zookeeper.TwitterServerSet;
 import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -60,6 +61,8 @@ public class WriterWorker implements Worker {
     final StatsReceiver statsReceiver;
     final StatsLogger statsLogger;
     final OpStatsLogger requestStat;
+    final StatsLogger exceptionsLogger;
+    final StatsLogger dlErrorCodeLogger;
 
     public WriterWorker(String streamPrefix,
                         int startStreamId,
@@ -84,6 +87,8 @@ public class WriterWorker implements Worker {
         this.statsReceiver = statsReceiver;
         this.statsLogger = statsLogger;
         this.requestStat = this.statsLogger.getOpStatsLogger("requests");
+        this.exceptionsLogger = statsLogger.scope("exceptions");
+        this.dlErrorCodeLogger = statsLogger.scope("dl_error_code");
         this.executorService = Executors.newCachedThreadPool();
         this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
@@ -99,6 +104,7 @@ public class WriterWorker implements Worker {
                 new TwitterServerSet.Service(serverSetParts[0], serverSetParts[1], serverSetParts[2]);
         zkClient = TwitterServerSet.clientBuilder(zkService).zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS).build();
         serverSet = TwitterServerSet.create(zkClient, zkService);
+
         // Streams
         streamNames = new ArrayList<String>(endStreamId - startStreamId);
         for (int i = startStreamId; i < endStreamId; i++) {
@@ -160,6 +166,27 @@ public class WriterWorker implements Worker {
         return bufferList;
     }
 
+    class TimedRequestHandler implements FutureEventListener<DLSN> {
+        final long requestMillis;
+        TimedRequestHandler(long requestMillis) {
+            this.requestMillis = requestMillis;
+        }
+        @Override
+        public void onSuccess(DLSN value) {
+            requestStat.registerSuccessfulEvent(System.currentTimeMillis() - requestMillis);
+        }
+        @Override
+        public void onFailure(Throwable cause) {
+            LOG.error("Failed to publish : ", cause);
+            requestStat.registerFailedEvent(System.currentTimeMillis() - requestMillis);
+            exceptionsLogger.getCounter(cause.getClass().getName()).inc();
+            if (cause instanceof DLException) {
+                DLException dle = (DLException) cause;
+                dlErrorCodeLogger.getCounter(dle.getCode().toString()).inc();
+            }
+        }
+    }
+
     class Writer implements Runnable {
 
         final int idx;
@@ -175,25 +202,13 @@ public class WriterWorker implements Worker {
             LOG.info("Started writer {}.", idx);
             while (running) {
                 rateLimiter.acquire();
-
                 final String streamName = streamNames.get(random.nextInt(numStreams));
                 final long requestMillis = System.currentTimeMillis();
                 final ByteBuffer data = buildBuffer(requestMillis, messageSizeBytes);
                 if (null == data) {
                     break;
                 }
-
-                dlc.write(streamName, data).addEventListener(new FutureEventListener<DLSN>() {
-                    @Override
-                    public void onSuccess(DLSN value) {
-                        requestStat.registerSuccessfulEvent(System.currentTimeMillis() - requestMillis);
-                    }
-                    @Override
-                    public void onFailure(Throwable cause) {
-                        LOG.error("Failed to publish : ", cause);
-                        requestStat.registerFailedEvent(System.currentTimeMillis() - requestMillis);
-                    }
-                });
+                dlc.write(streamName, data).addEventListener(new TimedRequestHandler(requestMillis));
             }
             dlc.close();
         }
@@ -214,27 +229,15 @@ public class WriterWorker implements Worker {
             LOG.info("Started writer {}.", idx);
             while (running) {
                 rateLimiter.acquire(batchSize);
-
                 String streamName = streamNames.get(random.nextInt(numStreams));
                 final long requestMillis = System.currentTimeMillis();
                 final List<ByteBuffer> data = buildBufferList(batchSize, requestMillis, messageSizeBytes);
                 if (null == data) {
                     break;
                 }
-
                 List<Future<DLSN>> results = dlc.writeBulk(streamName, data);
                 for (Future<DLSN> result : results) {
-                    result.addEventListener(new FutureEventListener<DLSN>() {
-                        @Override
-                        public void onSuccess(DLSN value) {
-                            requestStat.registerSuccessfulEvent(System.currentTimeMillis() - requestMillis);
-                        }
-                        @Override
-                        public void onFailure(Throwable cause) {
-                            LOG.error("Failed to publish : ", cause);
-                            requestStat.registerFailedEvent(System.currentTimeMillis() - requestMillis);
-                        }
-                    });
+                    result.addEventListener(new TimedRequestHandler(requestMillis));
                 }
             }
             dlc.close();
