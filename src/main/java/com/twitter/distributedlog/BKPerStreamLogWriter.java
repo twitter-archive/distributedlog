@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +36,7 @@ import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.stats.CachingStatsLogger;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -50,13 +50,13 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.CompressionCodec;
 import com.twitter.distributedlog.util.CompressionUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SafeQueueingFuturePool;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
-
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
@@ -284,10 +284,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         // stats
         if (conf.getEnablePerStreamStat()) {
-            this.envelopeStatsLogger = statsLogger.scope(streamName);
+            this.envelopeStatsLogger = new CachingStatsLogger(
+                new BroadCastStatsLogger.Two(statsLogger, statsLogger.scope(streamName))
+            );
         } else {
             this.envelopeStatsLogger = statsLogger;
         }
+
         StatsLogger flushStatsLogger = statsLogger.scope("flush");
         StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
         pFlushSuccesses = pFlushStatsLogger.getCounter("success");
