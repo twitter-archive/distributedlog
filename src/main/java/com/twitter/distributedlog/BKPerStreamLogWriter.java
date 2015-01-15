@@ -66,6 +66,8 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import com.twitter.util.TimeoutException;
 
+import scala.runtime.BoxedUnit;
+
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
@@ -96,6 +98,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             this.isControl = false;
             this.transmitComplete = new Promise<Integer>();
             this.buffer = new Buffer(initialBufferSize * 6 / 5);
+            this.maxTxId = Long.MIN_VALUE;
         }
 
         public void reset() {
@@ -114,8 +117,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             return ledgerSequenceNo;
         }
 
-        public void addToPromiseList(Promise<DLSN> nextPromise) {
+        public void addToPromiseList(Promise<DLSN> nextPromise, long txId) {
             promiseList.add(nextPromise);
+            maxTxId = Math.max(maxTxId, txId);
         }
 
         public Buffer getBuffer() {
@@ -129,14 +133,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 nextSlotId++;
             }
             promiseList.clear();
-
         }
 
         private void cancelPromises(int transmitResult) {
-            for(Promise<DLSN> promise : promiseList) {
-                promise.setException(transmitResultToException(transmitResult));
-            }
-            promiseList.clear();
+            cancelPromises(transmitResultToException(transmitResult));
         }
 
         private void cancelPromises(Throwable t) {
@@ -182,12 +182,30 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             transmitComplete.setValue(transmitResult);
         }
 
+        public void notifyTransmit() {
+            transmitTime = System.nanoTime();
+        }
+
+        public long getTransmitTime() {
+            return transmitTime;
+        }
+
+        public long getWriteCount() {
+            return promiseList.size();
+        }
+
+        public long getMaxTxId() {
+            return maxTxId;
+        }
+
         private boolean isControl;
         private long ledgerSequenceNo;
         private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
         private Promise<Integer> transmitComplete;
         private Buffer buffer;
+        private long transmitTime;
+        private long maxTxId;
     }
 
     private final String fullyQualifiedLogSegment;
@@ -215,6 +233,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private int preFlushCounter;
     private long numFlushesSinceRestart = 0;
     private long numBytes = 0;
+    private long lastEntryId = Long.MIN_VALUE;
 
     // Indicates whether there are writes that have been successfully transmitted that would need
     // a control record to be transmitted to make them visible to the readers by updating the last
@@ -244,11 +263,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final Counter transmitControlSuccesses;
     private final Counter pFlushSuccesses;
     private final Counter pFlushMisses;
+    private final OpStatsLogger writeTime;
+    private final OpStatsLogger addCompleteTime;
+    private final OpStatsLogger addCompleteQueuedTime;
+    private final OpStatsLogger addCompleteDeferredTime;
+    private final Counter pendingWrites;
 
     // add complete processing
     private final SafeQueueingFuturePool<Void> addCompleteFuturePool;
-
-    private final OpStatsLogger writeTime;
 
     // write rate limiter
     private final WriteLimiter writeLimiter;
@@ -304,7 +326,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
-        writeTime = statsLogger.scope("seg_writer").getOpStatsLogger("write");
+        StatsLogger segWriterStatsLogger = statsLogger.scope("seg_writer");
+        writeTime = segWriterStatsLogger.getOpStatsLogger("write");
+        addCompleteTime = segWriterStatsLogger.scope("add_complete").getOpStatsLogger("callback");
+        addCompleteQueuedTime = segWriterStatsLogger.scope("add_complete").getOpStatsLogger("queued");
+        addCompleteDeferredTime = segWriterStatsLogger.scope("add_complete").getOpStatsLogger("deferred");
+        pendingWrites = segWriterStatsLogger.getCounter("pending");
 
         // outstanding transmit requests
         StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
@@ -433,8 +460,27 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     }
 
     private synchronized void flushCurrentPacket() {
+        long numPromises = 0;
         if (null != packetCurrent) {
+            numPromises = packetCurrent.getWriteCount();
             packetCurrent.reset();
+        }
+        LOG.info("Stream {} aborted {} writes", fullyQualifiedLogSegment, numPromises);
+    }
+
+    private synchronized long getWritesPendingTransmit() {
+        if (null != packetCurrent) {
+            return packetCurrent.getWriteCount();
+        } else {
+            return 0;
+        }
+    }
+
+    private synchronized long getPendingAddCompleteCount() {
+        if (null != addCompleteFuturePool) {
+            return addCompleteFuturePool.size();
+        } else {
+            return 0;
         }
     }
 
@@ -468,6 +514,10 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 throwExc = exc;
             }
         }
+
+        LOG.info("Closing BKPerStreamLogWriter for {} lastDLSN = {} outstandingTransmits = {} " +
+            "writesPendingTransmit = {} addCompletesPending = {}", new Object[] { fullyQualifiedLogSegment,
+            lastDLSN, outstandingTransmits.get(), getWritesPendingTransmit(), getPendingAddCompleteCount() });
 
         final BKTransmitPacket lastPacket;
         synchronized (this) {
@@ -510,9 +560,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
-        /**
-         * If add entry failed because of closing ledger above, we don't need to fail the close operation
-         */
+        // If add entry failed because of closing ledger above, we don't need to fail the close operation
         if (null == throwExc && shouldFailCompleteLogSegment()) {
             throwExc = new BKTransmitException("Closing an errored stream : ", transmitResult.get());
         }
@@ -585,6 +633,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         // Will check write rate limits and throw if exceeded.
         writeLimiter.acquire();
+        pendingWrites.inc();
 
         // The count represents the number of user records up to the
         // current record
@@ -598,19 +647,17 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             future = writeInternal(record);
         } catch (IOException ex) {
             writeLimiter.release();
+            pendingWrites.dec();
             positionWithinLogSegment--;
             throw ex;
         }
 
         // Track outstanding requests and return the future.
-        return future.addEventListener(new FutureEventListener<DLSN>() {
-            @Override
-            public void onSuccess(DLSN dlsn) {
+        return future.ensure(new Function0<BoxedUnit>() {
+            public BoxedUnit apply() {
+                pendingWrites.dec();
                 writeLimiter.release();
-            }
-            @Override
-            public void onFailure(Throwable cause) {
-                writeLimiter.release();
+                return null;
             }
         });
     }
@@ -654,7 +701,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
 
         writer.writeOp(record);
-        packetCurrent.addToPromiseList(dlsn);
+        packetCurrent.addToPromiseList(dlsn, record.getTransactionId());
 
         if (record.getTransactionId() < lastTxId) {
             LOG.info("Log Segment {} TxId decreased Last: {} Record: {}", new Object[] {fullyQualifiedLogSegment, lastTxId, record.getTransactionId()});
@@ -755,7 +802,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                         try {
                             callable.call();
                         } catch (Exception exc) {
-                            LOG.error("Delayed flush failed {}", exc);
+                            LOG.error("Delayed flush failed", exc);
                         }
                     }
                 }
@@ -937,6 +984,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             }
 
             synchronized (this) {
+                packet.notifyTransmit();
                 lh.asyncAddEntry(toSend.getData(), 0, toSend.size(),
                                  this, packet);
 
@@ -981,23 +1029,39 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             effectiveRC.set(BKException.Code.UnexpectedConditionException);
         }
 
+        // Sanity check to make sure we're receiving these callbacks in order.
+        if (entryId > -1 && lastEntryId >= entryId) {
+            LOG.error("Log segment {} saw out of order entry {} lastEntryId {}",
+                new Object[] {fullyQualifiedLogSegment, entryId, lastEntryId});
+        }
+        lastEntryId = entryId;
+
         assert (ctx instanceof BKTransmitPacket);
         final BKTransmitPacket transmitPacket = (BKTransmitPacket) ctx;
 
+        // Time from transmit until receipt of addComplete callback
+        addCompleteTime.registerSuccessfulEvent(TimeUnit.MICROSECONDS.convert(
+            System.nanoTime() - transmitPacket.getTransmitTime(), TimeUnit.NANOSECONDS));
+
         if (null != addCompleteFuturePool) {
+            final Stopwatch queuedTime = Stopwatch.createStarted();
+            final Stopwatch deferredTime = Stopwatch.createStarted();
             addCompleteFuturePool.apply(new Function0<Void>() {
                 public Void apply() {
+                    addCompleteQueuedTime.registerSuccessfulEvent(queuedTime.elapsed(TimeUnit.MICROSECONDS));
                     addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
                     return null;
                 }
             }).addEventListener(new FutureEventListener<Void>() {
                 @Override
                 public void onSuccess(Void done) {
+                    addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
                 }
                 @Override
                 public void onFailure(Throwable cause) {
-                    LOG.error("addComplete processing failed for {} entry {} rc {} with error",
-                        new Object[] {fullyQualifiedLogSegment, entryId, rc, cause});
+                    addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
+                    LOG.error("addComplete processing failed for {} entry {} lastTxId {} rc {} with error",
+                        new Object[] {fullyQualifiedLogSegment, entryId, transmitPacket.getMaxTxId(), rc, cause});
                 }
             });
             // Race condition if we notify before the addComplete is enqueued.
@@ -1006,9 +1070,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         } else {
             // Notify transmit complete must be called before deferred processing in the
             // sync case since otherwise callbacks in deferred processing may deadlock.
+            Stopwatch deferredTime = Stopwatch.createStarted();
             transmitPacket.setTransmitComplete(effectiveRC.get());
             outstandingTransmits.getAndDecrement();
             addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
+            addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
         }
     }
 
@@ -1023,8 +1089,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 // be enqueued; they will be failed with WriteException
                 cancelPendingPromises = (BKException.Code.OK != rc);
             } else {
-                LOG.warn("Log segment {}: Tried to set transmit result to ({}) but is already ({})",
-                    new Object[] {fullyQualifiedLogSegment, rc, transmitResult.get()});
+                LOG.warn("Log segment {} entryId {}: Tried to set transmit result to ({}) but is already ({})",
+                    new Object[] {fullyQualifiedLogSegment, entryId, rc, transmitResult.get()});
             }
 
             if (transmitResult.get() != BKException.Code.OK) {

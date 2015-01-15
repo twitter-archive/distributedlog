@@ -33,6 +33,7 @@ import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Duration;
+import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
@@ -68,6 +69,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -1166,7 +1169,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     // Stats
     // operation stats
     private final OpStatsLogger bulkWriteStat;
+    private final Counter bulkWritePendingStat;
     private final OpStatsLogger writeStat;
+    private final Counter writePendingStat;
     private final OpStatsLogger heartbeatStat;
     private final OpStatsLogger truncateStat;
     private final OpStatsLogger deleteStat;
@@ -1272,7 +1277,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // Stats on requests
         StatsLogger requestsStatsLogger = statsLogger.scope("request");
         this.bulkWriteStat = requestsStatsLogger.getOpStatsLogger("bulkWrite");
+        this.bulkWritePendingStat = requestsStatsLogger.getCounter("bulkWritePending");
         this.writeStat = requestsStatsLogger.getOpStatsLogger("write");
+        this.writePendingStat = requestsStatsLogger.getCounter("writePending");
         this.heartbeatStat = requestsStatsLogger.getOpStatsLogger("heartbeat");
         this.truncateStat = requestsStatsLogger.getOpStatsLogger("truncate");
         this.deleteStat = requestsStatsLogger.getOpStatsLogger("delete");
@@ -1454,10 +1461,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedBulkWriteCounter.inc();
             return Future.value(bulkWriteResponse(operationDeniedResponseHeader()));
         }
+        bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
         BulkWriteOp op = new BulkWriteOp(stream, data, ctx);
         doExecuteStreamOp(op);
-        return op.result;
+        return op.result.ensure(new Function0<BoxedUnit>() {
+            public BoxedUnit apply() {
+                bulkWritePendingStat.dec();
+                return null;
+            }
+        });
     }
 
     @Override
@@ -1526,9 +1539,15 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     }
 
     private Future<WriteResponse> doWrite(final String name, ByteBuffer data, WriteContext ctx) {
+        writePendingStat.inc();
         WriteOp op = new WriteOp(name, data, ctx);
         doExecuteStreamOp(op);
-        return op.result;
+        return op.result.ensure(new Function0<BoxedUnit>() {
+            public BoxedUnit apply() {
+                writePendingStat.dec();
+                return null;
+            }
+        });
     }
 
     private void doExecuteStreamOp(final StreamOp op) {

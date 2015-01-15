@@ -79,8 +79,15 @@ public class SafeQueueingFuturePool<T> {
     }
 
     private void applyAll() {
+        if (!queue.isEmpty()) {
+            LOG.info("Applying {} items", queue.size());
+        }
         while (!queue.isEmpty()) {
             queue.poll().apply();
         }
+    }
+
+    public synchronized int size() {
+        return queue.size();
     }
 }
