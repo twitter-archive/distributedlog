@@ -157,7 +157,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
                     }
                 }
             });
-        } catch (DynamicHostSet.MonitorException e) {
+        } catch (Exception e) {
             logger.error("Fail to monitor server set : ", e);
             Runtime.getRuntime().exit(-1);
         }

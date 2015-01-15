@@ -1604,45 +1604,50 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     }
 
     void shutdown() {
-        closeLock.writeLock().lock();
         try {
-            if (closed) {
-                return;
+            closeLock.writeLock().lock();
+            try {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+            } finally {
+                closeLock.writeLock().unlock();
             }
-            closed = true;
+            int numAcquired = acquiredStreams.size();
+            int numCached = streams.size();
+            logger.info("Closing all acquired streams : acquired = {}, cached = {}.",
+                        numAcquired, numCached);
+            Set<Stream> streamsToClose = new HashSet<Stream>();
+            streamsToClose.addAll(streams.values());
+
+            Future<List<Void>> closeResult = closeStreams(streamsToClose, Optional.<RateLimiter>absent());
+
+            logger.info("Waiting for closing all streams ...");
+            try {
+                Await.result(closeResult, Duration.fromTimeUnit(5, TimeUnit.MINUTES));
+                logger.info("Closed all streams.");
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted on waiting for closing all streams : ", e);
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes : ", e);
+            }
+
+            // shutdown the dl factory
+            logger.info("Closing distributedlog factory ...");
+            dlFactory.close();
+            logger.info("Closed distributedlog factory.");
+
+            // shutdown the executor after requesting closing streams.
+            SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
+        } catch (Exception ex) {
+            logger.info("Exception while shutting down distributedlog service.");
         } finally {
-            closeLock.writeLock().unlock();
+            // release the keepAliveLatch in case shutdown is called from a shutdown hook.
+            keepAliveLatch.countDown();
+            logger.info("Finished shutting down distributedlog service.");
         }
-        int numAcquired = acquiredStreams.size();
-        int numCached = streams.size();
-        logger.info("Closing all acquired streams : acquired = {}, cached = {}.",
-                    numAcquired, numCached);
-        Set<Stream> streamsToClose = new HashSet<Stream>();
-        streamsToClose.addAll(streams.values());
-
-        Future<List<Void>> closeResult = closeStreams(streamsToClose, Optional.<RateLimiter>absent());
-
-        logger.info("Waiting for closing all streams ...");
-        try {
-            Await.result(closeResult, Duration.fromTimeUnit(5, TimeUnit.MINUTES));
-            logger.info("Closed all streams.");
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted on waiting for closing all streams : ", e);
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes : ", e);
-        }
-
-        // shutdown the executor after requesting closing streams.
-        SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
-        // shutdown the dl factory
-        logger.info("Closing distributedlog factory ...");
-        dlFactory.close();
-        logger.info("Closed distributedlog factory.");
-
-        // release the keepAliveLatch in case shutdown is called from a shutdown hook.
-        keepAliveLatch.countDown();
-        logger.info("Finished shutting down distributedlog service.");
     }
 
     void triggerShutdown() {
