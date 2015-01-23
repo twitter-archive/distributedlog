@@ -287,6 +287,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
     public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
 
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
+    public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
+
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_MS = "eiInjectedWriteDelayMs";
+    public static final int BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT = 0;
+
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME = "eiInjectedWriteDelayStreamName";
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT = null;
+
     /**
      *  CompressionCodec.Type     String to use (See CompressionUtils)
      *  ---------------------     ------------------------------------
@@ -2081,6 +2090,72 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setCompressionType(String compressionType) {
         Preconditions.checkArgument(null != compressionType && !compressionType.isEmpty());
         setProperty(BKDL_COMPRESSION_TYPE, compressionType);
+        return this;
+    }
+
+
+    /**
+     * Get percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS.
+     *
+     * @return percent of writes to delay.
+     */
+    public double getEIInjectedWriteDelayPercent() {
+        return getDouble(BKDL_EI_INJECTED_WRITE_DELAY_PERCENT, BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT);
+    }
+
+    /**
+     * Set percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS. 0 disables
+     * write delay.
+     *
+     * @param percent
+     *          percent of writes to delay.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEIInjectedWriteDelayPercent(double percent) {
+        setProperty(BKDL_EI_INJECTED_WRITE_DELAY_PERCENT, percent);
+        return this;
+    }
+
+    /**
+     * Get amount of time to delay writes for in writer failure injection.
+     *
+     * @return millis to delay writes for.
+     */
+    public int getEIInjectedWriteDelayMs() {
+        return getInt(BKDL_EI_INJECTED_WRITE_DELAY_MS, BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT);
+    }
+
+    /**
+     * Set amount of time to delay writes for in writer failure injection. 0 disables write delay.
+     *
+     * @param delayMs
+     *          ms to delay writes for.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEIInjectedWriteDelayMs(int delayMs) {
+        setProperty(BKDL_EI_INJECTED_WRITE_DELAY_MS, delayMs);
+        return this;
+    }
+
+    /**
+     * Get stream name to delay writes for in writer failure injection.
+     *
+     * @return stream name to delay writes for.
+     */
+    public String getEIInjectedWriteDelayStreamName() {
+        return getString(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT);
+    }
+
+    /**
+     * Set stream name to delay writes for in writer failure injection. If null, writes will be
+     * delayed for all streams (if other conditions are met).
+     *
+     * @param name
+     *          stream to delay writes for.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEIInjectedWriteDelayStreamName(String name) {
+        setProperty(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, name);
         return this;
     }
 }

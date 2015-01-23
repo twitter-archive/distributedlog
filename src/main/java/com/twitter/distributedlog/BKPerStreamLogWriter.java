@@ -275,6 +275,36 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     // write rate limiter
     private final WriteLimiter writeLimiter;
 
+    // failure injection
+    private final FailureInjector failureInjector;
+
+    // manage failure injection for the class
+    static class FailureInjector {
+
+        final double injectedDelayPercent;
+        final int injectedDelayMs;
+        final boolean enabled;
+
+        public FailureInjector(DistributedLogConfiguration conf, String stream) {
+            this.injectedDelayPercent = conf.getEIInjectedWriteDelayPercent();
+            this.injectedDelayMs = conf.getEIInjectedWriteDelayMs();
+            String failureStream = conf.getEIInjectedWriteDelayStreamName();
+            this.enabled = ((null == failureStream) || failureStream.equals(stream)) &&
+                (0 != injectedDelayMs) &&
+                (0 != injectedDelayPercent);
+        }
+
+        void writeDelay() {
+            try {
+                if (enabled && Utils.randomPercent(injectedDelayPercent)) {
+                    Thread.sleep(injectedDelayMs);
+                }
+            } catch (InterruptedException ex) {
+                LOG.warn("delay was interrupted ", ex);
+            }
+        }
+    }
+
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
@@ -376,6 +406,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
+
+        // Failure injection
+        this.failureInjector = new FailureInjector(conf, streamName);
 
         // If we are transmitting immediately (threshold == 0) and if immediate
         // flush is enabled, we don't need the periodic flush task
@@ -630,6 +663,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             (record.getTransactionId() == DistributedLogConstants.MAX_TXID)) {
             throw new TransactionIdOutOfOrderException(record.getTransactionId());
         }
+
+        // Inject write delay if configured to do so
+        failureInjector.writeDelay();
 
         // Will check write rate limits and throw if exceeded.
         writeLimiter.acquire();
