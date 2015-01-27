@@ -41,6 +41,7 @@ import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.thrift.TApplicationException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
@@ -1187,18 +1188,11 @@ public class DistributedLogClientBuilder {
                         // redirect the request to other host.
                         removeClient(addr, sc);
                         doSend(op, addr);
+                    } else if (cause instanceof TApplicationException) {
+                        handleTApplicationException(cause, op, addr, sc);
                     } else {
-                        // RequestTimeoutException: fail it and let client decide whether to retry or not.
-
-                        // FailedFastException:
-                        // We don't actually know when FailedFastException will be thrown
-                        // so properly we just throw it back to application to let application
-                        // handle it.
-
-                        // Other Exceptions: as we don't know how to handle them properly so throw them to client
-                        logger.error("Failed to write request to {} @ {} : {}",
-                                new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
-                        op.fail(cause);
+                        // Default handler
+                        handleException(cause, op, addr);
                     }
                 }
             });
@@ -1214,6 +1208,31 @@ public class DistributedLogClientBuilder {
                 op.send(newAddr);
             } else {
                 doSend(op, oldAddr);
+            }
+        }
+
+        void handleException(Throwable cause, StreamOp op, SocketAddress addr) {
+            // RequestTimeoutException: fail it and let client decide whether to retry or not.
+
+            // FailedFastException:
+            // We don't actually know when FailedFastException will be thrown
+            // so properly we just throw it back to application to let application
+            // handle it.
+
+            // Other Exceptions: as we don't know how to handle them properly so throw them to client
+            logger.error("Failed to write request to {} @ {} : {}",
+                    new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
+            op.fail(cause);
+        }
+
+        void handleTApplicationException(Throwable cause, StreamOp op, SocketAddress addr, ServiceWithClient sc) {
+            TApplicationException ex = (TApplicationException) cause;
+            if (ex.getType() == TApplicationException.UNKNOWN_METHOD) {
+                // remove client and redirect the request to other host
+                removeClient(addr, sc);
+                doSend(op, addr);
+            } else {
+                handleException(cause, op, addr);
             }
         }
 
