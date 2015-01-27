@@ -352,8 +352,13 @@ public class LedgerAllocatorPool implements LedgerAllocator {
             }
         }
         allocator.abortObtain(ledger);
-        synchronized (this) {
-            pendingList.addLast(allocator);
+        // if a ledger allocator is aborted, it is better to rescue it. since the ledger allocator might
+        // already encounter BadVersion exception.
+        try {
+            rescueAllocator(allocator);
+        } catch (DLInterruptedException e) {
+            logger.warn("Interrupted on rescuing ledger allocator pool {} : ", poolPath, e);
+            Thread.currentThread().interrupt();
         }
     }
 
