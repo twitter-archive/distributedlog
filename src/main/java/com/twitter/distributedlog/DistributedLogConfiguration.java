@@ -287,6 +287,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
     public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
 
+    public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
+    public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
+
+    // Settings for Error Injection
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
     public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
 
@@ -296,8 +300,17 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME = "eiInjectedWriteDelayStreamName";
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT = null;
 
-    public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
-    public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
+    public static final String BKDL_EI_INJECT_READAHEAD_STALL = "eiInjectReadAheadStall";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_STALL_DEFAULT = false;
+
+    public static final String BKDL_EI_INJECT_READAHEAD_DELAY = "eiInjectReadAheadDelay";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_DELAY_DEFAULT = false;
+
+    public static final String BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS = "eiInjectMaxReadAheadDelayMs";
+    public static final int BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT = 0;
+
+    public static final String BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT = "eiInjectReadAheadDelayPercent";
+    public static final int BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT = 10;
 
     /**
      *  CompressionCodec.Type     String to use (See CompressionUtils)
@@ -1970,7 +1983,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Get the per stream outstanding write limit for dl.
      *
-     * @return the per stream outstanding write limit for dl 
+     * @return the per stream outstanding write limit for dl
      */
     public int getPerWriterOutstandingWriteLimit() {
         return getInt(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT, BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT);
@@ -2096,6 +2109,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    // Error Injection Settings
 
     /**
      * Get percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS.
@@ -2140,6 +2154,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+
     /**
      * Get stream name to delay writes for in writer failure injection.
      *
@@ -2159,6 +2174,90 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEIInjectedWriteDelayStreamName(String name) {
         setProperty(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, name);
+        return this;
+    }
+
+    /**
+     * Get the flag whether to inject stalls in read ahead.
+     *
+     * @return true if to inject stalls in read ahead, otherwise false.
+     */
+    public boolean getEIInjectReadAheadStall() {
+        return getBoolean(BKDL_EI_INJECT_READAHEAD_STALL, BKDL_EI_INJECT_READAHEAD_STALL_DEFAULT);
+    }
+
+    /**
+     * Set the flag whether to inject stalls in read ahead.
+     *
+     * @param enabled
+     *          flag to inject stalls in read ahead.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setEIInjectReadAheadStall(boolean enabled) {
+        setProperty(BKDL_EI_INJECT_READAHEAD_STALL, enabled);
+        return this;
+    }
+
+    /**
+     * Get the flag whether to inject delay in read ahead.
+     *
+     * @return true if to inject delays in read ahead, otherwise false.
+     */
+    public boolean getEIInjectReadAheadDelay() {
+        return getBoolean(BKDL_EI_INJECT_READAHEAD_DELAY, BKDL_EI_INJECT_READAHEAD_DELAY_DEFAULT);
+    }
+
+    /**
+     * Set the flag whether to inject delays in read ahead.
+     *
+     * @param enabled
+     *          flag to inject delays in read ahead.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setEIInjectReadAheadDelay(boolean enabled) {
+        setProperty(BKDL_EI_INJECT_READAHEAD_DELAY, enabled);
+        return this;
+    }
+
+    /**
+     * Get the max injected delay in read ahead, in millis.
+     *
+     * @return max injected delay in read ahead, in millis.
+     */
+    public int getEIInjectMaxReadAheadDelayMs() {
+        return getInt(BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS, BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT);
+    }
+
+    /**
+     * Set the max injected delay in read ahead, in millis.
+     *
+     * @param delayMs
+     *          max injected delay in read ahead, in millis.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setEIInjectMaxReadAheadDelayMs(int delayMs) {
+        setProperty(BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS, delayMs);
+        return this;
+    }
+
+    /**
+     * Get the percentage of operations to delay in read ahead.
+     *
+     * @return the percentage of operations to delay in read ahead.
+     */
+    public int getEIInjectReadAheadDelayPercent() {
+        return getInt(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT);
+    }
+
+    /**
+     * Set the percentage of operations to delay in read ahead.
+     *
+     * @param percent
+     *          the percentage of operations to delay in read ahead.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setEIInjectReadAheadDelayPercent(int percent) {
+        setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT);
         return this;
     }
 

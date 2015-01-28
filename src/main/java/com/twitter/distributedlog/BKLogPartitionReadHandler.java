@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +55,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
+    private static final Random random = new Random(System.currentTimeMillis());
     private LedgerDataAccessor ledgerDataAccessor = null;
     private final LedgerHandleCache handleCache;
 
@@ -819,6 +821,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final LedgerDataAccessor ledgerDataAccessor;
         private volatile List<LogSegmentLedgerMetadata> ledgerList;
         private boolean simulateErrors;
+        private boolean simulateDelays;
+        private boolean injectReadAheadStall;
+        private int maxInjectedDelayMs;
+        private int injectedDelayPercent;
         private final DistributedLogConfiguration conf;
         private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
         private static final int BKC_UNEXPECTED_EXCEPTION_THRESHOLD = 3;
@@ -862,6 +868,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.nextReadAheadPosition = new LedgerReadPosition(startPosition);
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.simulateErrors = simulateErrors;
+            this.simulateDelays = conf.getEIInjectReadAheadDelay();
+            this.injectReadAheadStall = conf.getEIInjectReadAheadStall();
+            this.maxInjectedDelayMs = conf.getEIInjectMaxReadAheadDelayMs();
+            this.injectedDelayPercent = Math.max(0, Math.min(100, conf.getEIInjectReadAheadDelayPercent()));
             if ((conf.getReadLACOption() >= ReadLACOption.INVALID_OPTION.value) ||
                 (conf.getReadLACOption() < ReadLACOption.DEFAULT.value)) {
                 LOG.warn("Invalid value of ReadLACOption configured {}", conf.getReadLACOption());
@@ -902,7 +912,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 ", EncounteredException:" + encounteredException +
                 ", readAheadError:" + readAheadError +
                 ", readAheadInterrupted" + readAheadInterrupted +
-                ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE");
+                ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE") +
+                ", SimulateDelays:" + simulateDelays;
         }
 
         @Override
@@ -933,6 +944,17 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
 
         void submit(Runnable runnable) {
+            if (injectReadAheadStall && Utils.randomPercent(10)) {
+                LOG.warn("Error injected: read ahead for stream {} is going to stall.", getFullyQualifiedName());
+                return;
+            }
+
+            if (simulateDelays && Utils.randomPercent(injectedDelayPercent)) {
+                int delayMs = random.nextInt(maxInjectedDelayMs);
+                schedule(runnable, delayMs);
+                return;
+            }
+
             try {
                 readAheadExecutor.submit(addRTEHandler(runnable));
             } catch (RejectedExecutionException ree) {
