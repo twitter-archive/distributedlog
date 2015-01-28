@@ -19,6 +19,7 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.ServiceTimeoutException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -30,6 +31,7 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.finagle.util.TimerFromNettyTimer;
 import com.twitter.util.Await;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Duration;
@@ -38,15 +40,21 @@ import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.Timer;
 import com.twitter.util.Try;
+
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.TimerTask;
+import org.jboss.netty.util.Timeout;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.net.URI;
@@ -70,6 +78,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -851,6 +860,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 op.fail(null, cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer
+                            case SERVICE_TIMEOUT:
                             default:
                                 handleRecoverableDLException(op, cause);
                                 break;
@@ -1212,6 +1222,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     private final boolean failFastOnStreamNotReady;
 
+    private final Timer dlTimer;
+
+    private final Duration serviceTimeout;
+    private final Function0<Throwable> timeoutRoutine = new Function0<Throwable>() {
+        @Override
+        public Throwable apply() {
+            return new ServiceTimeoutException();
+        }
+    };
+
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
                               URI uri,
                               StatsLogger statsLogger,
@@ -1233,6 +1253,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
         this.keepAliveLatch = keepAliveLatch;
         this.failFastOnStreamNotReady = dlConf.getFailFastOnStreamNotReady();
+
+        final HashedWheelTimer nettyTimer = new HashedWheelTimer(
+                new ThreadFactoryBuilder().setNameFormat("DLService-timer-%d").build(),
+                dlConf.getTimeoutTimerTickDurationMs(),
+                TimeUnit.MILLISECONDS);
+        this.dlTimer = new TimerFromNettyTimer(nettyTimer);
+
+        if (dlConf.getServiceTimeoutMs() > 0) {
+            this.serviceTimeout = Duration.fromMilliseconds(dlConf.getServiceTimeoutMs());
+        } else {
+            this.serviceTimeout = Duration.Top();
+        }
 
         // Access Control Manager
         this.accessControlManager = this.dlFactory.createAccessControlManager();
@@ -1470,7 +1502,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 bulkWritePendingStat.dec();
                 return null;
             }
-        });
+        }).within(dlTimer, serviceTimeout, timeoutRoutine);
     }
 
     @Override
@@ -1547,7 +1579,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 writePendingStat.dec();
                 return null;
             }
-        });
+        }).within(dlTimer, serviceTimeout, timeoutRoutine);
     }
 
     private void doExecuteStreamOp(final StreamOp op) {
@@ -1660,6 +1692,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
             // shutdown the executor after requesting closing streams.
             SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
+
+            // Shutdown timeout timer
+            dlTimer.stop();
         } catch (Exception ex) {
             logger.info("Exception while shutting down distributedlog service.");
         } finally {

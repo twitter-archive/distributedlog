@@ -296,6 +296,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME = "eiInjectedWriteDelayStreamName";
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT = null;
 
+    public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
+    public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
+
     /**
      *  CompressionCodec.Type     String to use (See CompressionUtils)
      *  ---------------------     ------------------------------------
@@ -2156,6 +2159,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEIInjectedWriteDelayStreamName(String name) {
         setProperty(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, name);
+        return this;
+    }
+
+    /**
+     * Get timeout for stream op execution in proxy layer. 0 disables timeout.
+     *
+     * @return timeout for stream operation in proxy layer.
+     */
+    public long getServiceTimeoutMs() {
+        return getLong(BKDL_SERVICE_TIMEOUT_MS, BKDL_SERVICE_TIMEOUT_MS_DEFAULT);
+    }
+
+    /**
+     * Set timeout for stream op execution in proxy layer. 0 disables timeout.
+     *
+     * @param timeoutMs
+     *          timeout for stream operation in proxy layer.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setServiceTimeoutMs(long timeoutMs) {
+        setProperty(BKDL_SERVICE_TIMEOUT_MS, timeoutMs);
         return this;
     }
 }

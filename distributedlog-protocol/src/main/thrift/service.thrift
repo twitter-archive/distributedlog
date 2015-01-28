@@ -66,6 +66,8 @@ enum StatusCode {
     // redirect. NOT_READY indicates the stream exist at the proxy but isn't
     // ready for writes.
     STREAM_NOT_READY = 518,
+    // stream operation timed out in the service layer
+    SERVICE_TIMEOUT = 519,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
