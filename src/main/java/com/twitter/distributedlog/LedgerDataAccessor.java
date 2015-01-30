@@ -6,7 +6,7 @@ import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -37,7 +37,7 @@ public class LedgerDataAccessor {
     private final OpStatsLogger negativeReadAheadDeliveryLatencyStat;
     private final StatsLogger statsLogger;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
-    private final ConcurrentLinkedQueue<LogRecordWithDLSN> readAheadRecords;
+    private final LinkedBlockingQueue<LogRecordWithDLSN> readAheadRecords;
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
     private AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
@@ -78,7 +78,7 @@ public class LedgerDataAccessor {
             readAheadRecords = null;
         } else {
            readAheadCache = null;
-           readAheadRecords = new ConcurrentLinkedQueue<LogRecordWithDLSN>();
+           readAheadRecords = new LinkedBlockingQueue<LogRecordWithDLSN>();
         }
     }
 
