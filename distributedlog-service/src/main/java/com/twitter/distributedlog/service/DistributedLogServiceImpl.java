@@ -638,6 +638,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         volatile boolean running = true;
         private volatile Queue<StreamOp> pendingOps = new ArrayDeque<StreamOp>();
 
+        // A write has been attempted since the last stream acquire.
+        private volatile boolean writeSinceLastAcquire = false;
+
         final Object streamLock = new Object();
         // last acquire time
         final Stopwatch lastAcquireWatch = new Stopwatch();
@@ -702,10 +705,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             needAcquire = true;
                             break;
                         case FAILED:
-                        case BACKOFF:
                             this.status = StreamStatus.INITIALIZING;
                             acquiredStreams.remove(name, this);
                             needAcquire = true;
+                        case BACKOFF:
+                            // We may end up here after timeout on streamLock. To avoid acquire on every timeout
+                            // we should only try again if a write has been attempted since the last acquire
+                            // attempt. If we end up here because the request handler woke us up, the flag will
+                            // be set and we will try to acquire as intended.
+                            if (writeSinceLastAcquire) {
+                                this.status = StreamStatus.INITIALIZING;
+                                acquiredStreams.remove(name, this);
+                                needAcquire = true;
+                            }
                             break;
                         default:
                             break;
@@ -745,6 +757,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          *          stream operation to execute.
          */
         void waitIfNeededAndWrite(StreamOp op) {
+
+            // Let stream acquire thread know a write has been attempted.
+            writeSinceLastAcquire = true;
+
             boolean notifyAcquireThread = false;
             boolean completeOpNow = false;
             boolean success = true;
@@ -966,6 +982,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         void acquireStream() {
+
+            // Reset this flag so the acquire thread knows whether re-acquire is needed.
+            writeSinceLastAcquire = false;
+
             Queue<StreamOp> oldPendingOps;
             boolean success;
             Stopwatch stopwatch = new Stopwatch().start();
