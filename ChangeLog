@@ -1,3 +1,11 @@
+0.3.26
+------
+- BookKeeper Version 4.2.22
+- Explicit Truncation Point Support
+- Compression Support
+- Handle missing zk notification
+- Misc changes on fixing high pendings
+
 0.3.25
 ------
 - BookKeeper Version 4.2.21
