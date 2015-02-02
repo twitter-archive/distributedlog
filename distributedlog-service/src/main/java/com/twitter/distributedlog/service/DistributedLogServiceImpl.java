@@ -19,7 +19,6 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.exceptions.ServiceTimeoutException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -40,7 +39,6 @@ import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
-import com.twitter.util.Timer;
 import com.twitter.util.Try;
 
 import org.apache.bookkeeper.stats.Counter;
@@ -50,8 +48,8 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import org.jboss.netty.util.HashedWheelTimer;
-import org.jboss.netty.util.TimerTask;
 import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -210,6 +208,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return executeOp(writer);
         }
 
+        boolean applyServiceTimeout() {
+            return false;
+        }
+
+        abstract Future<Void> completionFuture();
+
         /**
          * Execute the operation and return its corresponding response.
          *
@@ -297,6 +301,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return def;
         }
 
+        Future<Void> completionFuture() {
+            return result.voided();
+        }
+
         BulkWriteOp(String stream, List<ByteBuffer> buffers, WriteContext context) {
             super(stream, context, bulkWriteStat);
             this.buffers = buffers;
@@ -311,6 +319,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         public long getPayloadSize() {
           return payloadSize;
+        }
+
+        @Override
+        boolean applyServiceTimeout() {
+            return true;
         }
 
         @Override
@@ -403,6 +416,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         AbstractWriteOp(String stream, WriteContext context, OpStatsLogger statsLogger) {
             super(stream, context, statsLogger);
+        }
+
+        Future<Void> completionFuture() {
+            return result.voided();
         }
 
         @Override
@@ -566,6 +583,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         public long getPayloadSize() {
           return payload.length;
+        }
+
+        @Override
+        boolean applyServiceTimeout() {
+            return true;
         }
 
         @Override
@@ -750,6 +772,36 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         }
 
+        void scheduleTimeout(final StreamOp op) {
+            final Timeout timeout = dlTimer.newTimeout(new TimerTask() {
+                @Override
+                public void run(Timeout timeout) throws Exception {
+                    if (!timeout.isCancelled()) {
+                        serviceTimeout.inc();
+                        logger.info("Stream {} closing after {} timeout", getName(), op.getClass().getName());
+                        requestClose().addEventListener(new FutureEventListener<Void>() {
+                                @Override
+                                public void onSuccess(Void value) {
+                                    logger.info("Removing acquired stream after timeout {}", name);
+                                    streams.remove(name);
+                                }
+                                @Override
+                                public void onFailure(Throwable cause) {
+                                }
+                            }
+                        );
+                    }
+                }
+            }, serviceTimeoutMs, TimeUnit.MILLISECONDS);
+            op.completionFuture().ensure(new Function0<BoxedUnit>() {
+                @Override
+                public BoxedUnit apply() {
+                    timeout.cancel();
+                    return null;
+                }
+            });
+        }
+
         /**
          * Wait for stream being re-acquired if needed. Otherwise, execute the <i>op</i> immediately.
          *
@@ -760,6 +812,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
             // Let stream acquire thread know a write has been attempted.
             writeSinceLastAcquire = true;
+
+            // Timeout stream op if requested.
+            if (op.applyServiceTimeout() && serviceTimeoutMs > 0) {
+                scheduleTimeout(op);
+            }
 
             boolean notifyAcquireThread = false;
             boolean completeOpNow = false;
@@ -876,7 +933,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 op.fail(null, cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer
-                            case SERVICE_TIMEOUT:
                             default:
                                 handleRecoverableDLException(op, cause);
                                 break;
@@ -1210,6 +1266,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final Counter unexpectedExceptions;
     private final Counter bulkWriteBytes;
     private final Counter writeBytes;
+    private final Counter serviceTimeout;
     // denied operations counters
     private final Counter deniedBulkWriteCounter;
     private final Counter deniedWriteCounter;
@@ -1242,15 +1299,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     private final boolean failFastOnStreamNotReady;
 
-    private final Timer dlTimer;
+    private final HashedWheelTimer dlTimer;
 
-    private final Duration serviceTimeout;
-    private final Function0<Throwable> timeoutRoutine = new Function0<Throwable>() {
-        @Override
-        public Throwable apply() {
-            return new ServiceTimeoutException();
-        }
-    };
+    private long serviceTimeoutMs;
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
                               URI uri,
@@ -1274,17 +1325,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.keepAliveLatch = keepAliveLatch;
         this.failFastOnStreamNotReady = dlConf.getFailFastOnStreamNotReady();
 
-        final HashedWheelTimer nettyTimer = new HashedWheelTimer(
+        this.dlTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("DLService-timer-%d").build(),
                 dlConf.getTimeoutTimerTickDurationMs(),
                 TimeUnit.MILLISECONDS);
-        this.dlTimer = new TimerFromNettyTimer(nettyTimer);
 
-        if (dlConf.getServiceTimeoutMs() > 0) {
-            this.serviceTimeout = Duration.fromMilliseconds(dlConf.getServiceTimeoutMs());
-        } else {
-            this.serviceTimeout = Duration.Top();
-        }
+        this.serviceTimeoutMs = dlConf.getServiceTimeoutMs();
 
         // Access Control Manager
         this.accessControlManager = this.dlFactory.createAccessControlManager();
@@ -1341,6 +1387,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
         this.bulkWriteBytes = requestsStatsLogger.scope("bulkWrite").getCounter("bytes");
         this.writeBytes = requestsStatsLogger.scope("write").getCounter("bytes");
+        this.serviceTimeout = statsLogger.getCounter("serviceTimeout");
 
         // Stats on denied requests
         StatsLogger deniedRequestsStatsLogger = requestsStatsLogger.scope("denied");
@@ -1390,6 +1437,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
+    }
+
+    @VisibleForTesting
+    public void setServiceTimeoutMs(int serviceTimeoutMs) {
+        this.serviceTimeoutMs = serviceTimeoutMs;
     }
 
     @VisibleForTesting
@@ -1522,7 +1574,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 bulkWritePendingStat.dec();
                 return null;
             }
-        }).within(dlTimer, serviceTimeout, timeoutRoutine);
+        });
     }
 
     @Override
@@ -1599,7 +1651,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 writePendingStat.dec();
                 return null;
             }
-        }).within(dlTimer, serviceTimeout, timeoutRoutine);
+        });
     }
 
     private void doExecuteStreamOp(final StreamOp op) {
