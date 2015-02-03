@@ -587,7 +587,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 if (KeeperException.Code.OK.intValue() == rc) {
                     if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
                         lockData.notExists() || readLockData.notExists() || ledgersData.notExists()) {
-                        ZkUtils.createFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
+                        ZkUtils.asyncCreateFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
                                 acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
                     } else {
                         initializeLatch.countDown();

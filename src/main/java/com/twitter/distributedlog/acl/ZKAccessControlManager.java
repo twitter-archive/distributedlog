@@ -238,7 +238,7 @@ public class ZKAccessControlManager implements AccessControlManager, Watcher {
             promise.setException(e);
             return;
         }
-        ZkUtils.createFullPathOptimistic(zk, zkRootPath, new byte[0], zkc.getDefaultACL(),
+        ZkUtils.asyncCreateFullPathOptimistic(zk, zkRootPath, new byte[0], zkc.getDefaultACL(),
                 CreateMode.PERSISTENT, new AsyncCallback.StringCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, String name) {
