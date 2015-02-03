@@ -1338,11 +1338,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(stream);
-        confLocal.setPerWriterOutstandingWriteLimitDarkmode(false);
-        confLocal.setGlobalOutstandingWriteLimitDarkmode(false);
+        confLocal.setOutstandingWriteLimitDarkmode(false);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
         if (global > -1) {
-            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(global, new NullStatsLogger(), true));
+            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(false, global, new NullStatsLogger(), true));
         }
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
@@ -1390,8 +1389,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(0);
-        confLocal.setPerWriterOutstandingWriteLimitDarkmode(true);
-        confLocal.setGlobalOutstandingWriteLimitDarkmode(true);
+        confLocal.setOutstandingWriteLimitDarkmode(true);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);

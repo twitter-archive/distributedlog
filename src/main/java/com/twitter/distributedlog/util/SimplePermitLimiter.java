@@ -1,5 +1,7 @@
 package com.twitter.distributedlog.util;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -13,16 +15,18 @@ public class SimplePermitLimiter implements PermitLimiter {
     static final Logger LOG = LoggerFactory.getLogger(SimplePermitLimiter.class);
     Counter acquireFailureCounter;
     OpStatsLogger permitsMetric;
-    
+
     AtomicInteger permits;
     int permitsMax;
+    boolean darkmdode;
 
-    public SimplePermitLimiter(int permitsMax, StatsLogger statsLogger, boolean singleton) {
+    public SimplePermitLimiter(boolean darkmdode, int permitsMax, StatsLogger statsLogger, boolean singleton) {
         this.permits = new AtomicInteger(0);
         this.permitsMax = permitsMax;
+        this.darkmdode = darkmdode;
 
         // stats
-        if (singleton) { 
+        if (singleton) {
             statsLogger.registerGauge("permits", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
@@ -41,7 +45,7 @@ public class SimplePermitLimiter implements PermitLimiter {
     @Override
     public boolean acquire() {
         permitsMetric.registerSuccessfulEvent(permits.get());
-        if (permits.incrementAndGet() <= permitsMax) {
+        if (permits.incrementAndGet() <= permitsMax || darkmdode) {
             return true;
         } else {
             acquireFailureCounter.inc();
@@ -53,5 +57,10 @@ public class SimplePermitLimiter implements PermitLimiter {
     @Override
     public void release() {
         permits.decrementAndGet();
+    }
+
+    @VisibleForTesting
+    public int getPermits() {
+        return permits.get();
     }
 }

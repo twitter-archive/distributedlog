@@ -245,8 +245,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (conf.getGlobalOutstandingWriteLimit() < 0) {
             this.writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
-            this.writeLimiter = new SimplePermitLimiter(conf.getGlobalOutstandingWriteLimit(), 
-                statsLogger.scope("writeLimiter"), true /* singleton */);
+            this.writeLimiter = new SimplePermitLimiter(
+                conf.getOutstandingWriteLimitDarkmode(),
+                conf.getGlobalOutstandingWriteLimit(),
+                statsLogger.scope("writeLimiter"),
+                true /* singleton */);
         }
 
         // propagate bkdlConfig to configuration
