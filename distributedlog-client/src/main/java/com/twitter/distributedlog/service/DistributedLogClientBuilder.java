@@ -931,6 +931,33 @@ public class DistributedLogClientBuilder {
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass(), clientConfig.getThriftMux() });
         }
 
+        private void handleServerInfo(ServerInfo value) {
+            if (null != value && value.isSetOwnerships()) {
+                Map<String, String> ownerships = value.getOwnerships();
+                for (Map.Entry<String, String> entry : ownerships.entrySet()) {
+                    Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
+                    if (!matcher.matches()) {
+                        continue;
+                    }
+                    updateOwnership(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+
+        private void handshake(SocketAddress address, ServiceWithClient sc,
+                               FutureEventListener<ServerInfo> listener) {
+            if (clientConfig.getHandshakeWithClientInfo()) {
+                ClientInfo clientInfo = new ClientInfo();
+                clientInfo.setStreamNameRegex(clientConfig.getStreamNameRegex());
+                logger.info("Handshaking with {} : {}", address, clientInfo);
+                sc.service.handshakeWithClientInfo(clientInfo)
+                        .addEventListener(listener);
+            } else {
+                logger.info("Handshaking with {}", address);
+                sc.service.handshake().addEventListener(listener);
+            }
+        }
+
         @VisibleForTesting
         protected void handshake() {
             Map<SocketAddress, ServiceWithClient> snapshot =
@@ -939,16 +966,7 @@ public class DistributedLogClientBuilder {
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo value) {
-                    if (null != value && value.isSetOwnerships()) {
-                        Map<String, String> ownerships = value.getOwnerships();
-                        for (Map.Entry<String, String> entry : ownerships.entrySet()) {
-                            Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
-                            if (!matcher.matches()) {
-                                continue;
-                            }
-                            updateOwnership(entry.getKey(), entry.getValue());
-                        }
-                    }
+                    handleServerInfo(value);
                     latch.countDown();
                 }
                 @Override
@@ -956,17 +974,8 @@ public class DistributedLogClientBuilder {
                     latch.countDown();
                 }
             };
-            ClientInfo clientInfo = new ClientInfo();
-            clientInfo.setStreamNameRegex(clientConfig.getStreamNameRegex());
             for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
-                if (clientConfig.getHandshakeWithClientInfo()) {
-                    logger.info("Handshaking with {} : {}", entry.getKey(), clientInfo);
-                    entry.getValue().service.handshakeWithClientInfo(clientInfo)
-                            .addEventListener(listener);
-                } else {
-                    logger.info("Handshaking with {}", entry.getKey());
-                    entry.getValue().service.handshake().addEventListener(listener);
-                }
+                handshake(entry.getKey(), entry.getValue(), listener);
             }
             try {
                 latch.await(1, TimeUnit.MINUTES);
@@ -1025,8 +1034,18 @@ public class DistributedLogClientBuilder {
                 sc.client.close();
                 return oldSC;
             } else {
+                FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
+                    @Override
+                    public void onSuccess(ServerInfo value) {
+                        handleServerInfo(value);
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        // nope
+                    }
+                };
                 // send a ping messaging after creating connections.
-                sc.service.handshake();
+                handshake(address, sc, listener);
                 return sc;
             }
         }
