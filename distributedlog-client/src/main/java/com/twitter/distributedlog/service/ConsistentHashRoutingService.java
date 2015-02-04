@@ -7,7 +7,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;

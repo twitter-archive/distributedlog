@@ -147,6 +147,35 @@ public class DistributedLogClientBuilder {
     }
 
     /**
+     * Server Sets to access proxy services. The <i>local</i> server set will be tried first,
+     * then <i>remotes</i>.
+     *
+     * @param local local server set.
+     * @param remotes remote server sets.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder serverSets(ServerSet local, ServerSet...remotes) {
+        RoutingService[] services = new RoutingService[remotes.length + 1];
+        services[0] = ConsistentHashRoutingService.of(new DLServerSetWatcher(local, false),
+                NUM_CONSISTENT_HASH_REPLICAS);
+        for (int i = 1; i < services.length; i++) {
+            services[i] = ConsistentHashRoutingService.of(new DLServerSetWatcher(remotes[i-1], false),
+                    NUM_CONSISTENT_HASH_REPLICAS);
+        }
+        this._routingService = ChainRoutingService.of(services);
+        return this;
+    }
+
+    static RoutingService buildRoutingService(String finagleNameStr) {
+        if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
+            // We only support serverset based names at the moment
+            throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
+        }
+        return ConsistentHashRoutingService.of(new DLServerSetWatcher(new NameServerSet(finagleNameStr), true),
+                NUM_CONSISTENT_HASH_REPLICAS);
+    }
+
+    /**
      * Name to access proxy services.
      *
      * @param finagleNameStr
@@ -154,13 +183,25 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
-        if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
-            // We only support serverset based names at the moment
-            throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
-        }
+        this._routingService = buildRoutingService(finagleNameStr);
+        return this;
+    }
 
-        this._routingService = ConsistentHashRoutingService.of(new DLServerSetWatcher(new NameServerSet(finagleNameStr), true),
-            NUM_CONSISTENT_HASH_REPLICAS);
+    /**
+     * Finagle name strs to access proxy services. The <i>local</i> finalge name str will be tried first,
+     * then <i>remotes</i>.
+     *
+     * @param local local server set.
+     * @param remotes remote server sets.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder finagleNameStrs(String local, String...remotes) {
+        RoutingService[] services = new RoutingService[remotes.length + 1];
+        services[0] = buildRoutingService(local);
+        for (int i = 1; i < services.length; i++) {
+            services[i] = buildRoutingService(remotes[i-1]);
+        }
+        this._routingService = ChainRoutingService.of(services);
         return this;
     }
 
