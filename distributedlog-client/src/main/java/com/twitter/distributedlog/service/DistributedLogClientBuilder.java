@@ -12,6 +12,7 @@ import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
@@ -144,7 +145,6 @@ public class DistributedLogClientBuilder {
                 NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
-
 
     /**
      * Name to access proxy services.
@@ -290,6 +290,19 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    /**
+     * Whether to use the new handshake endpoint to exchange ownership cache. Enable this
+     * when the servers are updated to support handshaking with client info.
+     *
+     * @param enabled
+     *          new handshake endpoint is enabled.
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder handshakeWithClientInfo(boolean enabled) {
+        this._clientConfig.setHandshakeWithClientInfo(enabled);
+        return this;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         this._clientConfig = ClientConfig.newConfig(clientConfig);
         return this;
@@ -324,6 +337,7 @@ public class DistributedLogClientBuilder {
         boolean thriftmux = false;
         boolean streamFailfast = false;
         String streamNameRegex = ".*";
+        boolean handshakeWithClientInfo = false;
 
         ClientConfig setMaxRedirects(int maxRedirects) {
             this.maxRedirects = maxRedirects;
@@ -387,6 +401,15 @@ public class DistributedLogClientBuilder {
 
         String getStreamNameRegex() {
             return this.streamNameRegex;
+        }
+
+        ClientConfig setHandshakeWithClientInfo(boolean enabled) {
+            this.handshakeWithClientInfo = enabled;
+            return this;
+        }
+
+        boolean getHandshakeWithClientInfo() {
+            return this.handshakeWithClientInfo;
         }
 
         static ClientConfig newConfig(ClientConfig config) {
@@ -933,9 +956,17 @@ public class DistributedLogClientBuilder {
                     latch.countDown();
                 }
             };
+            ClientInfo clientInfo = new ClientInfo();
+            clientInfo.setStreamNameRegex(clientConfig.getStreamNameRegex());
             for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
-                logger.info("Handshaking with {}", entry.getKey());
-                entry.getValue().service.handshake().addEventListener(listener);
+                if (clientConfig.getHandshakeWithClientInfo()) {
+                    logger.info("Handshaking with {} : {}", entry.getKey(), clientInfo);
+                    entry.getValue().service.handshakeWithClientInfo(clientInfo)
+                            .addEventListener(listener);
+                } else {
+                    logger.info("Handshaking with {}", entry.getKey());
+                    entry.getValue().service.handshake().addEventListener(listener);
+                }
             }
             try {
                 latch.await(1, TimeUnit.MINUTES);

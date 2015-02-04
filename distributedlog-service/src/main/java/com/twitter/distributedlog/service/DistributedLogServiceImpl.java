@@ -23,6 +23,7 @@ import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
@@ -1507,9 +1508,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     @Override
     public Future<ServerInfo> handshake() {
+        return handshakeWithClientInfo(new ClientInfo());
+    }
+
+    @Override
+    public Future<ServerInfo> handshakeWithClientInfo(ClientInfo clientInfo) {
         ServerInfo serverInfo = new ServerInfo();
         Map<String, String> ownerships = new HashMap<String, String>();
         for (String name : acquiredStreams.keySet()) {
+            if (clientInfo.isSetStreamNameRegex() && !name.matches(clientInfo.getStreamNameRegex())) {
+                continue;
+            }
             Stream stream = acquiredStreams.get(name);
             if (null == stream) {
                 continue;

@@ -109,9 +109,16 @@ struct ServerInfo {
     1: optional map<string, string> ownerships;
 }
 
+// Client Info
+struct ClientInfo {
+    1: optional string streamNameRegex;
+}
+
 service DistributedLogService {
 
     ServerInfo handshake();
+
+    ServerInfo handshakeWithClientInfo(ClientInfo clientInfo);
 
     WriteResponse heartbeat(string stream, WriteContext ctx);
 

@@ -71,6 +71,7 @@ public abstract class DistributedLogServerTestCase {
                         .clientId(ClientId$.MODULE$.apply(name))
                         .routingService(routingService)
                         .streamNameRegex(streamNameRegex)
+                        .handshakeWithClientInfo(true)
                         .clientBuilder(ClientBuilder.get()
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
