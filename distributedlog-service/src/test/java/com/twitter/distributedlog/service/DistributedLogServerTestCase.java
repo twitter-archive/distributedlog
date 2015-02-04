@@ -61,16 +61,25 @@ public abstract class DistributedLogServerTestCase {
         public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
 
         protected DLClient(String name) {
+            this(name, ".*");
+        }
+
+        protected DLClient(String name, String streamNameRegex) {
             routingService = new LocalRoutingService();
             dlClientBuilder = DistributedLogClientBuilder.newBuilder()
                         .name(name)
                         .clientId(ClientId$.MODULE$.apply(name))
                         .routingService(routingService)
+                        .streamNameRegex(streamNameRegex)
                         .clientBuilder(ClientBuilder.get()
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
                             .requestTimeout(Duration.fromSeconds(10)));
             dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
+        }
+
+        public void handshake() {
+            dlClient.handshake();
         }
 
         public void shutdown() {
@@ -117,8 +126,13 @@ public abstract class DistributedLogServerTestCase {
         return new DLServer(port);
     }
 
-    protected DLClient createDistributedLogClient(String name) throws Exception {
-        return new DLClient(name);
+    protected DLClient createDistributedLogClient(String clientName) throws Exception {
+        return createDistributedLogClient(clientName, ".*");
+    }
+
+    protected DLClient createDistributedLogClient(String clientName, String streamNameRegex)
+            throws Exception {
+        return new DLClient(clientName, streamNameRegex);
     }
 
     protected static void checkStreams(int numExpectedStreams, DLServer dlServer) {

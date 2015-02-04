@@ -19,8 +19,6 @@ import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
-import com.twitter.finagle.builder.Server;
-import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -34,6 +32,7 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -477,6 +476,62 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             fail("Should fail with request denied exception");
         } catch (DLException dle) {
             assertEquals(StatusCode.REQUEST_DENIED, dle.getCode());
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testNoneStreamNameRegex() throws Exception {
+        String streamNamePrefix = "none-stream-name-regex-";
+        int numStreams = 5;
+        Set<String> streams = new HashSet<String>();
+
+        for (int i = 0; i < numStreams; i++) {
+            streams.add(streamNamePrefix + i);
+        }
+        testStreamNameRegex(streams, ".*", streams);
+    }
+
+    @Test(timeout = 60000)
+    public void testStreamNameRegex() throws Exception {
+        String streamNamePrefix = "stream-name-regex-";
+        int numStreams = 5;
+        Set<String> streams = new HashSet<String>();
+        Set<String> expectedStreams = new HashSet<String>();
+        String streamNameRegex = streamNamePrefix + "1";
+
+        for (int i = 0; i < numStreams; i++) {
+            streams.add(streamNamePrefix + i);
+        }
+        expectedStreams.add(streamNamePrefix + "1");
+
+        testStreamNameRegex(streams, streamNameRegex, expectedStreams);
+    }
+
+    private void testStreamNameRegex(Set<String> streams, String streamNameRegex,
+                                     Set<String> expectedStreams)
+            throws Exception {
+        for (String streamName : streams) {
+            dlClient.routingService.addHost(streamName, dlServer.getAddress());
+            Await.result(dlClient.dlClient.write(streamName,
+                    ByteBuffer.wrap(streamName.getBytes(UTF_8))));
+        }
+
+        DLClient client = createDistributedLogClient("test-stream-name-regex", streamNameRegex);
+        try {
+            client.routingService.addHost("unknown", dlServer.getAddress());
+            client.handshake();
+            Map<SocketAddress, Set<String>> distribution =
+                    client.dlClient.getStreamOwnershipDistribution();
+            assertEquals(1, distribution.size());
+            Set<String> cachedStreams = distribution.values().iterator().next();
+            assertNotNull(cachedStreams);
+            assertEquals(expectedStreams.size(), cachedStreams.size());
+
+            for (String streamName : cachedStreams) {
+                assertTrue(expectedStreams.contains(streamName));
+            }
+        } finally {
+            client.shutdown();
         }
     }
 

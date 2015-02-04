@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
@@ -32,7 +33,6 @@ import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.ThriftMuxClient;
-import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.finagle.thrift.ClientId;
 import com.twitter.finagle.thrift.ThriftClientFramedCodec;
 import com.twitter.finagle.thrift.ThriftClientRequest;
@@ -68,6 +68,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DistributedLogClientBuilder {
 
@@ -276,6 +278,18 @@ public class DistributedLogClientBuilder {
         return this;
     }
 
+    /**
+     * Set the regex to match stream names that the client cares about.
+     *
+     * @param nameRegex
+     *          stream name regex
+     * @return client builder
+     */
+    public DistributedLogClientBuilder streamNameRegex(String nameRegex) {
+        this._clientConfig.setStreamNameRegex(nameRegex);
+        return this;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         this._clientConfig = ClientConfig.newConfig(clientConfig);
         return this;
@@ -309,6 +323,7 @@ public class DistributedLogClientBuilder {
         int requestTimeoutMs = -1;
         boolean thriftmux = false;
         boolean streamFailfast = false;
+        String streamNameRegex = ".*";
 
         ClientConfig setMaxRedirects(int maxRedirects) {
             this.maxRedirects = maxRedirects;
@@ -355,12 +370,23 @@ public class DistributedLogClientBuilder {
             return this.thriftmux;
         }
 
-        void setStreamFailfast(boolean enabled) {
+        ClientConfig setStreamFailfast(boolean enabled) {
             this.streamFailfast = enabled;
+            return this;
         }
 
         boolean getStreamFailfast() {
             return this.streamFailfast;
+        }
+
+        ClientConfig setStreamNameRegex(String nameRegex) {
+            Preconditions.checkNotNull(nameRegex);
+            this.streamNameRegex = nameRegex;
+            return this;
+        }
+
+        String getStreamNameRegex() {
+            return this.streamNameRegex;
         }
 
         static ClientConfig newConfig(ClientConfig config) {
@@ -399,6 +425,7 @@ public class DistributedLogClientBuilder {
         private final RoutingService routingService;
         private final ClientBuilder clientBuilder;
         private final boolean streamFailfast;
+        private final Pattern streamNameRegexPattern;
 
         // Timer
         private final HashedWheelTimer dlTimer;
@@ -849,6 +876,7 @@ public class DistributedLogClientBuilder {
             this.clientConfig = clientConfig;
             this.statsReceiver = statsReceiver;
             this.streamFailfast = clientConfig.getStreamFailfast();
+            this.streamNameRegexPattern = Pattern.compile(clientConfig.getStreamNameRegex());
             // Build the timer
             this.dlTimer = new HashedWheelTimer(
                     new ThreadFactoryBuilder().setNameFormat("DLClient-" + name + "-timer-%d").build(),
@@ -880,7 +908,8 @@ public class DistributedLogClientBuilder {
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass(), clientConfig.getThriftMux() });
         }
 
-        private void handshake() {
+        @VisibleForTesting
+        protected void handshake() {
             Map<SocketAddress, ServiceWithClient> snapshot =
                     new HashMap<SocketAddress, ServiceWithClient>(address2Services);
             final CountDownLatch latch = new CountDownLatch(snapshot.size());
@@ -890,6 +919,10 @@ public class DistributedLogClientBuilder {
                     if (null != value && value.isSetOwnerships()) {
                         Map<String, String> ownerships = value.getOwnerships();
                         for (Map.Entry<String, String> entry : ownerships.entrySet()) {
+                            Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
+                            if (!matcher.matches()) {
+                                continue;
+                            }
                             updateOwnership(entry.getKey(), entry.getValue());
                         }
                     }
