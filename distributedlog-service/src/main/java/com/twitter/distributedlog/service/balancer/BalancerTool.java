@@ -213,7 +213,7 @@ public class BalancerTool extends Tool {
             InetSocketAddress sourceAddr = DLSocketAddress.parseSocketAddress(source);
             DistributedLogClientBuilder sourceClientBuilder =
                     DistributedLogClientBuilder.newBuilder(clientBuilder)
-                            .routingService(new SingleHostRoutingService(sourceAddr));
+                            .host(sourceAddr);
 
             Pair<DistributedLogClient, MonitorServiceClient> clientPair =
                     ClientUtils.buildClient(sourceClientBuilder);

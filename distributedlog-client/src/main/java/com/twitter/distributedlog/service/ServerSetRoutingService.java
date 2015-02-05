@@ -1,10 +1,10 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.twitter.common.net.pool.DynamicHostSet;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
@@ -30,6 +30,28 @@ import java.util.concurrent.atomic.AtomicReference;
 class ServerSetRoutingService extends Thread implements RoutingService {
 
     static final Logger logger = LoggerFactory.getLogger(ServerSetRoutingService.class);
+
+    static ServerSetRoutingServiceBuilder newServerSetRoutingServiceBuilder() {
+        return new ServerSetRoutingServiceBuilder();
+    }
+
+    static class ServerSetRoutingServiceBuilder implements RoutingService.Builder {
+
+        private DLServerSetWatcher _serverSetWatcher;
+
+        private ServerSetRoutingServiceBuilder() {}
+
+        public ServerSetRoutingServiceBuilder serverSetWatcher(DLServerSetWatcher serverSetWatcher) {
+            this._serverSetWatcher = serverSetWatcher;
+            return this;
+        }
+
+        @Override
+        public RoutingService build() {
+            Preconditions.checkNotNull(_serverSetWatcher, "No serverset watcher provided.");
+            return new ServerSetRoutingService(this._serverSetWatcher);
+        }
+    }
 
     private static class HostComparator implements Comparator<SocketAddress> {
 

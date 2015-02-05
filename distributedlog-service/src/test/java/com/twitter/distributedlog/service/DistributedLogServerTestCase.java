@@ -65,7 +65,7 @@ public abstract class DistributedLogServerTestCase {
         }
 
         protected DLClient(String name, String streamNameRegex) {
-            routingService = new LocalRoutingService();
+            routingService = LocalRoutingService.newBuilder().build();
             dlClientBuilder = DistributedLogClientBuilder.newBuilder()
                         .name(name)
                         .clientId(ClientId$.MODULE$.apply(name))

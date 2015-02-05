@@ -78,7 +78,7 @@ public class DistributedLogClientBuilder {
 
     private String _name = null;
     private ClientId _clientId = null;
-    private RoutingService _routingService = null;
+    private RoutingService.Builder _routingServiceBuilder = null;
     private ClientBuilder _clientBuilder = null;
     private StatsReceiver _statsReceiver = new NullStatsReceiver();
     private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
@@ -98,8 +98,8 @@ public class DistributedLogClientBuilder {
         newBuilder
                 .name(builder._name)
                 .clientId(builder._clientId)
-                .routingService(builder._routingService)
                 .clientBuilder(builder._clientBuilder)
+                .routingServiceBuilder(builder._routingServiceBuilder)
                 .statsReceiver(builder._statsReceiver)
                 .streamStatsReceiver(builder._streamStatsReceiver)
                 .clientConfig(builder._clientConfig);
@@ -141,8 +141,10 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
-        this._routingService = ConsistentHashRoutingService.of(new DLServerSetWatcher(serverSet, false),
-                NUM_CONSISTENT_HASH_REPLICAS);
+        this._routingServiceBuilder = ConsistentHashRoutingService.newBuilder()
+                .serverSet(serverSet)
+                .resolveFromName(false)
+                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
         return this;
     }
 
@@ -155,24 +157,31 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSets(ServerSet local, ServerSet...remotes) {
-        RoutingService[] services = new RoutingService[remotes.length + 1];
-        services[0] = ConsistentHashRoutingService.of(new DLServerSetWatcher(local, false),
-                NUM_CONSISTENT_HASH_REPLICAS);
-        for (int i = 1; i < services.length; i++) {
-            services[i] = ConsistentHashRoutingService.of(new DLServerSetWatcher(remotes[i-1], false),
-                    NUM_CONSISTENT_HASH_REPLICAS);
+        RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
+        builders[0] = ConsistentHashRoutingService.newBuilder()
+                .serverSet(local)
+                .resolveFromName(false)
+                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
+        for (int i = 1; i < builders.length; i++) {
+            builders[i] = ConsistentHashRoutingService.newBuilder()
+                    .serverSet(remotes[i-1])
+                    .resolveFromName(false)
+                    .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
         }
-        this._routingService = ChainRoutingService.of(services);
+        this._routingServiceBuilder =
+                ChainRoutingService.newBuilder().routingServiceBuilders(builders);
         return this;
     }
 
-    static RoutingService buildRoutingService(String finagleNameStr) {
+    static RoutingService.Builder buildRoutingService(String finagleNameStr) {
         if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
             // We only support serverset based names at the moment
             throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
         }
-        return ConsistentHashRoutingService.of(new DLServerSetWatcher(new NameServerSet(finagleNameStr), true),
-                NUM_CONSISTENT_HASH_REPLICAS);
+        return ConsistentHashRoutingService.newBuilder()
+                .serverSet(new NameServerSet(finagleNameStr))
+                .resolveFromName(true)
+                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
     }
 
     /**
@@ -183,7 +192,7 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
-        this._routingService = buildRoutingService(finagleNameStr);
+        this._routingServiceBuilder = buildRoutingService(finagleNameStr);
         return this;
     }
 
@@ -196,12 +205,23 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder finagleNameStrs(String local, String...remotes) {
-        RoutingService[] services = new RoutingService[remotes.length + 1];
-        services[0] = buildRoutingService(local);
-        for (int i = 1; i < services.length; i++) {
-            services[i] = buildRoutingService(remotes[i-1]);
+        RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
+        builders[0] = buildRoutingService(local);
+        for (int i = 1; i < builders.length; i++) {
+            builders[i] = buildRoutingService(remotes[i-1]);
         }
-        this._routingService = ChainRoutingService.of(services);
+        this._routingServiceBuilder =
+                ChainRoutingService.newBuilder().routingServiceBuilders(builders);
+        return this;
+    }
+
+    public DistributedLogClientBuilder host(SocketAddress address) {
+        this._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
+        return this;
+    }
+
+    private DistributedLogClientBuilder routingServiceBuilder(RoutingService.Builder builder) {
+        this._routingServiceBuilder = builder;
         return this;
     }
 
@@ -212,8 +232,9 @@ public class DistributedLogClientBuilder {
      *          routing service
      * @return client builder.
      */
+    @VisibleForTesting
     public DistributedLogClientBuilder routingService(RoutingService routingService) {
-        this._routingService = routingService;
+        this._routingServiceBuilder = new RoutingServiceProvider(routingService);
         return this;
     }
 
@@ -356,16 +377,17 @@ public class DistributedLogClientBuilder {
     DistributedLogClientImpl buildClient() {
         Preconditions.checkNotNull(_name, "No name provided.");
         Preconditions.checkNotNull(_clientId, "No client id provided.");
-        Preconditions.checkNotNull(_routingService, "No routing service provided.");
+        Preconditions.checkNotNull(_routingServiceBuilder, "No routing service builder provided.");
         Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided.");
         if (null == _streamStatsReceiver) {
             _streamStatsReceiver = new NullStatsReceiver();
         }
 
+        RoutingService routingService = _routingServiceBuilder.build();
         DistributedLogClientImpl clientImpl =
-                new DistributedLogClientImpl(_name, _clientId, _routingService, _clientBuilder, _clientConfig,
+                new DistributedLogClientImpl(_name, _clientId, routingService, _clientBuilder, _clientConfig,
                                              _statsReceiver, _streamStatsReceiver);
-        _routingService.startService();
+        routingService.startService();
         clientImpl.handshake();
         return clientImpl;
     }

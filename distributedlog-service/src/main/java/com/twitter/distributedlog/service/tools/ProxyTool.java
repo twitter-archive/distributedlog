@@ -10,7 +10,6 @@ import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.service.MonitorServiceClient;
-import com.twitter.distributedlog.service.balancer.SingleHostRoutingService;
 import com.twitter.distributedlog.tools.Tool;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.thrift.ClientId$;
@@ -264,7 +263,7 @@ public class ProxyTool extends Tool {
                     .name("proxy_tool")
                     .clientId(ClientId$.MODULE$.apply("proxy_tool"))
                     .maxRedirects(2)
-                    .routingService(SingleHostRoutingService.of(address))
+                    .host(address)
                     .clientBuilder(ClientBuilder.get()
                             .connectionTimeout(Duration.fromSeconds(2))
                             .tcpConnectTimeout(Duration.fromSeconds(2))

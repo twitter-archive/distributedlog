@@ -1,15 +1,38 @@
-package com.twitter.distributedlog.service.balancer;
+package com.twitter.distributedlog.service;
 
-import com.twitter.distributedlog.service.RoutingService;
+import com.google.common.base.Preconditions;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-public class SingleHostRoutingService implements RoutingService {
+class SingleHostRoutingService implements RoutingService {
 
+    @Deprecated
     public static SingleHostRoutingService of(SocketAddress address) {
         return new SingleHostRoutingService(address);
+    }
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static class Builder implements RoutingService.Builder {
+
+        private SocketAddress _address;
+
+        private Builder() {}
+
+        public Builder address(SocketAddress address) {
+            this._address = address;
+            return this;
+        }
+
+        @Override
+        public RoutingService build() {
+            Preconditions.checkNotNull(_address, "Host is null");
+            return new SingleHostRoutingService(_address);
+        }
     }
 
     private final SocketAddress address;

@@ -17,18 +17,19 @@ public class TestChainRoutingService {
     @Test(timeout = 60000)
     public void testRoutingListener() throws Exception {
         int numRoutingServices = 5;
-        RoutingService[] routingServices = new RoutingService[numRoutingServices];
+        RoutingService.Builder[] routingServiceBuilders = new RoutingService.Builder[numRoutingServices];
         Set<SocketAddress> hosts = new HashSet<SocketAddress>();
         for (int i = 0; i < numRoutingServices; i++) {
             String finagleNameStr = "inet!127.0.0.1:" + (3181 + i);
-            routingServices[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
+            routingServiceBuilders[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
             hosts.add(new InetSocketAddress("127.0.0.1", 3181 + i));
         }
 
         final CountDownLatch doneLatch = new CountDownLatch(numRoutingServices);
         final AtomicInteger numHostsLeft = new AtomicInteger(0);
         final Set<SocketAddress> jointHosts = new HashSet<SocketAddress>();
-        ChainRoutingService chainRoutingService = ChainRoutingService.of(routingServices);
+        RoutingService chainRoutingService =
+                ChainRoutingService.newBuilder().routingServiceBuilders(routingServiceBuilders).build();
         chainRoutingService.registerListener(new RoutingService.RoutingListener() {
             @Override
             public void onServerLeft(SocketAddress address) {
@@ -54,13 +55,14 @@ public class TestChainRoutingService {
     @Test(timeout = 60000)
     public void testGetHost() throws Exception {
         int numRoutingServices = 3;
-        RoutingService[] routingServices = new RoutingService[numRoutingServices];
+        RoutingService.Builder[] routingServiceBuilders = new RoutingService.Builder[numRoutingServices];
         for (int i = 0; i < numRoutingServices; i++) {
             String finagleNameStr = "inet!127.0.0.1:" + (3181 + i);
-            routingServices[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
+            routingServiceBuilders[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
         }
 
-        ChainRoutingService chainRoutingService = ChainRoutingService.of(routingServices);
+        RoutingService chainRoutingService =
+                ChainRoutingService.newBuilder().routingServiceBuilders(routingServiceBuilders).build();
         chainRoutingService.startService();
 
         assertEquals(new InetSocketAddress("127.0.0.1", 3181),

@@ -115,8 +115,7 @@ public class ClusterBalancer implements Balancer {
     static Pair<DistributedLogClient, MonitorServiceClient> createDistributedLogClient(
             SocketAddress host, DistributedLogClientBuilder clientBuilder) {
         DistributedLogClientBuilder newBuilder =
-                DistributedLogClientBuilder.newBuilder(clientBuilder)
-                        .routingService(new SingleHostRoutingService(host));
+                DistributedLogClientBuilder.newBuilder(clientBuilder).host(host);
         return ClientUtils.buildClient(newBuilder);
     }
 

@@ -9,6 +9,21 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class LocalRoutingService implements RoutingService {
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static class Builder implements RoutingService.Builder {
+
+        private Builder() {}
+
+        @Override
+        public LocalRoutingService build() {
+            return new LocalRoutingService();
+        }
+    }
+
     private final Map<String, SocketAddress> localAddresses =
             new HashMap<String, SocketAddress>();
     private final CopyOnWriteArrayList<RoutingListener> listeners =

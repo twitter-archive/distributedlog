@@ -73,10 +73,14 @@ public class TestRoutingService {
         final TestName name = new TestName();
         RoutingService routingService;
         if (consistentHash) {
-            routingService = ConsistentHashRoutingService.of(new DLServerSetWatcher(new NameServerSet(name), true),
-                997);
+            routingService = ConsistentHashRoutingService.newBuilder()
+                    .serverSet(new NameServerSet(name))
+                    .resolveFromName(true)
+                    .numReplicas(997)
+                    .build();
         } else {
-            routingService = new ServerSetRoutingService(new DLServerSetWatcher(new NameServerSet(name), true));
+            routingService = ServerSetRoutingService.newServerSetRoutingServiceBuilder()
+                    .serverSetWatcher(new DLServerSetWatcher(new NameServerSet(name), true)).build();
         }
 
         if (asyncResolution) {

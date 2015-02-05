@@ -9,6 +9,15 @@ import java.net.SocketAddress;
  */
 public interface RoutingService {
 
+    public static interface Builder {
+
+        /**
+         * @return built routing service
+         */
+        RoutingService build();
+
+    }
+
     public static interface RoutingListener {
         void onServerLeft(SocketAddress address);
         void onServerJoin(SocketAddress address);

@@ -1,12 +1,14 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
@@ -23,8 +25,44 @@ import java.util.TreeMap;
 
 public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
+    @Deprecated
     public static ConsistentHashRoutingService of(DLServerSetWatcher serverSetWatcher, int numReplicas) {
         return new ConsistentHashRoutingService(serverSetWatcher, numReplicas);
+    }
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static class Builder implements RoutingService.Builder {
+
+        private ServerSet _serverSet;
+        private boolean _resolveFromName = false;
+        private int _numReplicas;
+
+        private Builder() {}
+
+        public Builder serverSet(ServerSet serverSet) {
+            this._serverSet = serverSet;
+            return this;
+        }
+
+        public Builder resolveFromName(boolean enabled) {
+            this._resolveFromName = enabled;
+            return this;
+        }
+
+        public Builder numReplicas(int numReplicas) {
+            this._numReplicas = numReplicas;
+            return this;
+        }
+
+        @Override
+        public RoutingService build() {
+            Preconditions.checkNotNull(_serverSet, "No serverset provided.");
+            Preconditions.checkArgument(_numReplicas > 0, "Invalid number of replicas : " + _numReplicas);
+            return new ConsistentHashRoutingService(new DLServerSetWatcher(_serverSet, _resolveFromName), _numReplicas);
+        }
     }
 
     static class ConsistentHash {
