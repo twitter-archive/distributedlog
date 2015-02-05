@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -306,6 +308,19 @@ public class LedgerHandleCache {
         return refhandle.handle.getLength();
     }
 
+    public void clear() {
+        if (null != handlesMap) {
+            Iterator<Map.Entry<LedgerDescriptor, RefCountedLedgerHandle>> handlesMapIter = handlesMap.entrySet().iterator();
+            while (handlesMapIter.hasNext()) {
+                Map.Entry<LedgerDescriptor, RefCountedLedgerHandle> entry = handlesMapIter.next();
+                // Make it inaccessible through the map
+                handlesMapIter.remove();
+                // now close the ledger
+                entry.getValue().forceClose();
+            }
+        }
+    }
+
     static private class RefCountedLedgerHandle {
         public final LedgerHandle handle;
         final AtomicLong refcount = new AtomicLong(0);
@@ -325,6 +340,16 @@ public class LedgerHandleCache {
 
         public boolean removeRef() {
             return (refcount.decrementAndGet() == 0);
+        }
+
+        public void forceClose() {
+            try {
+                handle.close();
+            } catch (BKException.BKLedgerClosedException exc) {
+                // Ignore
+            } catch (Exception exc) {
+                LOG.warn("Exception while closing ledger {}", handle, exc);
+            }
         }
 
     }

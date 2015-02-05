@@ -472,10 +472,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public void close() {
         try {
             if (null != readAheadWorker) {
+                LOG.info("Stopping Readahead worker for {}", getFullyQualifiedName());
                 readAheadWorker.stop();
             }
             if (null != ledgerDataAccessor) {
                 ledgerDataAccessor.clear();
+            }
+            if (null != handleCache) {
+                handleCache.clear();
             }
             super.close();
         } finally {
@@ -836,6 +840,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final AtomicInteger bkcUnExpectedExceptions = new AtomicInteger(0);
         private final int noLedgerExceptionOnReadLACThreshold;
         private final AtomicInteger bkcNoLedgerExceptionsOnReadLAC = new AtomicInteger(0);
+        final Object stopNotification = new Object();
         volatile boolean inProgressChanged = false;
         volatile boolean zkNotificationDisabled = false;
 
@@ -897,6 +902,28 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         public void stop() {
             running = false;
+
+            // Aside from unfortunate naming of variables, this allows
+            // the currently active long poll to be interrupted and completed
+            AsyncNotification notification;
+            synchronized (notificationLock) {
+                notification = metadataNotification;
+                metadataNotification = null;
+            }
+            if (null != notification) {
+                notification.notifyOnOperationComplete();
+            }
+            try {
+                synchronized (stopNotification) {
+                    // It would take at most 2 times the read ahead wait time for the schedule phase
+                    // to be executed
+                    stopNotification.wait(2 * conf.getReadAheadWaitTime());
+                }
+                LOG.info("Done waiting for ReadAhead Worker to stop {}", fullyQualifiedName);
+            } catch (InterruptedException exc) {
+                LOG.info("{}: Interrupted while waiting for ReadAhead Worker to stop", fullyQualifiedName, exc);
+            }
+
         }
 
         public void advanceReadAhead(LedgerReadPosition readerPosition) {
@@ -1027,6 +1054,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             void process(int rc) {
                 if (!running) {
                     tracker.enterPhase(ReadAheadPhase.STOPPED);
+                    synchronized (stopNotification) {
+                        stopNotification.notifyAll();
+                    }
                     LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
                     return;
                 }
