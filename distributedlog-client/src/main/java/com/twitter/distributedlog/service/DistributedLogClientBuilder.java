@@ -1388,17 +1388,15 @@ public class DistributedLogClientBuilder {
                 String owner = header.getLocation();
                 try {
                     ownerAddr = DLSocketAddress.deserialize(owner).getSocketAddress();
-                    // we are receiving a redirect request to same host. this indicates that the proxy
-                    // is in bad state, so fail the request.
+                    // if we are receiving a direct request to same host, we won't try the same host.
+                    // as the proxy will shut itself down if it redirects client to itself.
                     if (curAddr.equals(ownerAddr)) {
-                        // throw the exception to the client
-                        op.fail(new UnexpectedException(
-                                String.format("Request to stream %s is redirected to same server %s!",
-                                        op.stream, curAddr)));
-                        return;
+                        logger.warn("Request to stream {} is redirected to same server {}!", op.stream, curAddr);
+                        ownerAddr = null;
+                    } else {
+                        // update ownership when redirects.
+                        updateOwnership(op.stream, ownerAddr);
                     }
-                    // update ownership when redirects.
-                    updateOwnership(op.stream, ownerAddr);
                 } catch (IOException e) {
                     ownerAddr = null;
                 }
