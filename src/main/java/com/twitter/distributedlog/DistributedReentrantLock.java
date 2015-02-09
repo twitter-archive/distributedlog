@@ -345,6 +345,7 @@ class DistributedReentrantLock {
                         lockPath, reason, perReasonLockCount));
             }
         }
+        Future<BoxedUnit> unlockFuture = Future.Done();
         synchronized (this) {
             if (lockCount.decrementAndGet() <= 0) {
                 if (logUnbalancedWarning && (lockCount.get() < 0)) {
@@ -355,18 +356,23 @@ class DistributedReentrantLock {
                 if (lockCount.get() <= 0) {
                     if (internalLock.isLockHeld()) {
                         LOG.info("Lock Release {}, {}", lockPath, reason);
-                        internalLock.unlock();
+                        unlockFuture = internalLock.unlockAsync();
                     }
                     lockAcquireInfo = null;
                 }
             }
+        }
+        try {
+            Await.result(unlockFuture);
+        } catch (Exception e) {
+            LOG.warn("{} failed to unlock {} : ", lockPath, e);
         }
     }
 
     /**
      * Check if hold lock, if it doesn't, then re-acquire the lock.
      *
-     * @param sync  should we wait for the reacquire attempt to complete 
+     * @param sync  should we wait for the reacquire attempt to complete
      * @throws LockingException     if the lock attempt fails
      */
     public void checkOwnershipAndReacquire(boolean sync) throws LockingException {
@@ -1175,11 +1181,16 @@ class DistributedReentrantLock {
             return isLockHeld();
         }
 
-        public synchronized void unlock() {
+        private synchronized Future<BoxedUnit> unlockAsync() {
             acquireFuture.updateIfEmpty(new Throw(
                 new LockClosedException(lockPath, lockId, lockState)));
             Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
             cleanup(cleanupResult);
+            return cleanupResult;
+        }
+
+        public synchronized void unlock() {
+            Future<BoxedUnit> cleanupResult = unlockAsync();
             try {
                 Await.result(cleanupResult);
             } catch (Exception e) {
