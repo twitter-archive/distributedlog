@@ -104,6 +104,11 @@ struct WriteContext {
     1: optional set<string> triedHosts;
 }
 
+// HeartBeat Options
+struct HeartbeatOptions {
+    1: optional bool sendHeartBeatToReader;
+}
+
 // Server Info
 struct ServerInfo {
     1: optional map<string, string> ownerships;
@@ -121,6 +126,8 @@ service DistributedLogService {
     ServerInfo handshakeWithClientInfo(ClientInfo clientInfo);
 
     WriteResponse heartbeat(string stream, WriteContext ctx);
+
+    WriteResponse heartbeatWithOptions(string stream, WriteContext ctx, HeartbeatOptions options);
 
     WriteResponse write(string stream, binary data);
 

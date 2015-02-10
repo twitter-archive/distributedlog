@@ -14,6 +14,7 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
@@ -929,14 +930,17 @@ public class DistributedLogClientBuilder {
         }
 
         class HeartbeatOp extends AbstractWriteOp {
+            HeartbeatOptions options;
 
-            HeartbeatOp(String name) {
+            HeartbeatOp(String name, boolean sendReaderHeartBeat) {
                 super(name);
+                options = new HeartbeatOptions();
+                options.setSendHeartBeatToReader(sendReaderHeartBeat);
             }
 
             @Override
             Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-                return sc.service.heartbeat(stream, ctx);
+                return sc.service.heartbeatWithOptions(stream, ctx, options);
             }
 
             Future<Void> result() {
@@ -1148,7 +1152,14 @@ public class DistributedLogClientBuilder {
 
         @Override
         public Future<Void> check(String stream) {
-            final HeartbeatOp op = new HeartbeatOp(stream);
+            final HeartbeatOp op = new HeartbeatOp(stream, false);
+            sendRequest(op);
+            return op.result();
+        }
+
+        @Override
+        public Future<Void> heartbeat(String stream) {
+            final HeartbeatOp op = new HeartbeatOp(stream, true);
             sendRequest(op);
             return op.result();
         }

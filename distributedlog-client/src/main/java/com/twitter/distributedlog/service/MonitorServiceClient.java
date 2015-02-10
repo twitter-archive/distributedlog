@@ -18,6 +18,15 @@ public interface MonitorServiceClient {
     Future<Void> check(String stream);
 
     /**
+     * Send heartbeat to the stream and its readers
+     *
+     * @param stream
+     *          stream.
+     * @return check result.
+     */
+    Future<Void> heartbeat(String stream);
+
+    /**
      * Get current ownership distribution from current monitor service view.
      *
      * @return current ownership distribution

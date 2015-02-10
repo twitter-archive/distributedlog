@@ -25,6 +25,7 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
@@ -1605,6 +1606,21 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         doExecuteStreamOp(op);
         return op.result;
     }
+
+    @Override
+    public Future<WriteResponse> heartbeatWithOptions(String stream, WriteContext ctx, HeartbeatOptions options) {
+        if (!accessControlManager.allowAcquire(stream)) {
+            deniedHeartbeatCounter.inc();
+            return Future.value(writeResponse(operationDeniedResponseHeader()));
+        }
+        HeartbeatOp op = new HeartbeatOp(stream, ctx);
+        if (options.isSendHeartBeatToReader()) {
+            op.setWriteControlRecord(true);
+        }
+        doExecuteStreamOp(op);
+        return op.result;
+    }
+
 
     @Override
     public Future<WriteResponse> truncate(String stream, String dlsn, WriteContext ctx) {
