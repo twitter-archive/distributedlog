@@ -7,8 +7,11 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.google.common.base.Stopwatch;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -49,6 +52,7 @@ public class LedgerDataAccessor {
     private volatile boolean suppressDeliveryLatency = true;
     private final long deliveryLatencyWarnThresholdMillis;
     private AtomicReference<DLSN> minActiveDLSN = new AtomicReference<DLSN>(DLSN.NonInclusiveLowerBound);
+    private Stopwatch lastEntryProcessTime = Stopwatch.createStarted();
 
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
@@ -233,6 +237,15 @@ public class LedgerDataAccessor {
         return record;
     }
 
+    public boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
+        // If the read ahead cache has records that have not been consumed, then somehow
+        // this is a stalled reader
+        // Note: There is always the possibility that a new record just arrived at which point
+        // The readAheadRecords is non empty but it has not had a chance to satisfy the promise; this
+        // is unavoidable and acceptable.
+        return !readAheadRecords.isEmpty() || (lastEntryProcessTime.elapsed(timeUnit) > idleReaderErrorThreshold);
+    }
+
     public void set(LedgerReadPosition key, LedgerEntry entry, String reason, boolean envelopeEntries) {
         LOG.trace("Set Called");
         if (null != readAheadCache) {
@@ -240,6 +253,7 @@ public class LedgerDataAccessor {
         } else {
             LOG.trace("Calling process");
             processNewLedgerEntry(key, entry, reason, envelopeEntries);
+            lastEntryProcessTime.reset().start();
             AsyncNotification n = notification;
             if (null != n) {
                 n.notifyOnOperationComplete();

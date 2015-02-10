@@ -681,6 +681,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return ledgerDataAccessor.getNextReadAheadRecord();
     }
 
+    public boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
+        return ledgerDataAccessor.checkForReaderStall(idleReaderErrorThreshold, timeUnit);
+    }
+
     @VisibleForTesting
     void disableReadAheadZKNotification() {
         if (null != readAheadWorker) {

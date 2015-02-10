@@ -1483,9 +1483,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test(timeout = 10000)
-    public void testAsyncReadIdleError() throws Exception {
-        String name = "distrlog-async-reader-idle-error";
+    private void testAsyncReadIdleErrorInternal(String name, final int idleReaderErrorThreshold, final boolean heartBeatUsingControlRecs) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(0);
@@ -1493,10 +1491,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
-        confLocal.setReaderIdleErrorThresholdMillis(1000);
+        confLocal.setReaderIdleErrorThresholdMillis(idleReaderErrorThreshold);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
-        final int segmentSize = 10;
+        final int segmentSize = 3;
         final int numSegments = 3;
         final CountDownLatch latch = new CountDownLatch(1);
         final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -1515,8 +1513,26 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                                     latch.countDown();
                                 }
                             }
+
+                            if (heartBeatUsingControlRecs) {
+                                // There should be a control record such that
+                                // wait time + commit time (BK) < Idle Reader Threshold
+                                int threadSleepTime = idleReaderErrorThreshold
+                                    - 200 // BK commitTime
+                                    - 100; //safety margin
+
+                                for (int iter = 1; iter <= (2 * idleReaderErrorThreshold / threadSleepTime) ; iter++) {
+                                    Thread.sleep(threadSleepTime);
+                                    writer.write(DLMTestUtil.getLargeLogRecordInstance(txid, true));
+                                    writer.setReadyToFlush();
+                                }
+                                Thread.sleep(threadSleepTime);
+                            }
+
                             writer.closeAndComplete();
-                            Thread.sleep(2000);
+                            if (!heartBeatUsingControlRecs) {
+                                Thread.sleep(2 * idleReaderErrorThreshold);
+                            }
                         }
                     } catch (Exception exc) {
                         if (!executor.isShutdown()) {
@@ -1543,11 +1559,30 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         } catch (IdleReaderException exc) {
             exceptionEncountered = true;
         }
-        assert(exceptionEncountered);
-        Assert.assertEquals(recordCount, segmentSize);
+
+        if (heartBeatUsingControlRecs) {
+            assert (!exceptionEncountered);
+            Assert.assertEquals(segmentSize * numSegments, recordCount);
+        } else {
+            assert (exceptionEncountered);
+            Assert.assertEquals(segmentSize, recordCount);
+        }
         assert(!currentThread.isInterrupted());
         executor.shutdown();
     }
+
+    @Test(timeout = 10000)
+    public void testAsyncReadIdleControlRecord() throws Exception {
+        String name = "distrlog-async-reader-idle-error-control";
+        testAsyncReadIdleErrorInternal(name, 500, true);
+    }
+
+    @Test(timeout = 10000)
+    public void testAsyncReadIdleError() throws Exception {
+        String name = "distrlog-async-reader-idle-error";
+        testAsyncReadIdleErrorInternal(name, 1000, false);
+    }
+
 
     @Test(timeout = 60000)
     public void testReleaseLockAfterFailedToRecover() throws Exception {

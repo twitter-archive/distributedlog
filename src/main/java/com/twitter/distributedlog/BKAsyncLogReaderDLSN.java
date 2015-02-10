@@ -50,6 +50,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private int lastPosition = 0;
     private final boolean positionGapDetectionEnabled;
     private final int idleErrorThresholdMillis;
+    private final ScheduledFuture<?> idleReaderTimeoutTask;
 
     protected boolean closed = false;
 
@@ -59,6 +60,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     // Stats
     private final OpStatsLogger readNextExecTime;
+    private final OpStatsLogger delayUntilPromiseSatisfied;
     private final OpStatsLogger timeBetweenReadNexts;
     private final OpStatsLogger futureSetLatency;
     private final OpStatsLogger scheduleLatency;
@@ -66,43 +68,34 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private class PendingReadRequest {
         private final Promise<LogRecordWithDLSN> promise;
-        private AtomicReference<ScheduledFuture<?>> timeoutTaskRef = new AtomicReference<ScheduledFuture<?>>(null);
+        private final Stopwatch enqueueTime;
 
         PendingReadRequest() {
-            promise = new Promise<LogRecordWithDLSN>();
+            this.enqueueTime = Stopwatch.createStarted();
+            this.promise = new Promise<LogRecordWithDLSN>();
         }
 
         Promise<LogRecordWithDLSN> getPromise() {
             return promise;
         }
 
+        long elapsedSinceEnqueue(TimeUnit timeUnit) {
+            return enqueueTime.elapsed(timeUnit);
+        }
+
         void setException(Throwable throwable) {
             Stopwatch stopwatch = Stopwatch.createStarted();
-            promise.updateIfEmpty(new Throw(throwable));
-            futureSetLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            cancelTimeoutTask();
-        }
-
-        void setValue(LogRecordWithDLSN record) {
-            Stopwatch stopwatch = Stopwatch.createStarted();
-            promise.setValue(record);
-            futureSetLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            cancelTimeoutTask();
-        }
-
-        void cancelTimeoutTask() {
-            ScheduledFuture<?> timeoutTask;
-            do {
-                timeoutTask = timeoutTaskRef.get();
-            } while ((timeoutTask != null) && (timeoutTaskRef.compareAndSet(timeoutTask, null)));
-
-            if (timeoutTask != null) {
-                timeoutTask.cancel(false);
+            if (promise.updateIfEmpty(new Throw(throwable))) {
+                futureSetLatency.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                delayUntilPromiseSatisfied.registerFailedEvent(enqueueTime.elapsed(TimeUnit.MICROSECONDS));
             }
         }
 
-        void setTimeoutTask(ScheduledFuture<?> timeoutTask) {
-            this.timeoutTaskRef.set(timeoutTask);
+        void setValue(LogRecordWithDLSN record) {
+            delayUntilPromiseSatisfied.registerSuccessfulEvent(enqueueTime.stop().elapsed(TimeUnit.MICROSECONDS));
+            Stopwatch stopwatch = Stopwatch.createStarted();
+            promise.setValue(record);
+            futureSetLatency.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
     }
 
@@ -131,9 +124,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         backgroundReaderRunTime = asyncReaderStatsLogger.getOpStatsLogger("background_read");
         readNextExecTime = asyncReaderStatsLogger.getOpStatsLogger("read_next_exec");
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
+        delayUntilPromiseSatisfied = asyncReaderStatsLogger.getOpStatsLogger("delay_until_promise_satisfied");
 
         // Lock the stream if requested. The lock will be released when the reader is closed.
         this.lockStream = false;
+        this.idleReaderTimeoutTask = scheduleIdleReaderTaskIfNecessary();
     }
 
     @Override
@@ -143,6 +138,42 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         // reader has hit an error
         scheduleBackgroundRead();
     }
+
+    private ScheduledFuture<?> scheduleIdleReaderTaskIfNecessary() {
+        if (idleErrorThresholdMillis < Integer.MAX_VALUE) {
+            // Dont run the task more than once every seconds (for sanity)
+            long period = Math.max(idleErrorThresholdMillis / 10, 1000);
+            // Except when idle reader threshold is less than a second (tests?)
+            period = Math.min(period, idleErrorThresholdMillis / 5);
+
+            return executorService.scheduleAtFixedRate(new Runnable() {
+                @Override
+                public void run() {
+                    PendingReadRequest nextPromise = pendingRequests.peek();
+
+                    if (null == nextPromise) {
+                        return;
+                    }
+
+                    if (nextPromise.elapsedSinceEnqueue(TimeUnit.MILLISECONDS) < idleErrorThresholdMillis) {
+                        return;
+                    }
+
+                    if (!bkLedgerManager.checkForReaderStall(idleErrorThresholdMillis, TimeUnit.MILLISECONDS)) {
+                        return;
+                    }
+
+                    setLastException(new IdleReaderException("Reader on stream" +
+                        bkLedgerManager.getFullyQualifiedName()
+                        + "is idle for " + idleErrorThresholdMillis +"ms"));
+                    notifyOnError();
+                }
+            }, period, period, TimeUnit.MILLISECONDS);
+        }
+
+        return null;
+    }
+
 
     public Future<Void> lockStream() {
         this.lockStream = true;
@@ -243,23 +274,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         readNextExecTime.registerSuccessfulEvent(readNextDelayStopwatch.elapsed(TimeUnit.MICROSECONDS));
         readNextDelayStopwatch.reset().start();
 
-        if (idleErrorThresholdMillis < Integer.MAX_VALUE) {
-            promise.setTimeoutTask(executorService.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    if (promise.getPromise().isDefined()) {
-                        return;
-                    }
-
-                    setLastException(new IdleReaderException("Reader on stream" +
-                        bkLedgerManager.getFullyQualifiedName()
-                        + "is idle for " + idleErrorThresholdMillis +"ms"));
-                    notifyOnError();
-                }
-            }, idleErrorThresholdMillis, TimeUnit.MILLISECONDS));
-        }
-
-
         return promise.getPromise();
     }
 
@@ -278,6 +292,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     @Override
     public void close() {
+        // Cancel the idle reader timeout task, interrupting if necessary
         ReadCancelledException exception;
         synchronized (this) {
             if (closed) {
@@ -286,6 +301,15 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             closed = true;
             exception = new ReadCancelledException(bkLedgerManager.getFullyQualifiedName(), "Reader was closed");
             setLastException(exception);
+        }
+
+        // Do this after we have checked that the reader was not previously closed
+        try {
+            if (null != idleReaderTimeoutTask) {
+                idleReaderTimeoutTask.cancel(true);
+            }
+        } catch (Exception exc) {
+            LOG.info("{}: Failed to cancel the background idle reader timeout task", bkLedgerManager.getFullyQualifiedName());
         }
 
         cancelAllPendingReads(exception);
@@ -311,7 +335,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 scheduleLatency.registerSuccessfulEvent(scheduleDelayStopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
 
-            Stopwatch runTime = new Stopwatch().start();
+            Stopwatch runTime = Stopwatch.createStarted();
             int iterations = 0;
             long scheduleCountLocal = scheduleCount.get();
             LOG.debug("{}: Scheduled Background Reader", bkLedgerManager.getFullyQualifiedName());
