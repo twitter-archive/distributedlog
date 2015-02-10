@@ -69,6 +69,7 @@ public class MonitorService implements Runnable, NamespaceListener {
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
     private StatsProvider statsProvider = null;
     private boolean watchNamespaceChanges = false;
+    private boolean sendHeartBeat = false;
     private int instanceId = -1;
     private int totalInstances = -1;
     private final ScheduledExecutorService executorService =
@@ -113,7 +114,11 @@ public class MonitorService implements Runnable, NamespaceListener {
                 }
             } else {
                 stopwatch.reset().start();
-                dlClient.check(name).addEventListener(this);
+                if (sendHeartBeat) {
+                    dlClient.heartbeat(name).addEventListener(this);
+                } else {
+                    dlClient.check(name).addEventListener(this);
+                }
             }
         }
 
@@ -184,6 +189,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         options.addOption("w", "watch", false, "Watch stream changes under a given namespace");
         options.addOption("n", "instance_id", true, "Instance ID");
         options.addOption("t", "total_instances", true, "Total instances");
+        options.addOption("h", "heartbeat", false, "Send Heartbeat");
     }
 
     void printUsage() {
@@ -228,6 +234,9 @@ public class MonitorService implements Runnable, NamespaceListener {
         }
         if (cmdline.hasOption("t")) {
             totalInstances = Integer.parseInt(cmdline.getOptionValue("t"));
+        }
+        if (cmdline.hasOption("h")) {
+            sendHeartBeat = true;
         }
         if (instanceId < 0 || totalInstances <= 0 || instanceId >= totalInstances) {
             throw new ParseException("Invalid instance id or total instances number.");
