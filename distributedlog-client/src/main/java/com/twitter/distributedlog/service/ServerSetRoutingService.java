@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
@@ -120,6 +121,12 @@ class ServerSetRoutingService extends Thread implements RoutingService {
 
     @Override
     public SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
+        return getHost(key, previousAddr, StatusCode.FOUND);
+    }
+
+    @Override
+    public SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+            throws NoBrokersAvailableException {
         SocketAddress address = null;
         synchronized (hostSet) {
             if (0 != hostList.size()) {

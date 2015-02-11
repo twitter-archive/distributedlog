@@ -42,6 +42,10 @@ public abstract class DistributedLogServerTestCase {
         public final Pair<DistributedLogServiceImpl, Server> dlServer;
 
         protected DLServer(int port) throws Exception {
+            this(conf, port);
+        }
+
+        protected DLServer(DistributedLogConfiguration conf, int port) throws Exception {
             dlServer = DistributedLogServer.runServer(conf, uri, new NullStatsProvider(), port);
             address = DLSocketAddress.getSocketAddress(port);
         }
@@ -88,6 +92,38 @@ public abstract class DistributedLogServerTestCase {
         }
     }
 
+    protected static class TwoRegionDLClient {
+
+        public final LocalRoutingService localRoutingService;
+        public final LocalRoutingService remoteRoutingService;
+        public final DistributedLogClientBuilder dlClientBuilder;
+        public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
+
+        protected TwoRegionDLClient(String name, Map<SocketAddress, String> regionMap) {
+            localRoutingService = new LocalRoutingService();
+            remoteRoutingService = new LocalRoutingService();
+            RegionsRoutingService regionsRoutingService =
+                    RegionsRoutingService.of(new TwitterRegionResolver(regionMap),
+                            localRoutingService, remoteRoutingService);
+            dlClientBuilder = DistributedLogClientBuilder.newBuilder()
+                        .name(name)
+                        .clientId(ClientId$.MODULE$.apply(name))
+                        .routingService(regionsRoutingService)
+                        .streamNameRegex(".*")
+                        .handshakeWithClientInfo(true)
+                        .maxRedirects(2)
+                        .clientBuilder(ClientBuilder.get()
+                            .hostConnectionLimit(1)
+                            .connectionTimeout(Duration.fromSeconds(1))
+                            .requestTimeout(Duration.fromSeconds(10)));
+            dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
+        }
+
+        public void shutdown() {
+            dlClient.close();
+        }
+    }
+
     protected DLServer dlServer;
     protected DLClient dlClient;
 
@@ -127,6 +163,11 @@ public abstract class DistributedLogServerTestCase {
         return new DLServer(port);
     }
 
+    protected DLServer createDistributedLogServer(DistributedLogConfiguration conf, int port)
+            throws Exception {
+        return new DLServer(conf, port);
+    }
+
     protected DLClient createDistributedLogClient(String clientName) throws Exception {
         return createDistributedLogClient(clientName, ".*");
     }
@@ -134,6 +175,12 @@ public abstract class DistributedLogServerTestCase {
     protected DLClient createDistributedLogClient(String clientName, String streamNameRegex)
             throws Exception {
         return new DLClient(clientName, streamNameRegex);
+    }
+
+    protected TwoRegionDLClient createTwoRegionDLClient(String clientName,
+                                                        Map<SocketAddress, String> regionMap)
+            throws Exception {
+        return new TwoRegionDLClient(clientName, regionMap);
     }
 
     protected static void checkStreams(int numExpectedStreams, DLServer dlServer) {

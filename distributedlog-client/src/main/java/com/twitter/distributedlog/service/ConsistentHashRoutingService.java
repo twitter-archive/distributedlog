@@ -9,6 +9,7 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.common.zookeeper.ServerSet;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
@@ -173,6 +174,12 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     @Override
     public SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
+        return getHost(key, previousAddr, StatusCode.FOUND);
+    }
+
+    @Override
+    public SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+            throws NoBrokersAvailableException {
         SocketAddress host = circle.get(key, previousAddr);
         if (null != host) {
             return host;

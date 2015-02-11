@@ -10,6 +10,9 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.feature.AbstractFeatureProvider;
+import com.twitter.distributedlog.feature.DeciderFeatureProvider;
+import com.twitter.distributedlog.feature.FeatureProvider;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
@@ -137,6 +140,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final AtomicBoolean namespaceWatcherSet = new AtomicBoolean(false);
     private final CopyOnWriteArraySet<NamespaceListener> namespaceListeners =
             new CopyOnWriteArraySet<NamespaceListener>();
+    // feature provider
+    private final FeatureProvider featureProvider;
 
     // Stats Loggers
     private final StatsLogger statsLogger;
@@ -195,6 +200,9 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),
             conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
             conf.getTimeoutTimerNumTicks());
+
+        // Build feature provider
+        this.featureProvider = AbstractFeatureProvider.getFeatureProvider(conf);
 
         // Build zookeeper client for writers
         this.sharedWriterZKCBuilderForDL = createDLZKClientBuilder(
@@ -272,6 +280,10 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
 
         LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
+    }
+
+    public FeatureProvider getFeatureProvider() {
+        return featureProvider;
     }
 
     static String validateAndGetFullLedgerAllocatorPoolPath(DistributedLogConfiguration conf, URI uri) throws IOException {

@@ -19,9 +19,11 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.feature.Feature;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -32,7 +34,6 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.SchedulerUtils;
-import com.twitter.finagle.util.TimerFromNettyTimer;
 import com.twitter.util.Await;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Duration;
@@ -1246,13 +1247,17 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final ConcurrentHashMap<String, Stream> acquiredStreams =
             new ConcurrentHashMap<String, Stream>();
 
+    private final int serverRegionId;
     private boolean closed = false;
-    private boolean acceptNewStream = true;
+    private boolean serverAcceptNewStream = true;
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
     private final Object txnLock = new Object();
     private final AtomicInteger pendingOpsCounter;
+
+    // Features
+    private final Feature featureRegionStopAcceptNewStream;
 
     // Stats
     // operation stats
@@ -1316,7 +1321,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         // would update to generate version1 dlsn after all clients updates to use latest version.
         this.dlsnVersion = dlConf.getByte("server_dlsn_version", DLSN.VERSION0);
         this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.DURABLE.toString()));
-        int serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
+        this.serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
         int serverPort = dlConf.getInt("server_port", 0);
         int shard = dlConf.getInt("server_shard", -1);
         int numThreads = dlConf.getInt("server_threads", Runtime.getRuntime().availableProcessors());
@@ -1346,6 +1351,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             this.delayMs = 0;
         }
 
+        // features
+        this.featureRegionStopAcceptNewStream = this.dlFactory.getFeatureProvider().getFeature(
+                ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
+
         // status about server health
         statsLogger.registerGauge("proxy_status", new Gauge<Number>() {
             @Override
@@ -1355,7 +1364,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
             @Override
             public Number getSample() {
-                return closed ? -1 : (acceptNewStream ? 1 : 2);
+                return closed ? -1 : (featureRegionStopAcceptNewStream.isAvailable() ? 3 : (serverAcceptNewStream ? 1 : 2));
             }
         });
 
@@ -1405,8 +1414,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
         this.successRecordCounter = recordsStatsLogger.getCounter("success");
         this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
-
-        StatsLogger serviceStatsLogger = statsLogger.scope("service");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
@@ -1538,8 +1545,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         if (null == writer) {
             closeLock.readLock().lock();
             try {
-                // if it is closed, we would not acquire stream again.
-                if (closed || !acceptNewStream) {
+                if (featureRegionStopAcceptNewStream.isAvailable()) {
+                    // accept new stream is disabled in current dc
+                    throw new RegionUnavailableException("Region is unavailable right now.");
+                } else if (closed || !serverAcceptNewStream) {
+                    // if it is closed, we would not acquire stream again.
                     return null;
                 }
                 writer = new Stream(stream);
@@ -1660,7 +1670,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         closeLock.writeLock().lock();
         try {
             logger.info("Set AcceptNewStream = {}", enabled);
-            acceptNewStream = enabled;
+            serverAcceptNewStream = enabled;
         } finally {
             closeLock.writeLock().unlock();
         }
@@ -1683,6 +1693,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         Stream stream;
         try {
             stream = getLogWriter(op.stream);
+        } catch (RegionUnavailableException rue) {
+            // redirect the requests to other region
+            op.fail(StatusCode.REGION_UNAVAILABLE, "Region " + serverRegionId + " is unavailable.");
+            return;
         } catch (IOException e) {
             op.fail(null, e);
             return;

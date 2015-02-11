@@ -1,10 +1,12 @@
 package com.twitter.distributedlog.service;
 
-import com.google.common.base.Objects;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -24,8 +26,8 @@ public class LocalRoutingService implements RoutingService {
         }
     }
 
-    private final Map<String, SocketAddress> localAddresses =
-            new HashMap<String, SocketAddress>();
+    private final Map<String, LinkedHashSet<SocketAddress>> localAddresses =
+            new HashMap<String, LinkedHashSet<SocketAddress>>();
     private final CopyOnWriteArrayList<RoutingListener> listeners =
             new CopyOnWriteArrayList<RoutingListener>();
 
@@ -61,8 +63,12 @@ public class LocalRoutingService implements RoutingService {
     public void addHost(String stream, SocketAddress address) {
         boolean notify = false;
         synchronized (this) {
-            if (!localAddresses.containsKey(stream)) {
-                localAddresses.put(stream, address);
+            LinkedHashSet<SocketAddress> addresses = localAddresses.get(stream);
+            if (null == addresses) {
+                addresses = new LinkedHashSet<SocketAddress>();
+                localAddresses.put(stream, addresses);
+            }
+            if (addresses.add(address)) {
                 notify = true;
             }
         }
@@ -75,13 +81,40 @@ public class LocalRoutingService implements RoutingService {
 
     @Override
     public synchronized SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
-        SocketAddress address = localAddresses.get(key);
+        return getHost(key, previousAddr, StatusCode.FOUND);
+    }
 
-        if (null != address) {
-            if (!allowRetrySameHost && Objects.equal(address, previousAddr)) {
-                throw new NoBrokersAvailableException("No host available");
+    public synchronized SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+            throws NoBrokersAvailableException {
+        LinkedHashSet<SocketAddress> addresses = localAddresses.get(key);
+
+        SocketAddress candidate = null;
+        if (null != addresses) {
+            if (addresses.size() == 1) {
+                if (!allowRetrySameHost && previousAddr != null && addresses.contains(previousAddr)) {
+                    throw new NoBrokersAvailableException("No host available");
+                }
+                candidate = addresses.iterator().next();
+            } else if (addresses.size() > 1) {
+                Iterator<SocketAddress> iter = addresses.iterator();
+                if (null == previousAddr || !addresses.contains(previousAddr)) {
+                    candidate = iter.next();
+                } else {
+                    SocketAddress nextAddr;
+                    while (iter.hasNext()) {
+                        nextAddr = iter.next();
+                        if (nextAddr.equals(previousAddr)) {
+                            break;
+                        }
+                    }
+                    if (iter.hasNext()) {
+                        candidate = iter.next();
+                    }
+                }
             }
-            return address;
+        }
+        if (null != candidate) {
+            return candidate;
         }
         throw new NoBrokersAvailableException("No host available");
     }

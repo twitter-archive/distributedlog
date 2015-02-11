@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
@@ -32,6 +33,9 @@ public interface RoutingService {
     RoutingService unregisterListener(RoutingListener listener);
 
     SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException;
+
+    SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+            throws NoBrokersAvailableException;
 
     void removeHost(SocketAddress address, Throwable reason);
 }

@@ -169,8 +169,9 @@ public class DistributedLogClientBuilder {
                     .resolveFromName(false)
                     .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
         }
-        this._routingServiceBuilder =
-                ChainRoutingService.newBuilder().routingServiceBuilders(builders);
+        this._routingServiceBuilder = RegionsRoutingService.newBuilder()
+                .resolver(new TwitterRegionResolver())
+                .routingServiceBuilders(builders);
         return this;
     }
 
@@ -211,8 +212,9 @@ public class DistributedLogClientBuilder {
         for (int i = 1; i < builders.length; i++) {
             builders[i] = buildRoutingService(remotes[i-1]);
         }
-        this._routingServiceBuilder =
-                ChainRoutingService.newBuilder().routingServiceBuilders(builders);
+        this._routingServiceBuilder = RegionsRoutingService.newBuilder()
+                .routingServiceBuilders(builders)
+                .resolver(new TwitterRegionResolver());
         return this;
     }
 
@@ -1238,6 +1240,11 @@ public class DistributedLogClientBuilder {
         }
 
         private void doSend(final StreamOp op, SocketAddress previousAddr) {
+            doSend(op, previousAddr, StatusCode.FOUND);
+        }
+
+        private void doSend(final StreamOp op, SocketAddress previousAddr,
+                StatusCode previousCode) {
             // Get host first
             SocketAddress address = stream2Addresses.get(op.stream);
             if (null == address || address.equals(previousAddr)) {
@@ -1245,7 +1252,7 @@ public class DistributedLogClientBuilder {
                 getOwnershipStat(op.stream).onMiss();
                 // pickup host by hashing
                 try {
-                    address = routingService.getHost(op.stream, previousAddr);
+                    address = routingService.getHost(op.stream, previousAddr, previousCode);
                 } catch (NoBrokersAvailableException nbae) {
                     op.fail(nbae);
                     return;
@@ -1300,7 +1307,11 @@ public class DistributedLogClientBuilder {
                             routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
                             onServerLeft(addr);
                             // redirect the request to other host.
-                            redirect(op, addr, null);
+                            redirect(op, addr, StatusCode.FOUND, null);
+                            break;
+                        case REGION_UNAVAILABLE:
+                            // region is unavailable, redirect the request to hosts in other region
+                            redirect(op, addr, StatusCode.REGION_UNAVAILABLE, null);
                             break;
                         case STREAM_UNAVAILABLE:
                         case ZOOKEEPER_ERROR:
@@ -1317,7 +1328,7 @@ public class DistributedLogClientBuilder {
                                 logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
                                 op.fail(DLException.of(header));
                             } else {
-                                redirect(op, addr, null);
+                                redirect(op, addr, StatusCode.FOUND, null);
                             }
                             break;
                     }
@@ -1357,14 +1368,15 @@ public class DistributedLogClientBuilder {
 
         // Response Handlers
 
-        void redirect(StreamOp op, SocketAddress oldAddr, SocketAddress newAddr) {
+        void redirect(StreamOp op, SocketAddress oldAddr, StatusCode oldCode,
+                      SocketAddress newAddr) {
             ownershipStat.onRedirect();
             getOwnershipStat(op.stream).onRedirect();
             if (null != newAddr) {
                 logger.debug("Redirect request {} to new owner {}.", op, newAddr);
                 op.send(newAddr);
             } else {
-                doSend(op, oldAddr);
+                doSend(op, oldAddr, oldCode);
             }
         }
 
@@ -1412,7 +1424,7 @@ public class DistributedLogClientBuilder {
                     ownerAddr = null;
                 }
             }
-            redirect(op, curAddr, ownerAddr);
+            redirect(op, curAddr, StatusCode.FOUND, ownerAddr);
         }
 
         void updateOwnership(String stream, String location) {
