@@ -798,10 +798,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
      */
     @Test(timeout = 60000)
     public void testNoEnvelopeWriterEnvelopeReader() throws Exception {
-        System.out.println("envelop test start");
         testSimpleAsyncReadWriteInternal("distributedlog-envelope-test", true,
                                          LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value - 1);
-        System.out.println("envelop test end");
     }
 
     class WriteFutureEventListener implements FutureEventListener<DLSN> {
@@ -1176,35 +1174,54 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             }
         });
 
-        // issue a first write
-        Future<DLSN> firstWrite = writer.write(DLMTestUtil.getLogRecordInstance(1L));
-
-        // simulate error out pending records
         writer.getOrderedFuturePool().apply(new Function0<Object>() {
             @Override
             public Object apply() {
-                LOG.info("error out pending requests");
-                writer.errorOutPendingRequests(new IOException("simulate error out pending records"), false);
+                try {
+                    startLatch.await();
+                    LOG.info("Starting writes and set force rolling to true");
+                    writer.setForceRolling(true);
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on waiting start latch : ", e);
+                }
                 return null;
             }
         });
 
-        // issue a second write
-        Future<DLSN> secondWrite = writer.write(DLMTestUtil.getLogRecordInstance(2L));
+        final Future<DLSN> firstWrite;
+        final Future<DLSN> secondWrite;
+        try {
+            FailpointUtils.setFailpoint(
+                FailpointUtils.FailPointName.FP_LogWriterIssuePending,
+                FailpointUtils.FailPointActions.FailPointAction_Throw);
 
-        startLatch.countDown();
+            // rolls ledger, exception hit in rollLogSegmentAndIssuePendingRequests
+            firstWrite = writer.write(DLMTestUtil.getLogRecordInstance(1L));
 
-        LOG.info("waiting for write to be completed");
+            // added to queue, aborted when rollLogSegmentAndIssuePendingRequests fails
+            secondWrite = writer.write(DLMTestUtil.getLogRecordInstance(2L));
 
-        Await.result(firstWrite);
+            startLatch.countDown();
 
-        LOG.info("first write completed");
+            LOG.info("waiting for write to be completed");
 
-        Await.result(secondWrite);
+            Await.result(firstWrite);
 
-        LOG.info("second write completed");
+            LOG.info("first write completed");
 
-        writer.closeAndComplete();
+            try {
+                Await.result(secondWrite);
+            } catch (IOException ioe) {
+                LOG.info("caught expected exception ", ioe);
+            }
+
+            LOG.info("second write completed");
+
+            writer.closeAndComplete();
+        } finally {
+            FailpointUtils.removeFailpoint(
+                FailpointUtils.FailPointName.FP_LogWriterIssuePending);
+        }
 
         LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
         int numReads = 0;
@@ -1220,7 +1237,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             record = reader.readNext(false);
         }
 
-        assertEquals(2, numReads);
+        assertEquals(1, numReads);
 
         reader.close();
     }

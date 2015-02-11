@@ -13,7 +13,8 @@ public class FailpointUtils {
         FP_TransmitComplete,
         FP_WriteInternalLostLock,
         FP_ZooKeeperConnectionLoss,
-        FP_RecoverIncompleteLogSegments
+        FP_RecoverIncompleteLogSegments,
+        FP_LogWriterIssuePending
     }
 
     static interface FailPointAction {

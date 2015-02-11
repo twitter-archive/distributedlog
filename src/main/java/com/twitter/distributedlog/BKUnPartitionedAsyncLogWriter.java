@@ -291,6 +291,9 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             BKPerStreamLogWriter writer = getPerStreamLogWriter(record, true, true);
             synchronized (this) {
                 for (PendingLogRecord pendingLogRecord : pendingRequests) {
+
+                    FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_LogWriterIssuePending);
+
                     writer.asyncWrite(pendingLogRecord.record, true /* flush after write */)
                             .addEventListener(pendingLogRecord);
                 }
@@ -319,7 +322,6 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         }
     }
 
-    @VisibleForTesting
     void errorOutPendingRequestsAndWriter(Throwable cause) {
         errorOutPendingRequests(cause, true /* error out writer */);
     }
