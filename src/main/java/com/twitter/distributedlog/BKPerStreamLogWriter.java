@@ -492,11 +492,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         }
     }
 
-    private synchronized void flushCurrentPacket() {
+    private synchronized void resetPacket(BKTransmitPacket packet) {
         long numPromises = 0;
-        if (null != packetCurrent) {
-            numPromises = packetCurrent.getWriteCount();
-            packetCurrent.reset();
+        if (null != packet) {
+            numPromises = packet.getWriteCount();
+            packet.reset();
         }
         LOG.info("Stream {} aborted {} writes", fullyQualifiedLogSegment, numPromises);
     }
@@ -552,19 +552,24 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             "writesPendingTransmit = {} addCompletesPending = {}", new Object[] { fullyQualifiedLogSegment,
             lastDLSN, outstandingTransmits.get(), getWritesPendingTransmit(), getPendingAddCompleteCount() });
 
-        final BKTransmitPacket lastPacket;
+        // Save the current packet to reset, leave a new empty packet to avoid a race with
+        // addCompleteDeferredProcessing.
+        final BKTransmitPacket packetPreviousSaved;
+        final BKTransmitPacket packetCurrentSaved;
         synchronized (this) {
-            lastPacket = packetPrevious;
+            packetPreviousSaved = packetPrevious;
+            packetCurrentSaved = packetCurrent;
+            packetCurrent = getTransmitPacket();
         }
 
         // Once the last packet been transmitted, apply any remaining promises asynchronously
         // to avoid blocking close if bk client is slow for some reason.
-        if (null != lastPacket) {
-            lastPacket.awaitTransmitComplete().addEventListener(new FutureEventListener<Integer>() {
+        if (null != packetPreviousSaved) {
+            packetPreviousSaved.awaitTransmitComplete().addEventListener(new FutureEventListener<Integer>() {
                 @Override
                 public void onSuccess(Integer transmitResult) {
                     flushAddCompletes();
-                    flushCurrentPacket();
+                    resetPacket(packetCurrentSaved);
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -574,7 +579,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         } else {
             // In this case there are no pending add completes, but we still need to flush the
             // current packet.
-            flushCurrentPacket();
+            resetPacket(packetCurrentSaved);
         }
 
         if (null == throwExc && !isStreamInError()) {
@@ -1164,7 +1169,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         transmitPacket.processTransmitComplete(entryId, transmitResult.get());
 
         if (cancelPendingPromises) {
-            packetCurrent.cancelPromises(new WriteCancelledException(fullyQualifiedLogSegment, transmitResultToException(transmitResult.get())));
+            // Since the writer is in a bad state no more packets will be tramsitted, and its safe to
+            // assign a new empty packet. This is to avoid a race with closeInternal which may also
+            // try to cancel the current packet;
+            final BKTransmitPacket packetCurrentSaved;
+            synchronized (this) {
+                packetCurrentSaved = packetCurrent;
+                packetCurrent = getTransmitPacket();
+            }
+            packetCurrentSaved.cancelPromises(new WriteCancelledException(fullyQualifiedLogSegment,
+                transmitResultToException(transmitResult.get())));
         }
     }
 
