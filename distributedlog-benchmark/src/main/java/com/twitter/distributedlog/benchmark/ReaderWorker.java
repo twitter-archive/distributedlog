@@ -5,8 +5,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
@@ -29,13 +27,14 @@ import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -59,8 +58,8 @@ public class ReaderWorker implements Worker {
 
     final int truncationIntervalInSeconds;
     // DL Client Related Variables
-    final ZooKeeperClient zkClient;
-    final ServerSet serverSet;
+    final ZooKeeperClient[] zkClients;
+    final ServerSet[] serverSets;
     final DistributedLogClient dlc;
 
     volatile boolean running = true;
@@ -161,7 +160,7 @@ public class ReaderWorker implements Worker {
                         int startStreamId,
                         int endStreamId,
                         int readThreadPoolSize,
-                        String serverSetPath,
+                        List<String> serverSetPaths,
                         int truncationIntervalInSeconds,
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger) throws IOException {
@@ -181,13 +180,19 @@ public class ReaderWorker implements Worker {
         this.executorService = Executors.newScheduledThreadPool(
             readThreadPoolSize, new ThreadFactoryBuilder().setNameFormat("benchmark.reader-%d").build());
 
-        if (truncationIntervalInSeconds > 0 && serverSetPath != null) {
-            String[] serverSetParts = StringUtils.split(serverSetPath, '/');
-            Preconditions.checkArgument(serverSetParts.length == 3);
-            TwitterServerSet.Service zkService =
-                    new TwitterServerSet.Service(serverSetParts[0], serverSetParts[1], serverSetParts[2]);
-            zkClient = TwitterServerSet.clientBuilder(zkService).zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS).build();
-            serverSet = TwitterServerSet.create(zkClient, zkService);
+        if (truncationIntervalInSeconds > 0 && !serverSetPaths.isEmpty()) {
+            zkClients = new ZooKeeperClient[serverSetPaths.size()];
+            serverSets = new ServerSet[serverSetPaths.size()];
+
+            for (int i = 0; i < serverSets.length; i++) {
+                String serverSetPath = serverSetPaths.get(0);
+                Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
+                this.zkClients[i] = ssPair.getLeft();
+                this.serverSets[i] = ssPair.getRight();
+            }
+            ServerSet local = this.serverSets[0];
+            ServerSet[] remotes = new ServerSet[this.serverSets.length - 1];
+            System.arraycopy(this.serverSets, 1, remotes, 0, remotes.length);
             dlc = DistributedLogClientBuilder.newBuilder()
                     .clientId(ClientId$.MODULE$.apply("dlog_loadtest_reader"))
                     .clientBuilder(ClientBuilder.get()
@@ -199,13 +204,13 @@ public class ReaderWorker implements Worker {
                     .redirectBackoffMaxMs(500)
                     .requestTimeoutMs(2000)
                     .statsReceiver(statsReceiver)
-                    .serverSet(serverSet)
+                    .serverSets(local, remotes)
                     .name("reader")
                     .build();
-            LOG.info("Initialized distributedlog client for truncation @ {}.", serverSetPath);
+            LOG.info("Initialized distributedlog client for truncation @ {}.", serverSetPaths);
         } else {
-            zkClient = null;
-            serverSet = null;
+            zkClients = new ZooKeeperClient[0];
+            serverSets = new ServerSet[0];
             dlc = null;
         }
 
@@ -335,8 +340,8 @@ public class ReaderWorker implements Worker {
         if (this.dlc != null) {
             this.dlc.close();
         }
-        if (this.zkClient != null) {
-            this.zkClient.close();
+        for (ZooKeeperClient zkClient : zkClients) {
+            zkClient.close();
         }
     }
 

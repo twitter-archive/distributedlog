@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service.tools;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.common_internal.zookeeper.TwitterServerSet;
@@ -165,13 +166,26 @@ public class ProxyTool extends Tool {
 
     static class ReleaseCommand extends ClusterCommand {
 
+        double rate = 100f;
+
         ReleaseCommand() {
             super("release", "Release Stream Ownerships");
+            options.addOption("t", "rate", true, "Rate to release streams");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("t")) {
+                rate = Double.parseDouble(cmdline.getOptionValue("t", "100"));
+            }
         }
 
         @Override
         protected int runCmd(DistributedLogClient client) throws Exception {
+            RateLimiter rateLimiter = RateLimiter.create(rate);
             for (String stream : streams) {
+                rateLimiter.acquire();
                 try {
                     Await.result(client.release(stream));
                     println("Release ownership of stream " + stream);

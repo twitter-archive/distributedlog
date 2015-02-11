@@ -4,8 +4,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.DistributedLogClient;
@@ -20,7 +18,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,13 +46,14 @@ public class WriterWorker implements Worker {
     final int hostConnectionLimit;
     final ExecutorService executorService;
     final RateLimiter rateLimiter;
-    final ZooKeeperClient zkClient;
-    final ServerSet serverSet;
+    final ZooKeeperClient[] zkClients;
+    final ServerSet[] serverSets;
     final Random random;
     final List<String> streamNames;
     final int numStreams;
     final int batchSize;
     final boolean thriftmux;
+    final boolean handshakeWithClientInfo;
 
     volatile boolean running = true;
 
@@ -73,11 +72,13 @@ public class WriterWorker implements Worker {
                         int batchSize,
                         int hostConnectionCoreSize,
                         int hostConnectionLimit,
-                        String serverSetPath,
+                        List<String> serverSetPaths,
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger,
-                        boolean thriftmux) {
+                        boolean thriftmux,
+                        boolean handshakeWithClientInfo) {
         Preconditions.checkArgument(startStreamId <= endStreamId);
+        Preconditions.checkArgument(serverSetPaths.size() > 0);
         this.streamPrefix = streamPrefix;
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
@@ -96,14 +97,18 @@ public class WriterWorker implements Worker {
         this.hostConnectionCoreSize = hostConnectionCoreSize;
         this.hostConnectionLimit = hostConnectionLimit;
         this.thriftmux = thriftmux;
+        this.handshakeWithClientInfo = handshakeWithClientInfo;
 
         // ServerSet
-        String[] serverSetParts = StringUtils.split(serverSetPath, '/');
-        Preconditions.checkArgument(serverSetParts.length == 3, "serverset path is malformed: must be role/env/job");
-        TwitterServerSet.Service zkService =
-                new TwitterServerSet.Service(serverSetParts[0], serverSetParts[1], serverSetParts[2]);
-        zkClient = TwitterServerSet.clientBuilder(zkService).zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS).build();
-        serverSet = TwitterServerSet.create(zkClient, zkService);
+        this.serverSets = new ServerSet[serverSetPaths.size()];
+        this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
+
+        for (int i = 0; i < serverSets.length; i++) {
+            String serverSetPath = serverSetPaths.get(i);
+            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
+            this.zkClients[i] = ssPair.getLeft();
+            this.serverSets[i] = ssPair.getRight();
+        }
 
         // Streams
         streamNames = new ArrayList<String>(endStreamId - startStreamId);
@@ -118,7 +123,9 @@ public class WriterWorker implements Worker {
     public void close() throws IOException {
         this.running = false;
         SchedulerUtils.shutdownScheduler(this.executorService, 2, TimeUnit.MINUTES);
-        this.zkClient.close();
+        for (ZooKeeperClient zkClient : zkClients) {
+            zkClient.close();
+        }
     }
 
     private DistributedLogClient buildDlogClient() {
@@ -130,6 +137,10 @@ public class WriterWorker implements Worker {
 
         ClientId clientId = ClientId$.MODULE$.apply("dlog_loadtest_writer");
 
+        ServerSet local = serverSets[0];
+        ServerSet[] remotes = new ServerSet[serverSets.length - 1];
+        System.arraycopy(serverSets, 1, remotes, 0, remotes.length);
+
         return DistributedLogClientBuilder.newBuilder()
             .clientId(clientId)
             .clientBuilder(clientBuilder)
@@ -138,7 +149,9 @@ public class WriterWorker implements Worker {
             .redirectBackoffMaxMs(500)
             .requestTimeoutMs(2000)
             .statsReceiver(statsReceiver)
-            .serverSet(serverSet)
+            .serverSets(local, remotes)
+            .streamNameRegex("^" + streamPrefix + "_[0-9]+$")
+            .handshakeWithClientInfo(handshakeWithClientInfo)
             .name("writer")
             .build();
     }

@@ -11,12 +11,15 @@ import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class Benchmarker {
@@ -33,7 +36,7 @@ public class Benchmarker {
     String streamPrefix = "dlog-loadtest-";
     int shardId = -1;
     int numStreams = 10;
-    String serversetPath = null;
+    List<String> serversetPaths = new ArrayList<String>();
     int msgSize = 256;
     String mode = null;
     int durationMins = 60;
@@ -47,6 +50,7 @@ public class Benchmarker {
     int hostConnectionCoreSize = 10;
     int hostConnectionLimit = 10;
     boolean thriftmux = false;
+    boolean handshakeWithClientInfo = false;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -55,7 +59,7 @@ public class Benchmarker {
     Benchmarker(String[] args) {
         this.args = args;
         // prepare options
-        options.addOption("s", "serverset", true, "Proxy Server Set");
+        options.addOption("s", "serverset", true, "Proxy Server Set (separated by ',')");
         options.addOption("c", "conf", true, "DistributedLog Configuration File");
         options.addOption("u", "uri", true, "DistributedLog URI");
         options.addOption("i", "shard", true, "Shard Id");
@@ -76,6 +80,7 @@ public class Benchmarker {
         options.addOption("hccs", "host-connection-core-size", true, "Finagle hostConnectionCoreSize");
         options.addOption("hcl", "host-connection-limit", true, "Finagle hostConnectionLimit");
         options.addOption("mx", "thriftmux", false, "Enable thriftmux (write mode only)");
+        options.addOption("hsci", "handshake-with-client-info", false, "Enable handshaking with client info");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -93,7 +98,11 @@ public class Benchmarker {
             System.exit(0);
         }
         if (cmdline.hasOption("s")) {
-            serversetPath = cmdline.getOptionValue("s");
+            String serversetPathStr = cmdline.getOptionValue("s");
+            String[] serversets = StringUtils.split(serversetPathStr, ',');
+            for (String ss : serversets) {
+                serversetPaths.add(ss);
+            }
         }
         if (cmdline.hasOption("i")) {
             shardId = Integer.parseInt(cmdline.getOptionValue("i"));
@@ -152,6 +161,7 @@ public class Benchmarker {
             hostConnectionLimit = Integer.parseInt(cmdline.getOptionValue("hcl"));
         }
         thriftmux = cmdline.hasOption("mx");
+        handshakeWithClientInfo = cmdline.hasOption("hsci");
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -198,7 +208,7 @@ public class Benchmarker {
     }
 
     Worker runWriter() {
-        Preconditions.checkArgument(serversetPath != null, "serversetPath is required");
+        Preconditions.checkArgument(!serversetPaths.isEmpty(), "serversetPaths are required");
         Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
         Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
@@ -212,10 +222,11 @@ public class Benchmarker {
                 batchSize,
                 hostConnectionCoreSize,
                 hostConnectionLimit,
-                serversetPath,
+                serversetPaths,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
-                thriftmux);
+                thriftmux,
+                handshakeWithClientInfo);
     }
 
     Worker runDLWriter() throws IOException {
@@ -234,17 +245,17 @@ public class Benchmarker {
     }
 
     Worker runReader() throws IOException {
-        Preconditions.checkNotNull(serversetPath, "serversetPath is required");
+        Preconditions.checkNotNull(serversetPaths, "serversetPaths are required");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
         Preconditions.checkArgument(truncationInterval > 0, "truncation interval should be greater than 0");
-        return runReaderInternal(serversetPath, truncationInterval);
+        return runReaderInternal(serversetPaths, truncationInterval);
     }
 
     Worker runDLReader() throws IOException {
         return runReaderInternal(null, 0);
     }
 
-    private Worker runReaderInternal(String ssPath, int truncationInterval) throws IOException {
+    private Worker runReaderInternal(List<String> ssPaths, int truncationInterval) throws IOException {
         Preconditions.checkNotNull(dlUri);
 
         int ssid = null == startStreamId ? shardId * numStreams : startStreamId;
@@ -259,7 +270,7 @@ public class Benchmarker {
                 ssid,
                 esid,
                 concurrency,
-                ssPath,
+                ssPaths,
                 truncationInterval,
                 statsReceiver,
                 statsProvider.getStatsLogger("dlreader"));
