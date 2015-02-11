@@ -31,6 +31,7 @@ import com.twitter.finagle.ServiceTimeoutException;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.Counter;
+import com.twitter.finagle.stats.Gauge;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -40,6 +41,7 @@ import com.twitter.finagle.thrift.ThriftClientFramedCodec;
 import com.twitter.finagle.thrift.ThriftClientRequest;
 import com.twitter.util.Duration;
 import com.twitter.util.Function;
+import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -51,12 +53,14 @@ import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
+import scala.collection.Seq;
 import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -989,6 +993,23 @@ public class DistributedLogClientBuilder {
             StatsReceiver proxyLatencyStatReceiver = statsReceiver.scope("proxy_request_latency");
             proxySuccessLatencyStat = proxyLatencyStatReceiver.stat0("success");
             proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
+            StatsReceiver cacheStatReceiver = statsReceiver.scope("cache");
+            Seq<String> numCachedStreamsGaugeName =
+                    scala.collection.JavaConversions.asScalaBuffer(Arrays.asList("num_streams")).toList();
+            cacheStatReceiver.provideGauge(numCachedStreamsGaugeName, new Function0<Object>() {
+                @Override
+                public Object apply() {
+                    return (float) stream2Addresses.size();
+                }
+            });
+            Seq<String> numCachedHostsGaugeName =
+                    scala.collection.JavaConversions.asScalaBuffer(Arrays.asList("num_hosts")).toList();
+            cacheStatReceiver.provideGauge(numCachedHostsGaugeName, new Function0<Object>() {
+                @Override
+                public Object apply() {
+                    return (float) address2Services.size();
+                }
+            });
 
             // client builder
             ClientBuilder builder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
