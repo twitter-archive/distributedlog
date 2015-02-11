@@ -201,7 +201,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             // ZK completion thread
                             BKLogPartitionReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
                                 zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
-                                getLockClientId(), statsLogger, conf.getZKNumRetries());
+                                getLockClientId(), statsLogger, conf.getZKNumRetries(),
+                                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
 
                             LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
                             readLockRequestStat.inc();

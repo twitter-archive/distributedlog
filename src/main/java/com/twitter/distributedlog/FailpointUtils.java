@@ -3,7 +3,12 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class FailpointUtils {
+    static final Logger logger = LoggerFactory.getLogger(FailpointUtils.class);
+
     public enum FailPointName {
         FP_StartLogSegmentBeforeLedgerCreate,
         FP_StartLogSegmentAfterLedgerCreate,
@@ -12,6 +17,8 @@ public class FailpointUtils {
         FP_TransmitBeforeAddEntry,
         FP_TransmitComplete,
         FP_WriteInternalLostLock,
+        FP_LockUnlockCleanup,
+        FP_LockTryAcquire,
         FP_ZooKeeperConnectionLoss,
         FP_RecoverIncompleteLogSegments,
         FP_LogWriterIssuePending
@@ -19,16 +26,29 @@ public class FailpointUtils {
 
     static interface FailPointAction {
         boolean checkFailPoint() throws IOException;
+        boolean checkFailPointNoThrow();
     }
 
-    static final FailPointAction DEFAULT_ACTION = new FailPointAction() {
+    static abstract class AbstractFailPointAction implements FailPointAction {
+        @Override
+        public boolean checkFailPointNoThrow() {
+            try {
+                return checkFailPoint();
+            } catch (IOException ex) {
+                logger.error("failpoint action raised unexpected exception");
+                return true;
+            }
+        }
+    }
+
+    static final FailPointAction DEFAULT_ACTION = new AbstractFailPointAction() {
         @Override
         public boolean checkFailPoint() throws IOException {
             return true;
         }
     };
 
-    static final FailPointAction THROW_ACTION = new FailPointAction() {
+    static final FailPointAction THROW_ACTION = new AbstractFailPointAction() {
         @Override
         public boolean checkFailPoint() throws IOException {
             throw new IOException("Throw ioexception for failure point");
@@ -80,5 +100,15 @@ public class FailpointUtils {
         } catch (IOException ioe) {
             throw new IOException("Induced Exception at:" + failPoint, ioe);
         }
+    }
+
+    public static boolean checkFailPointNoThrow(FailPointName failPoint) {
+        FailPointAction action = failPointState.get(failPoint);
+
+        if (action == null) {
+            return false;
+        }
+
+        return action.checkFailPointNoThrow();
     }
 }

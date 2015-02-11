@@ -433,9 +433,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         // Build the locks
         lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries());
+                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries(),
+                            conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
         deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries());
+                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries(),
+                            conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 

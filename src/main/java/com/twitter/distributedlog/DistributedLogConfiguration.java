@@ -177,6 +177,14 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
     public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
 
+    // Advanced/internal lock timeouts
+    public static final String BKDL_LOCK_REACQUIRE_TIMEOUT = "lockReacquireTimeoutSeconds";
+    public static final long BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT;
+
+    public static final String BKDL_LOCK_OP_TIMEOUT = "lockOpTimeoutSeconds";
+    public static final long BKDL_LOCK_OP_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT;
+
+    // Bkc config
     public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
     public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
 
@@ -1239,6 +1247,46 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setLockTimeout(long lockTimeout) {
         setProperty(BKDL_LOCK_TIMEOUT, lockTimeout);
+        return this;
+    }
+
+    /**
+     * Get lock reacquire timeout
+     *
+     * @return lock reacquire timeout
+     */
+    public long getLockReacquireTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_REACQUIRE_TIMEOUT, BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set lock reacquire timeout
+     *
+     * @param lockReacquireTimeout lock reacquire timeout.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setLockReacquireTimeoutMilliSeconds(long lockReacquireTimeout) {
+        setProperty(BKDL_LOCK_REACQUIRE_TIMEOUT, lockReacquireTimeout);
+        return this;
+    }
+
+    /**
+     * Get lock internal operation timeout
+     *
+     * @return lock internal operation timeout
+     */
+    public long getLockOpTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_OP_TIMEOUT, BKDL_LOCK_OP_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set lock internal operation timeout
+     *
+     * @param lockOpTimeout lock internal operation timeout.
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setLockOpTimeoutMilliSeconds(long lockOpTimeout) {
+        setProperty(BKDL_LOCK_OP_TIMEOUT, lockOpTimeout);
         return this;
     }
 

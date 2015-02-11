@@ -6,6 +6,7 @@ import com.twitter.distributedlog.DistributedReentrantLock.EpochChangedException
 import com.twitter.distributedlog.DistributedReentrantLock.LockStateChangedException;
 import com.twitter.util.Await;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.commons.lang3.tuple.Pair;
@@ -15,11 +16,14 @@ import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.runtime.BoxedUnit;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +41,9 @@ import static com.twitter.distributedlog.DistributedReentrantLock.DistributedLoc
  * Distributed Lock Tests
  */
 public class TestDistributedLock extends ZooKeeperClusterTestCase {
+
+    @Rule
+    public TestName testNames = new TestName();
 
     static final Logger logger = LoggerFactory.getLogger(TestDistributedLock.class);
 
@@ -252,6 +259,83 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
             // expected
         }
         assertEquals(State.CLOSED, lock.getLockState());
+    }
+
+    class DelayFailpointAction extends FailpointUtils.AbstractFailPointAction {
+        long timeout;
+        DelayFailpointAction(long timeout) {
+            this.timeout = timeout;
+        }
+        @Override
+        public boolean checkFailPoint() throws IOException {
+            try {
+                Thread.sleep(timeout);
+            } catch (InterruptedException ie) {
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Test unlock timeout.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testUnlockTimeout() throws Exception {
+        String name = testNames.getMethodName();
+        String lockPath = "/" + name;
+        String clientId = name;
+
+        createLockPath(zkc.get(), lockPath);
+
+        DistributedLock lock = new DistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor, null,
+                1 /* op timeout */, NullStatsLogger.INSTANCE);
+
+        lock.tryLock(0, TimeUnit.MILLISECONDS);
+        assertEquals(State.CLAIMED, lock.getLockState());
+
+        try {
+            FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_LockUnlockCleanup,
+                                        new DelayFailpointAction(60*60*1000));
+
+            lock.unlock();
+            assertEquals(State.CLOSED, lock.getLockState());
+        } finally {
+            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockUnlockCleanup);
+        }
+    }
+
+    /**
+     * Test try acquire timeout.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testTryAcquireTimeout() throws Exception {
+        String name = testNames.getMethodName();
+        String lockPath = "/" + name;
+        String clientId = name;
+
+        createLockPath(zkc.get(), lockPath);
+
+        DistributedLock lock = new DistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor, null,
+                1 /* op timeout */, NullStatsLogger.INSTANCE);
+
+        try {
+            FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_LockTryAcquire,
+                                        new DelayFailpointAction(60*60*1000));
+
+            lock.tryLock(0, TimeUnit.MILLISECONDS);
+            assertEquals(State.CLOSED, lock.getLockState());
+        } catch (LockingException le) {
+        } catch (Exception e) {
+            fail("expected locking exception");
+        } finally {
+            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockUnlockCleanup);
+        }
     }
 
     @Test(timeout = 60000)

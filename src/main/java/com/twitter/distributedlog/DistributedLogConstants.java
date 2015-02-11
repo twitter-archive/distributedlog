@@ -21,6 +21,8 @@ public class DistributedLogConstants {
     public static final int MAX_TRANSMISSION_SIZE = 1 * 1024 * 1024 - 4 * 1024; //1MB - 4KB
     public static final long LOCK_IMMEDIATE = 0;
     public static final long LOCK_TIMEOUT_INFINITE = -1;
+    public static final long LOCK_OP_TIMEOUT_DEFAULT = 120;
+    public static final long LOCK_REACQUIRE_TIMEOUT_DEFAULT = 120;
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";
     public static final int LOCAL_REGION_ID = 0;
     public static final long LOGSEGMENT_DEFAULT_STATUS = 0;

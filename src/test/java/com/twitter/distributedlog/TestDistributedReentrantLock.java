@@ -104,7 +104,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         }
     }
 
-    static class CountDownThrowFailPointAction implements FailpointUtils.FailPointAction {
+    static class CountDownThrowFailPointAction extends FailpointUtils.AbstractFailPointAction {
 
         final AtomicInteger successCounter;
         final AtomicInteger failureCounter;
