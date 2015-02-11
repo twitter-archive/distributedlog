@@ -1,16 +1,11 @@
 package com.twitter.distributedlog.service;
 
-import java.net.InetSocketAddress;
-import java.util.Map;
-
 import com.google.common.collect.ImmutableSet;
 
 import com.twitter.common.base.Command;
 import com.twitter.common.net.pool.DynamicHostSet;
-import com.twitter.common.zookeeper.Group;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.thrift.ServiceInstance;
-import com.twitter.thrift.Status;
 
 public class DLServerSetWatcher {
     private final ServerSet serverSet;

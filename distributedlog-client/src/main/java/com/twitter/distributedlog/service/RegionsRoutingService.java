@@ -69,6 +69,7 @@ public class RegionsRoutingService implements RoutingService {
         for (RoutingService service : routingServices) {
             service.startService();
         }
+        logger.info("Regions Routing Service Started");
     }
 
     @Override
@@ -76,6 +77,7 @@ public class RegionsRoutingService implements RoutingService {
         for (RoutingService service : routingServices) {
             service.stopService();
         }
+        logger.info("Regions Routing Service Stopped");
     }
 
     @Override

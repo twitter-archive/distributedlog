@@ -94,6 +94,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         } catch (InterruptedException e) {
             logger.warn("Interrupted waiting first serverset change : ", e);
         }
+        logger.info("{} Routing Service Started.", getClass().getSimpleName());
     }
 
     @Override
@@ -105,6 +106,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted on waiting serverset routing service to finish : ", e);
         }
+        logger.info("{} Routing Service Stopped.", getClass().getSimpleName());
     }
 
     @Override

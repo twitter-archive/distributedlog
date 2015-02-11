@@ -10,7 +10,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
-import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -896,7 +895,7 @@ public class DistributedLogClientBuilder {
 
             @Override
             void beforeComplete(ServiceWithClient sc, ResponseHeader header) {
-                clearHostFromStream(stream, sc.address);
+                clearHostFromStream(stream, sc.address, "Stream Deleted");
             }
 
             Future<Void> result() {
@@ -922,7 +921,7 @@ public class DistributedLogClientBuilder {
 
             @Override
             void beforeComplete(ServiceWithClient sc, ResponseHeader header) {
-                clearHostFromStream(stream, sc.address);
+                clearHostFromStream(stream, sc.address, "Stream Deleted");
             }
 
             Future<Void> result() {
@@ -1021,9 +1020,10 @@ public class DistributedLogClientBuilder {
                         new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass(), clientConfig.getThriftMux() });
         }
 
-        private void handleServerInfo(ServerInfo value) {
+        private void handleServerInfo(SocketAddress address, ServerInfo value) {
             if (null != value && value.isSetOwnerships()) {
                 Map<String, String> ownerships = value.getOwnerships();
+                logger.info("Handshaked with {} : {} ownerships returned.", address, ownerships.size());
                 for (Map.Entry<String, String> entry : ownerships.entrySet()) {
                     Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
                     if (!matcher.matches()) {
@@ -1031,6 +1031,8 @@ public class DistributedLogClientBuilder {
                     }
                     updateOwnership(entry.getKey(), entry.getValue());
                 }
+            } else {
+                logger.info("Handshaked with {} : no ownerships returned", address);
             }
         }
 
@@ -1052,26 +1054,28 @@ public class DistributedLogClientBuilder {
         protected void handshake() {
             Map<SocketAddress, ServiceWithClient> snapshot =
                     new HashMap<SocketAddress, ServiceWithClient>(address2Services);
+            logger.info("Handshaking with {} hosts.", snapshot.size());
             final CountDownLatch latch = new CountDownLatch(snapshot.size());
-            FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
-                @Override
-                public void onSuccess(ServerInfo value) {
-                    handleServerInfo(value);
-                    latch.countDown();
-                }
-                @Override
-                public void onFailure(Throwable cause) {
-                    latch.countDown();
-                }
-            };
             for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
-                handshake(entry.getKey(), entry.getValue(), listener);
+                final SocketAddress address = entry.getKey();
+                handshake(entry.getKey(), entry.getValue(), new FutureEventListener<ServerInfo>() {
+                    @Override
+                    public void onSuccess(ServerInfo value) {
+                        handleServerInfo(address, value);
+                        latch.countDown();
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        latch.countDown();
+                    }
+                });
             }
             try {
                 latch.await(1, TimeUnit.MINUTES);
             } catch (InterruptedException e) {
                 logger.warn("Interrupted on handshaking with servers : ", e);
             }
+            logger.info("Handshaked with {} hosts, cached {} streams", snapshot.size(), stream2Addresses.size());
         }
 
         private ClientBuilder getDefaultClientBuilder() {
@@ -1108,7 +1112,7 @@ public class DistributedLogClientBuilder {
             buildClient(address);
         }
 
-        private ServiceWithClient buildClient(SocketAddress address) {
+        private ServiceWithClient buildClient(final SocketAddress address) {
             ServiceWithClient sc = address2Services.get(address);
             if (null != sc) {
                 return sc;
@@ -1127,7 +1131,7 @@ public class DistributedLogClientBuilder {
                 FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                     @Override
                     public void onSuccess(ServerInfo value) {
-                        handleServerInfo(value);
+                        handleServerInfo(address, value);
                     }
                     @Override
                     public void onFailure(Throwable cause) {
@@ -1344,7 +1348,7 @@ public class DistributedLogClientBuilder {
                         default:
                             // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                             // redirect the request.
-                            clearHostFromStream(op.stream, addr);
+                            clearHostFromStream(op.stream, addr, header.getCode().name());
                             if (streamFailfast) {
                                 logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
                                 op.fail(DLException.of(header));
@@ -1480,7 +1484,10 @@ public class DistributedLogClientBuilder {
                     // Store the relevant mappings for this topic and host combination
                     logger.info("Storing ownership for stream : {}, old host : {}, new host : {}.",
                             new Object[] { stream, oldAddr, addr });
-                    clearHostFromStream(stream, oldAddr);
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Ownership changed '")
+                      .append(oldAddr).append("' -> '").append(addr).append("'");
+                    clearHostFromStream(stream, oldAddr, sb.toString());
 
                     // update stats
                     ownershipStat.onRemove();
@@ -1523,6 +1530,7 @@ public class DistributedLogClientBuilder {
          *          host goes down
          */
         void clearAllStreamsForHost(SocketAddress addr) {
+            logger.info("Remove streams mapping for host {}", addr);
             Set<String> streamsForHost = address2Streams.get(addr);
             if (null != streamsForHost) {
                 synchronized (streamsForHost) {
@@ -1545,16 +1553,20 @@ public class DistributedLogClientBuilder {
          *          Stream Name.
          * @param addr
          *          Owner Address.
+         * @param reason
+         *          reason to remove ownership
          */
-        void clearHostFromStream(String stream, SocketAddress addr) {
+        void clearHostFromStream(String stream, SocketAddress addr, String reason) {
             if (stream2Addresses.remove(stream, addr)) {
-                logger.info("Removed stream to host mapping for (stream: {} -> host: {}).", stream, addr);
+                logger.info("Removed stream to host mapping for (stream: {} -> host: {}) : reason = '{}'.",
+                        new Object[] { stream, addr, reason });
             }
             Set<String> streamsForHost = address2Streams.get(addr);
             if (null != streamsForHost) {
                 synchronized (streamsForHost) {
                     if (streamsForHost.remove(stream)) {
-                        logger.info("Removed stream : {} from host {}.", stream, addr);
+                        logger.info("Removed stream ({}) from host {} : reason = '{}'.",
+                                new Object[] { stream, addr, reason });
                         if (streamsForHost.isEmpty()) {
                             address2Streams.remove(addr, streamsForHost);
                         }
