@@ -868,7 +868,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
     public void testAsyncAcquireCloseAfterAcquire() throws Exception {
         TestLockFactory locks = new TestLockFactory(runtime.getMethodName(), zkc, lockStateExecutor);
         final DistributedReentrantLock lock0 = locks.createLock(0, zkc);
-        
+
         Future<Void> result = lock0.asyncAcquire(DistributedReentrantLock.LockReason.READHANDLER);
         Await.result(result);
         lock0.close();

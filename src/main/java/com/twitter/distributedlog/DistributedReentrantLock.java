@@ -165,8 +165,8 @@ class DistributedReentrantLock {
         String clientId,
         StatsLogger statsLogger) throws IOException {
         this(lockStateExecutor, zkc, lockPath, lockTimeout, clientId, statsLogger, 0,
-             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT,
-             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT);
+             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
+             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
     }
 
     DistributedReentrantLock(
@@ -178,8 +178,8 @@ class DistributedReentrantLock {
         StatsLogger statsLogger,
         int lockCreationRetries) throws IOException {
         this(lockStateExecutor, zkc, lockPath, lockTimeout, clientId, statsLogger, lockCreationRetries,
-             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT,
-             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT);
+             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
+             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
     }
 
     DistributedReentrantLock(
@@ -790,7 +790,7 @@ class DistributedReentrantLock {
                                OrderedSafeExecutor lockStateExecutor, LockListener lockListener)
                 throws IOException {
             this(zkClient, lockPath, clientId, lockStateExecutor, lockListener,
-                  DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT, NullStatsLogger.INSTANCE);
+                  DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000, NullStatsLogger.INSTANCE);
         }
 
         /**

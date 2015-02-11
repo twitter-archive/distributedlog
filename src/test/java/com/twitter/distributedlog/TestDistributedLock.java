@@ -291,7 +291,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         DistributedLock lock = new DistributedLock(
                 zkc, lockPath, clientId, lockStateExecutor, null,
-                1 /* op timeout */, NullStatsLogger.INSTANCE);
+                1*1000 /* op timeout */, NullStatsLogger.INSTANCE);
 
         lock.tryLock(0, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock.getLockState());
@@ -334,7 +334,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         } catch (Exception e) {
             fail("expected locking exception");
         } finally {
-            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockUnlockCleanup);
+            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockTryAcquire);
         }
     }
 
