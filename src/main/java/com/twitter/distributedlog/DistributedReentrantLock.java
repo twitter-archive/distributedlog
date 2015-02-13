@@ -830,7 +830,11 @@ class DistributedReentrantLock {
             this.acquireFuture = new Promise<Void>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
                 @Override
                 public BoxedUnit apply(Throwable t) {
-                    DistributedLock.this.unlock();
+                    // This will set the lock state to closed, and begin to cleanup the zk lock node.
+                    // We have to be careful not to block here since doing so blocks the ordered lock
+                    // state executor which can cause deadlocks depending on how futures are chained.
+                    DistributedLock.this.unlockAsync();
+                    // Note re. logging and exceptions: errors are already logged by unlockAsync.
                     return null;
                 }
             });
@@ -1269,6 +1273,7 @@ class DistributedReentrantLock {
                 }
                 @Override
                 public void onFailure(Throwable cause) {
+                    LOG.error("{} failed to unlock {} due to ", new Object[] { lockId, lockPath, cause });
                     unlockStats.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 }
             });
