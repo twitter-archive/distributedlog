@@ -33,6 +33,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -269,6 +271,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final OpStatsLogger addCompleteDeferredTime;
     private final Counter pendingWrites;
 
+    // alert stats
+    private final AlertStatsLogger alertStatsLogger;
+
     // add complete processing
     private final SafeQueueingFuturePool<Void> addCompleteFuturePool;
 
@@ -317,6 +322,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                                    ScheduledExecutorService executorService,
                                    FuturePool orderedFuturePool,
                                    StatsLogger statsLogger,
+                                   AlertStatsLogger alertStatsLogger,
                                    PermitLimiter globalWriteLimiter)
         throws IOException {
         super();
@@ -333,6 +339,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 false);
         }
         this.writeLimiter = new WriteLimiter(streamName, streamWriteLimiter, globalWriteLimiter);
+
+        // alert stats
+        this.alertStatsLogger = alertStatsLogger;
 
         // stats
         if (conf.getEnablePerStreamStat()) {
@@ -960,7 +969,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
      *       add new code that throws in an inappropriate place.
      */
     private boolean transmit(boolean isControl)
-        throws BKTransmitException, LockingException, WriteException {
+        throws BKTransmitException, LockingException, WriteException, InvalidEnvelopedEntryException {
         BKTransmitPacket packet;
         transmitLock.lock();
         try {
@@ -1020,7 +1029,12 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                     // If a write fails here, we need to set the transmit result to an error so that
                     // no future writes go through and violate ordering guarantees.
                     transmitResult.set(BKException.Code.WriteException);
-                    throw new WriteException(streamName, "Envelope Error");
+                    if (e instanceof InvalidEnvelopedEntryException) {
+                        alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
+                        throw (InvalidEnvelopedEntryException) e;
+                    } else {
+                        throw new WriteException(streamName, "Envelope Error");
+                    }
                 }
             }
 

@@ -68,6 +68,8 @@ enum StatusCode {
     STREAM_NOT_READY = 518,
     // Region Unavailable
     REGION_UNAVAILABLE = 519,
+    // Invalid Enveloped Entry
+    INVALID_ENVELOPED_ENTRY = 520,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

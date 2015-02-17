@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
@@ -25,8 +24,8 @@ import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.metadata.BKDLConfig;
 
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
@@ -127,6 +126,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected volatile long lastLedgerRollingTimeMillis = -1;
     protected final ScheduledExecutorService executorService;
     protected final StatsLogger statsLogger;
+    protected final AlertStatsLogger alertStatsLogger;
     private final AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
     private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
     protected volatile boolean reportGetSegmentStats = false;
@@ -271,6 +271,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                           BookKeeperClientBuilder bkcBuilder,
                           ScheduledExecutorService executorService,
                           StatsLogger statsLogger,
+                          AlertStatsLogger alertStatsLogger,
                           AsyncNotification notification,
                           LogSegmentFilter filter,
                           String lockClientId) {
@@ -281,6 +282,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         this.conf = conf;
         this.executorService = executorService;
         this.statsLogger = statsLogger;
+        this.alertStatsLogger = alertStatsLogger;
         this.notification = notification;
         this.filter = filter;
         partitionRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
@@ -682,7 +684,8 @@ abstract class BKLogPartitionHandler implements Watcher {
         throws IOException {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
-        LedgerDataAccessor ledgerDataAccessorPriv = new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger);
+        LedgerDataAccessor ledgerDataAccessorPriv =
+                new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger, alertStatsLogger);
         List<LogSegmentLedgerMetadata> ledgerListDesc = getFullLedgerListDesc(true, false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             if (LOG.isTraceEnabled()) {

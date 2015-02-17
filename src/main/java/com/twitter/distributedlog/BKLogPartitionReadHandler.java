@@ -130,13 +130,13 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      AsyncNotification notification,
                                      boolean isHandleForReading) {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
-              statsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
+              statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
         handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
         ledgerDataAccessor = new LedgerDataAccessor(
-                handleCache, getFullyQualifiedName(), statsLogger, notification,
+                handleCache, getFullyQualifiedName(), statsLogger, alertStatsLogger, notification,
                 conf.getTraceReadAheadDeliveryLatency(), conf.getDataLatencyWarnThresholdMillis());
 
         this.checkLogExistenceBackoffStartMs = conf.getCheckLogExistenceBackoffStartMillis();

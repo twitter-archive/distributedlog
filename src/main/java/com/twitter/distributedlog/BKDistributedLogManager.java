@@ -353,7 +353,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
                 writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool, metadataExecutor,
-                getLockStateExecutor(true), ledgerAllocator, statsLogger, clientId, regionId, writeLimiter);
+                getLockStateExecutor(true), ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
             writeHandler.register((Watcher) manager);

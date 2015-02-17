@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 
@@ -163,6 +164,7 @@ public class DLMTestUtil {
             OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
             null,
             NullStatsLogger.INSTANCE,
+            new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert"),
             "localhost",
             DistributedLogConstants.LOCAL_REGION_ID,
             PermitLimiter.NULL_PERMIT_LIMITER);
@@ -341,7 +343,7 @@ public class DLMTestUtil {
         }
     }
 
-    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid) throws Exception {        
+    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid) throws Exception {
         AsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
         long txid = startTxid;
         for (int i = 0; i < controlEntries; ++i) {
@@ -383,7 +385,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         if (writeEntries) {
             long txid = startTxID;
             for (long j = 1; j <= segmentSize; j++) {
@@ -424,7 +426,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {

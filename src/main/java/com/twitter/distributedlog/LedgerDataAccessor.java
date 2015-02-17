@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
+import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
@@ -39,6 +41,7 @@ public class LedgerDataAccessor {
     private final OpStatsLogger readAheadDeliveryLatencyStat;
     private final OpStatsLogger negativeReadAheadDeliveryLatencyStat;
     private final StatsLogger statsLogger;
+    private final AlertStatsLogger alertStatsLogger;
     private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache;
     private final LinkedBlockingQueue<LogRecordWithDLSN> readAheadRecords;
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
@@ -55,16 +58,19 @@ public class LedgerDataAccessor {
     private Stopwatch lastEntryProcessTime = Stopwatch.createStarted();
 
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger) {
-        this(ledgerHandleCache, streamName, statsLogger, null, false, DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS);
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName,
+                       StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
+        this(ledgerHandleCache, streamName, statsLogger, alertStatsLogger,
+                null, false, DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS);
     }
 
-    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger,
+    LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger,
                        AsyncNotification notification, boolean traceDeliveryLatencyEnabled, long deliveryLatencyWarnThresholdMillis) {
         this.ledgerHandleCache = ledgerHandleCache;
         this.streamName = streamName;
         StatsLogger readAheadStatsLogger = statsLogger.scope("readahead");
         this.statsLogger = readAheadStatsLogger;
+        this.alertStatsLogger = alertStatsLogger;
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
@@ -376,9 +382,9 @@ public class LedgerDataAccessor {
 
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
                                final String reason, boolean envelopeEntries) {
-        LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
-                                                        ledgerEntry, envelopeEntries, statsLogger);
         try {
+            LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
+                    ledgerEntry, envelopeEntries, statsLogger);
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();
 
@@ -416,6 +422,9 @@ public class LedgerDataAccessor {
                 readAheadRecords.add(record);
 
             }
+        } catch (InvalidEnvelopedEntryException ieee) {
+            alertStatsLogger.raise("Found invalid enveloped entry on stream {} : ", streamName, ieee);
+            setLastException(ieee);
         } catch (IOException exc) {
             setLastException(exc);
         }

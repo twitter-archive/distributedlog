@@ -17,15 +17,10 @@ public class LedgerEntryReader extends LogRecord.Reader {
     private final static Logger LOGGER = LoggerFactory.getLogger(LedgerEntryReader.class);
 
     public static DataInputStream getInputStream(InputStream src, boolean envelopeEntries,
-                                                 StatsLogger statsLogger) {
+                                                 StatsLogger statsLogger) throws IOException {
         InputStream stream = src;
         if (envelopeEntries) {
-            try {
-                stream = EnvelopedEntry.fromInputStream(src, statsLogger);
-            } catch (IOException e) {
-                LOGGER.error("Exception while decompressing entry.", e);
-                throw new Error("Error while decompressing entry", e);
-            }
+            stream = EnvelopedEntry.fromInputStream(src, statsLogger);
         }
         return new DataInputStream(stream);
     }
@@ -43,7 +38,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          Are the entries enveloped.
      */
     public LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry,
-                             final boolean envelopeEntries, StatsLogger statsLogger) {
+                             final boolean envelopeEntries, StatsLogger statsLogger) throws IOException {
         this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(), envelopeEntries, statsLogger);
     }
 
@@ -60,7 +55,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          input stream of the data
      */
     public LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in,
-                             final boolean envelopeEntries, StatsLogger statsLogger) {
+                             final boolean envelopeEntries, StatsLogger statsLogger) throws IOException {
         super(new RecordStream() {
             long slotId = 0;
 

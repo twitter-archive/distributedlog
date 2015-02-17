@@ -25,6 +25,7 @@ import java.io.InputStream;
 
 import com.google.common.base.Preconditions;
 
+import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -86,10 +87,12 @@ public class EnvelopedEntry {
     private Payload payloadDecompressed = new Payload();
 
     public EnvelopedEntry(byte version,
-                          StatsLogger statsLogger) {
-        Preconditions.checkArgument(version >= LOWEST_SUPPORTED_VERSION &&
-                                            version <= HIGHEST_SUPPORTED_VERSION);
+                          StatsLogger statsLogger) throws InvalidEnvelopedEntryException {
         Preconditions.checkNotNull(statsLogger);
+        if (version < LOWEST_SUPPORTED_VERSION || version > HIGHEST_SUPPORTED_VERSION) {
+            throw new InvalidEnvelopedEntryException("Invalid enveloped entry version " + version + ", expected to be in [ "
+                    + LOWEST_SUPPORTED_VERSION + " ~ " + HIGHEST_SUPPORTED_VERSION + " ]");
+        }
         this.version = version;
         this.compressionStat = statsLogger.getOpStatsLogger("compression_time");
         this.decompressionStat = statsLogger.getOpStatsLogger("decompression_time");
@@ -111,7 +114,8 @@ public class EnvelopedEntry {
                           CompressionCodec.Type compressionType,
                           byte[] decompressed,
                           int length,
-                          StatsLogger statsLogger) {
+                          StatsLogger statsLogger)
+            throws InvalidEnvelopedEntryException {
         this(version, statsLogger);
         Preconditions.checkNotNull(compressionType);
         Preconditions.checkNotNull(decompressed);
