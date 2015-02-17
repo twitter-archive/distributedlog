@@ -31,6 +31,7 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -47,9 +48,13 @@ import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.Throw;
+import com.twitter.util.Try;
+import com.twitter.util.Return;
 
 class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -186,6 +191,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return readLockPath;
     }
 
+    void satisfyPromiseAsync(final Promise promise, final Try result) {
+        executorService.submit(new SafeRunnable() {
+            @Override
+            public void safeRun() {
+                promise.update(result);
+            }
+        });
+    }
+
     /**
      * Elective stream lock--readers are not required to acquire the lock before using the stream.
      */
@@ -211,29 +225,51 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     }).flatMap(new ExceptionalFunction<DistributedReentrantLock, Future<Void>>() {
                         @Override
                         public Future<Void> applyE(DistributedReentrantLock lock) throws IOException {
-                            Future<Void> lockAcquireFutureLocal = lock.asyncAcquire(
-                                DistributedReentrantLock.LockReason.READHANDLER);
-                            lockAcquireFutureLocal.addEventListener(new FutureEventListener<Void>() {
-                                @Override
-                                public void onSuccess(Void complete) {
-                                    readLockAcquireSuccessStat.inc();
-                                    LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
-                                }
-
-                                @Override
-                                public void onFailure(Throwable cause) {
-                                    readLockAcquireFailureStat.inc();
-                                    LOG.info("failed to acquire readlock {} at {}",
-                                        new Object[]{getLockClientId(), readLockPath, cause});
-                                }
-                            });
-                            return lockAcquireFutureLocal;
+                            return acquireLockOnExecutorThread(lock);
                         }
                     });
                 }
             });
         }
         return lockAcquireFuture;
+    }
+
+    /**
+     * Begin asynchronous lock acquire, but ensure that the returned future is satisfied on an
+     * executor service thread.
+     */
+    Future<Void> acquireLockOnExecutorThread(DistributedReentrantLock lock) throws LockingException {
+        final Future<Void> acquireFuture = lock.asyncAcquire(
+            DistributedReentrantLock.LockReason.READHANDLER);
+
+        // The future we return must be satisfied on an executor service thread. If we simply
+        // return the future returned by asyncAcquire, user callbacks may end up running in
+        // the lock state executor thread, which will cause deadlocks and introduce latency
+        // etc.
+        final Promise<Void> threadAcquirePromise = new Promise<Void>();
+        threadAcquirePromise.setInterruptHandler(new Function<Throwable, BoxedUnit>() {
+            @Override
+            public BoxedUnit apply(Throwable t) {
+                acquireFuture.cancel();
+                return null;
+            }
+        });
+        acquireFuture.addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void complete) {
+                readLockAcquireSuccessStat.inc();
+                LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
+                satisfyPromiseAsync(threadAcquirePromise, new Return(null));
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                readLockAcquireFailureStat.inc();
+                LOG.info("failed to acquire readlock {} at {}",
+                    new Object[]{ getLockClientId(), readLockPath, cause });
+                satisfyPromiseAsync(threadAcquirePromise, new Throw(cause));
+            }
+        });
+        return threadAcquirePromise;
     }
 
     /**

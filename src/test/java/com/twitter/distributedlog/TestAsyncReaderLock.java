@@ -8,6 +8,7 @@ import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ import com.google.common.base.Stopwatch;
 
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
+import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Function0;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -79,6 +81,30 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         record = Await.result(reader2.readNext());
         assertEquals(1L, record.getTransactionId());
         DLMTestUtil.verifyLogRecord(record);
+    }
+
+    @Test(timeout = 60000)
+    public void testReaderLockCloseInAcquireCallback() throws Exception {
+        final String name = runtime.getMethodName();
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        writer.write(DLMTestUtil.getLogRecordInstance(1L));
+        writer.closeAndComplete();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+
+        Future<AsyncLogReader> futureReader1 = dlm.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
+        futureReader1.flatMap(new ExceptionalFunction<AsyncLogReader, Future<Void>>() {
+            @Override
+            public Future<Void> applyE(AsyncLogReader reader) throws IOException {
+                reader.close();
+                latch.countDown();
+                return null;
+            }
+        });
+
+        latch.await();
+        dlm.close();
     }
 
     @Test(timeout = 60000)
@@ -361,27 +387,35 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockMultiReadersScenario() throws Exception {
         final String name = runtime.getMethodName();
+        URI uri = DLMTestUtil.createDLMURI("/" + name);
 
         // Force immediate flush to make dlsn counting easy.
         DistributedLogConfiguration localConf = new DistributedLogConfiguration();
         localConf.addConfiguration(conf);
         localConf.setImmediateFlushEnabled(true);
         localConf.setOutputBufferSize(0);
+        // Otherwise, we won't be able to run scheduled threads for readahead when we're in a callback.
+        localConf.setNumWorkerThreads(2);
 
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(localConf, name);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(localConf, uri);
+
+        DistributedLogManager dlm0 = factory.createDistributedLogManagerWithSharedClients(name);
         DLMTestUtil.generateCompletedLogSegments(dlm0, localConf, 9, 100);
         dlm0.close();
 
         int recordCount = 0;
         AtomicReference<DLSN> currentDLSN = new AtomicReference<DLSN>(DLSN.InitialDLSN);
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(localConf, name);
-        DistributedLogManager dlm2 = DLMTestUtil.createNewDLM(localConf, name);
-        DistributedLogManager dlm3 = DLMTestUtil.createNewDLM(localConf, name);
+        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
+        dlm1.setClientId("gabbagoo");
+        BKDistributedLogManager dlm2 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
+        dlm1.setClientId("tortellini");
+        BKDistributedLogManager dlm3 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
+        dlm1.setClientId("parmigianino");
 
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);
-        
+
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         Future<AsyncLogReader> futureReader3 = dlm3.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
@@ -397,6 +431,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         }
 
         // Take a break, reader2 decides to stop waiting and cancels.
+        Thread.sleep(1000);
         assertFalse(listener2.done());
         futureReader2.cancel();
         listener2.getLatch().await();

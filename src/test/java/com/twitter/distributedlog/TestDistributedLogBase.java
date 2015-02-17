@@ -16,8 +16,11 @@ import java.util.List;
 
 public class TestDistributedLogBase {
 
+    // Num worker threads should be one, since the exec service is used for the ordered
+    // future pool in test cases, and setting to > 1 will therefore result in unordered
+    // write ops.
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration().setLockTimeout(10).setNumWorkerThreads(1);
     protected ZooKeeper zkc;
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;
