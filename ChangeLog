@@ -1,3 +1,14 @@
+0.3.27
+------
+- Service Level Timeout
+- Stream Ownership Filters
+- Pin Stream Ownership Feature
+- Heartbeat with control records
+- Idle reader detection improvements
+- Misc fixes for high pendings
+- Lock Timeout
+- Reader Lock Deadlock Fixes
+
 0.3.26
 ------
 - BookKeeper Version 4.2.22
