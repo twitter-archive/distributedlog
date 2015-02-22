@@ -1519,7 +1519,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         // will not silently miss records; therefore its safe to not halt
                                         // reading, but we should print a warning for easy diagnosis
                                         if (lastAddConfirmed > (currentMetadata.getLastEntryId() + 1)) {
-                                            LOG.warn("Metadata {} is corrupt for stream {}, lastAddConfirmed {}",
+                                            LOG.warn("Potential Metadata Corruption {} for stream {}, lastAddConfirmed {}",
                                                     new Object[] {currentMetadata, getFullyQualifiedName(), lastAddConfirmed});
                                         }
 
