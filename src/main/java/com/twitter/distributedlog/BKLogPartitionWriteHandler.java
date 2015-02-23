@@ -1309,14 +1309,18 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         for(LogSegmentLedgerMetadata l : truncateList) {
             if (!l.isTruncated()) {
                 MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
-                updater.setLogSegmentTruncated(l);
+                LogSegmentLedgerMetadata newSegment = updater.setLogSegmentTruncated(l);
+                removeLogSegmentFromCache(l.getSegmentName());
+                addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
             }
         }
 
         if ((null != partialTruncate) &&
             (!partialTruncate.isPartiallyTruncated() || (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
             MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
-            updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
+            LogSegmentLedgerMetadata newSegment = updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
+            removeLogSegmentFromCache(partialTruncate.getSegmentName());
+            addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
         }
     }
 

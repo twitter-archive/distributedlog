@@ -2003,8 +2003,23 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
         updater.setLogSegmentActive(segmentList.get(2L));
 
-        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Assert.assertTrue(Await.result(writer.truncate(truncDLSN)));
+        BKLogPartitionWriteHandler handler = writer.getCachedPartitionHandler(conf.getUnpartitionedStreamName());
+        List<LogSegmentLedgerMetadata> cachedSegments = handler.getFullLedgerList(false, false);
+        for (LogSegmentLedgerMetadata segment: cachedSegments) {
+            if (segment.getLastDLSN().compareTo(truncDLSN) < 0) {
+                Assert.assertTrue(segment.isTruncated());
+                Assert.assertTrue(!segment.isPartiallyTruncated());
+            } else if (segment.getFirstDLSN().compareTo(truncDLSN) < 0) {
+                Assert.assertTrue(!segment.isTruncated());
+                Assert.assertTrue(segment.isPartiallyTruncated());
+            } else {
+                Assert.assertTrue(!segment.isTruncated());
+                Assert.assertTrue(!segment.isPartiallyTruncated());
+            }
+        }
+
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
             String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
                 name, conf.getUnpartitionedStreamName())));

@@ -779,6 +779,14 @@ public class LogSegmentLedgerMetadata {
         this.zkPath = path;
     }
 
+    String getSegmentName() {
+        String[] parts = this.zkPath.split("/");
+        if (parts.length <= 0) {
+            throw new IllegalStateException("ZK Path is not valid");
+        }
+        return parts[parts.length - 1];
+    }
+
     public void write(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NodeExistsException {
         this.zkPath = path;
