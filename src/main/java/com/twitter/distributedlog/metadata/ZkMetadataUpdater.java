@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.metadata;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
@@ -86,6 +87,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
         return newSegment;
     }
 
+    @VisibleForTesting
     @Override
     public LogSegmentLedgerMetadata changeSequenceNumber(LogSegmentLedgerMetadata segment,
                                                          long ledgerSeqNo) throws IOException {
@@ -149,8 +151,10 @@ public class ZkMetadataUpdater implements MetadataUpdater {
         try {
             zkc.get().setData(segment.getZkPath(), finalisedData, -1);
         } catch (KeeperException e) {
+            LOG.error("Failed on updating log segment {}", segment, e);
             throw new ZKException("Failed on updating log segment " + segment, e);
         } catch (InterruptedException e) {
+            LOG.error("Interrupted on updating segment {}", segment, e);
             throw new DLInterruptedException("Interrupted on updating segment " + segment, e);
         }
     }
@@ -167,9 +171,12 @@ public class ZkMetadataUpdater implements MetadataUpdater {
                 zkc.get().delete(oldSegment.getZkPath(), -1);
             }
         } catch (InterruptedException ie) {
+            LOG.error("Interrupted on adding new segment {} and deleting old segment {}",
+                new Object[] { newSegment, oldSegment, ie} );
             throw new DLInterruptedException("Interrupted on adding new segment " + newSegment
                     + " and deleting old segment " + oldSegment + " : ", ie);
         } catch (KeeperException ke) {
+            LOG.error("Failed on adding new segment {} and deleting old segment {}", new Object[] { newSegment, oldSegment, ke});
             throw new ZKException("Failed on adding new segment " + newSegment
                     + " and deleting old segment " + oldSegment + " : ", ke);
         }

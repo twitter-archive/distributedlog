@@ -32,9 +32,11 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
             // commit the transaction
             txn.commit();
         } catch (InterruptedException e) {
+            LOG.error("Interrupted on transaction for adding new segment {} and deleting old segment {}", new Object[] { newSegment, oldSegment, e});
             throw new DLInterruptedException("Interrupted on transaction for adding new segment " + newSegment
                     + " and deleting old segment " + oldSegment, e);
         } catch (KeeperException ke) {
+            LOG.error("Failed on adding new segment {} and deleting old segment {}", new Object[] { newSegment, oldSegment, ke});
             throw new ZKException("Failed on transaction for adding new segment " + newSegment
                     + " and deleting old segment " + oldSegment, ke);
         }

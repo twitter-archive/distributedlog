@@ -1217,17 +1217,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
         scheduleGetAllLedgersTaskIfNeeded();
         List<LogSegmentLedgerMetadata> logSegments = getFullLedgerList(false, false);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Setting truncation status on logs older than {} from {} for {}",
-                new Object[] { dlsn, logSegments, getFullyQualifiedName() });
-        }
+        LOG.debug("Setting truncation status on logs older than {} from {} for {}",
+            new Object[] { dlsn, logSegments, getFullyQualifiedName() });
         List<LogSegmentLedgerMetadata> truncateList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
         LogSegmentLedgerMetadata partialTruncate = null;
+        LOG.info("{}: Truncating log segments older than {}", getFullyQualifiedName(), dlsn);
         for (int i = 0; i < logSegments.size() - 1; i++) {
             LogSegmentLedgerMetadata l = logSegments.get(i);
             if (!l.isInProgress()) {
                 if (l.getLastDLSN().compareTo(dlsn) < 0) {
-                    LOG.info("Truncating log segment {} older than {}.", l, dlsn);
+                    LOG.debug("{}: Truncating log segment {} ", getFullyQualifiedName(), l);
                     truncateList.add(l);
                 } else if (l.getFirstDLSN().compareTo(dlsn) < 0) {
                     // Can be satisfied by at most one segment
@@ -1236,7 +1235,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         LOG.error(logMsg);
                         throw new DLIllegalStateException(logMsg);
                     }
-                    LOG.info("Partially truncating log segment {} older than {}.", l, dlsn);
+                    LOG.info("{}: Partially truncating log segment {} older than {}.", new Object[] {getFullyQualifiedName(), l, dlsn});
                     partialTruncate = l;
                 } else {
                     break;
