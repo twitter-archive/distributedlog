@@ -693,7 +693,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      */
     public BKPerStreamLogWriter startLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID)
             throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             BKPerStreamLogWriter writer = doStartLogSegment(txId, bestEffort, allowMaxTxID);
@@ -941,7 +941,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                     long ledgerId, long firstTxId, long lastTxId,
                                     int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             doCompleteAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo,
@@ -1052,7 +1052,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         @Override
         void processOp() throws IOException {
-            Stopwatch stopwatch = new Stopwatch().start();
+            Stopwatch stopwatch = Stopwatch.createStarted();
             boolean success = false;
 
             try {
@@ -1339,7 +1339,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             final LogSegmentLedgerMetadata ledgerMetadata) {
         LOG.info("Deleting ledger {} for {}", ledgerMetadata, getFullyQualifiedName());
         final Promise<LogSegmentLedgerMetadata> promise = new Promise<LogSegmentLedgerMetadata>();
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         promise.addEventListener(new FutureEventListener<LogSegmentLedgerMetadata>() {
             @Override
             public void onSuccess(LogSegmentLedgerMetadata segment) {

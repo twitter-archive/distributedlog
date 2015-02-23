@@ -268,7 +268,7 @@ class BKPerStreamLogReader {
                                                     ledgerDesc.getLedgerSequenceNo(),
                                                     readEntries);
             LedgerEntry e;
-            Stopwatch stopwatch = new Stopwatch().start();
+            Stopwatch stopwatch = Stopwatch.createStarted();
             try {
                 getEntryCounter(nonBlocking).inc();
                 e = ledgerDataAccessor.getEntry(ledgerDesc, readPosition, nonBlocking, enableTrace);

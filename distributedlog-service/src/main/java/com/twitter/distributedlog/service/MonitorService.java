@@ -88,7 +88,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         private final String name;
         private volatile boolean closed = false;
         private volatile boolean checking = false;
-        private final Stopwatch stopwatch = new Stopwatch();
+        private final Stopwatch stopwatch = Stopwatch.createUnstarted();
         private DistributedLogManager dlm = null;
 
         StreamChecker(String name) {

@@ -331,7 +331,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                                         FuturePool orderedFuturePool,
                                                         ExecutorService metadataExecutor)
             throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);

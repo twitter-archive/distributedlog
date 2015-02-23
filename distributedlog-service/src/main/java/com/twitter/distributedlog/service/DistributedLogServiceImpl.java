@@ -186,7 +186,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     abstract class StreamOp {
         final String stream;
-        final Stopwatch stopwatch = new Stopwatch();
+        final Stopwatch stopwatch = Stopwatch.createUnstarted();
         final WriteContext context;
         final OpStatsLogger opStatsLogger;
 
@@ -668,9 +668,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         final Object streamLock = new Object();
         // last acquire time
-        final Stopwatch lastAcquireWatch = new Stopwatch();
+        final Stopwatch lastAcquireWatch = Stopwatch.createUnstarted();
         // last acquire failure time
-        final Stopwatch lastAcquireFailureWatch = new Stopwatch();
+        final Stopwatch lastAcquireFailureWatch = Stopwatch.createUnstarted();
         final long nextAcquireWaitTimeMs;
 
         // Stats
@@ -1047,7 +1047,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
             Queue<StreamOp> oldPendingOps;
             boolean success;
-            Stopwatch stopwatch = new Stopwatch().start();
+            Stopwatch stopwatch = Stopwatch.createStarted();
             try {
                 AsyncLogWriter w = manager.startAsyncLogSegmentNonPartitioned();
                 synchronized (this) {

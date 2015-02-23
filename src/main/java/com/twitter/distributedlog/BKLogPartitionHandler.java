@@ -808,7 +808,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                                          final boolean includeControl,
                                                          final boolean includeEndOfStream) {
         final AtomicInteger numRecordsScanned = new AtomicInteger(0);
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         return ReadUtils.asyncReadLastRecord(
                 getFullyQualifiedName(),
                 l,
@@ -895,7 +895,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected List<LogSegmentLedgerMetadata> getLedgerList(boolean forceFetch, boolean fetchFullList,
                                                            Comparator comparator, boolean throwOnEmpty)
             throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             List<LogSegmentLedgerMetadata> segments =
@@ -943,7 +943,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         final List<LogSegmentLedgerMetadata> ledgers = new ArrayList<LogSegmentLedgerMetadata>();
         final AtomicInteger result = new AtomicInteger(-1);
         final CountDownLatch latch = new CountDownLatch(1);
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         asyncGetLedgerListInternal(comparator, segmentFilter, null, new GenericCallback<List<LogSegmentLedgerMetadata>>() {
             @Override
             public void operationComplete(int rc, List<LogSegmentLedgerMetadata> logSegmentLedgerMetadatas) {
@@ -997,7 +997,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected Future<List<LogSegmentLedgerMetadata>> asyncGetLedgerList(final boolean forceFetch, final boolean fetchFullList,
                                                                         final Comparator comparator, final boolean throwOnEmpty) {
         final Promise<List<LogSegmentLedgerMetadata>> promise = new Promise<List<LogSegmentLedgerMetadata>>();
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         final OpStatsLogger statsLogger = fetchFullList ? getFullListStat : getFilteredListStat;
         asyncDoGetLedgerList(forceFetch, fetchFullList, comparator, throwOnEmpty)
                 .addEventListener(new FutureEventListener<List<LogSegmentLedgerMetadata>>() {
@@ -1051,7 +1051,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                                                              final LogSegmentFilter segmentFilter,
                                                                              final boolean throwOnEmpty) {
         final Promise<List<LogSegmentLedgerMetadata>> promise = new Promise<List<LogSegmentLedgerMetadata>>();
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         asyncGetLedgerListInternal(comparator, segmentFilter, null)
             .addEventListener(new FutureEventListener<List<LogSegmentLedgerMetadata>>() {
 
@@ -1193,7 +1193,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                             final GenericCallback<List<LogSegmentLedgerMetadata>> finalCallback,
                                             final AtomicInteger numAttemptsLeft,
                                             final AtomicLong backoffMillis) {
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         try {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Async getting ledger list for {}.", getFullyQualifiedName());

@@ -113,7 +113,7 @@ public class LedgerHandleCache {
     public LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         asyncOpenLedger(metadata, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(int rc, LedgerDescriptor ledgerDescriptor) {
@@ -218,7 +218,7 @@ public class LedgerHandleCache {
     public void tryReadLastConfirmed(LedgerDescriptor ledgerDesc) throws BKException, InterruptedException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         asyncTryReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object ctx) {
@@ -250,7 +250,7 @@ public class LedgerHandleCache {
         throws InterruptedException, BKException {
         final SyncObject<Long> syncObject = new SyncObject<Long>();
         syncObject.inc();
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         asyncReadLastConfirmed(ledgerDesc, new AsyncCallback.ReadLastConfirmedCallback() {
             @Override
             public void readLastConfirmedComplete(int rc, long lastAddConfirmed, Object context) {

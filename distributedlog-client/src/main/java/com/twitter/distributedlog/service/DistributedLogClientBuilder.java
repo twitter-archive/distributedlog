@@ -630,7 +630,7 @@ public class DistributedLogClientBuilder {
 
             StreamOp(final String stream) {
                 this.stream = stream;
-                this.stopwatch = new Stopwatch().start();
+                this.stopwatch = Stopwatch.createStarted();
             }
 
             void send(SocketAddress address) {

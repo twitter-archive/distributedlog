@@ -31,6 +31,7 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.commons.lang.time.StopWatch;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -290,7 +291,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean fThrowOnEmpty,
                                                         boolean simulateErrors)
         throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromDLSN, fThrowOnEmpty, simulateErrors);
@@ -400,7 +401,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                         boolean fThrowOnEmpty,
                                                         boolean simulateErrors)
         throws IOException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         try {
             ResumableBKPerStreamLogReader reader =
                     doGetInputStream(fromTxId, fThrowOnEmpty, simulateErrors);
@@ -626,7 +627,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     public boolean doesLogExist() throws IOException {
         boolean logExists = false;
         boolean success = false;
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         try {
             if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
                 logExists = true;

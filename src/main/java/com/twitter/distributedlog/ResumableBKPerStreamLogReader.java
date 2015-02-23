@@ -74,7 +74,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
             return;
         }
 
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         try {
             doResume(shouldReadLAC);
             resumeHitStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -86,7 +86,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public void doResume(boolean shouldReadLAC) throws IOException {
         if (isInProgress() && watchSet.compareAndSet(false, true)) {
-            Stopwatch stopwatch = new Stopwatch().start();
+            Stopwatch stopwatch = Stopwatch.createStarted();
             try {
                 if (null == zkc.get().exists(zkPath, this)) {
                     nodeDeleteNotification.set(true);

@@ -229,7 +229,7 @@ class DistributedReentrantLock {
     }
 
     void acquire(LockReason reason) throws LockingException {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             doAcquire(reason);
@@ -298,7 +298,7 @@ class DistributedReentrantLock {
      * list--is executed synchronously, but the lock wait itself doesn't block.
      */ 
     synchronized Future<Void> asyncAcquire(final LockReason reason) throws LockingException {
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         return doAsyncAcquire(reason).addEventListener(new FutureEventListener<Void>() {
             @Override
             public void onSuccess(Void complete) {
@@ -327,7 +327,7 @@ class DistributedReentrantLock {
 
             // We've got a valid internal lock, we need to try-acquire (which will begin the lock wait process)
             // synchronously. There's no lock blocking on the try operation, so this shouldn't take long.
-            final Stopwatch stopwatch = new Stopwatch().start();
+            final Stopwatch stopwatch = Stopwatch.createStarted();
             Future<String> result = internalLock.asyncTryLock(DistributedLogConstants.LOCK_TIMEOUT_INFINITE, TimeUnit.MILLISECONDS);
             String previousOwner = internalLock.waitForTry(stopwatch, result);
 
@@ -352,7 +352,7 @@ class DistributedReentrantLock {
     }
 
     void release(LockReason reason) {
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             doRelease(reason, false);
@@ -575,7 +575,7 @@ class DistributedReentrantLock {
     }
 
     private Future<String> reacquireLock(boolean throwLockAcquireException) throws LockingException {
-        final Stopwatch stopwatch = new Stopwatch().start();
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         Promise<String> lockPromise;
         synchronized (this) {
             if (closed) {
@@ -1193,7 +1193,7 @@ class DistributedReentrantLock {
         }
 
         public void tryLock(long timeout, TimeUnit unit) throws LockingException {
-            final Stopwatch stopwatch = new Stopwatch().start();
+            final Stopwatch stopwatch = Stopwatch.createStarted();
             Future<String> tryFuture = asyncTryLock(timeout, unit);
             String currentOwner = waitForTry(stopwatch, tryFuture);
             boolean acquired = waitForAcquire(getAcquireFuture(), timeout, unit);
@@ -1261,7 +1261,7 @@ class DistributedReentrantLock {
         }
 
         private synchronized Future<BoxedUnit> unlockAsync() {
-            final Stopwatch stopwatch = new Stopwatch().start();
+            final Stopwatch stopwatch = Stopwatch.createStarted();
             acquireFuture.updateIfEmpty(new Throw(
                 new LockClosedException(lockPath, lockId, lockState)));
             Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
