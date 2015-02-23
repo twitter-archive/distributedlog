@@ -1369,6 +1369,8 @@ public class DistributedLogClientBuilder {
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ChannelException) {
+                        routingService.removeHost(addr, cause);
+                        clearHostFromStream(op.stream, addr, cause.getMessage());
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ServiceTimeoutException) {

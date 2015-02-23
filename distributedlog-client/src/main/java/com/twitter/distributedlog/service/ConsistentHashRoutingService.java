@@ -8,12 +8,17 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
 import org.apache.commons.lang3.tuple.Pair;
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -23,12 +28,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 
 public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     @Deprecated
     public static ConsistentHashRoutingService of(DLServerSetWatcher serverSetWatcher, int numReplicas) {
-        return new ConsistentHashRoutingService(serverSetWatcher, numReplicas);
+        return new ConsistentHashRoutingService(serverSetWatcher, numReplicas, 300);
     }
 
     public static Builder newBuilder() {
@@ -40,6 +46,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         private ServerSet _serverSet;
         private boolean _resolveFromName = false;
         private int _numReplicas;
+        private int _blackoutSeconds = 300;
 
         private Builder() {}
 
@@ -58,11 +65,17 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             return this;
         }
 
+        public Builder blackoutSeconds(int seconds) {
+            this._blackoutSeconds = seconds;
+            return this;
+        }
+
         @Override
         public RoutingService build() {
             Preconditions.checkNotNull(_serverSet, "No serverset provided.");
             Preconditions.checkArgument(_numReplicas > 0, "Invalid number of replicas : " + _numReplicas);
-            return new ConsistentHashRoutingService(new DLServerSetWatcher(_serverSet, _resolveFromName), _numReplicas);
+            return new ConsistentHashRoutingService(new DLServerSetWatcher(_serverSet, _resolveFromName),
+                    _numReplicas, _blackoutSeconds);
         }
     }
 
@@ -158,6 +171,39 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     }
 
+    class BlackoutHost implements TimerTask {
+        final int shardId;
+        final SocketAddress address;
+
+        BlackoutHost(int shardId, SocketAddress address) {
+            this.shardId = shardId;
+            this.address = address;
+        }
+
+        @Override
+        public void run(Timeout timeout) throws Exception {
+            if (!timeout.isExpired()) {
+                return;
+            }
+            Set<SocketAddress> removedList = new HashSet<SocketAddress>();
+            // add the shard back
+            synchronized (shardId2Address) {
+                SocketAddress curHost = shardId2Address.get(shardId);
+                if (null != curHost) {
+                    // there is already new shard joint, so drop the host.
+                    logger.info("Blackout Shard {} ({}) was already replaced by {} permanently.",
+                            new Object[] { shardId, address, curHost });
+                    return;
+                }
+                join(shardId, address, removedList);
+            }
+            for (RoutingListener listener : listeners) {
+                listener.onServerJoin(address);
+            }
+        }
+    }
+
+    protected final HashedWheelTimer hashedWheelTimer;
     protected final HashFunction hashFunction = Hashing.md5();
     protected final ConsistentHash circle;
     protected final Map<Integer, SocketAddress> shardId2Address =
@@ -165,11 +211,31 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     protected final Map<SocketAddress, Integer> address2ShardId =
             new HashMap<SocketAddress, Integer>();
 
+    // blackout period
+    protected final int blackoutSeconds;
+
     private static final int UNKNOWN_SHARD_ID = -1;
 
-    private ConsistentHashRoutingService(DLServerSetWatcher serverSetWatcher, int numReplicas) {
+    private ConsistentHashRoutingService(DLServerSetWatcher serverSetWatcher,
+                                         int numReplicas,
+                                         int blackoutSeconds) {
         super(serverSetWatcher);
-        circle = new ConsistentHash(hashFunction, numReplicas);
+        this.circle = new ConsistentHash(hashFunction, numReplicas);
+        this.hashedWheelTimer = new HashedWheelTimer(new ThreadFactoryBuilder()
+                .setNameFormat("ConsistentHashRoutingService-Timer-%d").build());
+        this.blackoutSeconds = blackoutSeconds;
+    }
+
+    @Override
+    public void startService() {
+        super.startService();
+        this.hashedWheelTimer.start();
+    }
+
+    @Override
+    public void stopService() {
+        this.hashedWheelTimer.stop();
+        super.stopService();
     }
 
     @Override
@@ -202,8 +268,15 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 }
                 circle.remove(shardId, host);
                 if (reason.isPresent()) {
-                    logger.info("Shard {} ({}) left due to exception",
-                            new Object[] { shardId, host, reason.get() });
+                    if (reason.get() instanceof ChannelException) {
+                        logger.info("Shard {} ({}) left due to exception, black it out for {} seconds",
+                                new Object[] { shardId, host, blackoutSeconds, reason.get() });
+                        BlackoutHost blackoutHost = new BlackoutHost(shardId, host);
+                        hashedWheelTimer.newTimeout(blackoutHost, blackoutSeconds, TimeUnit.SECONDS);
+                    } else {
+                        logger.info("Shard {} ({}) left due to exception",
+                                new Object[] { shardId, host, reason.get() });
+                    }
                 } else {
                     logger.info("Shard {} ({}) left after server set change",
                                 shardId, host);
