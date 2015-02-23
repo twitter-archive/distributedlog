@@ -1612,6 +1612,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (bkcNoLedgerExceptionsOnReadLAC.incrementAndGet() > noLedgerExceptionOnReadLACThreshold) {
                         LOG.info("{} No entries published to ledger {} yet for {} millis.",
                                 new Object[] { fullyQualifiedName, currentLH, conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() });
+                        bkcNoLedgerExceptionsOnReadLAC.set(0);
                         // set current ledger handle to null, so it would be re-opened again.
                         // if the ledger does disappear, it would trigger re-initialize log segments on handling openLedger exceptions
                         if (closeCurrentLedgerHandle()) {
