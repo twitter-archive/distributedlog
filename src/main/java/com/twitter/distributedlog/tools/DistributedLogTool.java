@@ -1301,6 +1301,7 @@ public class DistributedLogTool extends Tool {
 
         PartitionId partitionId = null;
         boolean printHex = false;
+        boolean skipPayload = false;
         Long fromTxnId = null;
         DLSN fromDLSN = null;
         int count = 100;
@@ -1309,6 +1310,7 @@ public class DistributedLogTool extends Tool {
             super("dump", "dump records of a given stream");
             options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("x", "hex", false, "Print record in hex format");
+            options.addOption("sp", "skip-payload", false, "Skip printing the payload of the record");
             options.addOption("o", "offset", true, "Txn ID to start dumping.");
             options.addOption("n", "seqno", true, "Sequence Number to start dumping");
             options.addOption("e", "eid", true, "Entry ID to start dumping");
@@ -1320,6 +1322,7 @@ public class DistributedLogTool extends Tool {
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
             printHex = cmdline.hasOption("x");
+            skipPayload = cmdline.hasOption("sp");
             if (cmdline.hasOption("p")) {
                 try {
                     partitionId = new PartitionId(Integer.parseInt(cmdline.getOptionValue("p")));
@@ -1441,6 +1444,11 @@ public class DistributedLogTool extends Tool {
                         + record.getPayload().length + ")");
             }
             println("");
+
+            if (skipPayload) {
+                return;
+            }
+
             if (printHex) {
                 println(Hex.encodeHexString(record.getPayload()));
             } else {
@@ -2079,8 +2087,11 @@ public class DistributedLogTool extends Tool {
 
         Long fromEntryId;
         Long untilEntryId;
+        boolean printHex = false;
+        boolean skipPayload = false;
         boolean readAllBookies = false;
         boolean readLac = false;
+
         int metadataVersion = LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
         long startEntryId = 0L;
@@ -2088,6 +2099,8 @@ public class DistributedLogTool extends Tool {
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
+            options.addOption("x", "hex", false, "Print record in hex format");
+            options.addOption("sp", "skip-payload", false, "Skip printing the payload of the record");
             options.addOption("fid", "from", true, "Entry id to start reading");
             options.addOption("uid", "until", true, "Entry id to read until");
             options.addOption("bks", "all-bookies", false, "Read entry from all bookies");
@@ -2098,6 +2111,8 @@ public class DistributedLogTool extends Tool {
         @Override
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
+            printHex = cmdline.hasOption("x");
+            skipPayload = cmdline.hasOption("sp");
             if (cmdline.hasOption("fid")) {
                 fromEntryId = Long.parseLong(cmdline.getOptionValue("fid"));
             }
@@ -2255,8 +2270,14 @@ public class DistributedLogTool extends Tool {
             LogRecordWithDLSN record = reader.readOp();
             while (null != record) {
                 System.out.println("\t" + record);
-                System.out.println(new String(record.getPayload(), UTF_8));
-                System.out.println();
+                if (!skipPayload) {
+                    if (printHex) {
+                        println(Hex.encodeHexString(record.getPayload()));
+                    } else {
+                        println(new String(record.getPayload(), UTF_8));
+                    }
+                }
+                println("");
                 record = reader.readOp();
             }
         }
