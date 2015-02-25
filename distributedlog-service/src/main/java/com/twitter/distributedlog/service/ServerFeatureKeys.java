@@ -6,5 +6,4 @@ package com.twitter.distributedlog.service;
 public enum ServerFeatureKeys {
 
     REGION_STOP_ACCEPT_NEW_STREAM
-
 }

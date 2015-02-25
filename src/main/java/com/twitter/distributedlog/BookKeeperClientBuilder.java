@@ -1,10 +1,14 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
+import org.apache.bookkeeper.feature.FeatureProvider;
+
+import org.apache.bookkeeper.feature.Feature;
 
 /**
  * Builder to build bookkeeper client.
@@ -37,6 +41,8 @@ public class BookKeeperClientBuilder {
     private ClientSocketChannelFactory channelFactory = null;
     // request timer
     private HashedWheelTimer requestTimer = null;
+    // feature provider
+    private Optional<FeatureProvider> featureProvider = Optional.absent();
 
     // Cached BookKeeper Client
     private BookKeeperClient cachedClient = null;
@@ -160,6 +166,11 @@ public class BookKeeperClientBuilder {
         return this;
     }
 
+    public synchronized BookKeeperClientBuilder featureProvider(Optional<FeatureProvider> featureProvider) {
+        this.featureProvider = featureProvider;
+        return this;
+    }
+
     private void validateParameters() {
         Preconditions.checkNotNull(name, "Missing client name.");
         Preconditions.checkNotNull(dlConfig, "Missing DistributedLog Configuration.");
@@ -176,6 +187,6 @@ public class BookKeeperClientBuilder {
 
     private BookKeeperClient buildClient() {
         validateParameters();
-        return new BookKeeperClient(dlConfig, name, zkServers, zkc, ledgersPath, channelFactory, requestTimer, statsLogger);
+        return new BookKeeperClient(dlConfig, name, zkServers, zkc, ledgersPath, channelFactory, requestTimer, statsLogger, featureProvider);
     }
 }

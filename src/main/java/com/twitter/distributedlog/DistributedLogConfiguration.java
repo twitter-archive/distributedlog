@@ -1,7 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.feature.DeciderFeatureProvider;
-import com.twitter.distributedlog.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;

@@ -4,6 +4,8 @@ import com.twitter.decider.Decider;
 import com.twitter.decider.DeciderFactory;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.util.Duration;
+
+import org.apache.bookkeeper.feature.Feature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Int;

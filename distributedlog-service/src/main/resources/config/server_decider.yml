@@ -1,2 +1,4 @@
 region_stop_accept_new_stream:
   default_availability: 0
+disable_durability_enforcement:
+  default_availability: 0

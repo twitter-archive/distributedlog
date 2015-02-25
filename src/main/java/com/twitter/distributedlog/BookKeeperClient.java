@@ -4,6 +4,7 @@ import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.net.TwitterDNSResolver;
 import com.twitter.distributedlog.net.TwitterDNSResolverForRacks;
 import com.twitter.distributedlog.net.TwitterDNSResolverForRows;
@@ -12,6 +13,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -25,6 +27,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.base.Optional;
 
 public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BookKeeperClient.class);
@@ -43,6 +47,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
     private BookKeeper bkc = null;
     private ZooKeeperClient zkc;
     private final boolean ownZK;
+    // feature provider
+    private final Optional<FeatureProvider> featureProvider;
 
     private Watcher sessionExpireWatcher = null;
     private AtomicBoolean zkSessionExpired = new AtomicBoolean(false);
@@ -69,6 +75,10 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             dnsResolver = new TwitterDNSResolverForRacks(conf.getBkDNSResolverOverrides());
         }
 
+        if (featureProvider.isPresent()) {
+            bkConfig.setFeature(RegionAwareEnsemblePlacementPolicy.REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, featureProvider.get().getFeature(CoreFeatureKeys.DISABLE_DURABILITY_ENFORCEMENT.name().toLowerCase()));
+        }
+
         this.bkc = BookKeeper.newBuilder()
             .config(bkConfig)
             .zk(zkc.get())
@@ -89,7 +99,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                      String ledgersPath,
                      ClientSocketChannelFactory channelFactory,
                      HashedWheelTimer requestTimer,
-                     StatsLogger statsLogger) {
+                     StatsLogger statsLogger,
+                     Optional<FeatureProvider> featureProvider) {
         this.conf = conf;
         this.name = name;
         this.zkServers = zkServers;
@@ -97,6 +108,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         this.channelFactory = channelFactory;
         this.requestTimer = requestTimer;
         this.statsLogger = statsLogger;
+        this.featureProvider = featureProvider;
         this.ownZK = null == zkc;
         if (null != zkc) {
             // reference the passing zookeeper client

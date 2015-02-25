@@ -12,7 +12,6 @@ import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
 import com.twitter.distributedlog.feature.DeciderFeatureProvider;
-import com.twitter.distributedlog.feature.FeatureProvider;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
@@ -23,6 +22,8 @@ import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import com.twitter.distributedlog.util.SchedulerUtils;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -232,7 +233,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 String.format("bk:%s:factory_writer_shared", namespace),
                 conf,
                 bkdlConfig.getBkZkServersForWriter(),
-                bkdlConfig.getBkLedgersPath());
+                bkdlConfig.getBkLedgersPath(),
+                Optional.of(featureProvider));
         this.writerBKC = this.sharedWriterBKCBuilder.build();
 
         // Build bookkeeper client for readers
@@ -240,10 +242,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             this.sharedReaderBKCBuilder = this.sharedWriterBKCBuilder;
         } else {
             this.sharedReaderBKCBuilder = createBKCBuilder(
-                    String.format("bk:%s:factory_reader_shared", namespace),
-                    conf,
-                    bkdlConfig.getBkZkServersForReader(),
-                    bkdlConfig.getBkLedgersPath());
+                String.format("bk:%s:factory_reader_shared", namespace),
+                conf,
+                bkdlConfig.getBkZkServersForReader(),
+                bkdlConfig.getBkLedgersPath(),
+                Optional.<FeatureProvider>absent());
         }
         this.readerBKC = this.sharedReaderBKCBuilder.build();
 
@@ -364,7 +367,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private BookKeeperClientBuilder createBKCBuilder(String bkcName,
                                                      DistributedLogConfiguration conf,
                                                      String zkServers,
-                                                     String ledgersPath) {
+                                                     String ledgersPath,
+                                                     Optional<FeatureProvider> featureProviderOptional) {
         BookKeeperClientBuilder builder = BookKeeperClientBuilder.newBuilder()
                 .name(bkcName)
                 .dlConfig(conf)
@@ -372,6 +376,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 .ledgersPath(ledgersPath)
                 .channelFactory(channelFactory)
                 .requestTimer(requestTimer)
+                .featureProvider(featureProviderOptional)
                 .statsLogger(statsLogger);
         LOG.info("Created shared client builder {} : zkServers = {}, ledgersPath = {}, numIOThreads = {}, numWorkerThreads = {}",
                  new Object[] { bkcName, zkServers, ledgersPath, conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads() });

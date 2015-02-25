@@ -5,6 +5,8 @@ import com.twitter.decider.MockDecider;
 import com.twitter.decider.NullDecider;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import org.junit.Test;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import scala.collection.Set$;
 
 import java.util.HashSet;
