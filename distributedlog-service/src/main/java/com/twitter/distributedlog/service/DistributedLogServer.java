@@ -13,6 +13,8 @@ import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientIdRequiredFilter;
 import com.twitter.finagle.thrift.ThriftServerFramedCodec;
+import com.twitter.ostrich.admin.Service;
+import com.twitter.ostrich.admin.ServiceTracker;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -34,11 +36,41 @@ import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 public class DistributedLogServer implements Runnable {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServer.class);
+
+    static class DistributedLogAdminService implements Service {
+
+        final DistributedLogServiceImpl dlServiceImpl;
+
+        DistributedLogAdminService(DistributedLogServiceImpl dlServiceImpl) {
+            this.dlServiceImpl = dlServiceImpl;
+        }
+
+        @Override
+        public void start() {
+            // no-op
+        }
+
+        @Override
+        public void shutdown() {
+            logger.info("shutting down dl service");
+            this.dlServiceImpl.triggerShutdown();
+        }
+
+        @Override
+        public void quiesce() {
+            logger.info("quiescing dl service");
+            this.dlServiceImpl.triggerShutdown();
+        }
+
+        @Override
+        public void reload() {
+            // no-op
+        }
+    }
 
     final static String USAGE = "DistributedLogServer [-u <uri>] [-c <conf>]";
     final String[] args;
@@ -154,6 +186,9 @@ public class DistributedLogServer implements Runnable {
         // dl service
         DistributedLogServiceImpl dlService =
                 new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
+
+        DistributedLogAdminService adminService = new DistributedLogAdminService(dlService);
+        ServiceTracker.register(adminService);
 
         StatsReceiver serviceStatsReceiver = statsReceiver.scope("service");
         StatsLogger serviceStatsLogger = provider.getStatsLogger("service");
