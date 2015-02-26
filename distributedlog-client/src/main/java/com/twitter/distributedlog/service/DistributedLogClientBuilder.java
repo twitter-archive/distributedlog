@@ -99,14 +99,13 @@ public class DistributedLogClientBuilder {
 
     public static DistributedLogClientBuilder newBuilder(DistributedLogClientBuilder builder) {
         DistributedLogClientBuilder newBuilder = new DistributedLogClientBuilder();
-        newBuilder
-                .name(builder._name)
-                .clientId(builder._clientId)
-                .clientBuilder(builder._clientBuilder)
-                .routingServiceBuilder(builder._routingServiceBuilder)
-                .statsReceiver(builder._statsReceiver)
-                .streamStatsReceiver(builder._streamStatsReceiver)
-                .clientConfig(builder._clientConfig);
+        newBuilder._name = builder._name;
+        newBuilder._clientId = builder._clientId;
+        newBuilder._clientBuilder = builder._clientBuilder;
+        newBuilder._routingServiceBuilder = builder._routingServiceBuilder;
+        newBuilder._statsReceiver = builder._statsReceiver;
+        newBuilder._streamStatsReceiver = builder._streamStatsReceiver;
+        newBuilder._clientConfig = ClientConfig.newConfig(builder._clientConfig);
         return newBuilder;
     }
 
@@ -121,8 +120,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder name(String name) {
-        this._name = name;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._name = name;
+        return newBuilder;
     }
 
     /**
@@ -133,8 +133,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder clientId(ClientId clientId) {
-        this._clientId = clientId;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientId = clientId;
+        return newBuilder;
     }
 
     /**
@@ -145,11 +146,12 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
-        this._routingServiceBuilder = ConsistentHashRoutingService.newBuilder()
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._routingServiceBuilder = ConsistentHashRoutingService.newBuilder()
                 .serverSet(serverSet)
                 .resolveFromName(false)
                 .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
-        return this;
+        return newBuilder;
     }
 
     /**
@@ -161,6 +163,7 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder serverSets(ServerSet local, ServerSet...remotes) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
         RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
         builders[0] = ConsistentHashRoutingService.newBuilder()
                 .serverSet(local)
@@ -172,10 +175,10 @@ public class DistributedLogClientBuilder {
                     .resolveFromName(false)
                     .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
         }
-        this._routingServiceBuilder = RegionsRoutingService.newBuilder()
+        newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .resolver(new TwitterRegionResolver())
                 .routingServiceBuilders(builders);
-        return this;
+        return newBuilder;
     }
 
     static RoutingService.Builder buildRoutingService(String finagleNameStr) {
@@ -197,8 +200,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
-        this._routingServiceBuilder = buildRoutingService(finagleNameStr);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._routingServiceBuilder = buildRoutingService(finagleNameStr);
+        return newBuilder;
     }
 
     /**
@@ -210,25 +214,28 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder finagleNameStrs(String local, String...remotes) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
         RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
         builders[0] = buildRoutingService(local);
         for (int i = 1; i < builders.length; i++) {
             builders[i] = buildRoutingService(remotes[i-1]);
         }
-        this._routingServiceBuilder = RegionsRoutingService.newBuilder()
+        newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .routingServiceBuilders(builders)
                 .resolver(new TwitterRegionResolver());
-        return this;
+        return newBuilder;
     }
 
     public DistributedLogClientBuilder host(SocketAddress address) {
-        this._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
+        return newBuilder;
     }
 
     private DistributedLogClientBuilder routingServiceBuilder(RoutingService.Builder builder) {
-        this._routingServiceBuilder = builder;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._routingServiceBuilder = builder;
+        return newBuilder;
     }
 
     /**
@@ -240,8 +247,9 @@ public class DistributedLogClientBuilder {
      */
     @VisibleForTesting
     public DistributedLogClientBuilder routingService(RoutingService routingService) {
-        this._routingServiceBuilder = new RoutingServiceProvider(routingService);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._routingServiceBuilder = new RoutingServiceProvider(routingService);
+        return newBuilder;
     }
 
     /**
@@ -252,8 +260,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder statsReceiver(StatsReceiver statsReceiver) {
-        this._statsReceiver = statsReceiver;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._statsReceiver = statsReceiver;
+        return newBuilder;
     }
 
     /**
@@ -264,13 +273,15 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder streamStatsReceiver(StatsReceiver streamStatsReceiver) {
-        this._streamStatsReceiver = streamStatsReceiver;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._streamStatsReceiver = streamStatsReceiver;
+        return newBuilder;
     }
 
     public DistributedLogClientBuilder clientBuilder(ClientBuilder builder) {
-        this._clientBuilder = builder;
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientBuilder = builder;
+        return newBuilder;
     }
 
     /**
@@ -281,8 +292,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder redirectBackoffStartMs(int ms) {
-        this._clientConfig.setRedirectBackoffStartMs(ms);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setRedirectBackoffStartMs(ms);
+        return newBuilder;
     }
 
     /**
@@ -293,8 +305,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder redirectBackoffMaxMs(int ms) {
-        this._clientConfig.setRedirectBackoffMaxMs(ms);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setRedirectBackoffMaxMs(ms);
+        return newBuilder;
     }
 
     /**
@@ -306,8 +319,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder maxRedirects(int redirects) {
-        this._clientConfig.setMaxRedirects(redirects);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setMaxRedirects(redirects);
+        return newBuilder;
     }
 
     /**
@@ -318,8 +332,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder requestTimeoutMs(int timeoutMs) {
-        this._clientConfig.setRequestTimeoutMs(timeoutMs);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setRequestTimeoutMs(timeoutMs);
+        return newBuilder;
     }
 
     /**
@@ -330,8 +345,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder thriftmux(boolean enabled) {
-        this._clientConfig.setThriftMux(enabled);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setThriftMux(enabled);
+        return newBuilder;
     }
 
     /**
@@ -342,8 +358,9 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder streamFailfast(boolean enabled) {
-        this._clientConfig.setStreamFailfast(enabled);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setStreamFailfast(enabled);
+        return newBuilder;
     }
 
     /**
@@ -354,8 +371,9 @@ public class DistributedLogClientBuilder {
      * @return client builder
      */
     public DistributedLogClientBuilder streamNameRegex(String nameRegex) {
-        this._clientConfig.setStreamNameRegex(nameRegex);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setStreamNameRegex(nameRegex);
+        return newBuilder;
     }
 
     /**
@@ -367,13 +385,15 @@ public class DistributedLogClientBuilder {
      * @return client builder.
      */
     public DistributedLogClientBuilder handshakeWithClientInfo(boolean enabled) {
-        this._clientConfig.setHandshakeWithClientInfo(enabled);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setHandshakeWithClientInfo(enabled);
+        return newBuilder;
     }
 
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
-        this._clientConfig = ClientConfig.newConfig(clientConfig);
-        return this;
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig = ClientConfig.newConfig(clientConfig);
+        return newBuilder;
     }
 
     public DistributedLogClient build() {
@@ -488,7 +508,9 @@ public class DistributedLogClientBuilder {
                      .setRedirectBackoffStartMs(config.getRedirectBackoffStartMs())
                      .setRedirectBackoffMaxMs(config.getRedirectBackoffMaxMs())
                      .setThriftMux(config.getThriftMux())
-                     .setStreamFailfast(config.getStreamFailfast());
+                     .setStreamFailfast(config.getStreamFailfast())
+                     .setStreamNameRegex(config.getStreamNameRegex())
+                     .setHandshakeWithClientInfo(config.getHandshakeWithClientInfo());
             return newConfig;
         }
     }
