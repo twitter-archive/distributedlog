@@ -291,7 +291,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         DistributedLock lock = new DistributedLock(
                 zkc, lockPath, clientId, lockStateExecutor, null,
-                1*1000 /* op timeout */, NullStatsLogger.INSTANCE);
+                1*1000 /* op timeout */, NullStatsLogger.INSTANCE,
+                new DistributedReentrantLock.DistributedLockContext());
 
         lock.tryLock(0, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock.getLockState());
@@ -322,7 +323,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         DistributedLock lock = new DistributedLock(
                 zkc, lockPath, clientId, lockStateExecutor, null,
-                1 /* op timeout */, NullStatsLogger.INSTANCE);
+                1 /* op timeout */, NullStatsLogger.INSTANCE,
+                new DistributedReentrantLock.DistributedLockContext());
 
         try {
             FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_LockTryAcquire,
@@ -455,7 +457,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
         DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
-        
+
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // verification after lock0 lock
         assertEquals(State.CLAIMED, lock0.getLockState());
@@ -492,6 +494,44 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         assertEquals(lock2.getLockId(), Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(0))));
 
         lock2.unlock();
+    }
+
+    @Test(timeout = 60000)
+    public void testLockWhenPreviousLockZnodeStillExists() throws Exception {
+        String lockPath = "/test-lock-when-previous-lock-znode-still-exists-" +
+                System.currentTimeMillis();
+        String clientId = "client-id";
+
+        ZooKeeper zk = zkc.get();
+
+        createLockPath(zk, lockPath);
+
+        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId, lockStateExecutor, null);
+        // lock0 lock
+        lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+
+        // simulate lock0 expires but znode still exists
+        final DistributedReentrantLock.DistributedLockContext context1 =
+                new DistributedReentrantLock.DistributedLockContext();
+        context1.addLockId(lock0.getLockId());
+
+        final DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
+                60000, NullStatsLogger.INSTANCE, context1);
+        lock1.tryLock(0L, TimeUnit.MILLISECONDS);
+        assertEquals(State.CLAIMED, lock1.getLockState());
+        lock1.unlock();
+
+        final DistributedReentrantLock.DistributedLockContext context2 =
+                new DistributedReentrantLock.DistributedLockContext();
+        context2.addLockId(lock0.getLockId());
+
+        final DistributedLock lock2 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
+                60000, NullStatsLogger.INSTANCE, context2);
+        lock2.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+        assertEquals(State.CLAIMED, lock2.getLockState());
+        lock2.unlock();
+
+        lock0.unlock();
     }
 
     @Test(timeout = 60000)
