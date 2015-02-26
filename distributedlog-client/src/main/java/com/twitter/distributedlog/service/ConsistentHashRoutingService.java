@@ -186,6 +186,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 return;
             }
             Set<SocketAddress> removedList = new HashSet<SocketAddress>();
+            boolean joined;
             // add the shard back
             synchronized (shardId2Address) {
                 SocketAddress curHost = shardId2Address.get(shardId);
@@ -193,12 +194,20 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                     // there is already new shard joint, so drop the host.
                     logger.info("Blackout Shard {} ({}) was already replaced by {} permanently.",
                             new Object[] { shardId, address, curHost });
-                    return;
+                    joined = false;
+                } else {
+                    join(shardId, address, removedList);
+                    joined = true;
                 }
-                join(shardId, address, removedList);
             }
-            for (RoutingListener listener : listeners) {
-                listener.onServerJoin(address);
+            if (joined) {
+                for (RoutingListener listener : listeners) {
+                    listener.onServerJoin(address);
+                }
+            } else {
+                for (RoutingListener listener : listeners) {
+                    listener.onServerLeft(address);
+                }
             }
         }
     }
