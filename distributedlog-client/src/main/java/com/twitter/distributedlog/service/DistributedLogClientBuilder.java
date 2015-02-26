@@ -30,7 +30,6 @@ import com.twitter.finagle.ServiceTimeoutException;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.Counter;
-import com.twitter.finagle.stats.Gauge;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;

@@ -372,7 +372,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             } catch (Exception ioe) {
                                 WriteResponse writeResponse = new WriteResponse(exceptionToResponseHeader(ioe));
                                 writeResponses.add(writeResponse);
-                                failureRecordCounter.inc();
+                                if (StatusCode.FOUND == writeResponse.getHeader().getCode()) {
+                                    redirectRecordCounter.inc();
+                                } else {
+                                    failureRecordCounter.inc();
+                                }
                             }
                         }
 
@@ -408,7 +412,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         void fail(ResponseHeader header) {
-            failureRecordCounter.add(buffers.size());
+            if (StatusCode.FOUND == header.getCode()) {
+                redirectRecordCounter.add(buffers.size());
+            } else {
+                failureRecordCounter.add(buffers.size());
+            }
             result.setValue(bulkWriteResponse(header));
         }
     }
@@ -643,7 +651,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         @Override
         void fail(ResponseHeader header) {
-            failureRecordCounter.inc();
+            if (StatusCode.FOUND == header.getCode()) {
+                redirectRecordCounter.inc();
+            } else {
+                failureRecordCounter.inc();
+            }
             super.fail(header);
         }
     }
@@ -1285,6 +1297,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final Counter receivedRecordCounter;
     private final Counter successRecordCounter;
     private final Counter failureRecordCounter;
+    private final Counter redirectRecordCounter;
     // exception stats
     private final StatsLogger exceptionStatLogger;
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
@@ -1414,6 +1427,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
         this.successRecordCounter = recordsStatsLogger.getCounter("success");
         this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
+        this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
