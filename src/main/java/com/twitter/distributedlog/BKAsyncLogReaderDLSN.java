@@ -6,6 +6,7 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.util.Awaitable;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -45,7 +46,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean simulateErrors = false;
     final private Stopwatch scheduleDelayStopwatch;
     final private Stopwatch readNextDelayStopwatch;
-    private final DLSN startDLSN;
+    private DLSN startDLSN;
     private boolean readAheadStarted = false;
     private int lastPosition = 0;
     private final boolean positionGapDetectionEnabled;
@@ -174,12 +175,22 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         return null;
     }
 
+    protected synchronized void setStartDLSN(DLSN fromDLSN) throws UnexpectedException {
+        if (readAheadStarted) {
+            throw new UnexpectedException("Could't reset from dlsn after reader already starts reading.");
+        }
+        startDLSN = fromDLSN;
+    }
+
+    @VisibleForTesting
+    public synchronized DLSN getStartDLSN() {
+        return startDLSN;
+    }
 
     public Future<Void> lockStream() {
         this.lockStream = true;
         return bkLedgerManager.lockStream();
     }
-
 
     private boolean checkClosedOrInError(String operation) {
         if (null == lastException.get()) {
@@ -221,8 +232,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     }
 
     /**
-     * @param timeout - timeout value
-     * @param timeUnit - units associated with the timeout value
      * @return A promise that when satisfied will contain the Log Record with its DLSN;
      *         The Future may timeout if there is no record to return within the specified timeout
      */

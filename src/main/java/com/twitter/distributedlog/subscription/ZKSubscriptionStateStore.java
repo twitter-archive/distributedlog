@@ -3,6 +3,8 @@ package com.twitter.distributedlog.subscription;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scala.runtime.BoxedUnit;
 
 import com.google.common.base.Charsets;
@@ -21,6 +23,9 @@ import com.twitter.util.Promise;
 
 
 public class ZKSubscriptionStateStore implements SubscriptionStateStore {
+
+    static final Logger logger = LoggerFactory.getLogger(ZKSubscriptionStateStore.class);
+
     private final ZooKeeperClient zooKeeperClient;
     private final String zkPath;
     private AtomicReference<DLSN> lastCommittedPosition = new AtomicReference<DLSN>(null);
@@ -44,16 +49,24 @@ public class ZKSubscriptionStateStore implements SubscriptionStateStore {
             result.setValue(lastCommittedPosition.get());
         } else {
             try {
+                logger.debug("Reading last commit position from path {}", zkPath);
                 zooKeeperClient.get().getData(zkPath, false, new AsyncCallback.DataCallback() {
                     @Override
                     public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                        logger.debug("Read last commit position from path {}: rc = {}", zkPath, rc);
                         if (KeeperException.Code.NONODE.intValue() == rc) {
                             result.setValue(DLSN.NonInclusiveLowerBound);
                         } else if (KeeperException.Code.OK.intValue() != rc) {
                             result.setException(KeeperException.create(KeeperException.Code.get(rc), path));
                         } else {
-                            DLSN dlsn = DLSN.deserialize(new String(data, Charsets.UTF_8));
-                            result.setValue(dlsn);
+                            try {
+                                DLSN dlsn = DLSN.deserialize(new String(data, Charsets.UTF_8));
+                                result.setValue(dlsn);
+                            } catch (Exception t) {
+                                logger.warn("Invalid last commit position found from path {}", zkPath, t);
+                                // invalid dlsn recorded in subscription state store
+                                result.setValue(DLSN.NonInclusiveLowerBound);
+                            }
                         }
                     }
                 }, null);

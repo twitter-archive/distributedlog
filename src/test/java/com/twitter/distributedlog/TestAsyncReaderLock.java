@@ -1,43 +1,27 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.LockCancelledException;
-import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
-import com.twitter.distributedlog.exceptions.ReadCancelledException;
-import com.twitter.distributedlog.exceptions.WriteCancelledException;
-import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
-
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.exceptions.LockCancelledException;
+import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
+import com.twitter.util.Await;
+import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import com.google.common.base.Stopwatch;
-
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
-import com.twitter.util.ExceptionalFunction;
-import com.twitter.util.Function0;
-
-import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
@@ -160,7 +144,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             if (futureReader.isDefined()) {
                 done++;
             }
-        } 
+        }
         return done;
     }
 
@@ -465,5 +449,72 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         dlm1.close();
         dlm2.close();
         dlm3.close();
+    }
+
+    @Test
+    public void testAsyncReadWithSubscriberId() throws Exception {
+        String name = "distrlog-asyncread-with-sbuscriber-id";
+        String subscriberId = "asyncreader";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        DLSN readDLSN = DLSN.InitialDLSN;
+
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+            for (long j = 1; j <= 10; j++) {
+                DLSN dlsn = Await.result(writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++)));
+                if (i == 1 && j == 1L) {
+                    readDLSN = dlsn;
+                }
+            }
+            writer.closeAndComplete();
+        }
+
+        BKAsyncLogReaderDLSN reader0 = (BKAsyncLogReaderDLSN) Await.result(dlm.getAsyncLogReaderWithLock(subscriberId));
+        assertEquals(DLSN.NonInclusiveLowerBound, reader0.getStartDLSN());
+        long numTxns = 0;
+        LogRecordWithDLSN record = Await.result(reader0.readNext());
+        while (null != record) {
+            DLMTestUtil.verifyEmptyLogRecord(record);
+            ++numTxns;
+            assertEquals(numTxns, record.getTransactionId());
+
+            if (txid - 1 == numTxns) {
+                break;
+            }
+            record = Await.result(reader0.readNext());
+        }
+        assertEquals(txid - 1, numTxns);
+        reader0.close();
+
+        SubscriptionStateStore stateStore = dlm.getSubscriptionStateStore(subscriberId);
+        Await.result(stateStore.advanceCommitPosition(readDLSN));
+        BKAsyncLogReaderDLSN reader1 = (BKAsyncLogReaderDLSN) Await.result(dlm.getAsyncLogReaderWithLock(subscriberId));
+        assertEquals(readDLSN, reader1.getStartDLSN());
+        numTxns = 0;
+        long startTxID =  10L;
+        record = Await.result(reader1.readNext());
+        while (null != record) {
+            DLMTestUtil.verifyEmptyLogRecord(record);
+            ++numTxns;
+            ++startTxID;
+            assertEquals(startTxID, record.getTransactionId());
+
+            if (startTxID == txid - 1) {
+                break;
+            }
+            record = Await.result(reader1.readNext());
+        }
+        assertEquals(txid - 1, startTxID);
+        assertEquals(20, numTxns);
+        reader1.close();
+
+        dlm.close();
     }
 }

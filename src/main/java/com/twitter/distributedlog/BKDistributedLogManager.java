@@ -9,6 +9,7 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
@@ -18,6 +19,7 @@ import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
+import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Function;
@@ -557,31 +559,56 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN) {
         Optional<String> subscriberId = Optional.absent();
-        return getAsyncLogReaderWithLock(fromDLSN, subscriberId);
+        return getAsyncLogReaderWithLock(Optional.of(fromDLSN), subscriberId);
     }
 
     @Override
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN, final String subscriberId) {
+        return getAsyncLogReaderWithLock(Optional.of(fromDLSN), Optional.of(subscriberId));
+    }
+
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(String subscriberId) {
+        Optional<DLSN> fromDLSN = Optional.absent();
         return getAsyncLogReaderWithLock(fromDLSN, Optional.of(subscriberId));
     }
 
-    protected Future<AsyncLogReader> getAsyncLogReaderWithLock(final DLSN fromDLSN,
+    protected Future<AsyncLogReader> getAsyncLogReaderWithLock(final Optional<DLSN> fromDLSN,
                                                                final Optional<String> subscriberId) {
+        if (!fromDLSN.isPresent() && !subscriberId.isPresent()) {
+            return Future.exception(new UnexpectedException("Neither from dlsn nor subscriber id is provided."));
+        }
         final BKAsyncLogReaderDLSN reader = new BKAsyncLogReaderDLSN(
             BKDistributedLogManager.this, executorService,
             getLockStateExecutor(true), conf.getUnpartitionedStreamName(),
-            fromDLSN, subscriberId, statsLogger);
+            fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN, subscriberId, statsLogger);
         pendingReaders.add(reader);
-        return reader.lockStream().map(new Function<Void, AsyncLogReader>() {
+        return reader.lockStream().flatMap(new Function<Void, Future<AsyncLogReader>>() {
             @Override
-            public AsyncLogReader apply(Void complete) {
-                return reader;
+            public Future<AsyncLogReader> apply(Void complete) {
+                if (fromDLSN.isPresent()) {
+                    return Future.value((AsyncLogReader) reader);
+                }
+                LOG.info("Reader {} @ {} reading last commit position from subscription store after acquired lock.",
+                        subscriberId.get(), name);
+                // we acquired lock
+                final SubscriptionStateStore stateStore = getSubscriptionStateStore(subscriberId.get());
+                return stateStore.getLastCommitPosition().map(new ExceptionalFunction<DLSN, AsyncLogReader>() {
+                    @Override
+                    public AsyncLogReader applyE(DLSN lastCommitPosition) throws UnexpectedException {
+                        LOG.info("Reader {} @ {} positioned to last commit position {}.",
+                                new Object[] { subscriberId.get(), name, lastCommitPosition });
+                        reader.setStartDLSN(lastCommitPosition);
+                        return reader;
+                    }
+                });
             }
         }).addEventListener(new FutureEventListener<AsyncLogReader>() {
             @Override
             public void onSuccess(AsyncLogReader r) {
                 pendingReaders.remove(reader);
             }
+
             @Override
             public void onFailure(Throwable cause) {
                 pendingReaders.remove(reader);
