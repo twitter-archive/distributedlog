@@ -33,11 +33,11 @@ public class TestTruncate extends TestDistributedLogBase {
     @Test
     public void testPurgeLogs() throws Exception {
         String name = "distrlog-purge-logs";
-        URI uri = DLMTestUtil.createDLMURI("/" + name);
+        URI uri = createDLMURI("/" + name);
         long txid = 1;
         for (long i = 1; i <= 10; i++) {
             LOG.info("Writing log segment {}.", i);
-            DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+            DistributedLogManager dlm = createNewDLM(conf, name);
             AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
             for (int j = 1; j <= 10; j++) {
                 long curTxId = txid++;
@@ -47,7 +47,7 @@ public class TestTruncate extends TestDistributedLogBase {
             dlm.close();
         }
 
-        DistributedLogManager distributedLogManager = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager distributedLogManager = createNewDLM(conf, name);
 
         List<LogSegmentLedgerMetadata> segments = distributedLogManager.getLogSegments();
         LOG.info("Segments before modifying completion time : {}", segments);
@@ -71,7 +71,7 @@ public class TestTruncate extends TestDistributedLogBase {
         confLocal.setRetentionPeriodHours(1);
         confLocal.setSanityCheckDeletes(false);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         for (int j = 1; j <= 10; j++) {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
@@ -149,7 +149,7 @@ public class TestTruncate extends TestDistributedLogBase {
         pair.getLeft().close();
 
         // Try force truncation
-        BKDistributedLogManager dlm = (BKDistributedLogManager)DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager)createNewDLM(confLocal, name);
         BKLogPartitionWriteHandler handler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         handler.purgeLogsOlderThan(Integer.MAX_VALUE);
 
@@ -160,7 +160,7 @@ public class TestTruncate extends TestDistributedLogBase {
         long txid = 1;
         for (long i = 1; i <= 4; i++) {
             LOG.info("Writing Log Segment {}.", i);
-            DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+            DistributedLogManager dlm = createNewDLM(confLocal, name);
             AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
             for (int j = 1; j <= 10; j++) {
                 long curTxId = txid++;
@@ -171,7 +171,7 @@ public class TestTruncate extends TestDistributedLogBase {
             dlm.close();
         }
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         for (int j = 1; j <= 10; j++) {
             long curTxId = txid++;
@@ -181,7 +181,7 @@ public class TestTruncate extends TestDistributedLogBase {
         return new ImmutablePair<DistributedLogManager, AsyncLogWriter>(dlm, writer);
     }
     private void verifyEntries(String name, long readFromTxId, long startTxId, int numEntries) throws Exception {
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         LogReader reader = dlm.getInputStream(readFromTxId);
 
         long txid = startTxId;

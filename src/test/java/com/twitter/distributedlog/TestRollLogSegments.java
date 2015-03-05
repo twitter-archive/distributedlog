@@ -45,7 +45,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         int numEntries = 100;
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch latch = new CountDownLatch(numEntries);
@@ -106,7 +106,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         confLocal.setLogSegmentRollingIntervalMinutes(0);
         confLocal.setMaxLogSegmentBytes(1);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         long txId = 1L;
@@ -192,7 +192,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         int numLogSegments = 10;
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch latch = new CountDownLatch(numLogSegments);
@@ -281,7 +281,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         confLocal.setAckQuorumSize(1);
         confLocal.setReadLACLongPollTimeout(99999999);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
 
         // 1) writer added 5 entries.
@@ -292,7 +292,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             writer.flushAndSync();
         }
 
-        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) createNewDLM(confLocal, name);
         final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);
 
         // 2) reader should be able to read 5 entries.

@@ -15,7 +15,7 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testCreateLogSegmentAfterLoseLock() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/LogSegmentCreation");
+        URI uri = createDLMURI("/LogSegmentCreation");
         String name = "distrlog-createlogsegment-afterloselock";
         DistributedLogConfiguration conf = new DistributedLogConfiguration()
                 .setLockTimeout(99999)

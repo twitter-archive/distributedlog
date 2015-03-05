@@ -51,8 +51,9 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
     private ZooKeeperClientBuilder clientBuilder() throws Exception {
         return ZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
+                .zkServers(zkServers)
                 .retryPolicy(new BoundExponentialBackoffRetryPolicy(100, 200, 2));
     }
 

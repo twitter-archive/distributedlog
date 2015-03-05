@@ -54,13 +54,13 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(createDLMURI("/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
                 .zkAclId(null)
                 .build();
         zkc0 = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc0")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(createDLMURI("/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
                 .zkAclId(null)
                 .build();

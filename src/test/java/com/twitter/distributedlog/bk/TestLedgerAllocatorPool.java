@@ -27,7 +27,6 @@ import static org.junit.Assert.*;
 
 public class TestLedgerAllocatorPool extends TestDistributedLogBase {
 
-    private static final String zkServers = "127.0.0.1:7000";
     private static final String ledgersPath = "/ledgers";
 
     private ZooKeeperClient zkc;

@@ -34,7 +34,7 @@ public class TestZKAccessControl extends ZooKeeperClusterTestCase {
     }
 
     private URI createURI(String path) {
-        return URI.create("distributedlog://127.0.0.1:7000" + path);
+        return URI.create("distributedlog://127.0.0.1:" + zkPort + path);
     }
 
     @Test(timeout = 60000)

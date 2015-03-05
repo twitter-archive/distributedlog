@@ -31,7 +31,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
     @Test
     public void testSimpleRecovery() throws Exception {
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-simplerecovery");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-simplerecovery");
         BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
@@ -81,7 +81,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             conf.setWriteQuorumSize(ensembleSize);
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
-            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-allbookiefailure");
+            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-allbookiefailure");
             BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
 
             for (long i = 1; i <= 3; i++) {
@@ -158,7 +158,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             conf.setWriteQuorumSize(ensembleSize);
             conf.setAckQuorumSize(ensembleSize);
             long txid = 1;
-            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-onebookiefailure");
+            DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-onebookiefailure");
             BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
             for (long i = 1; i <= 3; i++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -197,7 +197,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
     @Test
     public void testRecoveryEmptyLedger() throws Exception {
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
         BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
@@ -228,7 +228,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
     @Test
     public void testRecoveryAPI() throws Exception {
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, "distrlog-recovery-api");
+        DistributedLogManager dlm = createNewDLM(conf, "distrlog-recovery-api");
         BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         long txid = 1;
         for (long i = 1; i <= 100; i++) {

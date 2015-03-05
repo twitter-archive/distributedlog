@@ -44,7 +44,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
     public TestName testName = new TestName();
 
     private URI createURI() throws Exception {
-        return DLMTestUtil.createDLMURI("/" + testName.getMethodName());
+        return createDLMURI("/" + testName.getMethodName());
     }
 
     /**

@@ -98,7 +98,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         long txid = 1L;
         for (int i = 0; i < numSegments; i++) {
             logger.info("Creating segment {}.", i);
-            BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(testConf, name);
+            BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(testConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
             BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
             logger.info("Adding txn id {} to log segment {}.", txid, i);
@@ -108,13 +108,13 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
             logger.info("Created segment {}.", i);
         }
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(testConf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(testConf, name);
         BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
         Await.result(out.write(DLMTestUtil.getLogRecordInstance(txid)));
         out.closeAndComplete();
         dlm.close();
 
-        assertEquals(numSegments + 1, DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(testConf, name), 0L));
+        assertEquals(numSegments + 1, DLMTestUtil.getNumberofLogRecords(createNewDLM(testConf, name), 0L));
     }
 
     private void backwardTest(int writeVersion, int readVersion, int numSegments, int numExpectedSegments,
@@ -129,7 +129,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         long txid = 1L;
         for (int i = 0; i < numSegments; i++) {
             logger.info("Creating log segment {}.", i);
-            BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(writeConf, name);
+            BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(writeConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
             BKUnPartitionedAsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
             long txnidToWrite = txid++;
@@ -145,13 +145,13 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         readConf.setRecoverLogSegmentsInBackground(false);
         readConf.setLogSegmentNameVersion(readVersion);
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(readConf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(readConf, name);
         BKUnPartitionedAsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
         Await.result(out.write(DLMTestUtil.getLogRecordInstance(txid)));
         out.closeAndComplete();
         dlm.close();
 
-        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(readConf, name);
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) createNewDLM(readConf, name);
         BKLogPartitionReadHandler readHandler = readDLM.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentLedgerMetadata> segments = readHandler.getFullLedgerList(true, false);
         assertEquals(numExpectedSegments, segments.size());
@@ -167,7 +167,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         assertEquals(numExpectedCompletedSegments, numCompleted);
         assertEquals(numExpectedInprocessSegments, numInprogress);
 
-        assertEquals(numSegments + 1, DLMTestUtil.getNumberofLogRecords(DLMTestUtil.createNewDLM(readConf, name), 0L));
+        assertEquals(numSegments + 1, DLMTestUtil.getNumberofLogRecords(createNewDLM(readConf, name), 0L));
 
         readHandler.close();
         readDLM.close();
@@ -223,7 +223,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         long txid = 1L;
         for (int i = 0; i < numSegments; i++) {
             logger.info("Creating log segment {}.", i);
-            BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+            BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
             BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
             long txnidToWrite = txid++;
@@ -234,7 +234,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
             logger.info("Created log segment {}.", i);
         }
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
         BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         for (long i = 1L; i <= numSegments; i++) {
             ResumableBKPerStreamLogReader perStreamLogReader = readHandler.getInputStream(i, false, false);
@@ -258,7 +258,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         long txid = 1L;
         for (int i = 0; i < numSegments; i++) {
             logger.info("Creating log segment {}.", i);
-            BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+            BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
             BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
             long txnidToWrite = txid++;
@@ -269,7 +269,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
             logger.info("Created log segment {}.", i);
         }
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
         BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         for (long i = 1L; i <= numSegments; i++) {
             DLSN dlsn = new DLSN(i, 0, 0);
@@ -307,7 +307,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
         final CountDownLatch readDone = new CountDownLatch(1);
 
         logger.info("Creating first log segment.");
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
         dlm.setMetadataExecutor(new NopExecutorService());
         BKUnPartitionedAsyncLogWriter out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
         for (int j = 0; j < numEntriesPerSegment; j++) {
@@ -321,7 +321,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
 
         Thread readThread = new Thread() {
 
-            final DistributedLogManager dlm = DLMTestUtil.createNewDLM(localConf, name);
+            final DistributedLogManager dlm = createNewDLM(localConf, name);
             final LogReader reader = byTxID ? dlm.getInputStream(fromTxID) : dlm.getInputStream(fromDLSN);
 
             @Override
@@ -378,7 +378,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
 
         for (int i = 1; i <= numSegments - 1; i++) {
             logger.info("Creating log segment {}.", i);
-            dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(localConf, name);
+            dlm = (BKDistributedLogManager) createNewDLM(localConf, name);
             dlm.setMetadataExecutor(new NopExecutorService());
             out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
             for (int j = 0; j < numEntriesPerSegment; j++) {
@@ -404,7 +404,7 @@ public class TestBackgroundRecovery extends TestDistributedLogBase {
 
         logger.info("Recovering all inprogress log segments for {}.", name);
 
-        dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(recoverConf, name);
+        dlm = (BKDistributedLogManager) createNewDLM(recoverConf, name);
         out = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
         out.closeAndComplete();
         dlm.close();

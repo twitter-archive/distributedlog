@@ -46,7 +46,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanFirstRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1 /* txid */);
 
         DLSN dlsn = new DLSN(1,0,0);
@@ -59,7 +59,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanNotFirstRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1 /* txid */);
 
         DLSN dlsn = new DLSN(1,1,0);
@@ -72,7 +72,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanValidButNonExistentRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1 /* txid */);
 
         DLSN dlsn = new DLSN(1,0,1);
@@ -85,7 +85,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanForRecordAfterLedger() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5 /* user recs */ , 1 /* txid */);
 
         DLSN dlsn = new DLSN(2,0,0);
@@ -98,7 +98,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanForRecordBeforeLedger() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         long txid = 1;
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5 /* user recs */ , txid);
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5 /* user recs */ , txid);
@@ -114,7 +114,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testForwardScanControlRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 5 /* control recs */, 5, 1 /* txid */);
 
         DLSN dlsn = new DLSN(1,3,0);
@@ -127,7 +127,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testGetLastRecordUserRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 5 /* control recs */, 5, 1 /* txid */);
 
         Future<LogRecordWithDLSN> futureLogrec = getLastUserRecord(bkdlm, 0);
@@ -139,7 +139,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testGetLastRecordControlRecord() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
 
         AsyncLogWriter out = bkdlm.startAsyncLogSegmentNonPartitioned();
         int txid = 1;
@@ -159,7 +159,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testGetLastRecordAllControlRecords() throws Exception {
         String streamName = runtime.getMethodName();
-        BKDistributedLogManager bkdlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, streamName);
+        BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 5 /* control recs */, 0, 1 /* txid */);
 
         Future<LogRecordWithDLSN> futureLogrec = getLastUserRecord(bkdlm, 0);

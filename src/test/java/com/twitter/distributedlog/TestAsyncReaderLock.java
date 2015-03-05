@@ -44,7 +44,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockIfLockPathDoesntExist() throws Exception {
         final String name = runtime.getMethodName();
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
@@ -70,7 +70,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockCloseInAcquireCallback() throws Exception {
         final String name = runtime.getMethodName();
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
@@ -94,7 +94,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockBackgroundReaderLockAcquire() throws Exception {
         final String name = runtime.getMethodName();
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
@@ -111,7 +111,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
                 Future<AsyncLogReader> futureReader2 = null;
                 DistributedLogManager dlm2 = null;
                 try {
-                    dlm2 = DLMTestUtil.createNewDLM(conf, name);
+                    dlm2 = createNewDLM(conf, name);
                     futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
                     AsyncLogReader reader2 = Await.result(futureReader2);
                     acquired.set(true);
@@ -151,7 +151,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockManyLocks() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
@@ -165,7 +165,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         }
         final DistributedLogManager[] dlms = new DistributedLogManager[count];
         for (int i = 0; i < count; i++) {
-            dlms[i] = DLMTestUtil.createNewDLM(conf, name);
+            dlms[i] = createNewDLM(conf, name);
             readers.set(i, dlms[i].getAsyncLogReaderWithLock(DLSN.InitialDLSN));
             readers.get(i).addEventListener(new FutureEventListener<AsyncLogReader>() {
                 @Override
@@ -195,17 +195,17 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockDlmClosed() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm0 = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm1 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         Await.result(futureReader1);
 
-        BKDistributedLogManager dlm2 = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm2 = (BKDistributedLogManager) createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
         dlm2.close();
@@ -223,13 +223,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockSessionExpires() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm0 = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm1 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);
         ZooKeeperClientUtils.expireSession(((BKDistributedLogManager)dlm1).getWriterZKC(), zkServers, 1000);
@@ -255,17 +255,17 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockFutureCancelledWhileWaiting() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm0 = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm1 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);
 
-        DistributedLogManager dlm2 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm2 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         try {
             futureReader2.cancel();
@@ -287,13 +287,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockFutureCancelledWhileLocked() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm0 = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm1 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
         // Must not throw or cancel or do anything bad, future already completed.
@@ -309,13 +309,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockSharedDlmDoesNotConflict() throws Exception {
         String name = runtime.getMethodName();
-        DistributedLogManager dlm0 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm0 = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
 
-        DistributedLogManager dlm1 = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm1 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         Future<AsyncLogReader> futureReader2 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
@@ -371,7 +371,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testReaderLockMultiReadersScenario() throws Exception {
         final String name = runtime.getMethodName();
-        URI uri = DLMTestUtil.createDLMURI("/" + name);
+        URI uri = createDLMURI("/" + name);
 
         // Force immediate flush to make dlsn counting easy.
         DistributedLogConfiguration localConf = new DistributedLogConfiguration();

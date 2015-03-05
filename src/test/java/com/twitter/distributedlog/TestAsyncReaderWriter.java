@@ -53,7 +53,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
@@ -70,7 +70,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         }
         dlm.close();
 
-        DistributedLogManager readDlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager readDlm = createNewDLM(confLocal, name);
         LogReader reader = readDlm.getInputStream(1);
 
         long numTrans = 0;
@@ -117,7 +117,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         final int goodRecs = 10;
@@ -153,7 +153,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         final int batchSize = 100;
@@ -190,7 +190,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setMaxLogSegmentBytes(1024);
         confLocal.setLogSegmentRollingIntervalMinutes(0);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // Write one record larger than max seg size. Ledger doesn't roll until next write.
@@ -231,7 +231,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setMaxLogSegmentBytes(1024);
         confLocal.setLogSegmentRollingIntervalMinutes(0);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // Write one record larger than max seg size. Ledger doesn't roll until next write.
@@ -262,7 +262,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         int batchSize = 100;
@@ -300,7 +300,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // First entry.
@@ -325,7 +325,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // First entry.
@@ -411,7 +411,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final CountDownLatch syncLatch = new CountDownLatch(30);
         final AtomicReference<DLSN> maxDLSN = new AtomicReference<DLSN>(DLSN.InvalidDLSN);
@@ -626,7 +626,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -680,7 +680,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -734,7 +734,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -856,7 +856,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setDLLedgerMetadataLayoutVersion(logSegmentVersion);
         confLocal.setImmediateFlushEnabled(immediateFlush);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
@@ -903,7 +903,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
         final Thread currentThread = Thread.currentThread();
@@ -952,7 +952,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, DLMTestUtil.createDLMURI("/" + name));
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, createDLMURI("/" + name));
         DistributedLogManager[] dlms = new DistributedLogManager[count];
         final AtomicInteger[] readCounts = new AtomicInteger[count];
         final AtomicInteger[] executionCounts = new AtomicInteger[count];
@@ -1019,7 +1019,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(200);
         final Thread currentThread = Thread.currentThread();
@@ -1088,7 +1088,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
         confLocal.setReadLACOption(lacOption);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         final CountDownLatch syncLatch = new CountDownLatch(30);
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
@@ -1156,7 +1156,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         final BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch startLatch = new CountDownLatch(1);
@@ -1246,7 +1246,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     public void testCancelReadRequestOnReaderClosed() throws Exception {
         final String name = "distrlog-cancel-read-requests-on-reader-closed";
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlm = createNewDLM(conf, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
@@ -1303,7 +1303,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setMinDelayBetweenImmediateFlushMs(100);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final CountDownLatch syncLatch = new CountDownLatch(3000);
         int txid = 1;
@@ -1356,7 +1356,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(stream);
         confLocal.setOutstandingWriteLimitDarkmode(false);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
+        DistributedLogManager dlm = createNewDLM(confLocal, runtime.getMethodName());
         if (global > -1) {
             ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(false, global, new NullStatsLogger(), true));
         }
@@ -1407,7 +1407,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(0);
         confLocal.setOutstandingWriteLimitDarkmode(true);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, runtime.getMethodName());
+        DistributedLogManager dlm = createNewDLM(confLocal, runtime.getMethodName());
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
         for (int i = 0; i < 1000; i++) {
@@ -1428,7 +1428,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         long txId = 1L;
@@ -1471,7 +1471,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         long txId = 1L;
@@ -1509,7 +1509,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
         confLocal.setReaderIdleErrorThresholdMillis(idleReaderErrorThreshold);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final int segmentSize = 3;
         final int numSegments = 3;
@@ -1610,7 +1610,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setOutputBufferSize(0);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         BKUnPartitionedAsyncLogWriter writer =
                 (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
@@ -1653,7 +1653,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         confLocal.setReaderIdleErrorThresholdMillis(2000);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final int segmentSize = 10;
         final int numSegments = 3;

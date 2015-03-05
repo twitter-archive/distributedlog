@@ -14,7 +14,7 @@ public class TestFailureScenarios extends TestDistributedLogBase {
 
     @Test
     public void testExceptionDuringStartNewSegment() throws Exception {
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-exc-new-segment");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-exc-new-segment");
         LogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
@@ -73,7 +73,7 @@ public class TestFailureScenarios extends TestDistributedLogBase {
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 101, 2), false));
 
         bkdlmAndClients.close();
-        bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-exc-new-segment");
+        bkdlmAndClients = createNewBKDLM(conf, "distrlog-exc-new-segment");
         bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
 
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(-1, 101, 101, 2), false));
@@ -83,7 +83,7 @@ public class TestFailureScenarios extends TestDistributedLogBase {
 
     @Test
     public void testFailureInComplete() throws Exception {
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = DLMTestUtil.createNewBKDLM(conf, "distrlog-failure-complete-ledger");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-failure-complete-ledger");
         BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         long txid = 1;
         for (long i = 1; i <= 100; i++) {

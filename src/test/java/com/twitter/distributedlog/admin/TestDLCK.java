@@ -46,7 +46,7 @@ public class TestDLCK extends TestDistributedLogBase {
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder
             .newBuilder()
-            .uri(DLMTestUtil.createDLMURI("/"))
+            .uri(createDLMURI("/"))
             .zkAclId(null)
             .sessionTimeoutMs(10000).build();
     }
@@ -82,7 +82,7 @@ public class TestDLCK extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         conf.setImmediateFlushEnabled(true);
         conf.setOutputBufferSize(0);
-        URI uri = DLMTestUtil.createDLMURI("/check-and-repair-dl-namespace");
+        URI uri = createDLMURI("/check-and-repair-dl-namespace");
         zkc.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri);
         ExecutorService executorService = Executors.newCachedThreadPool();

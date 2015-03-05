@@ -120,7 +120,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -150,7 +150,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -180,7 +180,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(16);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setReadAheadMaxEntries(10);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -210,7 +210,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxEntries(1);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -241,7 +241,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(16);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setReadAheadMaxEntries(10);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -273,7 +273,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
         confLocal.setReaderIdleErrorThresholdMillis(100);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -310,7 +310,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReadAheadMaxEntries(3);
         confLocal.setReaderIdleWarnThresholdMillis(500);
         confLocal.setReaderIdleErrorThresholdMillis(30000);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -347,7 +347,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         confLocal.setReaderIdleErrorThresholdMillis(500);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(1));
@@ -386,7 +386,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReaderIdleWarnThresholdMillis(100);
         confLocal.setReaderIdleErrorThresholdMillis(500);
         confLocal.setEnableForceRead(false);
-        final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        final DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(1));
@@ -470,13 +470,13 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     public void testMultiReaders() throws Exception {
         String name = "distrlog-multireaders";
         final RateLimiter limiter = RateLimiter.create(1000);
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwrite = createNewDLM(conf, name);
 
         final LogWriter writer = dlmwrite.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(0));
         final AtomicInteger writeCount = new AtomicInteger(1);
 
-        DistributedLogManager dlmread = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmread = createNewDLM(conf, name);
 
         LogReader reader0 = dlmread.getInputStream(0);
 

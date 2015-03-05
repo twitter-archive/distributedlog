@@ -57,14 +57,16 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
+                .zkServers(zkServers)
                 .zkAclId(null)
                 .build();
         zkc0 = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc0")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
+                .zkServers(zkServers)
                 .zkAclId(null)
                 .build();
         lockStateExecutor = new OrderedSafeExecutor(1);

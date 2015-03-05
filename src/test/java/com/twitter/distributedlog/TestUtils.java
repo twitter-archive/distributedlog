@@ -25,7 +25,7 @@ public class TestUtils extends ZooKeeperClusterTestCase {
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
                 .zkAclId(null)
                 .build();

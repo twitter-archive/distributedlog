@@ -27,7 +27,7 @@ public class TestDLMetadata extends ZooKeeperClusterTestCase {
 
     @Before
     public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", 7000);
+        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", zkPort);
     }
 
     @After
@@ -36,7 +36,7 @@ public class TestDLMetadata extends ZooKeeperClusterTestCase {
     }
 
     private URI createURI(String path) {
-        return URI.create("distributedlog://127.0.0.1:7000" + path);
+        return URI.create("distributedlog://127.0.0.1:" + zkPort + path);
     }
 
     @Test(timeout = 60000)
@@ -114,12 +114,13 @@ public class TestDLMetadata extends ZooKeeperClusterTestCase {
         assertEquals(bkdlConfig2, DLMetadata.deserialize(uri, newData).getDLConfig());
     }
 
+    // Missing dlZkServersForWriter, dlZkServersForReader default to configured server.
     @Test(timeout = 60000)
     public void testMetadataWithoutDLZKServers() throws Exception {
         testMetadataWithOrWithoutZkServers(
                 "/metadata-without-dlzk-servers",
                 null, null, "127.0.0.1:7003", "127.0.0.1:7004",
-                "127.0.0.1:7000", "127.0.0.1:7000", "127.0.0.1:7003", "127.0.0.1:7004");
+                "127.0.0.1:" + zkPort, "127.0.0.1:" + zkPort, "127.0.0.1:7003", "127.0.0.1:7004");
     }
 
     @Test(timeout = 60000)

@@ -45,7 +45,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
     public void setup() throws Exception {
         zooKeeperClient =
             ZooKeeperClientBuilder.newBuilder()
-                .uri(DLMTestUtil.createDLMURI("/"))
+                .uri(createDLMURI("/"))
                 .zkAclId(null)
                 .sessionTimeoutMs(10000).build();
     }
@@ -57,7 +57,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test
     public void testCreateIfNotExists() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
+        URI uri = createDLMURI("/" + runtime.getMethodName());
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(false);
@@ -85,7 +85,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test
     public void testClientSharingOptions() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/clientSharingOptions");
+        URI uri = createDLMURI("/clientSharingOptions");
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
 
         {
@@ -136,7 +136,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         assertFalse(DistributedLogManagerFactory.isReservedStreamName("test"));
         assertTrue(DistributedLogManagerFactory.isReservedStreamName(".test"));
 
-        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
+        URI uri = createDLMURI("/" + runtime.getMethodName());
 
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
 
@@ -185,7 +185,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testNamespaceListener() throws Exception {
-        URI uri = DLMTestUtil.createDLMURI("/" + runtime.getMethodName());
+        URI uri = createDLMURI("/" + runtime.getMethodName());
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
         final CountDownLatch[] latches = new CountDownLatch[3];
@@ -223,7 +223,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
     }
 
     private void initDlogMeta(String namespace, String un, String streamName) throws Exception {
-        URI uri = DLMTestUtil.createDLMURI(namespace);
+        URI uri = createDLMURI(namespace);
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(true);
@@ -244,7 +244,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
         String namespace = "/" + runtime.getMethodName();
         initDlogMeta(namespace, "test-un", "test-stream");
-        URI uri = DLMTestUtil.createDLMURI(namespace);
+        URI uri = createDLMURI(namespace);
 
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
             .name("unpriv")
@@ -274,7 +274,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
         String namespace = "/" + runtime.getMethodName();
         initDlogMeta(namespace, "test-un", "test-stream");
-        URI uri = DLMTestUtil.createDLMURI(namespace);
+        URI uri = createDLMURI(namespace);
 
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
             .name("unpriv")
@@ -338,7 +338,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         testConf.setEnableLedgerAllocatorPool(true);
 
         String namespace = "/" + runtime.getMethodName();
-        URI uri = DLMTestUtil.createDLMURI(namespace);
+        URI uri = createDLMURI(namespace);
 
         testConf.setLedgerAllocatorPoolName("test");
 

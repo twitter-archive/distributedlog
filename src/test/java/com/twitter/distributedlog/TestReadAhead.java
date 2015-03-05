@@ -27,11 +27,11 @@ public class TestReadAhead extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(500);
         confLocal.setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(2000);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, conf, 1L, 1L, false, 0, false);
         DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, conf, 2L, 11L, true, 10, true);
 
-        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) createNewDLM(confLocal, name);
         final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);
         final Future<LogRecordWithDLSN> readFuture = reader.readNext();
         try {
@@ -58,7 +58,7 @@ public class TestReadAhead extends TestDistributedLogBase {
 
         dlm.close();
 
-        dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        dlm = createNewDLM(confLocal, name);
         dlm.recover();
 
         long expectedTxId = 11L;
@@ -90,10 +90,10 @@ public class TestReadAhead extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(500);
         confLocal.setReadAheadWaitTimeOnEndOfStream(Integer.MAX_VALUE);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
         DLMTestUtil.generateCompletedLogSegments(dlm, confLocal, 3, 10);
 
-        BKDistributedLogManager readDLM = (BKDistributedLogManager) DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager readDLM = (BKDistributedLogManager) createNewDLM(confLocal, name);
         final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);
 
         int numReads = 0;

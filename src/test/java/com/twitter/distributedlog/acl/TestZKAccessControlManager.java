@@ -28,7 +28,7 @@ public class TestZKAccessControlManager extends ZooKeeperClusterTestCase {
     private ScheduledExecutorService executorService;
 
     private URI createURI(String path) {
-        return URI.create("distributedlog://127.0.0.1:7000" + path);
+        return URI.create("distributedlog://127.0.0.1:" + zkPort + path);
     }
 
     @Before

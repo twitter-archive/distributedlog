@@ -25,8 +25,8 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void basicReadAndWriteBehavior() throws Exception {
         String name = testNames.getMethodName();
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwrite = createNewDLM(conf, name);
+        DistributedLogManager dlmreader = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
 
         long txid = 1;
@@ -60,8 +60,8 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setPeriodicFlushFrequencyMilliSeconds(Integer.MAX_VALUE);
         conf.setImmediateFlushEnabled(false);
 
-        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwriter = createNewDLM(conf, name);
+        DistributedLogManager dlmreader = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
         
         // Can't reliably test the future is not completed until fsync is called, since writer.force may just 
@@ -95,8 +95,8 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setPeriodicFlushFrequencyMilliSeconds(10*1000);
         conf.setImmediateFlushEnabled(false);
 
-        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwriter = createNewDLM(conf, name);
+        DistributedLogManager dlmreader = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
         
         // Can't reliably test the future is not completed until fsync is called, since writer.force may just 
@@ -137,7 +137,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setImmediateFlushEnabled(false);
         conf.setOutputBufferSize(1024*1024);
 
-        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwriter = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
         
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
@@ -161,7 +161,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setImmediateFlushEnabled(false);
         conf.setOutputBufferSize(1024*1024);
 
-        DistributedLogManager dlmwriter = DLMTestUtil.createNewDLM(conf, name);
+        DistributedLogManager dlmwriter = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
         
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
@@ -180,9 +180,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setImmediateFlushEnabled(true);
         conf.setOutputBufferSize(1024);
-        BKDistributedLogManager dlm = (BKDistributedLogManager) DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(conf, name);
         
-        URI uri = DLMTestUtil.createDLMURI("/" + name);
+        URI uri = createDLMURI("/" + name);
         BKDistributedLogManager.createUnpartitionedStream(conf, dlm.getReaderZKC(), uri, name);
 
         // Log exists but is empty, better not throw.

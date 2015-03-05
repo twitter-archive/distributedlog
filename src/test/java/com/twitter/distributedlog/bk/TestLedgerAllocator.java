@@ -35,7 +35,6 @@ import static org.junit.Assert.fail;
 
 public class TestLedgerAllocator extends TestDistributedLogBase {
 
-    private static final String zkServers = "127.0.0.1:7000";
     private static final String ledgersPath = "/ledgers";
 
     private ZooKeeperClient zkc;
@@ -49,7 +48,7 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
     @Before
     public void setup() throws Exception {
         zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
-                .sessionTimeoutMs(10000).zkAclId(null).build();
+                .sessionTimeoutMs(10000).zkAclId(null).zkServers(zkServers).build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
                 .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
     }

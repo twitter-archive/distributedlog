@@ -47,7 +47,7 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
 
     @BeforeClass
     public static void setupDefaults() throws Exception {
-        defaultUri = DLMTestUtil.createDLMURI(defaultPath);
+        defaultUri = DLMTestUtil.createDLMURI(zkPort, defaultPath);
         DistributedLogManager dlm = DLMTestUtil.createNewDLM("DefaultStream", conf, defaultUri);
         bindStream(defaultUri, defaultLedgerPath, defaultHost);
         DLMTestUtil.generateCompletedLogSegments(dlm, conf, 3, 8192);
@@ -163,7 +163,7 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
         cmd.setFilter("TruncateStream");
         cmd.setForce(true);
         assertEquals(0, cmd.runCmd());
-    }    
+    }
 
     @Test(timeout = 60000)
     public void testToolInspect() throws Exception {
