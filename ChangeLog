@@ -1,3 +1,13 @@
+0.3.28
+------
+- Update cached log segments after setting truncation status
+- Remove host from hosting service if client hits channel exceptions
+- Dynamic option to disable durability enforcement
+- Immutable distributedlog client builder
+- getAsyncLogReaderWithLock position read from last commit point
+- DistributedLock handle znode left by previous expired lock
+- Logging improvement and misc bug fixes
+
 0.3.27
 ------
 - Service Level Timeout
