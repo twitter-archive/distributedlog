@@ -460,7 +460,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         DLSN readDLSN = DLSN.InitialDLSN;
 
