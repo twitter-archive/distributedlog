@@ -774,7 +774,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * In this case, throw an exception. We don't want to continue
              * as this would lead to a split brain situation.
              */
-            l.write(zooKeeperClient, znodePath);
+            l.write(zooKeeperClient, znodePath,
+                    LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
             wroteInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
 
@@ -983,8 +984,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             lock.checkOwnershipAndReacquire(true);
             LogSegmentLedgerMetadata l
-                = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath,
-                    conf.getDLLedgerMetadataLayoutVersion());
+                = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
             if (l.getLedgerId() != ledgerId) {
                 throw new IOException("Active ledger has different ID to inprogress. "
@@ -1000,7 +1000,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
             String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
             try {
-                l.write(zooKeeperClient, pathForCompletedLedger);
+                l.write(zooKeeperClient, pathForCompletedLedger,
+                        LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
             } catch (KeeperException.NodeExistsException nee) {
                 if (!l.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
                     throw new IOException("Node " + pathForCompletedLedger + " already exists"
@@ -1308,7 +1309,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         for(LogSegmentLedgerMetadata l : truncateList) {
             if (!l.isTruncated()) {
-                MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
+                MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
                 LogSegmentLedgerMetadata newSegment = updater.setLogSegmentTruncated(l);
                 removeLogSegmentFromCache(l.getSegmentName());
                 addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
@@ -1317,7 +1318,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         if ((null != partialTruncate) &&
             (!partialTruncate.isPartiallyTruncated() || (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
-            MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zooKeeperClient);
+            MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
             LogSegmentLedgerMetadata newSegment = updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
             removeLogSegmentFromCache(partialTruncate.getSegmentName());
             addLogSegmentToCache(newSegment.getSegmentName(), newSegment);

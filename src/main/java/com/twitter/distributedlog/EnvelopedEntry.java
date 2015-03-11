@@ -119,7 +119,7 @@ public class EnvelopedEntry {
         this(version, statsLogger);
         Preconditions.checkNotNull(compressionType);
         Preconditions.checkNotNull(decompressed);
-        Preconditions.checkArgument(length >= 0);
+        Preconditions.checkArgument(length >= 0, "Invalid bytes length " + length);
 
         this.header = new Header(compressionType, length);
         this.payloadDecompressed = new Payload(length, decompressed);

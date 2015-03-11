@@ -33,7 +33,8 @@ public class TestDistributedLogBase {
         new DistributedLogConfiguration()
                 .setLockTimeout(1)
                 .setNumWorkerThreads(1)
-                .setSchedulerShutdownTimeoutMs(0);
+                .setSchedulerShutdownTimeoutMs(0)
+                .setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
     protected ZooKeeper zkc;
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;

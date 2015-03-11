@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.metadata;
 
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -14,8 +15,8 @@ import static com.google.common.base.Charsets.UTF_8;
 
 public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
 
-    public ZkMetadataUpdater34(ZooKeeperClient zkc) {
-        super(zkc);
+    public ZkMetadataUpdater34(DistributedLogConfiguration conf, ZooKeeperClient zkc) {
+        super(conf, zkc);
     }
 
     @Override
@@ -24,7 +25,7 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
         LOG.info("old segment {} new segment {}", oldSegment, newSegment);
         try {
             Transaction txn = zkc.get().transaction();
-            byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
+            byte[] finalisedData = newSegment.getFinalisedData(metadataVersion).getBytes(UTF_8);
             // delete old log segment
             txn.delete(oldSegment.getZkPath(), -1);
             // create new log segment

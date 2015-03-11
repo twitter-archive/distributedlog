@@ -43,18 +43,14 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
             LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc, "/metadata1");
         // synchronous read
-        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
-            "/metadata1",
-            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata1");
         assertEquals(metadata1, read1);
         assertEquals(TEST_REGION_ID, read1.getRegionId());
         final AtomicReference<LogSegmentLedgerMetadata> resultHolder =
                 new AtomicReference<LogSegmentLedgerMetadata>(null);
         final CountDownLatch latch = new CountDownLatch(1);
         // asynchronous read
-        LogSegmentLedgerMetadata.read(zkc,
-            "/metadata1",
-            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+        LogSegmentLedgerMetadata.read(zkc, "/metadata1",
             new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
             @Override
             public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
@@ -76,9 +72,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
             1, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc, "/metadata2");
         // synchronous read
-        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc,
-            "/metadata2",
-            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata2");
         assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
@@ -89,7 +83,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testParseInvalidMetadata() throws Exception {
         try {
-            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0], LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0]);
             fail("Should fail to parse invalid metadata");
         } catch (IOException ioe) {
             // expected

@@ -101,7 +101,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Dryrun
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()), streamName, false, false);
+                new DryrunZkMetadataUpdater(conf, factory.getSharedWriterZKCForDL()), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -119,7 +119,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Actual run
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL()), streamName, false, false);
+                ZkMetadataUpdater.createMetadataUpdater(conf, factory.getSharedWriterZKCForDL()), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);

@@ -33,13 +33,11 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.ZooDefs;
 
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.exceptions.RetryableReadException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -1957,10 +1955,18 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         Map<Long, LogSegmentLedgerMetadata> segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
             String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                name, conf.getUnpartitionedStreamName())));
+                name, confLocal.getUnpartitionedStreamName())));
 
-        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        LOG.info("Read segments before truncating first segment : {}", segmentList);
+
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
         updater.setLogSegmentTruncated(segmentList.get(1L));
+
+        segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
+                name, confLocal.getUnpartitionedStreamName())));
+
+        LOG.info("Read segments after truncated first segment : {}", segmentList);
 
         {
             LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
@@ -1976,11 +1982,23 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             reader.close();
         }
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
         updater.setLogSegmentActive(segmentList.get(1L));
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
+                name, confLocal.getUnpartitionedStreamName())));
+
+        LOG.info("Read segments after marked first segment as active : {}", segmentList);
+
+        updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
         updater.setLogSegmentTruncated(segmentList.get(2L));
+
+        segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+                String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
+                        name, confLocal.getUnpartitionedStreamName())));
+
+        LOG.info("Read segments after truncated second segment : {}", segmentList);
 
         {
             AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
@@ -2000,7 +2018,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             reader.close();
         }
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zookeeperClient);
+        updater = ZkMetadataUpdater.createMetadataUpdater(conf, zookeeperClient);
         updater.setLogSegmentActive(segmentList.get(2L));
 
         BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();

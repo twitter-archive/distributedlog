@@ -2,6 +2,7 @@ package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -26,6 +27,8 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
     static final Logger LOG = LoggerFactory.getLogger(TestZkMetadataUpdater.class);
 
     private ZooKeeperClient zkc;
+    private DistributedLogConfiguration conf = new DistributedLogConfiguration()
+            .setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
 
     @Before
     public void setup() throws Exception {
@@ -70,7 +73,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         assertEquals(5, segmentList.size());
 
         // Dryrun
-        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(zkc);
+        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(conf, zkc);
         dryrunUpdater.changeSequenceNumber(segment, 6L);
 
         segmentList = readLogSegments(ledgerPath);
@@ -78,7 +81,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
 
         // Fix the inprogress log segments
 
-        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         updater.changeSequenceNumber(segment, 6L);
 
         segmentList = readLogSegments(ledgerPath);
@@ -120,7 +123,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         LogRecordWithDLSN goodRecord2 = DLMTestUtil.getLogRecordWithDLSNInstance(goodLastDLSN2, 200L);
 
         // Dryrun
-        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(zkc);
+        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(conf, zkc);
         try {
             dryrunUpdater.updateLastRecord(completedLogSegment, badRecord);
             fail("Should fail on updating dlsn that in different log segment");
@@ -151,7 +154,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         assertEquals(inprogressLogSegment, readInprogressLogSegment);
 
         // Fix the last dlsn
-        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         try {
             updater.updateLastRecord(completedLogSegment, badRecord);
             fail("Should fail on updating dlsn that in different log segment");
@@ -210,35 +213,35 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         long segmentToModify = 1L;
 
         // Dryrun
-        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(zkc);
+        MetadataUpdater dryrunUpdater = new DryrunZkMetadataUpdater(conf, zkc);
         dryrunUpdater.setLogSegmentTruncated(segmentList.get(segmentToModify));
 
         segmentList = readLogSegments(ledgerPath);
         assertEquals(false, segmentList.get(segmentToModify).isTruncated());
 
         // change truncation for the 1st log segment
-        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         updater.setLogSegmentTruncated(segmentList.get(segmentToModify));
 
         segmentList = readLogSegments(ledgerPath);
         assertEquals(true, segmentList.get(segmentToModify).isTruncated());
         assertEquals(false, segmentList.get(segmentToModify).isPartiallyTruncated());
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         updater.setLogSegmentActive(segmentList.get(segmentToModify));
 
         segmentList = readLogSegments(ledgerPath);
         assertEquals(false, segmentList.get(segmentToModify).isTruncated());
         assertEquals(false, segmentList.get(segmentToModify).isPartiallyTruncated());
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         updater.setLogSegmentPartiallyTruncated(segmentList.get(segmentToModify), segmentList.get(segmentToModify).getFirstDLSN());
 
         segmentList = readLogSegments(ledgerPath);
         assertEquals(false, segmentList.get(segmentToModify).isTruncated());
         assertEquals(true, segmentList.get(segmentToModify).isPartiallyTruncated());
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+        updater = ZkMetadataUpdater.createMetadataUpdater(conf, zkc);
         updater.setLogSegmentActive(segmentList.get(segmentToModify));
 
         segmentList = readLogSegments(ledgerPath);

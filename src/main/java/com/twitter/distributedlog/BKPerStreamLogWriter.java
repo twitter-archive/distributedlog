@@ -1024,6 +1024,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                     // but we can do that later only if needed.
                     entry.writeFully(new DataOutputStream(toSend));
                 } catch (IOException e) {
+                    if (e instanceof InvalidEnvelopedEntryException) {
+                        alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
+                    }
                     LOG.error("Exception while enveloping entries for segment: {}",
                               new Object[] {fullyQualifiedLogSegment}, e);
                     // If a write fails here, we need to set the transmit result to an error so that

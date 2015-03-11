@@ -1602,7 +1602,7 @@ public class DistributedLogTool extends Tool {
                                          List<LogSegmentLedgerMetadata> segments) throws Exception {
             BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
             try {
-                MetadataUpdater metadataUpdater = ZkMetadataUpdater.createMetadataUpdater(zkc);
+                MetadataUpdater metadataUpdater = ZkMetadataUpdater.createMetadataUpdater(getConf(), zkc);
                 for (LogSegmentLedgerMetadata segment : segments) {
                     repairLogSegment(bkAdmin, metadataUpdater, segment);
                 }

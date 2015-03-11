@@ -99,7 +99,7 @@ public class TestDLCK extends TestDistributedLogBase {
         // dryrun
         BookKeeperClient bkc = factory.getReaderBKC();
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()),
+                new DryrunZkMetadataUpdater(conf, factory.getSharedWriterZKCForDL()),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentLedgerMetadata> segments = getLogSegments(dlm);
@@ -111,7 +111,7 @@ public class TestDLCK extends TestDistributedLogBase {
         // check and repair
         bkc = factory.getReaderBKC();
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL()),
+                ZkMetadataUpdater.createMetadataUpdater(conf, factory.getSharedWriterZKCForDL()),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);

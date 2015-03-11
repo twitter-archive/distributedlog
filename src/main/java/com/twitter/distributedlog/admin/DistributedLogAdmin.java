@@ -623,8 +623,8 @@ public class DistributedLogAdmin extends DistributedLogTool {
         protected int runCmd() throws Exception {
             final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
             try {
-                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()) :
-                        ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL());
+                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL()) :
+                        ZkMetadataUpdater.createMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL());
                 System.out.println("List of streams : ");
                 System.out.println(streams);
                 if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
@@ -676,8 +676,8 @@ public class DistributedLogAdmin extends DistributedLogTool {
         protected int runCmd() throws Exception {
             final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
             try {
-                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(factory.getSharedWriterZKCForDL()) :
-                        ZkMetadataUpdater.createMetadataUpdater(factory.getSharedWriterZKCForDL());
+                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL()) :
+                        ZkMetadataUpdater.createMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL());
                 ExecutorService executorService = Executors.newCachedThreadPool();
                 BookKeeperClient bkc = factory.getReaderBKC();
                 try {

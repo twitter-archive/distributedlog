@@ -23,6 +23,7 @@ import java.util.Comparator;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.google.common.base.Preconditions;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
@@ -53,6 +54,23 @@ public class LogSegmentLedgerMetadata {
 
         private LogSegmentLedgerMetadataVersion(int value) {
             this.value = value;
+        }
+
+        public static LogSegmentLedgerMetadataVersion of(int version) {
+            switch (version) {
+                case 4:
+                    return VERSION_V4_ENVELOPED_ENTRIES;
+                case 3:
+                    return VERSION_V3_MIN_ACTIVE_DLSN;
+                case 2:
+                    return VERSION_V2_LEDGER_SEQNO;
+                case 1:
+                    return VERSION_V1_ORIGINAL;
+                case 0:
+                    return VERSION_INVALID;
+                default:
+                    throw new IllegalArgumentException("unknown version " + version);
+            }
         }
     }
 
@@ -483,12 +501,12 @@ public class LogSegmentLedgerMetadata {
         return this.completionTime;
     }
 
-    public static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path, int targetVersion)
+    public static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NoNodeException {
         try {
             Stat stat = new Stat();
             byte[] data = zkc.get().getData(path, false, stat);
-            LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
+            LogSegmentLedgerMetadata metadata = parseData(path, data);
             return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
@@ -502,7 +520,7 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    public static void read(ZooKeeperClient zkc, String path, final int targetVersion,
+    public static void read(ZooKeeperClient zkc, String path,
                             final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
         try {
             zkc.get().getData(path, false, new AsyncCallback.DataCallback() {
@@ -513,7 +531,7 @@ public class LogSegmentLedgerMetadata {
                         return;
                     }
                     try {
-                        LogSegmentLedgerMetadata metadata = parseData(path, data, targetVersion);
+                        LogSegmentLedgerMetadata metadata = parseData(path, data);
                         callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
                     } catch (IOException ie) {
                         LOG.error("Error on parsing log segment metadata from {} : ", path, ie);
@@ -530,13 +548,15 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    static LogSegmentLedgerMetadata parseDataV1(String path, byte[] data, String[] parts, int targetVersion)
+    static LogSegmentLedgerMetadata parseDataV1(String path, byte[] data, String[] parts)
         throws IOException {
         long versionStatusCount = Long.valueOf(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
         assert (1 == version);
+
+        LogSegmentLedgerMetadataVersion llmv = LogSegmentLedgerMetadataVersion.VERSION_V1_ORIGINAL;
 
         int regionId = (int)(versionStatusCount & REGION_MASK) >> REGION_SHIFT;
         assert (regionId >= 0 && regionId <= 0xf);
@@ -547,7 +567,7 @@ public class LogSegmentLedgerMetadata {
         if (parts.length == 3) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, txId)
+            return new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, txId)
                     .setRegionId(regionId)
                     .setStatus(status)
                     .build();
@@ -559,7 +579,7 @@ public class LogSegmentLedgerMetadata {
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, firstTxId)
+            return new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
@@ -573,13 +593,15 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    static LogSegmentLedgerMetadata parseDataV2(String path, byte[] data, String[] parts, int targetVersion)
+    static LogSegmentLedgerMetadata parseDataV2(String path, byte[] data, String[] parts)
         throws IOException {
         long versionStatusCount = Long.valueOf(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
         assert (2 == version);
+
+        LogSegmentLedgerMetadataVersion llmv = LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO;
 
         int regionId = (int)((versionStatusCount & REGION_MASK) >> REGION_SHIFT);
         assert (regionId >= 0 && regionId <= 0xf);
@@ -591,7 +613,7 @@ public class LogSegmentLedgerMetadata {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
             long ledgerSequenceNumber = Long.valueOf(parts[3]);
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, txId)
+            return new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, txId)
                 .setLedgerSequenceNo(ledgerSequenceNumber)
                 .setRegionId(regionId)
                 .setStatus(status)
@@ -607,7 +629,7 @@ public class LogSegmentLedgerMetadata {
             long ledgerSequenceNumber = Long.valueOf(parts[5]);
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
-            return new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, firstTxId)
+            return new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
@@ -625,9 +647,7 @@ public class LogSegmentLedgerMetadata {
 
     }
 
-    static LogSegmentLedgerMetadata parseDataVersionGreaterThan2(String path, byte[] data,
-                                                                 String[] parts, int targetVersion
-    )
+    static LogSegmentLedgerMetadata parseDataVersionGreaterThan2(String path, byte[] data, String[] parts )
         throws IOException {
         long versionStatusCount = Long.valueOf(parts[0]);
 
@@ -635,6 +655,8 @@ public class LogSegmentLedgerMetadata {
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
         assert (LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version &&
                 LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version);
+
+        LogSegmentLedgerMetadataVersion llmv = LogSegmentLedgerMetadataVersion.of((int) version);
 
         int regionId = (int)((versionStatusCount & REGION_MASK) >> REGION_SHIFT);
         assert (regionId >= 0 && regionId <= 0xf);
@@ -649,7 +671,7 @@ public class LogSegmentLedgerMetadata {
             long minActiveEntryId = Long.valueOf(parts[4]);
             long minActiveSlotId = Long.valueOf(parts[5]);
 
-            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, txId)
+            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, txId)
                 .setLedgerSequenceNo(ledgerSequenceNumber)
                 .setMinActiveEntryId(minActiveEntryId)
                 .setMinActiveSlotId(minActiveSlotId)
@@ -672,7 +694,7 @@ public class LogSegmentLedgerMetadata {
             long lastSlotId = Long.valueOf(parts[7]);
             long minActiveEntryId = Long.valueOf(parts[8]);
             long minActiveSlotId = Long.valueOf(parts[9]);
-            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, targetVersion, ledgerId, firstTxId)
+            LogSegmentLedgerMetadataBuilder builder = new LogSegmentLedgerMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
@@ -695,7 +717,7 @@ public class LogSegmentLedgerMetadata {
 
     }
 
-    static LogSegmentLedgerMetadata parseData(String path, byte[] data, int targetVersion) throws IOException {
+    static LogSegmentLedgerMetadata parseData(String path, byte[] data) throws IOException {
         String[] parts = new String(data, UTF_8).split(";");
         long version;
         try {
@@ -706,12 +728,12 @@ public class LogSegmentLedgerMetadata {
         }
 
         if (LogSegmentLedgerMetadataVersion.VERSION_V1_ORIGINAL.value == version) {
-            return parseDataV1(path, data, parts, targetVersion);
+            return parseDataV1(path, data, parts);
         } else if (LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value == version) {
-            return parseDataV2(path, data, parts, targetVersion);
+            return parseDataV2(path, data, parts);
         } else if (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version &&
                    LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version) {
-            return parseDataVersionGreaterThan2(path, data, parts, targetVersion);
+            return parseDataVersionGreaterThan2(path, data, parts);
         } else {
             throw new IOException("Unsupported log segment ledger metadata version, "
                 + new String(data, UTF_8));
@@ -727,6 +749,10 @@ public class LogSegmentLedgerMetadata {
     }
 
     public String getFinalisedData() {
+        return getFinalisedData(this.version);
+    }
+
+    public String getFinalisedData(LogSegmentLedgerMetadataVersion version) {
         String finalisedData;
         final long ledgerSeqNo = getLedgerSequenceNumber();
         final long lastEntryId = getLastEntryId();
@@ -739,12 +765,12 @@ public class LogSegmentLedgerMetadata {
                 finalisedData = String.format("%d;%d;%d",
                     version.value, ledgerId, firstTxId);
             } else {
-                long versionAndCount = ((long) this.version.value) | ((long)recordCount << LOGRECORD_COUNT_SHIFT);
+                long versionAndCount = ((long) version.value) | ((long)recordCount << LOGRECORD_COUNT_SHIFT);
                 finalisedData = String.format("%d;%d;%d;%d;%d",
                     versionAndCount, ledgerId, firstTxId, lastTxId, completionTime);
             }
         } else {
-            long versionStatusCount = ((long) this.version.value);
+            long versionStatusCount = ((long) version.value);
             versionStatusCount |= ((status & METADATA_STATUS_BIT_MAX) << STATUS_BITS_SHIFT);
             versionStatusCount |= (((long) regionId & MAX_REGION_ID) << REGION_SHIFT);
             if (!inprogress) {
@@ -789,8 +815,13 @@ public class LogSegmentLedgerMetadata {
 
     public void write(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NodeExistsException {
+        write(zkc, path, version);
+    }
+
+    public void write(ZooKeeperClient zkc, String path, LogSegmentLedgerMetadataVersion version)
+        throws IOException, KeeperException.NodeExistsException {
         this.zkPath = path;
-        String finalisedData = getFinalisedData();
+        String finalisedData = getFinalisedData(version);
         try {
             zkc.get().create(path, finalisedData.getBytes(UTF_8),
                 zkc.getDefaultACL(), CreateMode.PERSISTENT);
@@ -806,7 +837,7 @@ public class LogSegmentLedgerMetadata {
 
     boolean checkEquivalence(ZooKeeperClient zkc, String path) {
         try {
-            LogSegmentLedgerMetadata other = read(zkc, path, version.value);
+            LogSegmentLedgerMetadata other = read(zkc, path);
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Verifying {} against {}", this, other);
             }

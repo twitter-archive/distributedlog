@@ -74,8 +74,7 @@ public class DLMTestUtil {
         Map<Long, LogSegmentLedgerMetadata> segments =
             new HashMap<Long, LogSegmentLedgerMetadata>(children.size());
         for (String child : children) {
-            LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child,
-                LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child);
             LOG.info("Read segment {} : {}", child, segment);
             segments.put(segment.getLedgerSequenceNumber(), segment);
         }

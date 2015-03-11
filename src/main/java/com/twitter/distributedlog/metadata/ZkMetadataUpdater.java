@@ -3,6 +3,7 @@ package com.twitter.distributedlog.metadata;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
@@ -26,11 +27,12 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     static final Logger LOG = LoggerFactory.getLogger(ZkMetadataUpdater.class);
 
     static Class<? extends ZkMetadataUpdater> ZK_METADATA_UPDATER_CLASS = null;
-    static final Class[] ZK_METADATA_UPDATER_CONSTRUCTOR_ARGS = { ZooKeeperClient.class };
+    static final Class[] ZK_METADATA_UPDATER_CONSTRUCTOR_ARGS = { DistributedLogConfiguration.class, ZooKeeperClient.class };
 
-    public static MetadataUpdater createMetadataUpdater(ZooKeeperClient zkc) {
+    public static MetadataUpdater createMetadataUpdater(DistributedLogConfiguration conf,
+                                                        ZooKeeperClient zkc) {
         if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
-            return new ZkMetadataUpdater(zkc);
+            return new ZkMetadataUpdater(conf, zkc);
         } else {
             if (null == ZK_METADATA_UPDATER_CLASS) {
                 try {
@@ -50,7 +52,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
                 throw new RuntimeException("No constructor found for zk metadata updater class " + ZK_METADATA_UPDATER_CLASS, e);
             }
             try {
-                return constructor.newInstance(zkc);
+                return constructor.newInstance(conf, zkc);
             } catch (InstantiationException e) {
                 throw new RuntimeException("Failed to instantiate zk metadata updater : ", e);
             } catch (IllegalAccessException e) {
@@ -62,9 +64,12 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     protected final ZooKeeperClient zkc;
+    protected final LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion metadataVersion;
 
-    public ZkMetadataUpdater(ZooKeeperClient zkc) {
+    public ZkMetadataUpdater(DistributedLogConfiguration conf,
+                             ZooKeeperClient zkc) {
         this.zkc = zkc;
+        this.metadataVersion = LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion());
     }
 
     private String formatLedgerSequenceNumber(long ledgerSeqNo) {
@@ -147,7 +152,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     protected void updateSegmentMetadata(LogSegmentLedgerMetadata segment) throws IOException {
-        byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
+        byte[] finalisedData = segment.getFinalisedData(metadataVersion).getBytes(UTF_8);
         try {
             zkc.get().setData(segment.getZkPath(), finalisedData, -1);
         } catch (KeeperException e) {
@@ -162,7 +167,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
         try {
-            byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
+            byte[] finalisedData = newSegment.getFinalisedData(metadataVersion).getBytes(UTF_8);
             if (newSegment.getZkPath().equalsIgnoreCase(oldSegment.getZkPath())) {
                 zkc.get().setData(newSegment.getZkPath(), finalisedData, -1);
             } else {
