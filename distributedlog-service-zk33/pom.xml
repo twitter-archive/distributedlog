@@ -76,6 +76,17 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.1</version>
+        <configuration>
+          <!-- as a replica of another module, exclude all tests
+               include specific zk33 tests as needed -->
+          <testExcludes>
+            <exclude>**</exclude>
+          </testExcludes>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
   <profiles>

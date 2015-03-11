@@ -141,10 +141,9 @@
             <exclude>**/BKLogPartitionWriteHandlerZK34.java</exclude>
             <exclude>**/metadata/ZkMetadataUpdater34.java</exclude>
           </excludes>
-          <testExcludes>
-            <exclude>**/bk/**Allocator**</exclude>
-            <exclude>**/**TestLogSegmentsZK34**</exclude>
-          </testExcludes>
+          <testIncludes>
+            <include>**/TestFailureScenarios.java</include>
+          </testIncludes>
         </configuration>
       </plugin>
       <plugin>
