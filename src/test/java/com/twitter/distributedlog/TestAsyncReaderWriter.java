@@ -1324,7 +1324,6 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @FlakyTest
     @Test
     public void testAsyncWriteWithMinDelayBetweenFlushes() throws Exception {
         String name = "distrlog-asyncwrite-mindelay";
@@ -1356,7 +1355,6 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 }
             });
         }
-        writer.closeAndComplete();
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -1367,14 +1365,21 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             }
         }
 
+        // Abort, not graceful close, since the latter will
+        // flush as well, and may add an entry.
+        writer.abort();
+
         executionTime.stop();
         assert(!(Thread.interrupted()));
         assert(success);
 
         LogRecordWithDLSN last = dlm.getLastLogRecord();
         LOG.info("Last Entry {}; elapsed time {}", last.getDlsn().getEntryId(), executionTime.elapsed(TimeUnit.MILLISECONDS));
-        // Regardless of how many records we wrote; the number of BK entries should always be bounded by the min delay
-        assertTrue(last.getDlsn().getEntryId() <= (executionTime.elapsed(TimeUnit.MILLISECONDS) / confLocal.getMinDelayBetweenImmediateFlushMs() + 1));
+
+        // Regardless of how many records we wrote; the number of BK entries should always be bounded by the min delay.
+        // Since there are two flush processes--data flush and control flush, and since control flush may also end up flushing
+        // data if data is available, the upper bound is 2*(time/min_delay + 1)
+        assertTrue(last.getDlsn().getEntryId() <= ((executionTime.elapsed(TimeUnit.MILLISECONDS) / confLocal.getMinDelayBetweenImmediateFlushMs() + 1))*2);
         DLMTestUtil.verifyLogRecord(last);
 
         dlm.close();
