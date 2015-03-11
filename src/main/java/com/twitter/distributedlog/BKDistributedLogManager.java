@@ -1099,24 +1099,26 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         // Remove and close all pending readers.
         pendingReaders.close();
 
+        int schedTimeout = conf.getSchedulerShutdownTimeoutMs();
+
         // Clean up executor state.
         if (ownExecutor) {
-            SchedulerUtils.shutdownScheduler(executorService, 5000, TimeUnit.MILLISECONDS);
+            SchedulerUtils.shutdownScheduler(executorService, schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL executor service for {}.", name);
 
             if (executorService != readAheadExecutor) {
-                SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
+                SchedulerUtils.shutdownScheduler(readAheadExecutor, schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
             }
 
-            SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
+            SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL Lock State Executor for {}.", name);
         } else {
             if (null != orderedFuturePool) {
-                SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), 5000, TimeUnit.MILLISECONDS);
+                SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped Ordered Future Pool for {}.", name);
             }
-            SchedulerUtils.shutdownScheduler(metadataExecutor, 5000, TimeUnit.MILLISECONDS);
+            SchedulerUtils.shutdownScheduler(metadataExecutor, schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
         if (ownWriterBKC) {

@@ -77,10 +77,14 @@ public class LocalDLMEmulator {
         this.zkEnsemble = zkHost + ":" + zkPort;
         this.uri = URI.create("distributedlog://" + zkEnsemble + DLOG_NAMESPACE);
 
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        final ServerConfiguration serverConf = new ServerConfiguration();
+        serverConf.loadConf(classLoader.getResource("bk_server.conf"));
+
         bkthread = new Thread() {
             public void run() {
                 try {
-                    LocalBookKeeper.startLocalBookies(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort);
+                    LocalBookKeeper.startLocalBookies(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort, serverConf);
                 } catch (InterruptedException e) {
                     // go away quietly
                 } catch (Exception e) {

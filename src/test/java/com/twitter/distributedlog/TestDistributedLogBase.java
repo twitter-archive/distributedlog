@@ -30,7 +30,10 @@ public class TestDistributedLogBase {
     // future pool in test cases, and setting to > 1 will therefore result in unordered
     // write ops.
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10).setNumWorkerThreads(1);
+        new DistributedLogConfiguration()
+                .setLockTimeout(1)
+                .setNumWorkerThreads(1)
+                .setSchedulerShutdownTimeoutMs(0);
     protected ZooKeeper zkc;
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;

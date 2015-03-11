@@ -1250,7 +1250,7 @@ class DistributedReentrantLock {
                 throw ex;
             } catch (TimeoutException toe) {
                 tryTimeouts.inc();
-                throw new LockingException(lockPath, "Timeout during try phase of lock acquire : ", toe);
+                throw new LockingException(lockPath, "Timeout during try phase of lock acquire", toe);
             } catch (Exception ex) {
                 String message = getLockId() + " failed to lock " + lockPath;
                 throw new LockingException(lockPath, message, ex);

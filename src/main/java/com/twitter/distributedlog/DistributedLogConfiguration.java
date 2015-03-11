@@ -298,6 +298,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
     public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
 
+    public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
+    public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
+
     // Settings for Error Injection
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
     public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
@@ -2314,6 +2317,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setServiceTimeoutMs(long timeoutMs) {
         setProperty(BKDL_SERVICE_TIMEOUT_MS, timeoutMs);
+        return this;
+    }
+
+    /**
+     * Get timeout for shutting down schedulers in dl manager.
+     *
+     * @return timeout for shutting down schedulers in dl manager.
+     */
+    public int getSchedulerShutdownTimeoutMs() {
+        return getInt(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT);
+    }
+
+    /**
+     * Set timeout for shutting down schedulers in dl manager.
+     *
+     * @param timeoutMs
+     *         timeout for shutting down schedulers in dl manager.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setSchedulerShutdownTimeoutMs(int timeoutMs) {
+        setProperty(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, timeoutMs);
         return this;
     }
 
