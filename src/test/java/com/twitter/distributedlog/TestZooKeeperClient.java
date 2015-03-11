@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -174,7 +175,8 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testAclFailedAuthenticationCanBeRecovered() throws Exception {
         FailingCredentials credentials = new FailingCredentials();
-        ZooKeeperClient zkc = new ZooKeeperClient("test", 2000, 2000, zkServers, null, null, 1, 10000, credentials);
+        ZooKeeperClient zkc = new ZooKeeperClient("test", 2000, 2000, zkServers,
+                null, NullStatsLogger.INSTANCE, 1, 10000, credentials);
 
         try {
             zkc.get();

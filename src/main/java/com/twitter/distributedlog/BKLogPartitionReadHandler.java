@@ -903,6 +903,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         // ReadAhead Status
         private volatile boolean isCatchingUp = true;
 
+        // zookeeper watcher
+        private final Watcher getLedgersWatcher;
+
         public ReadAheadWorker(String fullyQualifiedName,
                                BKLogPartitionReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
@@ -930,6 +933,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.tracker = new ReadAheadTracker(BKLogPartitionReadHandler.this.name, ledgerDataAccessor,
                     ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
             this.resumeStopWatch = Stopwatch.createUnstarted();
+            this.getLedgersWatcher = this.bkLedgerManager.zooKeeperClient.getWatcherManager()
+                    .registerChildWatcher(this.bkLedgerManager.ledgerPath, this);
         }
 
         public void simulateErrors() {
@@ -944,6 +949,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         public void stop() {
             running = false;
+
+            this.bkLedgerManager.zooKeeperClient.getWatcherManager()
+                    .unregisterChildWatcher(this.bkLedgerManager.ledgerPath, this);
 
             // Aside from unfortunate naming of variables, this allows
             // the currently active long poll to be interrupted and completed
@@ -1371,7 +1379,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 TimeUnit.MILLISECONDS.toMicros(elapsedMillisSinceMetadataChanged));
                         metadataNotificationTimeMillis = -1L;
                     }
-                    bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, ReadAheadWorker.this, this);
+                    bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, getLedgersWatcher, this);
                 } else {
                     next.process(BKException.Code.OK);
                 }

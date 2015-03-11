@@ -147,6 +147,9 @@ abstract class BKLogPartitionHandler implements Watcher {
     // log segment filter
     protected final LogSegmentFilter filter;
 
+    // zookeeper children watcher
+    private final Watcher getChildrenWatcher;
+
     // trace
     protected final long metadataLatencyWarnThresholdMillis;
 
@@ -256,7 +259,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
         @Override
         public void run() {
-            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter, BKLogPartitionHandler.this, this);
+            asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter, getChildrenWatcher, this);
         }
     }
 
@@ -300,6 +303,9 @@ abstract class BKLogPartitionHandler implements Watcher {
         } else {
             this.lockClientId = lockClientId;
         }
+
+        this.getChildrenWatcher = this.zooKeeperClient.getWatcherManager()
+                .registerChildWatcher(ledgerPath, this);
 
         // Traces
         this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
@@ -362,7 +368,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         LOG.info("Scheduling get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
         firstGetLedgersTask = new SyncGetLedgersCallback(getFullyQualifiedName(), allowEmpty);
         asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter,
-                                   watch ? this : null, firstGetLedgersTask);
+                                   watch ? getChildrenWatcher : null, firstGetLedgersTask);
         LOG.info("Scheduled get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
     }
 
@@ -596,7 +602,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     /**
      * Get a count of records between beginDLSN and the end of the stream.
      *
-     * @param the dlsn marking the start of the range
+     * @param beginDLSN dlsn marking the start of the range
      * @return the count of records present in the range
      */
     public Future<Long> asyncGetLogRecordCount(final DLSN beginDLSN) {
@@ -762,6 +768,7 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     public void close() {
         // No-op
+        this.zooKeeperClient.getWatcherManager().unregisterChildWatcher(ledgerPath, this);
     }
 
     /**
@@ -1328,7 +1335,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 LOG.trace("LogSegments Changed under {}.", getFullyQualifiedName());
             }
             asyncGetLedgerListInternal(LogSegmentLedgerMetadata.COMPARATOR, filter,
-                                       this, new WatcherGetLedgersCallback(getFullyQualifiedName()));
+                                       getChildrenWatcher, new WatcherGetLedgersCallback(getFullyQualifiedName()));
         }
     }
 

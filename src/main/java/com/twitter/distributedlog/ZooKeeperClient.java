@@ -16,6 +16,7 @@
 
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.zk.ZKWatcherManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
@@ -125,6 +126,9 @@ public class ZooKeeperClient {
 
     final Set<Watcher> watchers = new CopyOnWriteArraySet<Watcher>();
 
+    // watcher manager to manage watchers
+    private final ZKWatcherManager watcherManager;
+
     /**
      * Creates an unconnected client that will lazily attempt to connect on the first call to
      * {@link #get}.  All successful connections will be authenticated with the given
@@ -154,6 +158,10 @@ public class ZooKeeperClient {
         this.retryThreadCount = retryThreadCount;
         this.requestRateLimit = requestRateLimit;
         this.credentials = credentials;
+        this.watcherManager = ZKWatcherManager.newBuilder()
+                .name(name)
+                .statsLogger(statsLogger.scope("watcher_manager"))
+                .build();
     }
 
     public List<ACL> getDefaultACL() {
@@ -183,6 +191,10 @@ public class ZooKeeperClient {
             interruptedException.initCause(e);
             throw interruptedException;
         }
+    }
+
+    public ZKWatcherManager getWatcherManager() {
+        return watcherManager;
     }
 
     /**
