@@ -11,7 +11,6 @@ import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
-import com.twitter.distributedlog.feature.DeciderFeatureProvider;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
@@ -22,7 +21,6 @@ import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import com.twitter.distributedlog.util.SchedulerUtils;
-import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -203,7 +201,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             conf.getTimeoutTimerNumTicks());
 
         // Build feature provider
-        this.featureProvider = AbstractFeatureProvider.getFeatureProvider("", conf);
+        this.featureProvider = AbstractFeatureProvider.getFeatureProvider("", conf, statsLogger.scope("features"));
 
         // Build zookeeper client for writers
         this.sharedWriterZKCBuilderForDL = createDLZKClientBuilder(
