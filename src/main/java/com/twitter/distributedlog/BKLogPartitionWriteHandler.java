@@ -72,7 +72,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, FuturePool.class, ExecutorService.class, OrderedSafeExecutor.class,
+        ScheduledExecutorService.class, FuturePool.class, OrderedSafeExecutor.class,
         LedgerAllocator.class, StatsLogger.class, AlertStatsLogger.class, String.class, int.class, PermitLimiter.class
     };
 
@@ -85,7 +85,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        BookKeeperClientBuilder bkcBuilder,
                                                                        ScheduledExecutorService executorService,
                                                                        FuturePool orderedFuturePool,
-                                                                       ExecutorService metadataExecutor,
                                                                        OrderedSafeExecutor lockStateExecutor,
                                                                        LedgerAllocator ledgerAllocator,
                                                                        StatsLogger statsLogger,
@@ -95,7 +94,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        PermitLimiter writeLimiter) throws IOException {
         if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, metadataExecutor, lockStateExecutor, ledgerAllocator,
+                    executorService, orderedFuturePool, lockStateExecutor, ledgerAllocator,
                     false, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
@@ -117,7 +116,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             Object[] arguments = {
                     name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, metadataExecutor, lockStateExecutor,
+                    executorService, orderedFuturePool, lockStateExecutor,
                     ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter
             };
             try {
@@ -155,9 +154,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
     protected FuturePool orderedFuturePool;
-    protected final ExecutorService metadataExecutor;
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
-    protected final LinkedHashSet<MetadataOp> pendingMetadataOps = new LinkedHashSet<MetadataOp>();
     protected volatile boolean closed = false;
     protected boolean recoverInitiated = false;
     protected final RollingPolicy rollingPolicy;
@@ -282,70 +279,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     };
 
-    abstract class MetadataOp implements Runnable {
-
-        java.util.concurrent.Future<?> future = null;
+    abstract class MetadataOp {
 
         void process() throws IOException {
             if (null != metadataException.get()) {
                 throw metadataException.get();
             }
-            if (null != metadataExecutor && conf.getRecoverLogSegmentsInBackground() && !closed) {
-                synchronized (pendingMetadataOps) {
-                    pendingMetadataOps.add(this);
-                }
-                future = metadataExecutor.submit(this);
-            } else {
-                processOp();
-            }
-        }
-
-        private void removeOp() {
-            synchronized (pendingMetadataOps) {
-                pendingMetadataOps.remove(this);
-            }
-        }
-
-        void waitForCompleted() {
-            if (null != future) {
-                try {
-                    future.get();
-                } catch (ExecutionException ee) {
-                    LOG.error("Exception on executing {} : ", this, ee);
-                } catch (InterruptedException e) {
-                    LOG.error("Interrupted on waiting {} to be completed : ", this, e);
-                }
-            }
-        }
-
-        @Override
-        public void run() {
-            if (null != metadataException.get()) {
-                removeOp();
-                return;
-            }
-            try {
-                processOp();
-            } catch (ZKException zke) {
-                if (!closed && ZKException.isRetryableZKException(zke) && null != metadataExecutor
-                        && conf.getRecoverLogSegmentsInBackground()) {
-                    future = executorService.schedule(new Runnable() {
-                        @Override
-                        public void run() {
-                            metadataExecutor.submit(MetadataOp.this);
-                        }
-                    }, conf.getZKSessionTimeoutMilliseconds(), TimeUnit.MILLISECONDS);
-                    return;
-                }
-                LOG.error("Error on executing metadata op {} for {} : ",
-                        new Object[] { this, getFullyQualifiedName(), zke });
-                metadataException.set(zke);
-            } catch (IOException ioe) {
-                LOG.error("Error on executing metadata op {} for {} : ",
-                        new Object[] { this, getFullyQualifiedName(), ioe });
-                metadataException.set(ioe);
-            }
-            removeOp();
+            processOp();
         }
 
         abstract void processOp() throws IOException;
@@ -362,7 +302,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                BookKeeperClientBuilder bkcBuilder,
                                ScheduledExecutorService executorService,
                                FuturePool orderedFuturePool,
-                               ExecutorService metadataExecutor,
                                OrderedSafeExecutor lockStateExecutor,
                                LedgerAllocator allocator,
                                boolean useAllocator,
@@ -373,7 +312,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                PermitLimiter writeLimiter) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
-        this.metadataExecutor = metadataExecutor;
         this.orderedFuturePool = orderedFuturePool;
         this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
@@ -1433,14 +1371,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     public void close() {
         closed = true;
-        List<MetadataOp> pendingOps;
-        synchronized (pendingMetadataOps) {
-            pendingOps = new ArrayList<MetadataOp>(pendingMetadataOps.size());
-            pendingOps.addAll(pendingMetadataOps);
-        }
-        for (MetadataOp op : pendingOps) {
-            op.waitForCompleted();
-        }
         if (startLogSegmentCount.get() > 0) {
             while (startLogSegmentCount.decrementAndGet() >= 0) {
                 lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);

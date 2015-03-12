@@ -156,7 +156,6 @@ public class DLMTestUtil {
             Executors.newScheduledThreadPool(1,
                 new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
             null,
-            null,
             OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
             null,
             NullStatsLogger.INSTANCE,

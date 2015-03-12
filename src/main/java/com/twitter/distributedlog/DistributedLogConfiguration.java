@@ -236,9 +236,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ENCODE_REGION_ID_IN_VERSION = "encodeRegionIDInVersion";
     public static final boolean BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT = false;
 
-    public static final String BKDL_RECOVER_IN_BACKGROUND = "recoverLogSegmentsInBackground";
-    public static final boolean BKDL_RECOVER_IN_BACKGROUND_DEFAULT = false;
-
     public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
     public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
 
@@ -1717,27 +1714,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setLogSegmentRollingConcurrency(int concurrency) {
         setProperty(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, concurrency);
-        return this;
-    }
-
-    /**
-     * Could recover log segments in background?
-     *
-     * @return is it ok to recover log segments in background.
-     */
-    public boolean getRecoverLogSegmentsInBackground() {
-        return getBoolean(BKDL_RECOVER_IN_BACKGROUND, BKDL_RECOVER_IN_BACKGROUND_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable recovering log segments in background.
-     *
-     * @param enabled
-     *          flag to enable/disable recovering log segments in background.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setRecoverLogSegmentsInBackground(boolean enabled) {
-        setProperty(BKDL_RECOVER_IN_BACKGROUND, enabled);
         return this;
     }
 

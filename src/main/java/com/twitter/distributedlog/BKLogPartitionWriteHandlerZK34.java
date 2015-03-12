@@ -57,7 +57,6 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    BookKeeperClientBuilder bkcBuilder,
                                    ScheduledExecutorService executorService,
                                    FuturePool orderedFuturePool,
-                                   ExecutorService metadataExecutor,
                                    OrderedSafeExecutor lockStateExecutor,
                                    LedgerAllocator allocator,
                                    StatsLogger statsLogger,
@@ -66,7 +65,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    int regionId,
                                    PermitLimiter writeLimiter) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, orderedFuturePool, metadataExecutor, lockStateExecutor,
+              executorService, orderedFuturePool, lockStateExecutor,
               allocator, true, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
         // Construct ledger allocator
         if (null == allocator) {

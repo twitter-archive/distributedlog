@@ -119,12 +119,11 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
                                          FuturePool orderedFuturePool,
-                                         ExecutorService metadataExecutor,
                                          FeatureProvider featureProvider,
                                          StatsLogger dlmStatsLogger) throws IOException {
         super(conf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
-        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool, metadataExecutor);
+        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
 
         // features
         disableLogSegmentRollingFeature = featureProvider.getFeature(CoreFeatureKeys.DISABLE_LOGSEGMENT_ROLLING.name().toLowerCase());

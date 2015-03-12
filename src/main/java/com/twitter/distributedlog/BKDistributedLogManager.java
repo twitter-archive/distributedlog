@@ -44,12 +44,9 @@ import java.net.URI;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
@@ -108,7 +105,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private BKLogPartitionReadHandler readHandlerForListener = null;
     private ExecutorServiceFuturePool orderedFuturePool = null;
     private ExecutorServiceFuturePool readerFuturePool = null;
-    private ExecutorService metadataExecutor = null;
     private OrderedSafeExecutor lockStateExecutor;
 
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
@@ -338,17 +334,16 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
-        return createWriteLedgerHandler(streamIdentifier, null, null);
+        return createWriteLedgerHandler(streamIdentifier, null);
     }
 
     BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier,
-                                                        FuturePool orderedFuturePool,
-                                                        ExecutorService metadataExecutor)
+                                                        FuturePool orderedFuturePool)
             throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
-            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
+            BKLogPartitionWriteHandler handler = doCreateWriteLedgerHandler(streamIdentifier, orderedFuturePool);
             success = true;
             return handler;
         } finally {
@@ -361,12 +356,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier,
-                                                                   FuturePool orderedFuturePool,
-                                                                   ExecutorService metadataExecutor)
+                                                                   FuturePool orderedFuturePool)
             throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool, metadataExecutor,
+                writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool,
                 getLockStateExecutor(true), ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
         PermitManager manager = getLogSegmentRollingPermitManager();
         if (manager instanceof Watcher) {
@@ -405,11 +399,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     void setWriteLimiter(PermitLimiter limiter) {
         this.writeLimiter = limiter;
-    }
-
-    @VisibleForTesting
-    synchronized void setMetadataExecutor(ExecutorService service) {
-        this.metadataExecutor = service;
     }
 
     /**
@@ -497,19 +486,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         BKUnPartitionedAsyncLogWriter writer;
         synchronized (this) {
             initializeFuturePool(true);
-            ExecutorService executorService = null;
-            if (conf.getRecoverLogSegmentsInBackground()) {
-                if (null == metadataExecutor) {
-                    metadataExecutor = new ThreadPoolExecutor(0, 1, 60, TimeUnit.SECONDS,
-                            new LinkedBlockingQueue<Runnable>(),
-                            new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-metadata-executor-%d").build());
-                }
-                executorService = metadataExecutor;
-            }
 
             // proactively recover incomplete logsegments for async log writer
             writer = new BKUnPartitionedAsyncLogWriter(
-                    conf, this, orderedFuturePool, executorService, featureProvider, statsLogger);
+                    conf, this, orderedFuturePool, featureProvider, statsLogger);
         }
         return writer.recover();
     }
@@ -1131,8 +1111,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped Ordered Future Pool for {}.", name);
             }
-            SchedulerUtils.shutdownScheduler(metadataExecutor, schedTimeout, TimeUnit.MILLISECONDS);
-            LOG.info("Stopped BKDL metadata executor for {}.", name);
         }
         if (ownWriterBKC) {
             writerBKC.close();

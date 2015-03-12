@@ -13,7 +13,6 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 
 public abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
@@ -95,7 +94,7 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier, boolean recover) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null, null);
+        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
         ledgerManager.checkMetadataException();
         if (recover) {
             ledgerManager.recoverIncompleteLogSegments();
@@ -104,12 +103,11 @@ public abstract class BKBaseLogWriter {
     }
 
     synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier,
-                                                                                 FuturePool orderedFuturePool,
-                                                                                 ExecutorService metadataExecutor)
+                                                                                 FuturePool orderedFuturePool)
             throws IOException {
         BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler(streamIdentifier);
         if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool, metadataExecutor);
+            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool);
             cachePartitionHandler(streamIdentifier, ledgerManager);
         }
         return ledgerManager;
