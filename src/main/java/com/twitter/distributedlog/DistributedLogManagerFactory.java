@@ -22,6 +22,7 @@ import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -659,7 +660,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             writerZKCBuilderForDL, readerZKCBuilderForDL,                       /* dl zks */
             writerZKCForBK, readerZKCForBK, writerBKCBuilder, readerBKCBuilder, /* bk zks & bks */
             scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
-            channelFactory, requestTimer, readAheadExceptionsLogger, statsLogger);
+            channelFactory, requestTimer, readAheadExceptionsLogger,
+            featureProvider.scope("dl"), statsLogger);
         distLogMgr.setClientId(clientId);
         distLogMgr.setRegionId(regionId);
         distLogMgr.setWriteLimiter(writeLimiter);
@@ -795,7 +797,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, zkcBuilder, null, null, bkcBuilder, bkcBuilder, statsLogger);
+        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, zkcBuilder, null, null, bkcBuilder, bkcBuilder,
+                SettableFeatureProvider.DISABLE_ALL, statsLogger);
     }
 
     @Deprecated

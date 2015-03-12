@@ -27,6 +27,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.FutureEventListener;
 
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -98,6 +99,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder readerBKCBuilder;
     private final BookKeeperClient readerBKC;
     private final boolean ownReaderBKC;
+    private final FeatureProvider featureProvider;
     private final StatsLogger statsLogger;
     private LedgerAllocator ledgerAllocator = null;
     // Log Segment Rolling Manager to control rolling speed
@@ -126,12 +128,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
+                            FeatureProvider featureProvider,
                             StatsLogger statsLogger) throws IOException {
         this(name, conf, uri,
              writerZKCBuilder, readerZKCBuilder,
              zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
              Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
-             null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), statsLogger);
+             null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), featureProvider, statsLogger);
         this.ownExecutor = true;
     }
 
@@ -150,6 +153,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ClientSocketChannelFactory channelFactory,
                             HashedWheelTimer requestTimer,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
+                            FeatureProvider featureProvider,
                             StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder, statsLogger);
         Preconditions.checkNotNull(readAheadExceptionsLogger, "No ReadAhead Stats Logger Provided.");
@@ -216,6 +220,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
         closed = false;
 
+        // Feature Provider
+        this.featureProvider = featureProvider;
+
         // Stats
         StatsLogger handlerStatsLogger = statsLogger.scope("handlers");
         this.createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
@@ -248,6 +255,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @VisibleForTesting
     ExecutorServiceFuturePool getReaderFuturePool() {
         return this.readerFuturePool;
+    }
+
+    @VisibleForTesting
+    FeatureProvider getFeatureProvider() {
+        return this.featureProvider;
     }
 
     @Override
@@ -496,7 +508,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             }
 
             // proactively recover incomplete logsegments for async log writer
-            writer = new BKUnPartitionedAsyncLogWriter(conf, this, orderedFuturePool, executorService, statsLogger);
+            writer = new BKUnPartitionedAsyncLogWriter(
+                    conf, this, orderedFuturePool, executorService, featureProvider, statsLogger);
         }
         return writer.recover();
     }

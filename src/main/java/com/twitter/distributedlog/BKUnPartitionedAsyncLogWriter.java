@@ -4,10 +4,10 @@ import com.google.common.base.Stopwatch;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
-import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
@@ -15,6 +15,8 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import com.twitter.util.Try;
 
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -112,14 +114,22 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private final OpStatsLogger bulkWriteQueueOpStatsLogger;
     private final OpStatsLogger getWriterOpStatsLogger;
 
+    private final Feature disableLogSegmentRollingFeature;
+
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
                                          BKDistributedLogManager bkdlm,
                                          FuturePool orderedFuturePool,
                                          ExecutorService metadataExecutor,
+                                         FeatureProvider featureProvider,
                                          StatsLogger dlmStatsLogger) throws IOException {
         super(conf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool, metadataExecutor);
+
+        // features
+        disableLogSegmentRollingFeature = featureProvider.getFeature(CoreFeatureKeys.DISABLE_LOGSEGMENT_ROLLING.name().toLowerCase());
+
+        // stats
         this.statsLogger = dlmStatsLogger.scope("log_writer");
         this.writeOpStatsLogger = statsLogger.getOpStatsLogger("write");
         this.writeQueueOpStatsLogger = statsLogger.getOpStatsLogger("write/queued");
@@ -212,7 +222,8 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     boolean shouldRollLog(BKPerStreamLogWriter w) {
         try {
-            return shouldStartNewSegment(w, conf.getUnpartitionedStreamName());
+            return !disableLogSegmentRollingFeature.isAvailable() &&
+                    shouldStartNewSegment(w, conf.getUnpartitionedStreamName());
         } catch (IOException ioe) {
             return false;
         }

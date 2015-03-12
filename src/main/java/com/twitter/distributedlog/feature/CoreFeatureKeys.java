@@ -5,5 +5,7 @@ package com.twitter.distributedlog.feature;
  */
 public enum CoreFeatureKeys {
     // @Deprecated: bkc features are managed by bookkeeper prefixed with a scope
-    DISABLE_DURABILITY_ENFORCEMENT
+    DISABLE_DURABILITY_ENFORCEMENT,
+    // disabling logsegment rolling
+    DISABLE_LOGSEGMENT_ROLLING
 }

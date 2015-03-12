@@ -3,10 +3,13 @@ package com.twitter.distributedlog;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +33,55 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             }
         }
         assertEquals(1, numInprogress);
+    }
+
+    @Test(timeout = 60000)
+    public void testDisableRollingLogSegments() throws Exception {
+        String name = "distrlog-disable-rolling-log-segments";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setLogSegmentRollingIntervalMinutes(0);
+        confLocal.setMaxLogSegmentBytes(40);
+
+        int numEntries = 100;
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
+        BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+
+        SettableFeature disableLogSegmentRolling =
+                (SettableFeature) dlm.getFeatureProvider()
+                        .getFeature(CoreFeatureKeys.DISABLE_LOGSEGMENT_ROLLING.name().toLowerCase());
+        disableLogSegmentRolling.set(true);
+
+        final CountDownLatch latch = new CountDownLatch(numEntries);
+
+        // send requests in parallel
+        for (int i = 1; i <= numEntries; i++) {
+            final int entryId = i;
+            writer.write(DLMTestUtil.getLogRecordInstance(entryId)).addEventListener(new FutureEventListener<DLSN>() {
+
+                @Override
+                public void onSuccess(DLSN value) {
+                    logger.info("Completed entry {} : {}.", entryId, value);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onFailure(Throwable cause) {
+                    // nope
+                }
+            });
+        }
+        latch.await();
+
+        // make sure all ensure blocks were executed
+        writer.closeAndComplete();
+
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+
+        dlm.close();
     }
 
     @Test(timeout = 600000)
