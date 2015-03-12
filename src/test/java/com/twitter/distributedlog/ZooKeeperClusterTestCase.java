@@ -20,7 +20,7 @@ public class ZooKeeperClusterTestCase {
     @BeforeClass
     public static void setupZooKeeper() throws Exception {
         zkDir = IOUtils.createTempDir("zookeeper", ZooKeeperClusterTestCase.class.getName());
-        Pair<ZooKeeperServerShim, Integer> serverAndPort = DLMTestUtil.runZookeeperOnAnyPort(zkDir);
+        Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkDir);
         zks = serverAndPort.getLeft();
         zkPort = serverAndPort.getRight();
         zkServers = "127.0.0.1:" + zkPort;

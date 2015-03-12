@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.util.Await;
+import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

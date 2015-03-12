@@ -50,7 +50,7 @@ public class TestDistributedLogBase {
         int retries = 0;
         File zkTmpDir = IOUtils.createTempDir("zookeeper", "distrlog");
         tmpDirs.add(zkTmpDir);
-        Pair<ZooKeeperServerShim, Integer> serverAndPort = DLMTestUtil.runZookeeperOnAnyPort(zkTmpDir);
+        Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkTmpDir);
         zks = serverAndPort.getLeft();
         zkPort = serverAndPort.getRight();
         bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", zkPort);

@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import java.io.File;
-import java.net.URI;
 
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.IOUtils;
@@ -12,8 +11,6 @@ import org.junit.rules.TestName;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.junit.Assert.*;
 
 public class TestDLMTestUtil {
     static final Logger LOG = LoggerFactory.getLogger(TestDLMTestUtil.class);
@@ -28,11 +25,11 @@ public class TestDLMTestUtil {
         Pair<ZooKeeperServerShim, Integer> serverAndPort3 = null;
         try {
             File zkTmpDir1 = IOUtils.createTempDir("zookeeper1", "distrlog");
-            serverAndPort1 = DLMTestUtil.runZookeeperOnAnyPort(7000, zkTmpDir1);
+            serverAndPort1 = LocalDLMEmulator.runZookeeperOnAnyPort(7000, zkTmpDir1);
             File zkTmpDir2 = IOUtils.createTempDir("zookeeper2", "distrlog");
-            serverAndPort2 = DLMTestUtil.runZookeeperOnAnyPort(7000, zkTmpDir2);
+            serverAndPort2 = LocalDLMEmulator.runZookeeperOnAnyPort(7000, zkTmpDir2);
             File zkTmpDir3 = IOUtils.createTempDir("zookeeper3", "distrlog");
-            serverAndPort3 = DLMTestUtil.runZookeeperOnAnyPort(7000, zkTmpDir3);
+            serverAndPort3 = LocalDLMEmulator.runZookeeperOnAnyPort(7000, zkTmpDir3);
         } catch (Exception ex) {
             if (null != serverAndPort1) {
                 serverAndPort1.getLeft().stop();

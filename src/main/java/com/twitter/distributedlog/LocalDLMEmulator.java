@@ -21,9 +21,11 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -31,8 +33,11 @@ import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.BindException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +53,62 @@ public class LocalDLMEmulator {
     protected static final int DEFAULT_BOOKIE_INITIAL_PORT = 0; // Use ephemeral ports
 
     static final String DLOG_NAMESPACE = "/messaging/distributedlog";
+
+    /**
+     * Try to start zookkeeper locally on any port.
+     */
+    public static Pair<ZooKeeperServerShim, Integer> runZookeeperOnAnyPort(File zkDir) throws Exception {
+        return runZookeeperOnAnyPort((int) Math.random()*10000+7000, zkDir);
+    }
+
+    /**
+     * Try to start zookkeeper locally on any port beginning with some base port.
+     * Dump some socket info when bind fails.
+     */
+    public static Pair<ZooKeeperServerShim, Integer> runZookeeperOnAnyPort(int basePort, File zkDir) throws Exception {
+
+        final int MAX_RETRIES = 20;
+        final int MIN_PORT = 1025;
+        final int MAX_PORT = 65535;
+        ZooKeeperServerShim zks = null;
+        int zkPort = basePort;
+        boolean success = false;
+        int retries = 0;
+
+        while (!success) {
+            try {
+                LOG.info("zk trying to bind to port " + zkPort);
+                zks = LocalBookKeeper.runZookeeper(1000, zkPort, zkDir);
+                success = true;
+            } catch (BindException be) {
+                logOpenSockets();
+                retries++;
+                if (retries > MAX_RETRIES) {
+                    throw be;
+                }
+                zkPort++;
+                if (zkPort > MAX_PORT) {
+                    zkPort = MIN_PORT;
+                }
+            }
+        }
+
+        return Pair.of(zks, zkPort);
+    }
+
+    /**
+     * Log process stdout.
+     */
+    private static void logOpenSockets() throws Exception {
+        final String LIST_CONNS_COMMAND = "lsof -P -n -i TCP";
+        Process p = Runtime.getRuntime().exec(LIST_CONNS_COMMAND);
+        p.waitFor();
+        BufferedReader stdout = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String s = null;
+        while ((s = stdout.readLine()) != null) {
+            LOG.info(s);
+        }
+    }
 
     int nextPort = 6000; // next port for additionally created bookies
     private Thread bkthread = null;

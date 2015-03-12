@@ -2,23 +2,15 @@ package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LocalDLMEmulator;
-import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.metadata.DLMetadata;
-import com.twitter.finagle.builder.Server;
+import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.util.Duration;
-import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
-import org.apache.bookkeeper.stats.NullStatsProvider;
-import org.apache.bookkeeper.util.LocalBookKeeper;
-import org.apache.commons.lang3.tuple.Pair;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.util.HashSet;
@@ -32,32 +24,7 @@ public abstract class DistributedLogServerTestCase {
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
                     .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
-    protected static LocalDLMEmulator bkutil;
-    protected static ZooKeeperServerShim zks;
-    protected static URI uri;
-    protected static int numBookies = 3;
-
-    protected static class DLServer {
-        public final InetSocketAddress address;
-        public final Pair<DistributedLogServiceImpl, Server> dlServer;
-
-        protected DLServer(int port) throws Exception {
-            this(conf, port);
-        }
-
-        protected DLServer(DistributedLogConfiguration conf, int port) throws Exception {
-            dlServer = DistributedLogServer.runServer(conf, uri, new NullStatsProvider(), port);
-            address = DLSocketAddress.getSocketAddress(port);
-        }
-
-        public InetSocketAddress getAddress() {
-            return address;
-        }
-
-        public void shutdown() {
-            DistributedLogServer.closeServer(dlServer);
-        }
-    }
+    protected static DistributedLogCluster dlCluster;
 
     protected static class DLClient {
         public final LocalRoutingService routingService;
@@ -124,23 +91,28 @@ public abstract class DistributedLogServerTestCase {
         }
     }
 
-    protected DLServer dlServer;
+    protected DistributedLogCluster.DLServer dlServer;
     protected DLClient dlClient;
 
     @BeforeClass
     public static void setupCluster() throws Exception {
-        zks = LocalBookKeeper.runZookeeper(1000, 7000);
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", 7000);
-        bkutil.start();
-        uri = LocalDLMEmulator.createDLMURI("127.0.0.1:7000", "");
-        BKDLConfig bkdlConfig = new BKDLConfig("127.0.0.1:7000", "/ledgers").setACLRootPath(".acl");
-        DLMetadata.create(bkdlConfig).update(uri);
+        dlCluster = DistributedLogCluster.newBuilder()
+                .numBookies(3)
+                .shouldStartZK(true)
+                .zkServers("127.0.0.1")
+                .shouldStartProxy(false)
+                .conf(conf)
+                .build();
+        dlCluster.start();
     }
 
     @AfterClass
     public static void teardownCluster() throws Exception {
-        bkutil.teardown();
-        zks.stop();
+        dlCluster.stop();
+    }
+
+    protected static URI getUri() {
+        return dlCluster.getUri();
     }
 
     @Before
@@ -160,12 +132,12 @@ public abstract class DistributedLogServerTestCase {
     }
 
     protected DLServer createDistributedLogServer(int port) throws Exception {
-        return new DLServer(port);
+        return new DLServer(conf, dlCluster.getUri(), port);
     }
 
     protected DLServer createDistributedLogServer(DistributedLogConfiguration conf, int port)
             throws Exception {
-        return new DLServer(conf, port);
+        return new DLServer(conf, dlCluster.getUri(), port);
     }
 
     protected DLClient createDistributedLogClient(String clientName) throws Exception {

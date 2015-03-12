@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service.balancer;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.service.DistributedLogClient;
+import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
 import com.twitter.distributedlog.service.DistributedLogServerTestCase;
 import com.twitter.util.Await;
 import org.junit.After;

@@ -59,7 +59,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         Thread.sleep(1000);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = dlm.getInputStream(1);
         int numRead = 0;
         LogRecord r = reader.readNext(false);
@@ -92,7 +92,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             DLSN dlsn = Await.result(future, Duration.fromSeconds(10));
         }
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = dlm.getInputStream(1);
         int numRead = 0;
         LogRecord r = reader.readNext(false);
@@ -303,7 +303,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         Thread.sleep(1000);
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
         int numRead = 0;
         // eid=0 => control records
@@ -336,7 +336,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         Thread.sleep(1000);
 
         logger.info("Fencing stream {}.", name);
-        DLMTestUtil.fenceStream(conf, uri, name);
+        DLMTestUtil.fenceStream(conf, getUri(), name);
         logger.info("Fenced stream {}.", name);
 
         for (long i = 11; i <= 20; i++) {
@@ -344,7 +344,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             dlClient.dlClient.write(name, ByteBuffer.wrap(("" + i).getBytes())).get();
         }
 
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = dlm.getInputStream(1);
         int numRead = 0;
         LogRecord r = reader.readNext(false);
@@ -381,7 +381,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         Thread.sleep(1000);
 
-        DistributedLogManager dlm101 = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm101 = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader101 = dlm101.getInputStream(1);
         assertNull(reader101.readNext(false));
         reader101.close();
@@ -396,7 +396,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         }
         Thread.sleep(1000);
 
-        DistributedLogManager dlm201 = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager dlm201 = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader201 = dlm201.getInputStream(1);
         int numRead = 0;
         int curTxId = 201;
@@ -436,7 +436,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         DLSN dlsnToDelete = txid2DLSN.get(11L);
         dlClient.dlClient.truncate(name, dlsnToDelete).get();
 
-        DistributedLogManager readDLM = DLMTestUtil.createNewDLM(name, conf, uri);
+        DistributedLogManager readDLM = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = readDLM.getInputStream(1);
         int numRead = 0;
         int curTxId = 11;
@@ -461,8 +461,8 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         AccessControlEntry ace = new AccessControlEntry();
         ace.setDenyWrite(true);
         DistributedLogManagerFactory factory = dlServer.dlServer.getLeft().getDlFactory();
-        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), uri);
-        String zkPath = uri.getPath() + "/" + bkdlConfig.getACLRootPath() + "/" + name;
+        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
+        String zkPath = getUri().getPath() + "/" + bkdlConfig.getACLRootPath() + "/" + name;
         ZKAccessControl accessControl = new ZKAccessControl(ace, zkPath);
         accessControl.create(factory.getSharedWriterZKCForDL());
 
