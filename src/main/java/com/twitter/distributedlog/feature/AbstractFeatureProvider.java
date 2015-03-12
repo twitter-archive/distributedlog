@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.feature;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import org.apache.bookkeeper.feature.CacheableFeatureProvider;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.commons.configuration.ConfigurationException;
@@ -10,19 +11,17 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * Decider based feature provider
- *
- * TODO: make it loaded by reflection?
  */
-public abstract class AbstractFeatureProvider implements FeatureProvider {
+public abstract class AbstractFeatureProvider<T extends Feature> extends CacheableFeatureProvider<T> {
 
     protected static final Logger logger = LoggerFactory.getLogger(AbstractFeatureProvider.class);
 
-    public static FeatureProvider getFeatureProvider(DistributedLogConfiguration conf) throws IOException {
+    public static FeatureProvider getFeatureProvider(String rootScope,
+                                                     DistributedLogConfiguration conf)
+            throws IOException {
         Class<? extends FeatureProvider> featureProviderClass;
         try {
             featureProviderClass = conf.getFeatureProviderClass();
@@ -32,12 +31,13 @@ public abstract class AbstractFeatureProvider implements FeatureProvider {
         // create feature provider
         Constructor<? extends FeatureProvider> constructor;
         try {
-            constructor = featureProviderClass.getDeclaredConstructor(DistributedLogConfiguration.class);
+            constructor = featureProviderClass.getDeclaredConstructor(
+                    String.class, DistributedLogConfiguration.class);
         } catch (NoSuchMethodException e) {
             throw new IOException("No constructor found for feature provider class " + featureProviderClass + " : ", e);
         }
         try {
-            return constructor.newInstance(conf);
+            return constructor.newInstance(rootScope, conf);
         } catch (InstantiationException e) {
             throw new IOException("Failed to instantiate feature provider : ", e);
         } catch (IllegalAccessException e) {
@@ -53,27 +53,11 @@ public abstract class AbstractFeatureProvider implements FeatureProvider {
     }
 
     protected final DistributedLogConfiguration conf;
-    protected final ConcurrentMap<String, Feature> features =
-            new ConcurrentHashMap<String, Feature>();
 
-    protected AbstractFeatureProvider(DistributedLogConfiguration conf) {
+    protected AbstractFeatureProvider(String rootScope,
+                                      DistributedLogConfiguration conf) {
+        super(rootScope);
         this.conf = conf;
     }
 
-    @Override
-    public Feature getFeature(String name) {
-        Feature feature = features.get(name);
-        if (feature == null) {
-            Feature newFeature = makeFeature(name);
-            Feature oldFeature = features.putIfAbsent(name, newFeature);
-            if (oldFeature != null) {
-                feature = oldFeature;
-            } else {
-                feature = newFeature;
-            }
-        }
-        return feature;
-    }
-
-    protected abstract Feature makeFeature(String name);
 }

@@ -5,10 +5,9 @@ import com.twitter.decider.DeciderFactory;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.util.Duration;
 
-import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Int;
 import scala.Option;
 
 import java.util.concurrent.TimeUnit;
@@ -16,40 +15,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Decider based feature provider
  */
-public class DeciderFeatureProvider extends AbstractFeatureProvider {
+public class DeciderFeatureProvider extends AbstractFeatureProvider<DeciderFeature> {
 
     private static final Logger logger = LoggerFactory.getLogger(DeciderFeatureProvider.class);
-
-    private static class DeciderFeature implements Feature {
-
-        private final String name;
-        private final Decider decider;
-
-        DeciderFeature(String name, Decider decider) {
-            this.name = name;
-            this.decider = decider;
-        }
-
-        @Override
-        public String name() {
-            return this.name;
-        }
-
-        @Override
-        public int availability() {
-            Option<Object> availability = decider.availability(name);
-            if (availability.isDefined()) {
-                return Int.unbox(availability.get());
-            } else {
-                return 0;
-            }
-        }
-
-        @Override
-        public boolean isAvailable() {
-            return availability() > 0;
-        }
-    }
 
     private final Decider decider;
 
@@ -69,18 +37,26 @@ public class DeciderFeatureProvider extends AbstractFeatureProvider {
                 false).apply();
     }
 
-    public DeciderFeatureProvider(DistributedLogConfiguration conf) {
-        this(conf, initializeDecider(conf));
+    public DeciderFeatureProvider(String rootScope,
+                                  DistributedLogConfiguration conf) {
+        this(rootScope, conf, initializeDecider(conf));
     }
 
-    DeciderFeatureProvider(DistributedLogConfiguration conf, Decider decider) {
-        super(conf);
+    DeciderFeatureProvider(String rootScope,
+                           DistributedLogConfiguration conf,
+                           Decider decider) {
+        super(rootScope, conf);
         this.decider = decider;
         logger.info("Loaded features : {}", decider.features());
     }
 
     @Override
-    protected Feature makeFeature(String name) {
-        return new DeciderFeature(name, decider);
+    protected DeciderFeature makeFeature(String name) {
+        return new DeciderFeature(makeName(name), decider);
+    }
+
+    @Override
+    protected FeatureProvider makeProvider(String scope) {
+        return new DeciderFeatureProvider(makeName(scope), conf, decider);
     }
 }

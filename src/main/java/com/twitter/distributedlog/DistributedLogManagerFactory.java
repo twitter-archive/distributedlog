@@ -203,7 +203,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             conf.getTimeoutTimerNumTicks());
 
         // Build feature provider
-        this.featureProvider = AbstractFeatureProvider.getFeatureProvider(conf);
+        this.featureProvider = AbstractFeatureProvider.getFeatureProvider("", conf);
 
         // Build zookeeper client for writers
         this.sharedWriterZKCBuilderForDL = createDLZKClientBuilder(
@@ -234,7 +234,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 conf,
                 bkdlConfig.getBkZkServersForWriter(),
                 bkdlConfig.getBkLedgersPath(),
-                Optional.of(featureProvider));
+                Optional.of(featureProvider.scope("bkc")));
         this.writerBKC = this.sharedWriterBKCBuilder.build();
 
         // Build bookkeeper client for readers

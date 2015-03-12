@@ -4,8 +4,6 @@ import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.feature.CoreFeatureKeys;
-import com.twitter.distributedlog.net.TwitterDNSResolver;
 import com.twitter.distributedlog.net.TwitterDNSResolverForRacks;
 import com.twitter.distributedlog.net.TwitterDNSResolverForRows;
 import com.twitter.distributedlog.util.ConfUtils;
@@ -75,8 +73,11 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             dnsResolver = new TwitterDNSResolverForRacks(conf.getBkDNSResolverOverrides());
         }
 
+        FeatureProvider actualFeatureProvider;
         if (featureProvider.isPresent()) {
-            bkConfig.setFeature(RegionAwareEnsemblePlacementPolicy.REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, featureProvider.get().getFeature(CoreFeatureKeys.DISABLE_DURABILITY_ENFORCEMENT.name().toLowerCase()));
+            actualFeatureProvider = featureProvider.get();
+        } else {
+            actualFeatureProvider = null;
         }
 
         this.bkc = BookKeeper.newBuilder()
@@ -85,7 +86,9 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             .channelFactory(channelFactory)
             .statsLogger(statsLogger)
             .dnsResolver(dnsResolver)
-            .requestTimer(requestTimer).build();
+            .requestTimer(requestTimer)
+            .featureProvider(actualFeatureProvider)
+            .build();
 
         if (registerExpirationHandler) {
             sessionExpireWatcher = this.zkc.registerExpirationHandler(this);

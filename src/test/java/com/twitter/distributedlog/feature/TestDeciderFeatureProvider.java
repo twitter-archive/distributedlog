@@ -6,7 +6,6 @@ import com.twitter.decider.NullDecider;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import org.junit.Test;
 import org.apache.bookkeeper.feature.Feature;
-import org.apache.bookkeeper.feature.FeatureProvider;
 import scala.collection.Set$;
 
 import java.util.HashSet;
@@ -24,7 +23,7 @@ public class TestDeciderFeatureProvider {
     @Test(timeout = 60000)
     public void testNullDecider() {
         Decider decider = new NullDecider(false);
-        DeciderFeatureProvider provider = new DeciderFeatureProvider(conf, decider);
+        DeciderFeatureProvider provider = new DeciderFeatureProvider("", conf, decider);
         Feature feature = provider.getFeature("null-feature");
         assertFalse(feature.isAvailable());
         assertEquals(0, feature.availability());
@@ -38,7 +37,7 @@ public class TestDeciderFeatureProvider {
                 scala.collection.JavaConversions.asScalaSet(jFeatures);
         scala.collection.Set<String> clientFeatures = Set$.MODULE$.empty();
         Decider decider = new MockDecider(features, clientFeatures);
-        DeciderFeatureProvider provider = new DeciderFeatureProvider(conf, decider);
+        DeciderFeatureProvider provider = new DeciderFeatureProvider("", conf, decider);
         Feature feature = provider.getFeature("feature-1");
         assertTrue(feature.isAvailable());
         assertTrue(feature.availability() > 0);
@@ -51,7 +50,7 @@ public class TestDeciderFeatureProvider {
     public void testLoadDeciderFromBase() {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.setDeciderBaseConfigPath("test_decider.yml");
-        DeciderFeatureProvider provider = new DeciderFeatureProvider(confLocal);
+        DeciderFeatureProvider provider = new DeciderFeatureProvider("", confLocal);
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());
         assertEquals(10000, feature1.availability());
@@ -71,7 +70,7 @@ public class TestDeciderFeatureProvider {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.setDeciderBaseConfigPath("test_decider.yml");
         confLocal.setDeciderOverlayConfigPath("test_overlay.yml");
-        DeciderFeatureProvider provider = new DeciderFeatureProvider(confLocal);
+        DeciderFeatureProvider provider = new DeciderFeatureProvider("", confLocal);
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());
         assertEquals(10000, feature1.availability());

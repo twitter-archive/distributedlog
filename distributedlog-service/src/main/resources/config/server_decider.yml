@@ -1,4 +1,6 @@
 region_stop_accept_new_stream:
   default_availability: 0
-disable_durability_enforcement:
+bkc.repp_disable_durability_enforcement:
+  default_availability: 0
+bkc.disable_ensemble_change:
   default_availability: 0
