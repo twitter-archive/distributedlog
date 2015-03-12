@@ -7,14 +7,11 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
-import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId;
 import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
-import java.util.List;
-
 import java.util.List;
 
 public class DistributedLogManagerProxyBuilder {
@@ -162,16 +159,16 @@ public class DistributedLogManagerProxyBuilder {
                     .name(_name).clientId(_clientId).serverSet(_serverSet).statsReceiver(_statsReceiver).build();
         } else {
             if (null != _name) {
-                _clientBuilder.name(_name);
+                _clientBuilder = _clientBuilder.name(_name);
             }
             if (null != _clientId) {
-                _clientBuilder.clientId(_clientId);
+                _clientBuilder = _clientBuilder.clientId(_clientId);
             }
             if (null != _serverSet) {
-                _clientBuilder.serverSet(_serverSet);
+                _clientBuilder = _clientBuilder.serverSet(_serverSet);
             }
             if (null != _statsReceiver) {
-                _clientBuilder.statsReceiver(_statsReceiver);
+                _clientBuilder = _clientBuilder.statsReceiver(_statsReceiver);
             }
             client = _clientBuilder.build();
         }
