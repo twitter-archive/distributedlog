@@ -7,8 +7,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
@@ -33,6 +31,7 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,11 +64,12 @@ public class MonitorService implements Runnable, NamespaceListener {
     private int interval = 100;
     private String streamRegex = null;
     private DistributedLogManagerFactory dlFactory = null;
-    private ZooKeeperClient zkClient = null;
+    private ZooKeeperClient[] zkClients = null;
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
     private StatsProvider statsProvider = null;
     private boolean watchNamespaceChanges = false;
-    private boolean sendHeartBeat = false;
+    private boolean handshakeWithClientInfo = false;
+    private int heartbeatEveryChecks = 0;
     private int instanceId = -1;
     private int totalInstances = -1;
     private final ScheduledExecutorService executorService =
@@ -90,6 +90,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         private volatile boolean checking = false;
         private final Stopwatch stopwatch = Stopwatch.createUnstarted();
         private DistributedLogManager dlm = null;
+        private int numChecks = 0;
 
         StreamChecker(String name) {
             this.name = name;
@@ -114,6 +115,18 @@ public class MonitorService implements Runnable, NamespaceListener {
                 }
             } else {
                 stopwatch.reset().start();
+                boolean sendHeartBeat;
+                if (heartbeatEveryChecks > 0) {
+                    synchronized (this) {
+                        ++numChecks;
+                        if (numChecks >= Integer.MAX_VALUE) {
+                            numChecks = 0;
+                        }
+                        sendHeartBeat = (numChecks % heartbeatEveryChecks) == 0;
+                    }
+                } else {
+                    sendHeartBeat = false;
+                }
                 if (sendHeartBeat) {
                     dlClient.heartbeat(name).addEventListener(this);
                 } else {
@@ -189,7 +202,8 @@ public class MonitorService implements Runnable, NamespaceListener {
         options.addOption("w", "watch", false, "Watch stream changes under a given namespace");
         options.addOption("n", "instance_id", true, "Instance ID");
         options.addOption("t", "total_instances", true, "Total instances");
-        options.addOption("h", "heartbeat", false, "Send Heartbeat");
+        options.addOption("hck", "heartbeat-num-checks", true, "Send a heartbeat after num checks");
+        options.addOption("hsci", "handshake-with-client-info", false, "Enable handshaking with client info");
     }
 
     void printUsage() {
@@ -235,9 +249,10 @@ public class MonitorService implements Runnable, NamespaceListener {
         if (cmdline.hasOption("t")) {
             totalInstances = Integer.parseInt(cmdline.getOptionValue("t"));
         }
-        if (cmdline.hasOption("h")) {
-            sendHeartBeat = true;
+        if (cmdline.hasOption("hck")) {
+            heartbeatEveryChecks = Integer.parseInt(cmdline.getOptionValue("hck"));
         }
+        handshakeWithClientInfo = cmdline.hasOption("hsci");
         if (instanceId < 0 || totalInstances <= 0 || instanceId >= totalInstances) {
             throw new ParseException("Invalid instance id or total instances number.");
         }
@@ -262,13 +277,24 @@ public class MonitorService implements Runnable, NamespaceListener {
         }
         logger.info("Starting stats provider : {}.", statsProvider.getClass());
         statsProvider.start(dlConf);
-        String[] serverSetPath = StringUtils.split(cmdline.getOptionValue("s"), '/');
-        if (serverSetPath.length != 3) {
-            throw new ParseException("Invalid serverset path : " + cmdline.getOptionValue("s"));
+        String[] serverSetPaths = StringUtils.split(cmdline.getOptionValue("s"), ",");
+        if (serverSetPaths.length == 0) {
+            throw new ParseException("Invalid serverset paths provided : " + cmdline.getOptionValue("s"));
         }
-        TwitterServerSet.Service zkService = new TwitterServerSet.Service(serverSetPath[0], serverSetPath[1], serverSetPath[2]);
-        zkClient = TwitterServerSet.clientBuilder(zkService).zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS).build();
-        ServerSet serverSet = TwitterServerSet.create(zkClient, zkService);
+
+        ServerSet[] serverSets = new ServerSet[serverSetPaths.length];
+        zkClients = new ZooKeeperClient[serverSetPaths.length];
+        for (int i = 0; i < serverSetPaths.length; i++) {
+            String serverSetPath = serverSetPaths[i];
+            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
+            zkClients[i] = ssPair.getLeft();
+            serverSets[i] = ssPair.getRight();
+        }
+
+        ServerSet local = serverSets[0];
+        ServerSet[] remotes  = new ServerSet[serverSets.length - 1];
+        System.arraycopy(serverSets, 1, remotes, 0, remotes.length);
+
         dlClient = DistributedLogClientBuilder.newBuilder()
                 .name("monitor")
                 .clientId(ClientId$.MODULE$.apply("monitor"))
@@ -276,10 +302,12 @@ public class MonitorService implements Runnable, NamespaceListener {
                 .redirectBackoffStartMs(100)
                 .requestTimeoutMs(2000)
                 .maxRedirects(2)
-                .serverSet(serverSet)
+                .serverSets(local, remotes)
+                .streamNameRegex(streamRegex)
+                .handshakeWithClientInfo(handshakeWithClientInfo)
                 .clientBuilder(ClientBuilder.get()
-                        .connectTimeout(Duration.fromSeconds(100))
-                        .tcpConnectTimeout(Duration.fromSeconds(100))
+                        .connectTimeout(Duration.fromSeconds(1))
+                        .tcpConnectTimeout(Duration.fromSeconds(1))
                         .requestTimeout(Duration.fromSeconds(2))
                         .hostConnectionLimit(2)
                         .hostConnectionCoresize(2)
@@ -356,8 +384,10 @@ public class MonitorService implements Runnable, NamespaceListener {
         if (null != dlClient) {
             dlClient.close();
         }
-        if (null != zkClient) {
-            zkClient.close();
+        if (null != zkClients) {
+            for (ZooKeeperClient zkClient : zkClients) {
+                zkClient.close();
+            }
         }
         if (null != dlFactory) {
             dlFactory.close();
