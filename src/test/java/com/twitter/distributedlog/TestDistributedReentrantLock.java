@@ -300,7 +300,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
 
         // ensure lock1 is waiting for lock0
         do {
-            Thread.sleep(1000);
+            Thread.sleep(1);
             children = getLockWaiters(zkc, lockPath);
         } while (children.size() < 2);
 
@@ -373,7 +373,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
             // session expire will trigger lock re-acquisition
             Future<String> asyncLockAcquireFuture;
             do {
-                Thread.sleep(1000);
+                Thread.sleep(1);
                 asyncLockAcquireFuture = lock0.getLockReacquireFuture();
             } while (null == asyncLockAcquireFuture && lock0.getReacquireCount() < 1);
             if (null != asyncLockAcquireFuture) {
@@ -449,7 +449,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
 
         List<String> children;
         do {
-            Thread.sleep(1000);
+            Thread.sleep(1);
             children = getLockWaiters(zkc, lockPath);
         } while (children.size() < 2);
         assertEquals(2, children.size());
@@ -492,7 +492,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
             // session expire will trigger lock re-acquisition
             Future<String> asyncLockAcquireFuture;
             do {
-                Thread.sleep(1000);
+                Thread.sleep(1);
                 asyncLockAcquireFuture = lock0.getLockReacquireFuture();
             } while (null == asyncLockAcquireFuture);
 
@@ -763,7 +763,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
 
         // Wait for lock count to increase, indicating background acquire has succeeded.
         while (getLockWaiters(zkc, locks.getLockPath()).size() < 2) {
-            Thread.sleep(1000);
+            Thread.sleep(1);
         }
         assertLockState(lock0, true, true, 1, lock1, false, false, 0, 2, locks.getLockPath());
 

@@ -438,7 +438,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testLockWhenSomeoneHeldLock1() throws Exception {
-        testLockWhenSomeoneHeldLock(5000);
+        testLockWhenSomeoneHeldLock(500);
     }
 
     /**
@@ -588,10 +588,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock1Thread.start();
 
         // ensure lock1 is waiting for lock0
-        do {
-            Thread.sleep(1000);
-            children = getLockWaiters(zkc, lockPath);
-        } while (children.size() < 2);
+        children = awaitWaiters(2, zkc, lockPath);
 
         if (isUnlock) {
             lock0.unlock();
@@ -748,14 +745,12 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock1Thread.start();
 
         // check lock1 is waiting for lock0
-        do {
-            Thread.sleep(1000);
-            children = getLockWaiters(zkc, lockPath);
-        } while (children.size() < 2);
+        children = awaitWaiters(2, zkc, lockPath);
+
         assertEquals(2, children.size());
         assertEquals(State.CLAIMED, lock0.getLockState());
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
-        assertEquals(State.WAITING, lock1.getLockState());
+        awaitState(State.WAITING, lock1);
         assertEquals(lock1.getLockId(), Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(1))));
 
         // expire lock1
@@ -768,6 +763,21 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         children = getLockWaiters(zkc0, lockPath);
         assertEquals(1, children.size());
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
+    }
+
+    public void awaitState(State state, DistributedLock lock) throws InterruptedException {
+        while (lock.getLockState() != state) {
+            Thread.sleep(50);
+        }
+    }
+
+    public List<String> awaitWaiters(int waiters, ZooKeeperClient zkc, String lockPath) throws Exception {
+        List<String> children = getLockWaiters(zkc, lockPath);
+        while (children.size() < waiters) {
+            Thread.sleep(50);
+            children = getLockWaiters(zkc, lockPath);
+        }
+        return children;
     }
 
     @Test(timeout = 60000)
@@ -820,17 +830,14 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock1Thread.start();
 
         // check lock1 is waiting for lock0
-        do {
-            Thread.sleep(1000);
-            children = getLockWaiters(zkc, lockPath);
-        } while (children.size() < 2);
+        children = awaitWaiters(2, zkc, lockPath);
 
         logger.info("Found {} lock waiters : {}", children.size(), children);
 
         assertEquals(2, children.size());
         assertEquals(State.CLAIMED, lock0.getLockState());
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
-        assertEquals(State.WAITING, lock1_1.getLockState());
+        awaitState(State.WAITING, lock1_1);
         assertEquals(lock1_1.getLockId(), Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(1))));
 
         if (isUnlock) {
@@ -921,16 +928,12 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock1Thread.start();
 
         // check lock1 is waiting for lock0_0
-        List<String> children;
-        do {
-            Thread.sleep(1000);
-            children = getLockWaiters(zkc, lockPath);
-        } while (children.size() < 2);
+        List<String> children = awaitWaiters(2, zkc, lockPath);
 
         assertEquals(2, children.size());
         assertEquals(State.CLAIMED, lock0_0.getLockState());
         assertEquals(lock0_0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
-        assertEquals(State.WAITING, lock1.getLockState());
+        awaitState(State.WAITING, lock1);
         assertEquals(lock1.getLockId(), Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(1))));
 
         final CountDownLatch lock0DoneLatch = new CountDownLatch(1);
@@ -970,18 +973,16 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                 }
             }, "lock0-thread");
             lock0Thread.start();
+
             // check lock1 is waiting for lock0_0
-            do {
-                Thread.sleep(1000);
-                children = getLockWaiters(zkc, lockPath);
-            } while (children.size() < 3);
+            children = awaitWaiters(3, zkc, lockPath);
 
             assertEquals(3, children.size());
             assertEquals(State.CLAIMED, lock0_0.getLockState());
             assertEquals(lock0_0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
-            assertEquals(State.WAITING, lock1.getLockState());
+            awaitState(State.WAITING, lock1);
             assertEquals(lock1.getLockId(), Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(1))));
-            assertEquals(State.WAITING, lock0_1.getLockState());
+            awaitState(State.WAITING, lock0_1);
             assertEquals(lock0_1.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(2))));
         }
 

@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
+
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -58,12 +60,18 @@ public class ZooKeeperClientUtils {
             throw KeeperException.create(KeeperException.Code.CONNECTIONLOSS);
         }
         newZk.close();
-        Thread.sleep(2 * timeout);
-        try {
-            zkc.get().exists("/", false);
-        } catch (KeeperException ke) {
-            // expected
+
+        boolean done = false;
+        Stopwatch expireWait = Stopwatch.createStarted();
+        while (!done && expireWait.elapsed(TimeUnit.MILLISECONDS) < timeout*2) {
+            try {
+                zkc.get().exists("/", false);
+                done = true;
+            } catch (KeeperException ke) {
+                done = (ke.getCode() == KeeperException.Code.SESSIONEXPIRED.intValue());
+            }
         }
+
         assertTrue("Client should receive session expired event.",
                    expireLatch.await(timeout, TimeUnit.MILLISECONDS));
     }
