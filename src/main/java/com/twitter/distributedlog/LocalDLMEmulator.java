@@ -81,7 +81,6 @@ public class LocalDLMEmulator {
                 zks = LocalBookKeeper.runZookeeper(1000, zkPort, zkDir);
                 success = true;
             } catch (BindException be) {
-                logOpenSockets();
                 retries++;
                 if (retries > MAX_RETRIES) {
                     throw be;
@@ -94,20 +93,6 @@ public class LocalDLMEmulator {
         }
 
         return Pair.of(zks, zkPort);
-    }
-
-    /**
-     * Log process stdout.
-     */
-    private static void logOpenSockets() throws Exception {
-        final String LIST_CONNS_COMMAND = "lsof -P -n -i TCP";
-        Process p = Runtime.getRuntime().exec(LIST_CONNS_COMMAND);
-        p.waitFor();
-        BufferedReader stdout = new BufferedReader(new InputStreamReader(p.getInputStream()));
-        String s = null;
-        while ((s = stdout.readLine()) != null) {
-            LOG.info(s);
-        }
     }
 
     int nextPort = 6000; // next port for additionally created bookies
