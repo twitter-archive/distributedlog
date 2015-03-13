@@ -125,6 +125,10 @@ public class LocalDLMEmulator {
         this(numBookies, false, zkHost, zkPort, DEFAULT_BOOKIE_INITIAL_PORT);
     }
 
+    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort, final ServerConfiguration serverConf) throws Exception {
+        this(numBookies, false, zkHost, zkPort, DEFAULT_BOOKIE_INITIAL_PORT, serverConf);
+    }
+
     public LocalDLMEmulator(final int numBookies, final int initialBookiePort) throws Exception {
         this(numBookies, true, "127.0.0.1", 2181, initialBookiePort);
     }
@@ -134,14 +138,13 @@ public class LocalDLMEmulator {
     }
 
     private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
+        this(numBookies, shouldStartZK, zkHost, zkPort, initialBookiePort, new ServerConfiguration());
+    }
+
+    private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort, final ServerConfiguration serverConf) throws Exception {
         this.numBookies = numBookies;
         this.zkEnsemble = zkHost + ":" + zkPort;
         this.uri = URI.create("distributedlog://" + zkEnsemble + DLOG_NAMESPACE);
-
-        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        final ServerConfiguration serverConf = new ServerConfiguration();
-        serverConf.loadConf(classLoader.getResource("bk_server.conf"));
-
         bkthread = new Thread() {
             public void run() {
                 try {

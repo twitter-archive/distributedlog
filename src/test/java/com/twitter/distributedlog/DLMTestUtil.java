@@ -26,13 +26,16 @@ import com.twitter.util.Await;
 
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.commons.configuration.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -447,4 +450,18 @@ public class DLMTestUtil {
         zkc.get().setData(segment.getZkPath(), finalisedData, -1);
     }
 
+    public static ServerConfiguration loadTestBkConf() {
+        ServerConfiguration conf = new ServerConfiguration();
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        URL confUrl = classLoader.getResource("bk_server.conf");
+        try {
+            if (null != confUrl) {
+                conf.loadConf(confUrl);
+                LOG.info("loaded bk_server.conf from resources");
+            }
+        } catch (org.apache.commons.configuration.ConfigurationException ex) {
+            LOG.warn("loading conf failed", ex);
+        }
+        return conf;
+    }
 }

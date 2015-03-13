@@ -5,9 +5,11 @@ import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.finagle.builder.Server;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -38,10 +40,11 @@ public class DistributedLogCluster {
         int _zkPort = 0;
         boolean _shouldStartProxy = true;
         int _proxyPort = 7000;
-        DistributedLogConfiguration _conf = new DistributedLogConfiguration()
+        DistributedLogConfiguration _dlConf = new DistributedLogConfiguration()
                 .setLockTimeout(10)
                 .setOutputBufferSize(0)
                 .setImmediateFlushEnabled(true);
+        ServerConfiguration _bkConf = new ServerConfiguration();
 
         private Builder() {}
 
@@ -118,19 +121,32 @@ public class DistributedLogCluster {
         /**
          * DistributedLog Configuration
          *
-         * @param conf
+         * @param dlConf
          *          distributedlog configuration
          * @return builder
          */
-        public Builder conf(DistributedLogConfiguration conf) {
-            this._conf = conf;
+        public Builder dlConf(DistributedLogConfiguration dlConf) {
+            this._dlConf = dlConf;
+            return this;
+        }
+
+        /**
+         * Bookkeeper server configuration
+         *
+         * @param bkConf
+         *          bookkeeper server configuration
+         * @return builder
+         */
+        public Builder bkConf(ServerConfiguration bkConf) {
+            this._bkConf = bkConf;
             return this;
         }
 
         public DistributedLogCluster build() throws Exception {
             // build the cluster
             return new DistributedLogCluster(
-                    _conf,
+                    _dlConf,
+                    _bkConf,
                     _numBookies,
                     _shouldStartZK,
                     _zkHost,
@@ -151,7 +167,7 @@ public class DistributedLogCluster {
         public final InetSocketAddress address;
         public final Pair<DistributedLogServiceImpl, Server> dlServer;
 
-        protected DLServer(DistributedLogConfiguration conf, URI uri, int basePort) throws Exception {
+        protected DLServer(DistributedLogConfiguration dlConf, URI uri, int basePort) throws Exception {
             proxyPort = basePort;
 
             boolean success = false;
@@ -159,7 +175,7 @@ public class DistributedLogCluster {
             Pair<DistributedLogServiceImpl, Server> serverPair = null;
             while (!success) {
                 try {
-                    serverPair = DistributedLogServer.runServer(conf, uri, new NullStatsProvider(), proxyPort);
+                    serverPair = DistributedLogServer.runServer(dlConf, uri, new NullStatsProvider(), proxyPort);
                     success = true;
                 } catch (BindException be) {
                     retries++;
@@ -185,7 +201,7 @@ public class DistributedLogCluster {
         }
     }
 
-    private final DistributedLogConfiguration conf;
+    private final DistributedLogConfiguration dlConf;
     private final ZooKeeperServerShim zks;
     private final LocalDLMEmulator dlmEmulator;
     private DLServer dlServer;
@@ -193,24 +209,29 @@ public class DistributedLogCluster {
     private final int proxyPort;
     private final List<File> tmpDirs = new ArrayList<File>();
 
-    private DistributedLogCluster(DistributedLogConfiguration conf,
+    private DistributedLogCluster(DistributedLogConfiguration dlConf,
+                                  ServerConfiguration bkConf,
                                   int numBookies,
                                   boolean shouldStartZK,
                                   String zkServers,
                                   int zkPort,
                                   boolean shouldStartProxy,
                                   int proxyPort) throws Exception {
-        this.conf = conf;
+        this.dlConf = dlConf;
         if (shouldStartZK) {
             File zkTmpDir = IOUtils.createTempDir("zookeeper", "distrlog");
             tmpDirs.add(zkTmpDir);
-            Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkTmpDir);
-            this.zks = serverAndPort.getLeft();
-            zkPort = serverAndPort.getRight();
+            if (0 == zkPort) {
+                Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkTmpDir);
+                this.zks = serverAndPort.getLeft();
+                zkPort = serverAndPort.getRight();
+            } else {
+                this.zks = LocalBookKeeper.runZookeeper(1000, zkPort, zkTmpDir);
+            }
         } else {
             this.zks = null;
         }
-        this.dlmEmulator = new LocalDLMEmulator(numBookies, zkServers, zkPort);
+        this.dlmEmulator = new LocalDLMEmulator(numBookies, zkServers, zkPort, bkConf);
         this.shouldStartProxy = shouldStartProxy;
         this.proxyPort = proxyPort;
     }
@@ -220,7 +241,7 @@ public class DistributedLogCluster {
         BKDLConfig bkdlConfig = new BKDLConfig(this.dlmEmulator.getZkServers(), "/ledgers").setACLRootPath(".acl");
         DLMetadata.create(bkdlConfig).update(this.dlmEmulator.getUri());
         if (shouldStartProxy) {
-            this.dlServer = new DLServer(conf, this.dlmEmulator.getUri(), proxyPort);
+            this.dlServer = new DLServer(dlConf, this.dlmEmulator.getUri(), proxyPort);
         } else {
             this.dlServer = null;
         }

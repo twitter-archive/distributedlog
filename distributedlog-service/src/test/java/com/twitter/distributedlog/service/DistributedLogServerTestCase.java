@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
+import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.util.Duration;
@@ -10,6 +11,9 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.SocketAddress;
 import java.net.URI;
@@ -20,6 +24,8 @@ import java.util.Set;
 import static org.junit.Assert.*;
 
 public abstract class DistributedLogServerTestCase {
+
+    protected static final Logger LOG = LoggerFactory.getLogger(DistributedLogServerTestCase.class);
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
@@ -101,7 +107,8 @@ public abstract class DistributedLogServerTestCase {
                 .shouldStartZK(true)
                 .zkServers("127.0.0.1")
                 .shouldStartProxy(false)
-                .conf(conf)
+                .dlConf(conf)
+                .bkConf(DLMTestUtil.loadTestBkConf())
                 .build();
         dlCluster.start();
     }

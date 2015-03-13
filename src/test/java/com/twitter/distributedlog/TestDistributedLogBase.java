@@ -53,7 +53,7 @@ public class TestDistributedLogBase {
         Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkTmpDir);
         zks = serverAndPort.getLeft();
         zkPort = serverAndPort.getRight();
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", zkPort);
+        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", zkPort, DLMTestUtil.loadTestBkConf());
         bkutil.start();
         zkServers = "127.0.0.1:" + zkPort;
         success = true;
