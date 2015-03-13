@@ -29,8 +29,7 @@ public class TestTruncate extends TestDistributedLogBase {
         DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
     }
 
-    @FlakyTest
-    @Test
+    @Test(timeout = 60000)
     public void testPurgeLogs() throws Exception {
         String name = "distrlog-purge-logs";
         URI uri = createDLMURI("/" + name);
@@ -56,10 +55,12 @@ public class TestTruncate extends TestDistributedLogBase {
                 .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .build();
+
         // Update completion time of first 5 segments
-        for (int i = 1; i <= 5; i++) {
+        long newTimeMs = System.currentTimeMillis() - 60*60*1000*2;
+        for (int i = 0; i < 5; i++) {
             LogSegmentLedgerMetadata segment = segments.get(i);
-            updateCompletionTime(zkc, segment, i);
+            updateCompletionTime(zkc, segment, newTimeMs + i);
         }
         zkc.close();
 
@@ -70,6 +71,7 @@ public class TestTruncate extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         confLocal.setRetentionPeriodHours(1);
         confLocal.setSanityCheckDeletes(false);
+        confLocal.setExplicitTruncationByApplication(false);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
@@ -81,8 +83,7 @@ public class TestTruncate extends TestDistributedLogBase {
         DLSN lastDLSN = dlm.getLastDLSNAsync().get();
         LOG.info("Get last dlsn of stream {} : {}", name, lastDLSN);
 
-        segments = distributedLogManager.getLogSegments();
-        assertEquals(6, segments.size());
+        assertEquals(6, distributedLogManager.getLogSegments().size());
 
         writer.close();
         dlm.close();
@@ -125,7 +126,9 @@ public class TestTruncate extends TestDistributedLogBase {
     public void testExplicitTruncation() throws Exception {
         String name = "distrlog-truncation-explicit";
 
-        DistributedLogConfiguration confLocal = conf.setExplicitTruncationByApplication(true);
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setExplicitTruncationByApplication(true);
 
         Map<Long, DLSN> txid2DLSN = new HashMap<Long, DLSN>();
         Pair<DistributedLogManager, AsyncLogWriter> pair = populateData(txid2DLSN, confLocal, name);
