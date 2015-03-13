@@ -131,6 +131,9 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         writer.closeAndComplete();
 
         List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        logger.info("lastDLSNs after writes {} {}", lastDLSNs.size(), lastDLSNs);
+        logger.info("segments after writes {} {}", segments.size(), segments);
+        assertTrue(segments.size() >= 2);
         assertTrue(lastDLSNs.size() >= 2);
         assertEquals(lastDLSNs.size(), segments.size());
         for (LogSegmentLedgerMetadata segment : segments) {
@@ -403,6 +406,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             assertEquals(i, record.getTransactionId());
         }
 
+        reader.close();
         readDLM.close();
     }
 }

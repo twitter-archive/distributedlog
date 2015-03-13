@@ -798,7 +798,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
         return new BKDistributedLogManager(name, conf, uri, zkcBuilder, zkcBuilder, null, null, bkcBuilder, bkcBuilder,
-                SettableFeatureProvider.DISABLE_ALL, statsLogger);
+                new SettableFeatureProvider("", 0), statsLogger);
     }
 
     @Deprecated

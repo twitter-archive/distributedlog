@@ -197,7 +197,7 @@ public class LocalDLMEmulator {
                 }
             }
         });
-        if (!latch.await(3, TimeUnit.SECONDS)) {
+        if (!latch.await(10, TimeUnit.SECONDS)) {
             throw new IOException("Zookeeper took too long to connect");
         }
         return zkc;

@@ -70,12 +70,19 @@ public class TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", zkPort);
+        try {
+            zkc = LocalDLMEmulator.connectZooKeeper("127.0.0.1", zkPort);
+        } catch (Exception ex) {
+            LOG.error("hit exception connecting to zookeeper at {}:{}", new Object[] { "127.0.0.1", zkPort, ex });
+            throw ex;
+        }
     }
 
     @After
     public void teardown() throws Exception {
-        zkc.close();
+        if (null != zkc) {
+            zkc.close();
+        }
     }
 
     public URI createDLMURI(String path) throws Exception {

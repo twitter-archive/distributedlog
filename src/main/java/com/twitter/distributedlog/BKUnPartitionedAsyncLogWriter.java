@@ -20,6 +20,9 @@ import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -31,6 +34,8 @@ import java.util.concurrent.TimeUnit;
 import scala.Option;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
+
+    static final Logger LOG = LoggerFactory.getLogger(BKUnPartitionedAsyncLogWriter.class);
 
     static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>> {
 
