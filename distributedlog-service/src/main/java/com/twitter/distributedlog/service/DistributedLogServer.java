@@ -5,6 +5,7 @@ import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.finagle.Stack;
 import com.twitter.finagle.ThriftMuxServer$;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
@@ -13,8 +14,10 @@ import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientIdRequiredFilter;
 import com.twitter.finagle.thrift.ThriftServerFramedCodec;
+import com.twitter.finagle.transport.Transport;
 import com.twitter.ostrich.admin.Service;
 import com.twitter.ostrich.admin.ServiceTracker;
+import com.twitter.util.Duration;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -36,6 +39,9 @@ import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
+
+import scala.Option;
+import scala.Tuple2;
 
 public class DistributedLogServer implements Runnable {
 
@@ -197,11 +203,14 @@ public class DistributedLogServer implements Runnable {
                 .name("DistributedLogServer")
                 .codec(ThriftServerFramedCodec.get())
                 .reportTo(statsReceiver)
+                .keepAlive(true)
                 .bindTo(new InetSocketAddress(port));
 
         if (thriftmux) {
             logger.info("Using thriftmux.");
-            serverBuilder = serverBuilder.stack(ThriftMuxServer$.MODULE$);
+            Tuple2<Transport.Liveness, Stack.Param<Transport.Liveness>> livenessParam = new Transport.Liveness(
+                    Duration.Top(), Duration.Top(), Option.apply((Object) new Boolean(true))).mk();
+            serverBuilder = serverBuilder.stack(ThriftMuxServer$.MODULE$.configured(livenessParam._1(), livenessParam._2()));
         }
 
         // starts dl server
