@@ -1391,7 +1391,7 @@ public class DistributedLogClientBuilder {
                         doSend(op, addr);
                     } else if (cause instanceof ChannelException) {
                         routingService.removeHost(addr, cause);
-                        clearHostFromStream(op.stream, addr, cause.getMessage());
+                        clearHostFromStream(op.stream, addr, cause.toString());
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ServiceTimeoutException) {
@@ -1438,7 +1438,7 @@ public class DistributedLogClientBuilder {
 
             // Other Exceptions: as we don't know how to handle them properly so throw them to client
             logger.error("Failed to write request to {} @ {} : {}",
-                    new Object[]{op.stream, addr, null != cause.getMessage() ? cause.getMessage() : cause.getClass()});
+                    new Object[]{op.stream, addr, cause.toString()});
             op.fail(cause);
         }
 

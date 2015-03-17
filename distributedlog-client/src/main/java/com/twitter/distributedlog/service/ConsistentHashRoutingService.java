@@ -278,20 +278,20 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 circle.remove(shardId, host);
                 if (reason.isPresent()) {
                     if (reason.get() instanceof ChannelException) {
-                        logger.info("Shard {} ({}) left due to exception, black it out for {} seconds",
-                                new Object[] { shardId, host, blackoutSeconds, reason.get() });
+                        logger.info("Shard {} ({}) left due to ChannelException, black it out for {} seconds (message = {})",
+                                new Object[] { shardId, host, blackoutSeconds, reason.get().toString() });
                         BlackoutHost blackoutHost = new BlackoutHost(shardId, host);
                         hashedWheelTimer.newTimeout(blackoutHost, blackoutSeconds, TimeUnit.SECONDS);
                     } else {
-                        logger.info("Shard {} ({}) left due to exception",
-                                new Object[] { shardId, host, reason.get() });
+                        logger.info("Shard {} ({}) left due to exception {}",
+                                new Object[] { shardId, host, reason.get().toString() });
                     }
                 } else {
                     logger.info("Shard {} ({}) left after server set change",
                                 shardId, host);
                 }
             } else if (reason.isPresent()) {
-                logger.info("Node {} left due to to exception ", host, reason.get());
+                logger.info("Node {} left due to exception {}", host, reason.get().toString());
             } else {
                 logger.info("Node {} left after server set change", host);
             }
