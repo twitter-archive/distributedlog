@@ -1,3 +1,11 @@
+0.3.29
+------
+- Provide zookeeper watcher manager to manage watchers
+- Tests improvements
+- Write LogSegmentLedgerMetadata with specific version
+- Feature provider support from bookkeeper client
+- DistributedLogCluster util for run all dl components
+
 0.3.28
 ------
 - Update cached log segments after setting truncation status

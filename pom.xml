@@ -5,7 +5,7 @@
   <groupId>com.twitter</groupId>
   <artifactId>distributedlog</artifactId>
   <packaging>pom</packaging>
-  <version>0.3.29-SNAPSHOT</version>
+  <version>0.3.30-SNAPSHOT</version>
   <name>distributedlog</name>
   <distributionManagement>
     <repository>
@@ -47,7 +47,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <bookkeeper.version>4.2.25-TWTTR-NETTY-RC2</bookkeeper.version>
+    <bookkeeper.version>4.2.25-TWTTR-NETTY</bookkeeper.version>
     <birdcage.sha>20150311130037-d853159</birdcage.sha> <!-- go/publishing-birdcage -->
     <scrooge-maven-plugin.version>3.16.3</scrooge-maven-plugin.version>
   </properties>
