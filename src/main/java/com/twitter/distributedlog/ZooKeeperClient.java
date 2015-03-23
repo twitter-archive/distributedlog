@@ -19,6 +19,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.zk.ZKWatcherManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -37,8 +38,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -95,16 +94,6 @@ public class ZooKeeperClient {
         }
     }
 
-    private final static class SessionState {
-        private final long sessionId;
-        private final byte[] sessionPasswd;
-
-        private SessionState(long sessionId, byte[] sessionPasswd) {
-            this.sessionId = sessionId;
-            this.sessionPasswd = sessionPasswd;
-        }
-    }
-
     private static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClient.class.getName());
 
     private final String name;
@@ -114,7 +103,6 @@ public class ZooKeeperClient {
     // GuardedBy "this", but still volatile for tests, where we want to be able to see writes
     // made from within long synchronized blocks.
     private volatile ZooKeeper zooKeeper = null;
-    private SessionState sessionState = null;
     private final RetryPolicy retryPolicy;
     private final StatsLogger statsLogger;
     private final int retryThreadCount;
@@ -172,46 +160,22 @@ public class ZooKeeperClient {
         }
     }
 
-    /**
-     * Returns the current active ZK connection or establishes a new one if none has yet been
-     * established or a previous connection was disconnected or had its session time out.  This method
-     * will attempt to re-use sessions when possible.  Equivalent to:
-     * <pre>get(Amount.of(0L, ...)</pre>.
-     *
-     * @return a connected ZooKeeper client
-     * @throws ZooKeeperConnectionException if there was a problem connecting to the ZK cluster
-     * @throws InterruptedException if interrupted while waiting for a connection to be established
-     */
-    public synchronized ZooKeeper get() throws ZooKeeperConnectionException, InterruptedException {
-        try {
-            return get(defaultConnectionTimeoutMs);
-        } catch (TimeoutException e) {
-            InterruptedException interruptedException =
-                new InterruptedException("Got an unexpected TimeoutException for 0 wait");
-            interruptedException.initCause(e);
-            throw interruptedException;
-        }
-    }
-
     public ZKWatcherManager getWatcherManager() {
         return watcherManager;
     }
 
     /**
      * Returns the current active ZK connection or establishes a new one if none has yet been
-     * established or a previous connection was disconnected or had its session time out.  This
-     * method will attempt to re-use sessions when possible.
+     * established or a previous connection was disconnected or had its session time out.
      *
-     * @param connectionTimeoutMs the maximum amount of time to wait for the connection to the ZK
-     * cluster to be established; 0 to wait forever
      * @return a connected ZooKeeper client
      * @throws ZooKeeperConnectionException if there was a problem connecting to the ZK cluster
      * @throws InterruptedException if interrupted while waiting for a connection to be established
      * @throws TimeoutException if a connection could not be established within the configured
      * session timeout
      */
-    public synchronized ZooKeeper get(int connectionTimeoutMs)
-        throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
+    public synchronized ZooKeeper get()
+        throws ZooKeeperConnectionException, InterruptedException {
 
         try {
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_ZooKeeperConnectionLoss);
@@ -225,11 +189,7 @@ public class ZooKeeperClient {
         }
 
         if (zooKeeper == null) {
-            if (null != retryPolicy) {
-                zooKeeper = buildRetryableZooKeeper(connectionTimeoutMs);
-            } else {
-                zooKeeper = buildZooKeeper(connectionTimeoutMs);
-            }
+            zooKeeper = buildZooKeeper();
         }
 
         // In case authenticate throws an exception, the caller can try to recover the client by
@@ -242,8 +202,8 @@ public class ZooKeeperClient {
         return zooKeeper;
     }
 
-    private ZooKeeper buildRetryableZooKeeper(int connectionTimeout)
-        throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
+    private ZooKeeper buildZooKeeper()
+        throws ZooKeeperConnectionException, InterruptedException {
         Watcher watcher = new Watcher() {
             @Override
             public void process(WatchedEvent event) {
@@ -251,7 +211,17 @@ public class ZooKeeperClient {
                     case None:
                         switch (event.getState()) {
                             case Expired:
+                                if (null == retryPolicy) {
+                                    LOG.info("ZooKeeper {}' session expired. Event: {}", name, event);
+                                    closeInternal();
+                                }
+                                authenticated = false;
+                                break;
                             case Disconnected:
+                                if (null == retryPolicy) {
+                                    LOG.info("ZooKeeper {} is disconnected from zookeeper now," +
+                                            " but it is OK unless we received EXPIRED event.", name);
+                                }
                                 // Mark as not authenticated if expired or disconnected. In both cases
                                 // we lose any attached auth info. Relying on Expired/Disconnected is
                                 // sufficient since all Expired/Disconnected events are processed before
@@ -283,11 +253,17 @@ public class ZooKeeperClient {
 
         ZooKeeper zk;
         try {
+            RetryPolicy opRetryPolicy = null == retryPolicy ?
+                    new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, 0) : retryPolicy;
+            RetryPolicy connectRetryPolicy = null == retryPolicy ?
+                    new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, 0) :
+                    new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE);
             zk = org.apache.bookkeeper.zookeeper.ZooKeeperClient.newBuilder()
                     .connectString(zooKeeperServers)
                     .sessionTimeoutMs(sessionTimeoutMs)
                     .watchers(watchers)
-                    .operationRetryPolicy(retryPolicy)
+                    .operationRetryPolicy(opRetryPolicy)
+                    .connectRetryPolicy(connectRetryPolicy)
                     .statsLogger(statsLogger)
                     .retryThreadCount(retryThreadCount)
                     .requestRateLimit(requestRateLimit)
@@ -297,75 +273,6 @@ public class ZooKeeperClient {
         } catch (IOException e) {
             throw new ZooKeeperConnectionException("Problem connecting to servers: " + zooKeeperServers, e);
         }
-        return zk;
-    }
-
-    private ZooKeeper buildZooKeeper(int connectionTimeoutMs)
-        throws ZooKeeperConnectionException, InterruptedException, TimeoutException {
-        final CountDownLatch connected = new CountDownLatch(1);
-        Watcher watcher = new Watcher() {
-            @Override
-            public void process(WatchedEvent event) {
-                switch (event.getType()) {
-                    // Guard the None type since this watch may be used as the default watch on calls by
-                    // the client outside our control.
-                    case None:
-                        switch (event.getState()) {
-                            case Expired:
-                                LOG.info("Zookeeper {} 's session expired. Event: {}", name, event);
-                                closeInternal();
-                                authenticated = false;
-                                break;
-                            case Disconnected:
-                                LOG.info("ZooKeeper client is disconnected from zookeeper now, but it is OK unless we received EXPIRED event.");
-                                authenticated = false;
-                                break;
-                            case SyncConnected:
-                                connected.countDown();
-                                break;
-                            default:
-                                break;
-                        }
-                }
-
-                for (Watcher watcher : watchers) {
-                    try {
-                        watcher.process(event);
-                    } catch (Throwable t) {
-                        LOG.warn("Encountered unexpected exception from watcher {} : ", watcher, t);
-                    }
-                }
-            }
-        };
-
-        ZooKeeper zk;
-        try {
-            zk = (sessionState != null)
-                ? new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher, sessionState.sessionId,
-                sessionState.sessionPasswd)
-                : new ZooKeeper(zooKeeperServers, sessionTimeoutMs, watcher);
-        } catch (IOException e) {
-            throw new ZooKeeperConnectionException(
-                "Problem connecting to servers: " + zooKeeperServers, e);
-        }
-
-        if (connectionTimeoutMs > 0) {
-            if (!connected.await(connectionTimeoutMs, TimeUnit.MILLISECONDS)) {
-                closeInternal();
-                throw new TimeoutException("Timed out waiting for a ZK connection after "
-                    + connectionTimeoutMs + " for client " + name);
-            }
-        } else {
-            try {
-                connected.await();
-            } catch (InterruptedException ex) {
-                LOG.info("Interrupted while waiting to connect to zooKeeper {} : ", name, ex);
-                closeInternal();
-                throw ex;
-            }
-        }
-
-        sessionState = new SessionState(zk.getSessionId(), zk.getSessionPasswd());
         return zk;
     }
 
@@ -433,7 +340,6 @@ public class ZooKeeperClient {
                 LOG.warn("Interrupted trying to close zooKeeper {} : ", name, e);
             } finally {
                 zooKeeper = null;
-                sessionState = null;
             }
         }
     }
