@@ -840,8 +840,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     }
 
     void scheduleFlushWithDelayIfNeeded(final Callable<?> callable,
-                                        final AtomicReference<ScheduledFuture<?>> scheduledFutureRef,
-                                        long delayMs) {
+                                        final AtomicReference<ScheduledFuture<?>> scheduledFutureRef) {
+        final long delayMs = Math.max(0, minDelayBetweenImmediateFlushMs - lastTransmit.elapsed(TimeUnit.MILLISECONDS));
         final ScheduledFuture<?> scheduledFuture = scheduledFutureRef.get();
         if ((null == scheduledFuture) || scheduledFuture.isDone()) {
             scheduledFutureRef.set(executorService.schedule(new Runnable() {
@@ -864,8 +864,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     // packet now.
     void flushIfNeeded() throws IOException {
         if (outstandingBytes > transmissionThreshold) {
-            long timeSinceLastTransmit = lastTransmit.elapsed(TimeUnit.MILLISECONDS);
-            if (minDelayBetweenImmediateFlushMs <= timeSinceLastTransmit) {
+            // If flush delay is disabled, flush immediately, else schedule appropriately.
+            if (0 == minDelayBetweenImmediateFlushMs) {
                 setReadyToFlush();
             } else {
                 scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
@@ -874,7 +874,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                         setReadyToFlush();
                         return null;
                     }
-                }, transmitSchedFutureRef, minDelayBetweenImmediateFlushMs - timeSinceLastTransmit);
+                }, transmitSchedFutureRef);
             }
         }
     }
@@ -1163,13 +1163,17 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                     transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.size());
                     controlFlushNeeded = true;
                     if (immediateFlushEnabled) {
-                        scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
-                            @Override
-                            public Void call() throws Exception {
-                                backgroundFlush(true);
-                                return null;
-                            }
-                        }, immFlushSchedFutureRef, Math.max(0, minDelayBetweenImmediateFlushMs - lastTransmit.elapsed(TimeUnit.MILLISECONDS)));
+                        if (0 == minDelayBetweenImmediateFlushMs) {
+                            backgroundFlush(true);
+                        } else {
+                            scheduleFlushWithDelayIfNeeded(new Callable<Void>() {
+                                @Override
+                                public Void call() throws Exception {
+                                    backgroundFlush(true);
+                                    return null;
+                                }
+                            }, immFlushSchedFutureRef);
+                        }
                     }
                 }
             }

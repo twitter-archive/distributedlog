@@ -22,6 +22,8 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -35,6 +37,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 public class TestDLCK extends TestDistributedLogBase {
+
+    static final Logger LOG = LoggerFactory.getLogger(TestDLCK.class);
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
@@ -103,6 +107,7 @@ public class TestDLCK extends TestDistributedLogBase {
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentLedgerMetadata> segments = getLogSegments(dlm);
+        LOG.info("segments after drynrun {}", segments);
         verifyLogSegment(segments, new DLSN(1L, 18L, 0L), 1L, 10, 10L);
         verifyLogSegment(segments, new DLSN(2L, 16L, 0L), 2L, 9, 19L);
         verifyLogSegment(segments, new DLSN(3L, 18L, 0L), 3L, 10, 30L);
@@ -115,6 +120,7 @@ public class TestDLCK extends TestDistributedLogBase {
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);
+        LOG.info("segments after repair {}", segments);
         verifyLogSegment(segments, new DLSN(1L, 18L, 0L), 1L, 10, 10L);
         verifyLogSegment(segments, new DLSN(2L, 18L, 0L), 2L, 10, 20L);
         verifyLogSegment(segments, new DLSN(3L, 18L, 0L), 3L, 10, 30L);
