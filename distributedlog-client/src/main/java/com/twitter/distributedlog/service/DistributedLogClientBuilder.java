@@ -1331,7 +1331,7 @@ public class DistributedLogClientBuilder {
                             handleRedirectResponse(header, op, addr);
                             break;
                         // for responses that indicate the requests definitely failed,
-                        // we should fail them immediately (e.g. BAD_REQUEST, TOO_LARGE_RECORD, METADATA_EXCEPTION)
+                        // we should fail them immediately (e.g. TOO_LARGE_RECORD, METADATA_EXCEPTION)
                         case NOT_IMPLEMENTED:
                         case METADATA_EXCEPTION:
                         case LOG_EMPTY:
@@ -1342,6 +1342,7 @@ public class DistributedLogClientBuilder {
                         case INVALID_STREAM_NAME:
                         case OVER_CAPACITY:
                         case REQUEST_DENIED:
+                        case TOO_LARGE_RECORD:
                         // status code NOT_READY is returned if failfast is enabled in the server. don't redirect
                         // since the proxy may still own the stream.
                         case STREAM_NOT_READY:
