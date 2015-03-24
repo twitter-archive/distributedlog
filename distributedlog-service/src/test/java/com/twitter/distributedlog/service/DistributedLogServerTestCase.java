@@ -52,7 +52,7 @@ public abstract class DistributedLogServerTestCase {
                         .clientBuilder(ClientBuilder.get()
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
-                            .requestTimeout(Duration.fromSeconds(10)));
+                            .requestTimeout(Duration.fromSeconds(60)));
             dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
         }
 

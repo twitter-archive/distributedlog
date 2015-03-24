@@ -112,7 +112,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     }
 
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingRead() throws Exception {
         String name = "distrlog-non-blocking-reader";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -142,7 +142,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         executor.shutdown();
     }
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadWithForceBlockingReads() throws Exception {
         String name = "distrlog-non-blocking-reader-force-blocking";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -172,7 +172,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         executor.shutdown();
     }
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadRecovery() throws Exception {
         String name = "distrlog-non-blocking-reader-recovery";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -203,7 +203,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     }
 
     @FlakyTest
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadNotification() throws Exception {
         String name = "distrlog-non-blocking-reader-notification";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -233,7 +233,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     }
 
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadRecoveryWithNotification() throws Exception {
         String name = "distrlog-non-blocking-reader-recovery-notification";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -264,7 +264,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         executor.shutdown();
     }
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadIdleError() throws Exception {
         String name = "distrlog-non-blocking-reader-error";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -301,7 +301,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         executor.shutdown();
     }
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadAheadStall() throws Exception {
         String name = "distrlog-non-blocking-reader-stall";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -340,7 +340,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     }
 
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadWithForceRead() throws Exception {
         String name = "distrlog-non-blocking-reader-force-read";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -378,7 +378,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         Assert.assertTrue(exceptionEncountered);
     }
 
-    @Test(timeout = 10000)
+    @Test(timeout = 60000)
     public void testNonBlockingReadWithForceReadDisable() throws Exception {
         String name = "distrlog-non-blocking-reader-force-read-disable";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
