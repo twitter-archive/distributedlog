@@ -38,6 +38,8 @@ import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.CachingStatsLogger;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
@@ -46,6 +48,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
@@ -271,16 +274,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final OpStatsLogger addCompleteDeferredTime;
     private final Counter pendingWrites;
 
-    // alert stats
-    private final AlertStatsLogger alertStatsLogger;
-
     // add complete processing
     private final SafeQueueingFuturePool<Void> addCompleteFuturePool;
 
-    // write rate limiter
+    private final AlertStatsLogger alertStatsLogger;
     private final WriteLimiter writeLimiter;
-
-    // failure injection
     private final FailureInjector failureInjector;
 
     // manage failure injection for the class
@@ -323,7 +321,8 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                                    FuturePool orderedFuturePool,
                                    StatsLogger statsLogger,
                                    AlertStatsLogger alertStatsLogger,
-                                   PermitLimiter globalWriteLimiter)
+                                   PermitLimiter globalWriteLimiter,
+                                   FeatureProvider featureProvider)
         throws IOException {
         super();
 
@@ -332,15 +331,16 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (conf.getPerWriterOutstandingWriteLimit() < 0) {
             streamWriteLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
+            Feature disableWriteLimitFeature = featureProvider.getFeature(
+                CoreFeatureKeys.DISABLE_WRITE_LIMIT.name().toLowerCase());
             streamWriteLimiter = new SimplePermitLimiter(
                 conf.getOutstandingWriteLimitDarkmode(),
                 conf.getPerWriterOutstandingWriteLimit(),
                 statsLogger.scope("streamWriteLimiter"),
-                false);
+                false,
+                disableWriteLimitFeature);
         }
         this.writeLimiter = new WriteLimiter(streamName, streamWriteLimiter, globalWriteLimiter);
-
-        // alert stats
         this.alertStatsLogger = alertStatsLogger;
 
         // stats

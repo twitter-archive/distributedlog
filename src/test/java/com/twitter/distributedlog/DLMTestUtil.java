@@ -27,6 +27,7 @@ import com.twitter.util.Await;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.commons.configuration.ConfigurationException;
@@ -165,7 +166,8 @@ public class DLMTestUtil {
             new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert"),
             "localhost",
             DistributedLogConstants.LOCAL_REGION_ID,
-            PermitLimiter.NULL_PERMIT_LIMITER);
+            PermitLimiter.NULL_PERMIT_LIMITER,
+            new SettableFeatureProvider("", 0));
 
         return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
@@ -383,7 +385,8 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0));
         if (writeEntries) {
             long txid = startTxID;
             for (long j = 1; j <= segmentSize; j++) {
@@ -424,7 +427,8 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER);
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0));
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {

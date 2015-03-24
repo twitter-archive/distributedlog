@@ -7,5 +7,6 @@ public enum CoreFeatureKeys {
     // @Deprecated: bkc features are managed by bookkeeper prefixed with a scope
     DISABLE_DURABILITY_ENFORCEMENT,
     // disabling logsegment rolling
-    DISABLE_LOGSEGMENT_ROLLING
+    DISABLE_LOGSEGMENT_ROLLING,
+    DISABLE_WRITE_LIMIT,
 }

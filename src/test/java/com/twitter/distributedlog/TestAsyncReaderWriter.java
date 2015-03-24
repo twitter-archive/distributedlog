@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.base.Stopwatch;
 
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
 import org.junit.Test;
@@ -1408,7 +1409,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutstandingWriteLimitDarkmode(false);
         DistributedLogManager dlm = createNewDLM(confLocal, runtime.getMethodName());
         if (global > -1) {
-            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(false, global, new NullStatsLogger(), true));
+            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(
+                false, global, new NullStatsLogger(), true, new FixedValueFeature("", 0)));
         }
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);

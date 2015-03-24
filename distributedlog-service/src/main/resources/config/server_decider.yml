@@ -8,3 +8,5 @@ bkc.disable_ensemble_change:
   default_availability: 0
 dl.disable_logsegment_rolling:
   default_availability: 0
+dl.disable_write_limit:
+  default_availability: 0

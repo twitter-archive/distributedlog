@@ -3,6 +3,7 @@ package com.twitter.distributedlog.util;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.Counter;
@@ -13,17 +14,19 @@ import org.slf4j.LoggerFactory;
 public class SimplePermitLimiter implements PermitLimiter {
 
     static final Logger LOG = LoggerFactory.getLogger(SimplePermitLimiter.class);
-    Counter acquireFailureCounter;
-    OpStatsLogger permitsMetric;
+    final Counter acquireFailureCounter;
+    final OpStatsLogger permitsMetric;
+    final AtomicInteger permits;
+    final int permitsMax;
+    final boolean darkmode;
+    final Feature disableWriteLimitFeature;
 
-    AtomicInteger permits;
-    int permitsMax;
-    boolean darkmdode;
-
-    public SimplePermitLimiter(boolean darkmdode, int permitsMax, StatsLogger statsLogger, boolean singleton) {
+    public SimplePermitLimiter(boolean darkmode, int permitsMax, StatsLogger statsLogger,
+                               boolean singleton, Feature disableWriteLimitFeature) {
         this.permits = new AtomicInteger(0);
         this.permitsMax = permitsMax;
-        this.darkmdode = darkmdode;
+        this.darkmode = darkmode;
+        this.disableWriteLimitFeature = disableWriteLimitFeature;
 
         // stats
         if (singleton) {
@@ -42,10 +45,14 @@ public class SimplePermitLimiter implements PermitLimiter {
         permitsMetric = statsLogger.getOpStatsLogger("permits");
     }
 
+    public boolean isDarkmode() {
+        return darkmode || disableWriteLimitFeature.isAvailable();
+    }
+
     @Override
     public boolean acquire() {
         permitsMetric.registerSuccessfulEvent(permits.get());
-        if (permits.incrementAndGet() <= permitsMax || darkmdode) {
+        if (permits.incrementAndGet() <= permitsMax || isDarkmode()) {
             return true;
         } else {
             acquireFailureCounter.inc();

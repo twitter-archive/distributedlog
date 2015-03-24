@@ -8,6 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.CreateMode;
@@ -63,10 +64,11 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    AlertStatsLogger alertStatsLogger,
                                    String clientId,
                                    int regionId,
-                                   PermitLimiter writeLimiter) throws IOException {
+                                   PermitLimiter writeLimiter,
+                                   FeatureProvider featureProvider) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, orderedFuturePool, lockStateExecutor,
-              allocator, true, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
+              allocator, true, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider);
         // Construct ledger allocator
         if (null == allocator) {
             ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
@@ -285,7 +287,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
-                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter);
+                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
+                featureProvider);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed
             // to be best effort, we can retry this later

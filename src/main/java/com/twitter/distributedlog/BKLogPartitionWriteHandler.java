@@ -32,6 +32,7 @@ import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -73,7 +74,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
         ScheduledExecutorService.class, FuturePool.class, OrderedSafeExecutor.class,
-        LedgerAllocator.class, StatsLogger.class, AlertStatsLogger.class, String.class, int.class, PermitLimiter.class
+        LedgerAllocator.class, StatsLogger.class, AlertStatsLogger.class, String.class, int.class,
+        PermitLimiter.class, FeatureProvider.class
     };
 
 
@@ -91,11 +93,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        AlertStatsLogger alertStatsLogger,
                                                                        String clientId,
                                                                        int regionId,
-                                                                       PermitLimiter writeLimiter) throws IOException {
+                                                                       PermitLimiter writeLimiter,
+                                                                       FeatureProvider featureProvider) throws IOException {
         if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
                     executorService, orderedFuturePool, lockStateExecutor, ledgerAllocator,
-                    false, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter);
+                    false, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
                 try {
@@ -117,7 +120,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             Object[] arguments = {
                     name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
                     executorService, orderedFuturePool, lockStateExecutor,
-                    ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter
+                    ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider
             };
             try {
                 return constructor.newInstance(arguments);
@@ -160,6 +163,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     protected final RollingPolicy rollingPolicy;
     protected boolean lockHandler = false;
     protected final PermitLimiter writeLimiter;
+    protected final FeatureProvider featureProvider;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -309,12 +313,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                AlertStatsLogger alertStatsLogger,
                                String clientId,
                                int regionId,
-                               PermitLimiter writeLimiter) throws IOException {
+                               PermitLimiter writeLimiter,
+                               FeatureProvider featureProvider) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               executorService, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.orderedFuturePool = orderedFuturePool;
         this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
+        this.featureProvider = featureProvider;
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -725,7 +731,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                      new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName,
                     conf, conf.getDLLedgerMetadataLayoutVersion(), lh, lock, txId, ledgerSeqNo,
-                    executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter);
+                    executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
+                    featureProvider);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
             if (lh != null) {

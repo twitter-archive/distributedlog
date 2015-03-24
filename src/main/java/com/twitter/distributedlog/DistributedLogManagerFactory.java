@@ -11,6 +11,7 @@ import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
@@ -22,6 +23,7 @@ import com.twitter.distributedlog.util.SimplePermitLimiter;
 
 import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -255,11 +257,14 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (conf.getGlobalOutstandingWriteLimit() < 0) {
             this.writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
+            Feature disableWriteLimitFeature = featureProvider.getFeature(
+                CoreFeatureKeys.DISABLE_WRITE_LIMIT.name().toLowerCase());
             this.writeLimiter = new SimplePermitLimiter(
                 conf.getOutstandingWriteLimitDarkmode(),
                 conf.getGlobalOutstandingWriteLimit(),
                 statsLogger.scope("writeLimiter"),
-                true /* singleton */);
+                true /* singleton */,
+                disableWriteLimitFeature);
         }
 
         // propagate bkdlConfig to configuration
