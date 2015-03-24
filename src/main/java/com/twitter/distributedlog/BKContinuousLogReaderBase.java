@@ -22,7 +22,7 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, Closeable, AsyncNotification {
+public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKeeperSessionExpireNotifier, Closeable {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderBase.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
@@ -33,7 +33,6 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     private Watcher sessionExpireWatcher = null;
     private boolean zkSessionExpired = false;
     private volatile boolean endOfStreamEncountered = false;
-    private LogReader.ReaderNotification notification = null;
     protected DLSN nextDLSN = DLSN.InvalidDLSN;
     protected boolean simulateErrors = false;
     private final int idleWarnThresholdMillis;
@@ -263,60 +262,6 @@ public abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKe
     @VisibleForTesting
     public void simulateErrors() {
         simulateErrors = true;
-    }
-
-    /**
-     * Triggered when the background activity encounters an exception
-     */
-    @Override
-    public synchronized void notifyOnError() {
-        if (null != notification) {
-            notification.notifyNextRecordAvailable();
-            notification = null;
-            bkLedgerManager.setNotification(null);
-        }
-    }
-
-    /**
-     * Triggered when the background activity completes an operation
-     */
-    @Override
-    public synchronized void notifyOnOperationComplete() {
-        if (null != notification) {
-            notification.notifyNextRecordAvailable();
-            notification = null;
-            bkLedgerManager.setNotification(null);
-        }
-    }
-
-    /**
-     * Register for notifications of changes to background reader when using
-     * non blocking semantics
-     *
-     * @param readNotification Implementation of the ReaderNotification interface whose methods
-     * are called when new data is available or when the reader errors out
-     */
-    public synchronized void registerNotification(LogReader.ReaderNotification readNotification) {
-        if ((null != notification) && (null != readNotification)) {
-            throw new IllegalStateException("Notification already registered for " + bkLedgerManager.getFullyQualifiedName());
-        }
-
-        this.notification = readNotification;
-        try {
-            // Set the notification first and then check for errors so we don't
-            // miss errors set by the read ahead task
-            bkLedgerManager.setNotification(this);
-
-            checkClosedOrInError("registerNotification");
-
-            if ((null != currentReader) && currentReader.canResume()) {
-                notifyOnOperationComplete();
-            }
-            LOG.debug("Registered for notification {}", bkLedgerManager.getFullyQualifiedName());
-        } catch (IOException exc) {
-            LOG.error("registerNotification encountered exception", exc);
-            notifyOnError();
-        }
     }
 
     protected synchronized boolean getForceBlockingRead() {

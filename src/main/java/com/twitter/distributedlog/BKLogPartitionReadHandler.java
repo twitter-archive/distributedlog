@@ -665,38 +665,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    public void setNotification(final AsyncNotification notification) {
-        // If we are setting a notification, then we must ensure that
-        // read ahead has already been started. Once we have the read
-        // ahead setup, it will notify on errors or successful reads
-        // If we don't have read ahead setup then there are two possibilities
-        // 1. There is nothing in the log => we must exit immediately, this is
-        // mostly applicable only for tests
-        // 2. We don't have a log segment beyond the start read point, in this case
-        // we set a watcher on the ledger root and wait for changes
-        //
-        if ((null != notification) && (null == readAheadWorker)) {
-            try {
-                setWatcherOnLedgerRoot(new Watcher() {
-                    @Override
-                    public void process(WatchedEvent event) {
-                        notification.notifyOnOperationComplete();
-                    }
-                });
-            } catch (InterruptedException exc) {
-                // Propagate the interrupt bit
-                Thread.currentThread().interrupt();
-                notification.notifyOnError();
-            } catch (KeeperException exc) {
-                notification.notifyOnError();
-            } catch (ZooKeeperClient.ZooKeeperConnectionException exc) {
-                notification.notifyOnError();
-            }
-        }
-
-        ledgerDataAccessor.setNotification(notification);
-    }
-
     public void checkClosedOrInError() throws LogReadException, DLInterruptedException, AlreadyTruncatedTransactionException {
         if (readingFromTruncated) {
             throw new AlreadyTruncatedTransactionException(
@@ -1337,6 +1305,15 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
             @Override
             void process(int rc) {
+                if (!running) {
+                    tracker.enterPhase(ReadAheadPhase.STOPPED);
+                    synchronized (stopNotification) {
+                        stopNotification.notifyAll();
+                    }
+                    LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
+                    return;
+                }
+
                 tracker.enterPhase(ReadAheadPhase.GET_LEDGERS);
 
                 inProgressChanged = false;

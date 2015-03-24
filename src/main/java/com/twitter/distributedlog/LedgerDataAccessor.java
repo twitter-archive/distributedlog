@@ -47,7 +47,7 @@ public class LedgerDataAccessor {
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
     private AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
-    private volatile AsyncNotification notification;
+    private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
@@ -97,10 +97,6 @@ public class LedgerDataAccessor {
         if (getNumCacheEntries() < maxEntries) {
             invokeReadAheadCallback();
         }
-    }
-
-    public void setNotification(AsyncNotification notification) {
-        this.notification = notification;
     }
 
     public void setReadAheadEnabled(int waitTime, int batchSize) {
