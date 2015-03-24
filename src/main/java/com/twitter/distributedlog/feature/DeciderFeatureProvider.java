@@ -86,12 +86,12 @@ public class DeciderFeatureProvider extends AbstractFeatureProvider<DeciderFeatu
     }
 
     @Override
-    protected DeciderFeature makeFeature(String name) {
-        return new DeciderFeature(makeName(name), decider, statsLogger);
+    protected DeciderFeature makeFeature(String featureName) {
+        return new DeciderFeature(featureName, decider, statsLogger);
     }
 
     @Override
-    protected FeatureProvider makeProvider(String scope) {
-        return new DeciderFeatureProvider(makeName(scope), conf, decider, statsLogger);
+    protected FeatureProvider makeProvider(String fullScopeName) {
+        return new DeciderFeatureProvider(fullScopeName, conf, decider, statsLogger);
     }
 }
