@@ -15,6 +15,7 @@ import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
+import com.twitter.distributedlog.util.MonitoredFuturePool;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -44,6 +45,7 @@ import java.net.URI;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -103,8 +105,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private PermitManager logSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
     // read handler for listener.
     private BKLogPartitionReadHandler readHandlerForListener = null;
-    private ExecutorServiceFuturePool orderedFuturePool = null;
-    private ExecutorServiceFuturePool readerFuturePool = null;
+    private ExecutorService orderedFuturePoolExecutorService = null;
+    private FuturePool orderedFuturePool = null;
+    private FuturePool readerFuturePool = null;
     private OrderedSafeExecutor lockStateExecutor;
 
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
@@ -249,7 +252,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @VisibleForTesting
-    ExecutorServiceFuturePool getReaderFuturePool() {
+    FuturePool getReaderFuturePool() {
         return this.readerFuturePool;
     }
 
@@ -1107,8 +1110,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL Lock State Executor for {}.", name);
         } else {
-            if (null != orderedFuturePool) {
-                SchedulerUtils.shutdownScheduler(orderedFuturePool.executor(), schedTimeout, TimeUnit.MILLISECONDS);
+            if (null != orderedFuturePoolExecutorService) {
+                SchedulerUtils.shutdownScheduler(orderedFuturePoolExecutorService, schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped Ordered Future Pool for {}.", name);
             }
         }
@@ -1136,6 +1139,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    private FuturePool buildFuturePool(ExecutorService executorService) {
+        FuturePool futurePool = new ExecutorServiceFuturePool(executorService);
+        MonitoredFuturePool monitoredFuturePool = new MonitoredFuturePool(
+            futurePool, statsLogger.scope("ordered_future_pool"), conf.getEnableTaskExecutionStats(),
+            conf.getTaskExecutionWarnTimeMicros());
+        return monitoredFuturePool;
+    }
+
     private void initializeFuturePool(boolean ordered) {
         // Note for orderedFuturePool:
         // Single Threaded Future Pool inherently preserves order by tasks one by one
@@ -1144,17 +1155,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             // ownExecutor is a single threaded thread pool
             if (null == orderedFuturePool) {
                 // Readers share the same future pool as the orderedFuturePool
-                orderedFuturePool = new ExecutorServiceFuturePool(executorService);
+                orderedFuturePool = buildFuturePool(executorService);
                 readerFuturePool = orderedFuturePool;
             }
         } else if (ordered && (null == orderedFuturePool)) {
             // When we are using a thread pool that was passed from the factory, we can use
             // the executor service
-            orderedFuturePool = new ExecutorServiceFuturePool(Executors.newScheduledThreadPool(1,
-                new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build()));
+            orderedFuturePoolExecutorService = Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build());
+            orderedFuturePool = buildFuturePool(orderedFuturePoolExecutorService);
         } else if (!ordered && (null == readerFuturePool)) {
             // readerFuturePool can just use the executor service that was configured with the DLM
-            readerFuturePool = new ExecutorServiceFuturePool(executorService);
+            readerFuturePool = buildFuturePool(executorService);
         }
     }
 

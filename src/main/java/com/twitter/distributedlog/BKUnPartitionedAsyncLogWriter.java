@@ -355,9 +355,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         // the flatMap alternative, "futurePool { getWriter } flatMap { asyncWrite }".
         final Stopwatch stopwatch = Stopwatch.createStarted();
         return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
+            @Override
             public Future<DLSN> applyE() throws IOException {
                 writeQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 return asyncWrite(record);
+            }
+            @Override
+            public String toString() {
+                return String.format("LogWrite(Stream=%s)", getStreamName());
             }
         })).addEventListener(new OpStatsListener(writeOpStatsLogger, stopwatch));
     }
@@ -374,9 +379,14 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     public Future<List<Future<DLSN>>> writeBulk(final List<LogRecord> records) {
         final Stopwatch stopwatch = Stopwatch.createStarted();
         return orderedFuturePool.apply(new ExceptionalFunction0<List<Future<DLSN>>>() {
+            @Override
             public List<Future<DLSN>> applyE() throws IOException {
                 bulkWriteQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 return asyncWriteBulk(records);
+            }
+            @Override
+            public String toString() {
+                return String.format("BulkLogWrite(Stream=%s)", getStreamName());
             }
         }).addEventListener(new OpStatsListener(bulkWriteOpStatsLogger, stopwatch));
     }
@@ -388,6 +398,10 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             public Void applyE() throws Throwable {
                 return null;
             }
+            @Override
+            public String toString() {
+                return String.format("LogNop(Stream=%s)", getStreamName());
+            }
         });
     }
 
@@ -397,6 +411,10 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             @Override
             public BKLogPartitionWriteHandler applyE() throws Throwable {
                 return getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
+            }
+            @Override
+            public String toString() {
+                return String.format("Truncate(Stream=%s, DLSN=%s)", getStreamName(), dlsn);
             }
         }).flatMap(new TruncationFunction(dlsn));
     }
@@ -409,6 +427,10 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             public Long applyE() throws Throwable {
                 setReadyToFlush();
                 return flushAndSync();
+            }
+            @Override
+            public String toString() {
+                return String.format("FlushAndSyncAll(Stream=%s)", getStreamName());
             }
         });
     }

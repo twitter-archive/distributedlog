@@ -257,6 +257,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_TRACE_READAHEAD_METADATA_CHANGES = "traceReadAheadMetadataChanges";
     public static final boolean BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT = false;
 
+    public final static String BKDL_ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
+    public final static boolean BKDL_ENABLE_TASK_EXECUTION_STATS_DEFAULT = false;
+
+    public final static String BKDL_TASK_EXECUTION_WARN_TIME_MICROS = "taskExecutionWarnTimeMicros";
+    public final static long BKDL_TASK_EXECUTION_WARN_TIME_MICROS_DEFAULT = 100000;
+
     public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
     public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
 
@@ -1888,6 +1894,53 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_TRACE_READAHEAD_METADATA_CHANGES, enabled);
         return this;
     }
+
+    /**
+     * Whether to trace long running tasks and record task execution stats in thread pools.
+     *
+     * @return flag to enable task execution stats
+     */
+    public boolean getEnableTaskExecutionStats() {
+        return getBoolean(BKDL_ENABLE_TASK_EXECUTION_STATS, BKDL_ENABLE_TASK_EXECUTION_STATS_DEFAULT);
+    }
+
+    /**
+     * Set to trace long running tasks and record task execution stats in thread pools.
+     *
+     * @see #getEnableTaskExecutionStats()
+     *
+     * @param enabled
+     *          flag to enable task execution stats.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setEnableTaskExecutionStats(boolean enabled) {
+        setProperty(BKDL_ENABLE_TASK_EXECUTION_STATS, enabled);
+        return this;
+    }
+
+    /**
+     * Report long running task after execution takes longer than the given interval.
+     *
+     * @return warn time for long running tasks
+     */
+    public long getTaskExecutionWarnTimeMicros() {
+        return getLong(BKDL_TASK_EXECUTION_WARN_TIME_MICROS, BKDL_TASK_EXECUTION_WARN_TIME_MICROS_DEFAULT);
+    }
+
+    /**
+     * Set warn time for reporting long running tasks.
+     *
+     * @see #getTaskExecutionWarnTimeMicros()
+     *
+     * @param warnTimeMicros
+     *          warn time for long running tasks.
+     * @return dl configuration.
+     */
+    public DistributedLogConfiguration setTaskExecutionWarnTimeMicros(long warnTimeMicros) {
+        setProperty(BKDL_TASK_EXECUTION_WARN_TIME_MICROS, warnTimeMicros);
+        return this;
+    }
+
 
     /**
      * Whether to enable per stream stat or not.

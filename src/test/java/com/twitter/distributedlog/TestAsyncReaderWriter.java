@@ -644,11 +644,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                        new CountDownLatch(1));
     }
 
-    @Test
-    public void testSimpleAsyncRead() throws Exception {
-        String name = "distrlog-simpleasyncread";
-        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.loadConf(testConf);
+    public void simpleAsyncReadTest(String name, DistributedLogConfiguration confLocal) throws Exception {
         confLocal.setOutputBufferSize(1024);
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
@@ -696,6 +692,24 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assert(success);
         reader.close();
         dlm.close();
+    }
+
+    @Test
+    public void testSimpleAsyncRead() throws Exception {
+        String name = "distrlog-simpleasyncread";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+        simpleAsyncReadTest(name, confLocal);
+    }
+
+    @Test
+    public void testSimpleAsyncReadWriteWithMonitoredFuturePool() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+        confLocal.setTaskExecutionWarnTimeMicros(1000);
+        confLocal.setEnableTaskExecutionStats(true);
+        simpleAsyncReadTest(name, confLocal);
     }
 
     @Test

@@ -643,8 +643,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 }
             }
         } catch (IOException ioe) {
-            LOG.error("Encountered exception while writing a log record to stream {}", fullyQualifiedLogSegment, ioe);
-
             // We may incorrectly report transmit failure here, but only if we happened to hit
             // packet/xmit size limit conditions AND fail flush above, which should happen rarely
             // (PUBSUB-4498)
@@ -1103,21 +1101,25 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         if (null != addCompleteFuturePool) {
             final Stopwatch queuedTime = Stopwatch.createStarted();
-            final Stopwatch deferredTime = Stopwatch.createStarted();
             addCompleteFuturePool.apply(new Function0<Void>() {
                 public Void apply() {
+                    final Stopwatch deferredTime = Stopwatch.createStarted();
                     addCompleteQueuedTime.registerSuccessfulEvent(queuedTime.elapsed(TimeUnit.MICROSECONDS));
                     addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
+                    addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
                     return null;
+                }
+                @Override
+                public String toString() {
+                    return String.format("AddComplete(Stream=%s, entryId=%d, rc=%d)",
+                        new Object[] { fullyQualifiedLogSegment, entryId, rc });
                 }
             }).addEventListener(new FutureEventListener<Void>() {
                 @Override
                 public void onSuccess(Void done) {
-                    addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
                 }
                 @Override
                 public void onFailure(Throwable cause) {
-                    addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
                     LOG.error("addComplete processing failed for {} entry {} lastTxId {} rc {} with error",
                         new Object[] {fullyQualifiedLogSegment, entryId, transmitPacket.getMaxTxId(), rc, cause});
                 }
@@ -1128,11 +1130,9 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         } else {
             // Notify transmit complete must be called before deferred processing in the
             // sync case since otherwise callbacks in deferred processing may deadlock.
-            Stopwatch deferredTime = Stopwatch.createStarted();
             transmitPacket.setTransmitComplete(effectiveRC.get());
             outstandingTransmits.getAndDecrement();
             addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
-            addCompleteDeferredTime.registerSuccessfulEvent(deferredTime.elapsed(TimeUnit.MICROSECONDS));
         }
     }
 
