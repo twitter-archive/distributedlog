@@ -10,6 +10,9 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.service.stats.ClientStats;
+import com.twitter.distributedlog.service.stats.ClientStatsLogger;
+import com.twitter.distributedlog.service.stats.OwnershipStatsLogger;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -86,6 +89,7 @@ public class DistributedLogClientBuilder {
     private StatsReceiver _statsReceiver = new NullStatsReceiver();
     private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
     private ClientConfig _clientConfig = new ClientConfig();
+    private boolean _enableRegionStats = false;
 
     /**
      * Create a client builder
@@ -104,6 +108,7 @@ public class DistributedLogClientBuilder {
         newBuilder._routingServiceBuilder = builder._routingServiceBuilder;
         newBuilder._statsReceiver = builder._statsReceiver;
         newBuilder._streamStatsReceiver = builder._streamStatsReceiver;
+        newBuilder._enableRegionStats = builder._enableRegionStats;
         newBuilder._clientConfig = ClientConfig.newConfig(builder._clientConfig);
         return newBuilder;
     }
@@ -150,6 +155,7 @@ public class DistributedLogClientBuilder {
                 .serverSet(serverSet)
                 .resolveFromName(false)
                 .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 
@@ -177,6 +183,7 @@ public class DistributedLogClientBuilder {
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .resolver(new TwitterRegionResolver())
                 .routingServiceBuilders(builders);
+        newBuilder._enableRegionStats = remotes.length > 0;
         return newBuilder;
     }
 
@@ -201,6 +208,7 @@ public class DistributedLogClientBuilder {
     public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._routingServiceBuilder = buildRoutingService(finagleNameStr);
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 
@@ -222,18 +230,21 @@ public class DistributedLogClientBuilder {
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .routingServiceBuilders(builders)
                 .resolver(new TwitterRegionResolver());
+        newBuilder._enableRegionStats = remotes.length > 0;
         return newBuilder;
     }
 
     public DistributedLogClientBuilder host(SocketAddress address) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 
     private DistributedLogClientBuilder routingServiceBuilder(RoutingService.Builder builder) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._routingServiceBuilder = builder;
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 
@@ -248,6 +259,7 @@ public class DistributedLogClientBuilder {
     public DistributedLogClientBuilder routingService(RoutingService routingService) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._routingServiceBuilder = new RoutingServiceProvider(routingService);
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 
@@ -411,7 +423,7 @@ public class DistributedLogClientBuilder {
         RoutingService routingService = _routingServiceBuilder.build();
         DistributedLogClientImpl clientImpl =
                 new DistributedLogClientImpl(_name, _clientId, routingService, _clientBuilder, _clientConfig,
-                                             _statsReceiver, _streamStatsReceiver);
+                                             _statsReceiver, _streamStatsReceiver, _enableRegionStats);
         routingService.startService();
         clientImpl.handshake();
         return clientImpl;
@@ -556,91 +568,6 @@ public class DistributedLogClientBuilder {
         private final ReentrantReadWriteLock closeLock =
                 new ReentrantReadWriteLock();
 
-        // Stats
-        private static class OwnershipStat {
-            private final Counter hits;
-            private final Counter misses;
-            private final Counter removes;
-            private final Counter redirects;
-            private final Counter adds;
-
-            OwnershipStat(StatsReceiver ownershipStats) {
-                hits = ownershipStats.counter0("hits");
-                misses = ownershipStats.counter0("misses");
-                adds = ownershipStats.counter0("adds");
-                removes = ownershipStats.counter0("removes");
-                redirects = ownershipStats.counter0("redirects");
-            }
-
-            void onHit() {
-                hits.incr();
-            }
-
-            void onMiss() {
-                misses.incr();
-            }
-
-            void onAdd() {
-                adds.incr();
-            }
-
-            void onRemove() {
-                removes.incr();
-            }
-
-            void onRedirect() {
-                redirects.incr();
-            }
-
-        }
-
-        private final StatsReceiver statsReceiver;
-        private final Stat redirectStat;
-        private final StatsReceiver responseStatsReceiver;
-        private final ConcurrentMap<StatusCode, Counter> responseStats =
-                new ConcurrentHashMap<StatusCode, Counter>();
-        private final StatsReceiver exceptionStatsReceiver;
-        private final ConcurrentMap<Class<?>, Counter> exceptionStats =
-                new ConcurrentHashMap<Class<?>, Counter>();
-        private final OwnershipStat ownershipStat;
-        private final StatsReceiver ownershipStatsReceiver;
-        private final ConcurrentMap<String, OwnershipStat> ownershipStats =
-                new ConcurrentHashMap<String, OwnershipStat>();
-        private final Stat successLatencyStat;
-        private final Stat failureLatencyStat;
-        private final Stat proxySuccessLatencyStat;
-        private final Stat proxyFailureLatencyStat;
-
-        private Counter getResponseCounter(StatusCode code) {
-            Counter counter = responseStats.get(code);
-            if (null == counter) {
-                Counter newCounter = responseStatsReceiver.counter0(code.name());
-                Counter oldCounter = responseStats.putIfAbsent(code, newCounter);
-                counter = null != oldCounter ? oldCounter : newCounter;
-            }
-            return counter;
-        }
-
-        private Counter getExceptionCounter(Class<?> cls) {
-            Counter counter = exceptionStats.get(cls);
-            if (null == counter) {
-                Counter newCounter = exceptionStatsReceiver.counter0(cls.getName());
-                Counter oldCounter = exceptionStats.putIfAbsent(cls, newCounter);
-                counter = null != oldCounter ? oldCounter : newCounter;
-            }
-            return counter;
-        }
-
-        private OwnershipStat getOwnershipStat(String stream) {
-            OwnershipStat stat = ownershipStats.get(stream);
-            if (null == stat) {
-                OwnershipStat newStat = new OwnershipStat(ownershipStatsReceiver.scope(stream));
-                OwnershipStat oldStat = ownershipStats.putIfAbsent(stream, newStat);
-                stat = null != oldStat ? oldStat : newStat;
-            }
-            return stat;
-        }
-
         abstract class StreamOp implements TimerTask {
             final String stream;
 
@@ -658,12 +585,12 @@ public class DistributedLogClientBuilder {
                 long elapsedMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
                 if (clientConfig.getMaxRedirects() > 0 &&
                         tries.get() >= clientConfig.getMaxRedirects()) {
-                    fail(new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
+                    fail(address, new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
                             "Exhausted max redirects in " + elapsedMs + " ms"));
                     return;
                 } else if (clientConfig.getRequestTimeoutMs() > 0 &&
                         elapsedMs >= clientConfig.getRequestTimeoutMs()) {
-                    fail(new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
+                    fail(address, new RequestTimeoutException(Duration.fromMilliseconds(elapsedMs),
                             "Exhausted max request timeout " + clientConfig.getRequestTimeoutMs()
                                     + " in " + elapsedMs + " ms"));
                     return;
@@ -694,16 +621,16 @@ public class DistributedLogClientBuilder {
                 updateOwnership(stream, sc.address);
             }
 
-            void complete() {
+            void complete(SocketAddress address) {
                 stopwatch.stop();
-                successLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                redirectStat.add(tries.get());
+                clientStats.completeRequest(address,
+                        stopwatch.elapsed(TimeUnit.MICROSECONDS), tries.get());
             }
 
-            void fail(Throwable t) {
+            void fail(SocketAddress address, Throwable t) {
                 stopwatch.stop();
-                failureLatencyStat.add(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                redirectStat.add(tries.get());
+                clientStats.failRequest(address,
+                        stopwatch.elapsed(TimeUnit.MICROSECONDS), tries.get());
             }
 
             @Override
@@ -711,7 +638,7 @@ public class DistributedLogClientBuilder {
                 if (!timeout.isCancelled() && null != nextAddressToSend) {
                     doSend(nextAddressToSend);
                 } else {
-                    fail(new CancelledRequestException());
+                    fail(null, new CancelledRequestException());
                 }
             }
         }
@@ -744,7 +671,7 @@ public class DistributedLogClientBuilder {
                         // errors.
                         if (response.getHeader().getCode() == StatusCode.SUCCESS) {
                             beforeComplete(sc, response.getHeader());
-                            BulkWriteOp.this.complete(response);
+                            BulkWriteOp.this.complete(sc.address, response);
                             if (response.getWriteResponses().size() == 0 && data.size() > 0) {
                                 logger.error("non-empty bulk write got back empty response without failure for stream {}", stream);
                             }
@@ -763,8 +690,8 @@ public class DistributedLogClientBuilder {
                 });
             }
 
-            void complete(BulkWriteResponse bulkWriteResponse) {
-                super.complete();
+            void complete(SocketAddress address, BulkWriteResponse bulkWriteResponse) {
+                super.complete(address);
                 Iterator<WriteResponse> writeResponseIterator = bulkWriteResponse.getWriteResponses().iterator();
                 Iterator<Promise<DLSN>> resultIterator = results.iterator();
 
@@ -786,12 +713,12 @@ public class DistributedLogClientBuilder {
             }
 
             @Override
-            void fail(Throwable t) {
+            void fail(SocketAddress address, Throwable t) {
 
                 // StreamOp.fail is called to fail the overall request. In case of BulkWriteOp we take the request level
                 // exception to apply to the first write. In fact for request level exceptions no request has ever been
                 // attempted, but logically we associate the error with the first write.
-                super.fail(t);
+                super.fail(address, t);
                 Iterator<Promise<DLSN>> resultIterator = results.iterator();
 
                 // Fail the first write with the batch level failure.
@@ -820,14 +747,14 @@ public class DistributedLogClientBuilder {
                 super(name);
             }
 
-            void complete(WriteResponse response) {
-                super.complete();
+            void complete(SocketAddress address, WriteResponse response) {
+                super.complete(address);
                 result.setValue(response);
             }
 
             @Override
-            void fail(Throwable t) {
-                super.fail(t);
+            void fail(SocketAddress address, Throwable t) {
+                super.fail(address, t);
                 result.setException(t);
             }
 
@@ -838,7 +765,7 @@ public class DistributedLogClientBuilder {
                     public void onSuccess(WriteResponse response) {
                         if (response.getHeader().getCode() == StatusCode.SUCCESS) {
                             beforeComplete(sc, response.getHeader());
-                            AbstractWriteOp.this.complete(response);
+                            AbstractWriteOp.this.complete(sc.address, response);
                         }
                     }
                     @Override
@@ -979,18 +906,22 @@ public class DistributedLogClientBuilder {
             }
         }
 
+        // Stats
+        private final ClientStats clientStats;
+        private final OwnershipStatsLogger ownershipStatsLogger;
+
         private DistributedLogClientImpl(String name,
                                          ClientId clientId,
                                          RoutingService routingService,
                                          ClientBuilder clientBuilder,
                                          ClientConfig clientConfig,
                                          StatsReceiver statsReceiver,
-                                         StatsReceiver streamStatsReceiver) {
+                                         StatsReceiver streamStatsReceiver,
+                                         boolean enableRegionStats) {
             this.clientName = name;
             this.clientId = clientId;
             this.routingService = routingService;
             this.clientConfig = clientConfig;
-            this.statsReceiver = statsReceiver;
             this.streamFailfast = clientConfig.getStreamFailfast();
             this.streamNameRegexPattern = Pattern.compile(clientConfig.getStreamNameRegex());
             // Build the timer
@@ -1001,18 +932,11 @@ public class DistributedLogClientBuilder {
             // register routing listener
             this.routingService.registerListener(this);
             // Stats
-            ownershipStat = new OwnershipStat(statsReceiver.scope("ownership"));
-            ownershipStatsReceiver = streamStatsReceiver.scope("perstream_ownership");
-            StatsReceiver redirectStatReceiver = statsReceiver.scope("redirects");
-            redirectStat = redirectStatReceiver.stat0("times");
-            responseStatsReceiver = statsReceiver.scope("responses");
-            exceptionStatsReceiver = statsReceiver.scope("exceptions");
-            StatsReceiver latencyStatReceiver = statsReceiver.scope("latency");
-            successLatencyStat = latencyStatReceiver.stat0("success");
-            failureLatencyStat = latencyStatReceiver.stat0("failure");
-            StatsReceiver proxyLatencyStatReceiver = statsReceiver.scope("proxy_request_latency");
-            proxySuccessLatencyStat = proxyLatencyStatReceiver.stat0("success");
-            proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
+            // Client Stats
+            this.clientStats = new ClientStats(statsReceiver, enableRegionStats);
+            // Ownership Stats
+            this.ownershipStatsLogger = new OwnershipStatsLogger(statsReceiver, streamStatsReceiver);
+            // Cache Stats
             StatsReceiver cacheStatReceiver = statsReceiver.scope("cache");
             Seq<String> numCachedStreamsGaugeName =
                     scala.collection.JavaConversions.asScalaBuffer(Arrays.asList("num_streams")).toList();
@@ -1110,8 +1034,7 @@ public class DistributedLogClientBuilder {
             return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                    .failFast(false)
-                   .keepAlive(true)
-                   .reportTo(statsReceiver);
+                   .keepAlive(true);
         }
 
         @Override
@@ -1140,7 +1063,11 @@ public class DistributedLogClientBuilder {
             }
             // Build factory since DL proxy is kind of stateful service.
             Service<ThriftClientRequest, byte[]> client =
-                    ClientBuilder.safeBuildFactory(clientBuilder.hosts(address)).toService();
+                    ClientBuilder.safeBuildFactory(
+                            clientBuilder
+                                    .hosts(address)
+                                    .reportTo(clientStats.getFinagleStatsReceiver(address))
+                    ).toService();
             DistributedLogService.ServiceIface service =
                     new DistributedLogService.ServiceToClient(client, new TBinaryProtocol.Factory());
             sc = new ServiceWithClient(address, client, service);
@@ -1276,7 +1203,7 @@ public class DistributedLogClientBuilder {
             closeLock.readLock().lock();
             try {
                 if (closed) {
-                    op.fail(new DLClientClosedException("Client " + clientName + " is closed."));
+                    op.fail(null, new DLClientClosedException("Client " + clientName + " is closed."));
                 } else {
                     doSend(op, null);
                 }
@@ -1294,18 +1221,16 @@ public class DistributedLogClientBuilder {
             // Get host first
             SocketAddress address = stream2Addresses.get(op.stream);
             if (null == address || address.equals(previousAddr)) {
-                ownershipStat.onMiss();
-                getOwnershipStat(op.stream).onMiss();
+                ownershipStatsLogger.onMiss(op.stream);
                 // pickup host by hashing
                 try {
                     address = routingService.getHost(op.stream, previousAddr, previousCode);
                 } catch (NoBrokersAvailableException nbae) {
-                    op.fail(nbae);
+                    op.fail(null, nbae);
                     return;
                 }
             } else {
-                ownershipStat.onHit();
-                getOwnershipStat(op.stream).onHit();
+                ownershipStatsLogger.onHit(op.stream);
             }
             op.send(address);
         }
@@ -1321,8 +1246,7 @@ public class DistributedLogClientBuilder {
                     if (logger.isDebugEnabled()) {
                         logger.debug("Received response; header: {}", header);
                     }
-                    getResponseCounter(header.getCode()).incr();
-                    proxySuccessLatencyStat.add(elapsedMicroSec(startTimeNanos));
+                    clientStats.completeProxyRequest(addr, header.getCode(), startTimeNanos);
                     switch (header.getCode()) {
                         case SUCCESS:
                             // success handling is done per stream op
@@ -1347,7 +1271,7 @@ public class DistributedLogClientBuilder {
                         // since the proxy may still own the stream.
                         case STREAM_NOT_READY:
                             logger.error("Failed to write request to {} : {}", op.stream, header);
-                            op.fail(DLException.of(header));
+                            op.fail(addr, DLException.of(header));
                             break;
                         case SERVICE_UNAVAILABLE:
                             // service is unavailable, remove it out of routing service
@@ -1373,7 +1297,7 @@ public class DistributedLogClientBuilder {
                             clearHostFromStream(op.stream, addr, header.getCode().name());
                             if (streamFailfast) {
                                 logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
-                                op.fail(DLException.of(header));
+                                op.fail(addr, DLException.of(header));
                             } else {
                                 redirect(op, addr, StatusCode.FOUND, null);
                             }
@@ -1383,8 +1307,7 @@ public class DistributedLogClientBuilder {
 
                 @Override
                 public void onFailure(Throwable cause) {
-                    getExceptionCounter(cause.getClass()).incr();
-                    proxyFailureLatencyStat.add(elapsedMicroSec(startTimeNanos));
+                    clientStats.failProxyRequest(addr, cause, startTimeNanos);
                     if (cause instanceof ConnectionFailedException) {
                         routingService.removeHost(addr, cause);
                         onServerLeft(addr, sc);
@@ -1419,8 +1342,7 @@ public class DistributedLogClientBuilder {
 
         void redirect(StreamOp op, SocketAddress oldAddr, StatusCode oldCode,
                       SocketAddress newAddr) {
-            ownershipStat.onRedirect();
-            getOwnershipStat(op.stream).onRedirect();
+            ownershipStatsLogger.onRedirect(op.stream);
             if (null != newAddr) {
                 logger.debug("Redirect request {} to new owner {}.", op, newAddr);
                 op.send(newAddr);
@@ -1440,7 +1362,7 @@ public class DistributedLogClientBuilder {
             // Other Exceptions: as we don't know how to handle them properly so throw them to client
             logger.error("Failed to write request to {} @ {} : {}",
                     new Object[]{op.stream, addr, cause.toString()});
-            op.fail(cause);
+            op.fail(addr, cause);
         }
 
         void handleTApplicationException(Throwable cause, StreamOp op, SocketAddress addr, ServiceWithClient sc) {
@@ -1514,10 +1436,8 @@ public class DistributedLogClientBuilder {
                     clearHostFromStream(stream, oldAddr, sb.toString());
 
                     // update stats
-                    ownershipStat.onRemove();
-                    ownershipStat.onAdd();
-                    getOwnershipStat(stream).onRemove();
-                    getOwnershipStat(stream).onAdd();
+                    ownershipStatsLogger.onRemove(stream);
+                    ownershipStatsLogger.onAdd(stream);
                 } else {
                     logger.warn("Ownership of stream : {} has been changed from {} to {} when storing host : {}.",
                             new Object[] { stream, oldAddr, stream2Addresses.get(stream), addr });
@@ -1526,8 +1446,7 @@ public class DistributedLogClientBuilder {
             } else {
                 logger.info("Storing ownership for stream : {}, host : {}.", stream, addr);
                 // update stats
-                ownershipStat.onAdd();
-                getOwnershipStat(stream).onAdd();
+                ownershipStatsLogger.onAdd(stream);
             }
 
             Set<String> streamsForHost = address2Streams.get(addr);
@@ -1561,8 +1480,7 @@ public class DistributedLogClientBuilder {
                     for (String s : streamsForHost) {
                         if (stream2Addresses.remove(s, addr)) {
                             logger.info("Removing mapping for stream : {} from host : {}", s, addr);
-                            ownershipStat.onRemove();
-                            getOwnershipStat(s).onRemove();
+                            ownershipStatsLogger.onRemove(s);
                         }
                     }
                     address2Streams.remove(addr, streamsForHost);
@@ -1594,8 +1512,7 @@ public class DistributedLogClientBuilder {
                         if (streamsForHost.isEmpty()) {
                             address2Streams.remove(addr, streamsForHost);
                         }
-                        ownershipStat.onRemove();
-                        getOwnershipStat(stream).onRemove();
+                        ownershipStatsLogger.onRemove(stream);
                     }
                 }
             }
