@@ -1184,6 +1184,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 } else {
                     break;
                 }
+            } else {
+                break;
             }
         }
         setTruncationStatus(truncateList, partialTruncate, dlsn);
@@ -1257,7 +1259,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private void setTruncationStatus(final List<LogSegmentLedgerMetadata> truncateList,
                                      LogSegmentLedgerMetadata partialTruncate,
                                      DLSN minActiveDLSN) throws IOException {
-
         for(LogSegmentLedgerMetadata l : truncateList) {
             if (!l.isTruncated()) {
                 MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
@@ -1267,8 +1268,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
 
-        if ((null != partialTruncate) &&
-            (!partialTruncate.isPartiallyTruncated() || (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
+        if (null == partialTruncate) {
+            return;
+        }
+
+        if (partialTruncate.isNontruncated() ||
+                (partialTruncate.isPartiallyTruncated() && (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
             MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
             LogSegmentLedgerMetadata newSegment = updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
             removeLogSegmentFromCache(partialTruncate.getSegmentName());

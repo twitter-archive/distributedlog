@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion;
+import com.twitter.distributedlog.LogSegmentLedgerMetadata.TruncationStatus;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.KeeperException;
@@ -78,6 +80,28 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
         assertEquals(read1.getLedgerSequenceNumber(), metadata1.getLedgerSequenceNumber());
         assertEquals(DistributedLogConstants.LOCAL_REGION_ID, read1.getRegionId());
+    }
+
+    @Test(timeout = 60000)
+    public void testMutateTruncationStatus() {
+        LogSegmentLedgerMetadata metadata =
+                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
+                        "/metadata", LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
+                        .setRegionId(0).setLedgerSequenceNo(1L).build();
+        metadata.finalizeLedger(1000L, 1000, 1000L, 0L);
+
+        LogSegmentLedgerMetadata partiallyTruncatedSegment =
+                metadata.mutator()
+                        .setTruncationStatus(TruncationStatus.PARTIALLY_TRUNCATED)
+                        .setMinActiveDLSN(new DLSN(1L, 500L, 0L))
+                        .build();
+
+        LogSegmentLedgerMetadata fullyTruncatedSegment =
+                partiallyTruncatedSegment.mutator()
+                        .setTruncationStatus(TruncationStatus.TRUNCATED)
+                        .build();
+
+        assertEquals(new DLSN(1L, 500L, 0L), fullyTruncatedSegment.getMinActiveDLSN());
     }
 
     @Test(timeout = 60000)

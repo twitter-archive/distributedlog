@@ -187,11 +187,12 @@ public class TestTruncate extends TestDistributedLogBase {
             LogSegmentLedgerMetadata segment = segments.get(i);
             setTruncationStatus(zkc, segment, TruncationStatus.TRUNCATED);
         }
+        List<LogSegmentLedgerMetadata> segmentsAfterTruncated = dlm.getLogSegments();
 
         dlm.purgeLogsOlderThan(999999);
         List<LogSegmentLedgerMetadata> newSegments = dlm.getLogSegments();
         LOG.info("Segments after purge segments older than 999999 : {}", newSegments);
-        assertArrayEquals(segments.toArray(new LogSegmentLedgerMetadata[segments.size()]),
+        assertArrayEquals(segmentsAfterTruncated.toArray(new LogSegmentLedgerMetadata[segmentsAfterTruncated.size()]),
                           newSegments.toArray(new LogSegmentLedgerMetadata[newSegments.size()]));
 
         dlm.close();
@@ -224,6 +225,52 @@ public class TestTruncate extends TestDistributedLogBase {
         newWriter.close();
         newDLM.close();
 
+        zkc.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testPartiallyTruncateTruncatedSegments() throws Exception {
+        String name = "distrlog-partially-truncate-truncated-segments";
+        URI uri = createDLMURI("/" + name);
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setExplicitTruncationByApplication(true);
+
+        // populate
+        Map<Long, DLSN> dlsnMap = new HashMap<Long, DLSN>();
+        populateData(dlsnMap, confLocal, name, 4, 10, false);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        LOG.info("Segments before modifying segment status : {}", segments);
+
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .zkAclId(null)
+                .uri(uri)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .build();
+        for (int i = 0; i < 4; i++) {
+            LogSegmentLedgerMetadata segment = segments.get(i);
+            setTruncationStatus(zkc, segment, TruncationStatus.TRUNCATED);
+        }
+
+        List<LogSegmentLedgerMetadata> newSegments = dlm.getLogSegments();
+        LOG.info("Segments after changing truncation status : {}", newSegments);
+
+        dlm.close();
+
+        DistributedLogManager newDLM = createNewDLM(confLocal, name);
+        AsyncLogWriter newWriter = newDLM.startAsyncLogSegmentNonPartitioned();
+        Await.result(newWriter.truncate(dlsnMap.get(15L)));
+
+        List<LogSegmentLedgerMetadata> newSegments2 = newDLM.getLogSegments();
+        assertArrayEquals(newSegments.toArray(new LogSegmentLedgerMetadata[4]),
+                          newSegments2.toArray(new LogSegmentLedgerMetadata[4]));
+
+        newWriter.close();
+        newDLM.close();
         zkc.close();
     }
 

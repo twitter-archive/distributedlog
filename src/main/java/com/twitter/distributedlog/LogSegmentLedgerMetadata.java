@@ -23,7 +23,7 @@ import java.util.Comparator;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Objects;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
@@ -244,6 +244,9 @@ public class LogSegmentLedgerMetadata {
             this.recordCount = original.getRecordCount();
             this.regionId = original.getRegionId();
             this.status = original.getStatus();
+            this.minActiveEntryId = original.getMinActiveDLSN().getEntryId();
+            this.minActiveSlotId = original.getMinActiveDLSN().getSlotId();
+            this.envelopeEntries = original.getEnvelopeEntries();
         }
 
         public Mutator setLedgerSequenceNumber(long seqNo) {
@@ -442,6 +445,11 @@ public class LogSegmentLedgerMetadata {
                 == TruncationStatus.PARTIALLY_TRUNCATED.value);
     }
 
+    public boolean isNontruncated() {
+        return ((status & METADATA_TRUNCATION_STATUS_MASK)
+                == TruncationStatus.ACTIVE.value);
+    }
+
     @VisibleForTesting
     public LogSegmentLedgerMetadata setLastEntryId(long entryId) {
         lastDLSN = new DLSN(lastDLSN.getLedgerSequenceNo(), entryId, lastDLSN.getSlotId());
@@ -583,7 +591,7 @@ public class LogSegmentLedgerMetadata {
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
-                .setRecordCount((int)recordCount)
+                .setRecordCount((int) recordCount)
                 .setRegionId(regionId)
                 .setStatus(status)
                 .build();
@@ -880,7 +888,10 @@ public class LogSegmentLedgerMetadata {
             && firstTxId == ol.firstTxId
             && lastTxId == ol.lastTxId
             && version == ol.version
-            && completionTime == ol.completionTime;
+            && completionTime == ol.completionTime
+            && Objects.equal(lastDLSN, ol.lastDLSN)
+            && Objects.equal(minActiveDLSN, ol.minActiveDLSN)
+            && status == ol.status;
     }
 
     public int hashCode() {
