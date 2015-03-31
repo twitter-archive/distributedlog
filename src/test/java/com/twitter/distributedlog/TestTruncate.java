@@ -11,7 +11,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
+import com.twitter.distributedlog.LogSegmentLedgerMetadata.TruncationStatus;
 import com.twitter.util.Await;
 
 import static org.junit.Assert.*;
@@ -29,22 +29,20 @@ public class TestTruncate extends TestDistributedLogBase {
         DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
     }
 
+    static void setTruncationStatus(ZooKeeperClient zkc,
+                                    LogSegmentLedgerMetadata l,
+                                    TruncationStatus status) throws Exception {
+        LogSegmentLedgerMetadata newSegment =
+                l.mutator().setTruncationStatus(status).build();
+        DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
+    }
+
     @Test(timeout = 60000)
     public void testPurgeLogs() throws Exception {
         String name = "distrlog-purge-logs";
         URI uri = createDLMURI("/" + name);
-        long txid = 1;
-        for (long i = 1; i <= 10; i++) {
-            LOG.info("Writing log segment {}.", i);
-            DistributedLogManager dlm = createNewDLM(conf, name);
-            AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
-            for (int j = 1; j <= 10; j++) {
-                long curTxId = txid++;
-                Await.result(writer.write(DLMTestUtil.getLogRecordInstance(curTxId)));
-            }
-            writer.close();
-            dlm.close();
-        }
+
+        populateData(new HashMap<Long, DLSN>(), conf, name, 10, 10, false);
 
         DistributedLogManager distributedLogManager = createNewDLM(conf, name);
 
@@ -75,6 +73,7 @@ public class TestTruncate extends TestDistributedLogBase {
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        long txid = 1 + 10 * 10;
         for (int j = 1; j <= 10; j++) {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
         }
@@ -97,7 +96,8 @@ public class TestTruncate extends TestDistributedLogBase {
 
         long txid = 1;
         Map<Long, DLSN> txid2DLSN = new HashMap<Long, DLSN>();
-        Pair<DistributedLogManager, AsyncLogWriter> pair = populateData(txid2DLSN, conf, name);
+        Pair<DistributedLogManager, AsyncLogWriter> pair =
+                populateData(txid2DLSN, conf, name, 4, 10, true);
 
         Thread.sleep(1000);
 
@@ -131,7 +131,8 @@ public class TestTruncate extends TestDistributedLogBase {
         confLocal.setExplicitTruncationByApplication(true);
 
         Map<Long, DLSN> txid2DLSN = new HashMap<Long, DLSN>();
-        Pair<DistributedLogManager, AsyncLogWriter> pair = populateData(txid2DLSN, confLocal, name);
+        Pair<DistributedLogManager, AsyncLogWriter> pair =
+                populateData(txid2DLSN, confLocal, name, 4, 10, true);
 
         Thread.sleep(1000);
 
@@ -159,30 +160,105 @@ public class TestTruncate extends TestDistributedLogBase {
         verifyEntries(name, 1, 41, 10);
     }
 
-    private Pair<DistributedLogManager, AsyncLogWriter> populateData(Map<Long, DLSN> txid2DLSN, DistributedLogConfiguration confLocal, String name) throws Exception {
+    @Test(timeout = 60000)
+    public void testOnlyPurgeSegmentsBeforeNoneFullyTruncatedSegment() throws Exception {
+        String name = "distrlog-only-purge-segments-before-none-fully-truncated-segment";
+        URI uri = createDLMURI("/" + name);
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setExplicitTruncationByApplication(true);
+
+        // populate data
+        populateData(new HashMap<Long, DLSN>(), confLocal, name, 4, 10, false);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        LOG.info("Segments before modifying segment status : {}", segments);
+
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .zkAclId(null)
+                .uri(uri)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .build();
+        setTruncationStatus(zkc, segments.get(0), TruncationStatus.PARTIALLY_TRUNCATED);
+        for (int i = 1; i < 4; i++) {
+            LogSegmentLedgerMetadata segment = segments.get(i);
+            setTruncationStatus(zkc, segment, TruncationStatus.TRUNCATED);
+        }
+
+        dlm.purgeLogsOlderThan(999999);
+        List<LogSegmentLedgerMetadata> newSegments = dlm.getLogSegments();
+        LOG.info("Segments after purge segments older than 999999 : {}", newSegments);
+        assertArrayEquals(segments.toArray(new LogSegmentLedgerMetadata[segments.size()]),
+                          newSegments.toArray(new LogSegmentLedgerMetadata[newSegments.size()]));
+
+        dlm.close();
+
+        // Update completion time of all 4 segments
+        long newTimeMs = System.currentTimeMillis() - 60 * 60 * 1000 * 10;
+        for (int i = 0; i < 4; i++) {
+            LogSegmentLedgerMetadata segment = newSegments.get(i);
+            updateCompletionTime(zkc, segment, newTimeMs + i);
+        }
+
+        DistributedLogConfiguration newConf = new DistributedLogConfiguration();
+        newConf.addConfiguration(confLocal);
+        newConf.setRetentionPeriodHours(1);
+        newConf.setSanityCheckDeletes(false);
+
+        DistributedLogManager newDLM = createNewDLM(newConf, name);
+        AsyncLogWriter newWriter = newDLM.startAsyncLogSegmentNonPartitioned();
+        long txid = 1 + 4 * 10;
+        for (int j = 1; j <= 10; j++) {
+            Await.result(newWriter.write(DLMTestUtil.getLogRecordInstance(txid++)));
+        }
+
+        // to make sure the truncation task is executed
+        DLSN lastDLSN = Await.result(newDLM.getLastDLSNAsync());
+        LOG.info("Get last dlsn of stream {} : {}", name, lastDLSN);
+
+        assertEquals(5, newDLM.getLogSegments().size());
+
+        newWriter.close();
+        newDLM.close();
+
+        zkc.close();
+    }
+
+    private Pair<DistributedLogManager, AsyncLogWriter> populateData(
+            Map<Long, DLSN> txid2DLSN, DistributedLogConfiguration confLocal,
+            String name, int numLogSegments, int numEntriesPerLogSegment,
+            boolean createInprogressLogSegment) throws Exception {
         long txid = 1;
-        for (long i = 1; i <= 4; i++) {
+        for (long i = 1; i <= numLogSegments; i++) {
             LOG.info("Writing Log Segment {}.", i);
             DistributedLogManager dlm = createNewDLM(confLocal, name);
             AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
-            for (int j = 1; j <= 10; j++) {
+            for (int j = 1; j <= numEntriesPerLogSegment; j++) {
                 long curTxId = txid++;
-                DLSN dlsn = writer.write(DLMTestUtil.getLogRecordInstance(curTxId)).get();
+                DLSN dlsn = Await.result(writer.write(DLMTestUtil.getLogRecordInstance(curTxId)));
                 txid2DLSN.put(curTxId, dlsn);
             }
             writer.close();
             dlm.close();
         }
 
-        DistributedLogManager dlm = createNewDLM(confLocal, name);
-        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
-        for (int j = 1; j <= 10; j++) {
-            long curTxId = txid++;
-            DLSN dlsn = writer.write(DLMTestUtil.getLogRecordInstance(curTxId)).get();
-            txid2DLSN.put(curTxId, dlsn);
+        if (createInprogressLogSegment) {
+            DistributedLogManager dlm = createNewDLM(confLocal, name);
+            AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+            for (int j = 1; j <= 10; j++) {
+                long curTxId = txid++;
+                DLSN dlsn = Await.result(writer.write(DLMTestUtil.getLogRecordInstance(curTxId)));
+                txid2DLSN.put(curTxId, dlsn);
+            }
+            return new ImmutablePair<DistributedLogManager, AsyncLogWriter>(dlm, writer);
+        } else {
+            return null;
         }
-        return new ImmutablePair<DistributedLogManager, AsyncLogWriter>(dlm, writer);
     }
+
     private void verifyEntries(String name, long readFromTxId, long startTxId, int numEntries) throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, name);
         LogReader reader = dlm.getInputStream(readFromTxId);

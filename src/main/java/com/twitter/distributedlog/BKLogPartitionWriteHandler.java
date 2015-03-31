@@ -1204,7 +1204,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
                     LogSegmentLedgerMetadata l = logSegments.get(iterator);
                     // When application explicitly truncates segments; timestamp based purge is
-                   // only used to cleanup log segments that have been marked for truncation
+                    // only used to cleanup log segments that have been marked for truncation
                     if ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
                         !l.isInProgress() && (l.getCompletionTime() < minTimestampToKeep)) {
                         // Something went wrong - leave the ledger around for debugging
@@ -1215,6 +1215,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         } else {
                             purgeList.add(l);
                         }
+                    } else {
+                        // stop truncating log segments if we find either an inprogress or a partially
+                        // truncated log segment
+                        break;
                     }
                 }
                 LOG.info("Deleting log segments older than {} for {} : {}",
@@ -1242,6 +1246,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
                 !l.isInProgress() && (l.getLastTxId() < minTxIdToKeep))) {
                 deleteLedgerAndMetadata(l);
+            } else {
+                // stop truncating log segments if we find either an inprogress or a partially
+                // truncated log segment
+                break;
             }
         }
     }
