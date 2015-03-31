@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import scala.runtime.BoxedUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -31,7 +32,6 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.apache.commons.lang.time.StopWatch;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;

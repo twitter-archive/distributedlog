@@ -29,7 +29,7 @@ public class FailpointUtils {
         boolean checkFailPointNoThrow();
     }
 
-    static abstract class AbstractFailPointAction implements FailPointAction {
+    public static abstract class AbstractFailPointAction implements FailPointAction {
         @Override
         public boolean checkFailPointNoThrow() {
             try {
@@ -41,14 +41,14 @@ public class FailpointUtils {
         }
     }
 
-    static final FailPointAction DEFAULT_ACTION = new AbstractFailPointAction() {
+    public static final FailPointAction DEFAULT_ACTION = new AbstractFailPointAction() {
         @Override
         public boolean checkFailPoint() throws IOException {
             return true;
         }
     };
 
-    static final FailPointAction THROW_ACTION = new AbstractFailPointAction() {
+    public static final FailPointAction THROW_ACTION = new AbstractFailPointAction() {
         @Override
         public boolean checkFailPoint() throws IOException {
             throw new IOException("Throw ioexception for failure point");

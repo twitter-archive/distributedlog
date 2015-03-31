@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
@@ -30,7 +31,6 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.apache.commons.configuration.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

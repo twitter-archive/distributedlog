@@ -7,7 +7,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -15,7 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.exceptions.LockCancelledException;
-import com.twitter.distributedlog.DistributedReentrantLock.LockClosedException;
+import com.twitter.distributedlog.lock.LockClosedException;
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Await;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;

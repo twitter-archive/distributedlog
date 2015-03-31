@@ -1,9 +1,13 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.lock;
 
+import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.FailpointUtils;
+import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClientUtils;
+import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.DistributedReentrantLock.DistributedLock;
-import com.twitter.distributedlog.DistributedReentrantLock.EpochChangedException;
-import com.twitter.distributedlog.DistributedReentrantLock.LockStateChangedException;
 import com.twitter.util.Await;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -35,7 +39,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static com.twitter.distributedlog.DistributedReentrantLock.DistributedLock.*;
+
+import static com.twitter.distributedlog.lock.DistributedLock.*;
 
 /**
  * Distributed Lock Tests
@@ -166,7 +171,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         // lock action would be executed in same epoch
         final CountDownLatch latch1 = new CountDownLatch(1);
-        lock.executeLockAction(lock.getEpoch().get(), new DistributedReentrantLock.LockAction() {
+        lock.executeLockAction(lock.getEpoch().get(), new LockAction() {
             @Override
             public void execute() {
                 counter.incrementAndGet();
@@ -183,7 +188,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         // lock action would not be executed in same epoch
         final CountDownLatch latch2 = new CountDownLatch(1);
-        lock.executeLockAction(lock.getEpoch().get() + 1, new DistributedReentrantLock.LockAction() {
+        lock.executeLockAction(lock.getEpoch().get() + 1, new LockAction() {
             @Override
             public void execute() {
                 counter.incrementAndGet();
@@ -194,7 +199,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                 return "increment2";
             }
         });
-        lock.executeLockAction(lock.getEpoch().get(), new DistributedReentrantLock.LockAction() {
+        lock.executeLockAction(lock.getEpoch().get(), new LockAction() {
             @Override
             public void execute() {
                 latch2.countDown();
@@ -210,7 +215,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         // lock action would not be executed in same epoch and promise would be satisfied with exception
         Promise<BoxedUnit> promise = new Promise<BoxedUnit>();
-        lock.executeLockAction(lock.getEpoch().get() + 1, new DistributedReentrantLock.LockAction() {
+        lock.executeLockAction(lock.getEpoch().get() + 1, new LockAction() {
             @Override
             public void execute() {
                 counter.incrementAndGet();
@@ -294,7 +299,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         DistributedLock lock = new DistributedLock(
                 zkc, lockPath, clientId, lockStateExecutor, null,
                 1*1000 /* op timeout */, NullStatsLogger.INSTANCE,
-                new DistributedReentrantLock.DistributedLockContext());
+                new DistributedLockContext());
 
         lock.tryLock(0, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock.getLockState());
@@ -326,7 +331,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         DistributedLock lock = new DistributedLock(
                 zkc, lockPath, clientId, lockStateExecutor, null,
                 1 /* op timeout */, NullStatsLogger.INSTANCE,
-                new DistributedReentrantLock.DistributedLockContext());
+                new DistributedLockContext());
 
         try {
             FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_LockTryAcquire,
@@ -513,8 +518,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
 
         // simulate lock0 expires but znode still exists
-        final DistributedReentrantLock.DistributedLockContext context1 =
-                new DistributedReentrantLock.DistributedLockContext();
+        final DistributedLockContext context1 = new DistributedLockContext();
         context1.addLockId(lock0.getLockId());
 
         final DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
@@ -523,8 +527,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         assertEquals(State.CLAIMED, lock1.getLockState());
         lock1.unlock();
 
-        final DistributedReentrantLock.DistributedLockContext context2 =
-                new DistributedReentrantLock.DistributedLockContext();
+        final DistributedLockContext context2 = new DistributedLockContext();
         context2.addLockId(lock0.getLockId());
 
         final DistributedLock lock2 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
@@ -627,7 +630,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         createLockPath(zkc.get(), lockPath);
 
         final CountDownLatch expiredLatch = new CountDownLatch(1);
-        DistributedReentrantLock.LockListener listener = new DistributedReentrantLock.LockListener() {
+        LockListener listener = new LockListener() {
             @Override
             public void onExpired() {
                 expiredLatch.countDown();
@@ -682,7 +685,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         createLockPath(zkc.get(), lockPath);
         final AtomicInteger expireCounter = new AtomicInteger(0);
         final CountDownLatch expiredLatch = new CountDownLatch(1);
-        DistributedReentrantLock.LockListener listener = new DistributedReentrantLock.LockListener() {
+        LockListener listener = new LockListener() {
             @Override
             public void onExpired() {
                 expireCounter.incrementAndGet();

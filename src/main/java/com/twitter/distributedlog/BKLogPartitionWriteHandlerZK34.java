@@ -3,9 +3,9 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.FeatureProvider;

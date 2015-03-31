@@ -34,6 +34,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;

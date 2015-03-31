@@ -1,7 +1,13 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.lock;
 
+import com.twitter.distributedlog.FailpointUtils;
+import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.TestDistributedLogBase;
+import com.twitter.distributedlog.Utils;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.DistributedReentrantLock.DistributedLock;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -26,13 +32,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static com.twitter.distributedlog.DistributedReentrantLock.DistributedLock.asyncParseClientID;
+import static com.twitter.distributedlog.lock.DistributedLock.asyncParseClientID;
 
 /**
  * Distributed Lock Tests
@@ -96,7 +101,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
             this.lockStateExecutor = lockStateExecutor;
         }
         public DistributedReentrantLock createLock(int id, ZooKeeperClient zkc) throws Exception {
-            return new DistributedReentrantLock(this.lockStateExecutor, zkc, this.lockPath, Long.MAX_VALUE, 
+            return new DistributedReentrantLock(this.lockStateExecutor, zkc, this.lockPath, Long.MAX_VALUE,
                     this.clientId + id, NullStatsLogger.INSTANCE);
         }
         public String getLockPath() {
@@ -550,7 +555,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
     public void testLockReacquire() throws Exception {
         String lockPath = "/reacquirePath";
         Utils.zkCreateFullPathOptimistic(zkc, lockPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
-            CreateMode.PERSISTENT);
+                CreateMode.PERSISTENT);
         String clientId = "lockHolder";
         DistributedReentrantLock lock = new DistributedReentrantLock(lockStateExecutor, zkc, lockPath,
             conf.getLockTimeoutMilliSeconds(), clientId, NullStatsLogger.INSTANCE);
@@ -641,7 +646,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
     }
 
     // Assert key lock state (is locked, is internal locked, lock count, etc.) for two dlocks.
-    void assertLockState(DistributedReentrantLock lock0, boolean owned0, boolean intOwned0, int count0, 
+    void assertLockState(DistributedReentrantLock lock0, boolean owned0, boolean intOwned0, int count0,
                          DistributedReentrantLock lock1, boolean owned1, boolean intOwned1, int count1,
                          int waiters, String lockPath) throws Exception {
         assertEquals(owned0, lock0.haveLock());
@@ -658,12 +663,12 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         TestLockFactory locks = new TestLockFactory(runtime.getMethodName(), zkc, lockStateExecutor);
 
         int count = 3;
-        ArrayList<Future<Void>> results = new ArrayList<Future<Void>>(count); 
-        DistributedReentrantLock[] lockArray = new DistributedReentrantLock[count]; 
-        final CountDownLatch[] latches = new CountDownLatch[count]; 
+        ArrayList<Future<Void>> results = new ArrayList<Future<Void>>(count);
+        DistributedReentrantLock[] lockArray = new DistributedReentrantLock[count];
+        final CountDownLatch[] latches = new CountDownLatch[count];
         DistributedReentrantLock.LockReason reason = DistributedReentrantLock.LockReason.READHANDLER;
 
-        // Set up <count> waiters, save async results, count down a latch when lock is acquired in 
+        // Set up <count> waiters, save async results, count down a latch when lock is acquired in
         // the future.
         for (int i = 0; i < count; i++) {
             latches[i] = new CountDownLatch(1);
@@ -683,7 +688,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
             ));
         }
 
-        // Now await ownership and release ownership of locks one by one (in the order they were 
+        // Now await ownership and release ownership of locks one by one (in the order they were
         // acquired).
         for (int i = 0; i < count; i++) {
             latches[i].await();
@@ -719,7 +724,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         // Initial state.
         assertLockState(lock0, true, true, 1, lock1, false, false, 0, 2, locks.getLockPath());
 
-        // Release lock0. lock1 acquire should succeed and complete the future. Need 
+        // Release lock0. lock1 acquire should succeed and complete the future. Need
         // to wait for confirmation from the latch since its async.
         lock0.release(DistributedReentrantLock.LockReason.READHANDLER);
         lock1Latch.await();
@@ -791,7 +796,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         final DistributedReentrantLock lock0 = locks.createLock(0, zkc);
         final DistributedReentrantLock lock1 = locks.createLock(1, zkc0);
 
-        // Method asyncAcquire doesn't return until the request has been added to the waiters list, so when we expire the 
+        // Method asyncAcquire doesn't return until the request has been added to the waiters list, so when we expire the
         // session we can be sure we're waiting.
         lock0.acquire(DistributedReentrantLock.LockReason.READHANDLER);
         Future<Void> result = lock1.asyncAcquire(DistributedReentrantLock.LockReason.READHANDLER);
@@ -801,8 +806,8 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         try {
             Await.result(result);
             fail("future should have been failed");
-        } catch (DistributedReentrantLock.LockSessionExpiredException ex) {
-        } 
+        } catch (LockSessionExpiredException ex) {
+        }
 
         assertLockState(lock0, true, true, 1, lock1, false, false, 0, 1, locks.getLockPath());
 
@@ -826,7 +831,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         try {
             Await.result(result);
             fail("future should have been failed");
-        } catch (DistributedReentrantLock.LockClosedException ex) {
+        } catch (LockClosedException ex) {
         }
 
         assertLockState(lock0, true, true, 1, lock1, false, false, 0, 1, locks.getLockPath());
@@ -851,7 +856,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
         try {
             Await.result(result);
             fail("future should have been failed");
-        } catch (DistributedReentrantLock.LockClosedException ex) {
+        } catch (LockClosedException ex) {
         }
 
         assertLockState(lock0, true, true, 2, lock1, false, false, 0, 1, locks.getLockPath());
