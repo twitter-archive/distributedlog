@@ -21,10 +21,10 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
-import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -163,7 +163,7 @@ public class DLMTestUtil {
             OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
             null,
             NullStatsLogger.INSTANCE,
-            new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert"),
+            new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert", "dl_alert"),
             "localhost",
             DistributedLogConstants.LOCAL_REGION_ID,
             PermitLimiter.NULL_PERMIT_LIMITER,

@@ -14,7 +14,6 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
-import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.distributedlog.util.PermitLimiter;
 
@@ -34,6 +33,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;

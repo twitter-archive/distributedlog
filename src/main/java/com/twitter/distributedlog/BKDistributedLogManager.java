@@ -11,7 +11,6 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
@@ -28,6 +27,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.FutureEventListener;
 
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -225,7 +225,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         // Stats
         StatsLogger handlerStatsLogger = statsLogger.scope("handlers");
         this.createWriteHandlerStats = handlerStatsLogger.getOpStatsLogger("create_write_handler");
-        this.alertStatsLogger = new AlertStatsLogger(statsLogger, name);
+        this.alertStatsLogger = new AlertStatsLogger(statsLogger, name, "dl_alert");
         this.readAheadExceptionsLogger = readAheadExceptionsLogger;
     }
 

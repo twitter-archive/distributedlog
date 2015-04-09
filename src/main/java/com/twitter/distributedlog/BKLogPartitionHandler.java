@@ -25,12 +25,12 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.ZKException;
 
-import com.twitter.distributedlog.stats.AlertStatsLogger;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
