@@ -3,9 +3,7 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.ScheduledExecutorService;
 
-import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
@@ -27,6 +25,7 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.FuturePool;
@@ -47,7 +46,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
      * @param uri
      * @param zkcBuilder
      * @param bkcBuilder
-     * @param executorService
+     * @param scheduler
      * @param statsLogger
      * @param clientId
      */
@@ -57,7 +56,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    URI uri,
                                    ZooKeeperClientBuilder zkcBuilder,
                                    BookKeeperClientBuilder bkcBuilder,
-                                   ScheduledExecutorService executorService,
+                                   OrderedScheduler scheduler,
                                    FuturePool orderedFuturePool,
                                    OrderedSafeExecutor lockStateExecutor,
                                    LedgerAllocator allocator,
@@ -68,7 +67,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
                                    PermitLimiter writeLimiter,
                                    FeatureProvider featureProvider) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, orderedFuturePool, lockStateExecutor,
+              scheduler, orderedFuturePool, lockStateExecutor,
               allocator, true, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider);
         // Construct ledger allocator
         if (null == allocator) {
@@ -288,7 +287,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
-                lh, lock, txId, ledgerSeqNo, executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
+                lh, lock, txId, ledgerSeqNo, scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
                 featureProvider);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed

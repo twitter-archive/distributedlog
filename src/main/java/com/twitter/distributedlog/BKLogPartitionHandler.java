@@ -24,7 +24,7 @@ import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.ZKException;
-
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
@@ -61,7 +61,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -124,7 +123,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final int firstNumEntriesPerReadLastRecordScan;
     protected final int maxNumEntriesPerReadLastRecordScan;
     protected volatile long lastLedgerRollingTimeMillis = -1;
-    protected final ScheduledExecutorService executorService;
+    protected final OrderedScheduler scheduler;
     protected final StatsLogger statsLogger;
     protected final AlertStatsLogger alertStatsLogger;
     private final AtomicBoolean ledgerListWatchSet = new AtomicBoolean(false);
@@ -253,7 +252,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             if (KeeperException.Code.OK.intValue() == rc) {
                 LOG.debug("Updated ledgers list {} : {}", path, logSegmentLedgerMetadatas);
             } else {
-                executorService.schedule(this, conf.getZKRetryBackoffMaxMillis(), TimeUnit.MILLISECONDS);
+                scheduler.schedule(this, conf.getZKRetryBackoffMaxMillis(), TimeUnit.MILLISECONDS);
             }
         }
 
@@ -272,7 +271,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                           URI uri,
                           ZooKeeperClientBuilder zkcBuilder,
                           BookKeeperClientBuilder bkcBuilder,
-                          ScheduledExecutorService executorService,
+                          OrderedScheduler scheduler,
                           StatsLogger statsLogger,
                           AlertStatsLogger alertStatsLogger,
                           AsyncNotification notification,
@@ -283,7 +282,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         this.name = name;
         this.streamIdentifier = streamIdentifier;
         this.conf = conf;
-        this.executorService = executorService;
+        this.scheduler = scheduler;
         this.statsLogger = statsLogger;
         this.alertStatsLogger = alertStatsLogger;
         this.notification = notification;
@@ -542,7 +541,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 firstNumEntriesPerReadLastRecordScan,
                 maxNumEntriesPerReadLastRecordScan,
                 new AtomicInteger(0),
-                executorService,
+                scheduler,
                 bookKeeperClient,
                 digestpw,
                 beginDLSN);
@@ -825,7 +824,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                 firstNumEntriesPerReadLastRecordScan,
                 maxNumEntriesPerReadLastRecordScan,
                 numRecordsScanned,
-                executorService,
+                scheduler,
                 bookKeeperClient,
                 digestpw
         ).addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
@@ -1231,7 +1230,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                             numAttemptsLeft.decrementAndGet() > 0) {
                             long backoffMs = backoffMillis.get();
                             backoffMillis.set(Math.min(conf.getZKRetryBackoffMaxMillis(), 2 * backoffMs));
-                            executorService.schedule(new Runnable() {
+                            scheduler.schedule(new Runnable() {
                                 @Override
                                 public void run() {
                                     asyncGetLedgerListInternal(comparator, segmentFilter, watcher,
@@ -1326,7 +1325,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         if (Watcher.Event.EventType.None.equals(event.getType())) {
             if (event.getState() == Watcher.Event.KeeperState.Expired) {
                 // if the watcher is expired
-                executorService.schedule(new WatcherGetLedgersCallback(getFullyQualifiedName()),
+                scheduler.schedule(new WatcherGetLedgersCallback(getFullyQualifiedName()),
                         conf.getZKRetryBackoffStartMillis(), TimeUnit.MILLISECONDS);
             }
         } else if (Watcher.Event.EventType.NodeChildrenChanged.equals(event.getType())) {

@@ -14,7 +14,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import scala.Function0;
 import scala.runtime.BoxedUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -126,7 +128,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      URI uri,
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
-                                     ScheduledExecutorService executorService,
+                                     OrderedScheduler scheduler,
                                      OrderedSafeExecutor lockStateExecutor,
                                      ScheduledExecutorService readAheadExecutor,
                                      AlertStatsLogger alertStatsLogger,
@@ -135,7 +137,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      String clientId,
                                      AsyncNotification notification,
                                      boolean isHandleForReading) {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService,
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
         this.readAheadExecutor = readAheadExecutor;
@@ -193,7 +195,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     }
 
     void satisfyPromiseAsync(final Promise promise, final Try result) {
-        executorService.submit(new SafeRunnable() {
+        scheduler.submit(new SafeRunnable() {
             @Override
             public void safeRun() {
                 promise.update(result);
@@ -206,24 +208,25 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
      */
     synchronized Future<Void> lockStream() {
         if (null == lockAcquireFuture) {
+            final Function0<DistributedReentrantLock> lockFunction =  new ExceptionalFunction0<DistributedReentrantLock>() {
+                @Override
+                public DistributedReentrantLock applyE() throws IOException {
+                    // Unfortunately this has a blocking call which we should not execute on the
+                    // ZK completion thread
+                    BKLogPartitionReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
+                        zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
+                        getLockClientId(), statsLogger, conf.getZKNumRetries(),
+                        conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
+
+                    LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
+                    readLockRequestStat.inc();
+                    return BKLogPartitionReadHandler.this.readLock;
+                }
+            };
             lockAcquireFuture = ensureReadLockPathExist().flatMap(new ExceptionalFunction<Void, Future<Void>>() {
                 @Override
                 public Future<Void> applyE(Void in) throws Throwable {
-                    return (new ExecutorServiceFuturePool(executorService)).apply(new ExceptionalFunction0<DistributedReentrantLock>() {
-                        @Override
-                        public DistributedReentrantLock applyE() throws IOException {
-                            // Unfortunately this has a blocking call which we should not execute on the
-                            // ZK completion thread
-                            BKLogPartitionReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
-                                zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
-                                getLockClientId(), statsLogger, conf.getZKNumRetries(),
-                                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
-
-                            LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
-                            readLockRequestStat.inc();
-                            return BKLogPartitionReadHandler.this.readLock;
-                        }
-                    }).flatMap(new ExceptionalFunction<DistributedReentrantLock, Future<Void>>() {
+                    return scheduler.apply(lockFunction).flatMap(new ExceptionalFunction<DistributedReentrantLock, Future<Void>>() {
                         @Override
                         public Future<Void> applyE(DistributedReentrantLock lock) throws IOException {
                             return acquireLockOnExecutorThread(lock);
@@ -599,7 +602,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 new org.apache.zookeeper.AsyncCallback.StringCallback() {
                 @Override
                 public void processResult(final int rc, final String path, Object ctx, String name) {
-                    executorService.submit(new Runnable() {
+                    scheduler.submit(new Runnable() {
                         @Override
                         public void run() {
                             if (KeeperException.Code.NONODE.intValue() == rc) {

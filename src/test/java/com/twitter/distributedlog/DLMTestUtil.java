@@ -17,10 +17,10 @@
  */
 package com.twitter.distributedlog;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 
@@ -41,7 +41,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.Executors;
 import java.util.Map;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -157,8 +156,7 @@ public class DLMTestUtil {
             uri,
             zkcBuilder,
             bkcBuilder,
-            Executors.newScheduledThreadPool(1,
-                new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
+            OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + p.toString()).build(),
             null,
             OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
             null,
@@ -384,7 +382,7 @@ public class DLMTestUtil {
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0));
         if (writeEntries) {
@@ -426,7 +424,7 @@ public class DLMTestUtil {
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.executorService,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0));
         long txid = startTxID;

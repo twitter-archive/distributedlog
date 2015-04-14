@@ -14,19 +14,16 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
-import com.twitter.distributedlog.zk.DataWithStat;
-import com.twitter.distributedlog.util.PermitLimiter;
-
-import com.twitter.util.ExceptionalFunction0;
-import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.distributedlog.util.FutureUtils;
-
+import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.Await;
+import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
-
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -56,7 +53,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,7 +67,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Class[] WRITE_HANDLER_CONSTRUCTOR_ARGS = {
         String.class, String.class, DistributedLogConfiguration.class, URI.class,
         ZooKeeperClientBuilder.class, BookKeeperClientBuilder.class,
-        ScheduledExecutorService.class, FuturePool.class, OrderedSafeExecutor.class,
+        OrderedScheduler.class, FuturePool.class, OrderedSafeExecutor.class,
         LedgerAllocator.class, StatsLogger.class, AlertStatsLogger.class, String.class, int.class,
         PermitLimiter.class, FeatureProvider.class
     };
@@ -83,7 +79,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        URI uri,
                                                                        ZooKeeperClientBuilder zkcBuilder,
                                                                        BookKeeperClientBuilder bkcBuilder,
-                                                                       ScheduledExecutorService executorService,
+                                                                       OrderedScheduler scheduler,
                                                                        FuturePool orderedFuturePool,
                                                                        OrderedSafeExecutor lockStateExecutor,
                                                                        LedgerAllocator ledgerAllocator,
@@ -95,7 +91,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        FeatureProvider featureProvider) throws IOException {
         if (ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
             return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, lockStateExecutor, ledgerAllocator,
+                    scheduler, orderedFuturePool, lockStateExecutor, ledgerAllocator,
                     false, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider);
         } else {
             if (null == WRITER_HANDLER_CLASS) {
@@ -117,7 +113,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             Object[] arguments = {
                     name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                    executorService, orderedFuturePool, lockStateExecutor,
+                    scheduler, orderedFuturePool, lockStateExecutor,
                     ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider
             };
             try {
@@ -302,7 +298,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                URI uri,
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
-                               ScheduledExecutorService executorService,
+                               OrderedScheduler scheduler,
                                FuturePool orderedFuturePool,
                                OrderedSafeExecutor lockStateExecutor,
                                LedgerAllocator allocator,
@@ -314,7 +310,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                PermitLimiter writeLimiter,
                                FeatureProvider featureProvider) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-              executorService, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
+              scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.orderedFuturePool = orderedFuturePool;
         this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
@@ -729,7 +725,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                      new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName,
                     conf, conf.getDLLedgerMetadataLayoutVersion(), lh, lock, txId, ledgerSeqNo,
-                    executorService, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
+                    scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
                     featureProvider);
         } catch (Exception e) {
             LOG.error("Exception during StartLogSegment", e);
@@ -1147,7 +1143,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     com.twitter.util.Future<Boolean> setLogsOlderThanDLSNTruncatedAsync(final DLSN dlsn) {
-        return new ExecutorServiceFuturePool(executorService).apply(new ExceptionalFunction0<Boolean>() {
+        // truncation status should be updated in order
+        return scheduler.apply(name, new ExceptionalFunction0<Boolean>() {
             @Override
             public Boolean applyE() throws Throwable {
                 return setLogsOlderThanDLSNTruncated(dlsn);
@@ -1272,7 +1269,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             return;
         }
 
-        if (partialTruncate.isNontruncated() ||
+        if (partialTruncate.isNonTruncated() ||
                 (partialTruncate.isPartiallyTruncated() && (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
             MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
             LogSegmentLedgerMetadata newSegment = updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
@@ -1292,7 +1289,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             public Future<LogSegmentLedgerMetadata> apply(LogSegmentLedgerMetadata segment) {
                 return asyncDeleteLedgerAndMetadata(segment);
             }
-        }, executorService);
+        }, scheduler);
     }
 
     private Future<LogSegmentLedgerMetadata> asyncDeleteLedgerAndMetadata(
@@ -1326,7 +1323,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         return;
                     }
                     // after the ledger is deleted, we delete the metadata znode
-                    executorService.submit(new Runnable() {
+                    scheduler.submit(new Runnable() {
                         @Override
                         public void run() {
                             asyncDeleteMetadata(ledgerMetadata, promise);

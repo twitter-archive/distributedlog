@@ -17,6 +17,7 @@ import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -106,8 +108,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     private final int regionId;
     private DistributedLogConfiguration conf;
     private URI namespace;
-    private final ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
-    private final ScheduledThreadPoolExecutor readAheadExecutor;
+    private final OrderedScheduler scheduler;
+    private final ScheduledExecutorService readAheadExecutor;
     private final OrderedSafeExecutor lockStateExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
@@ -171,12 +173,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.statsLogger = statsLogger;
         this.clientId = clientId;
         this.regionId = regionId;
-        this.scheduledThreadPoolExecutor = new MonitoredScheduledThreadPoolExecutor(
-                conf.getNumWorkerThreads(),
-                new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build(),
-                statsLogger.scope("factory").scope("thread_pool"),
-                conf.getTraceReadAheadDeliveryLatency()
-        );
+        this.scheduler = OrderedScheduler.newBuilder()
+                .name("DLM-" + uri.getPath())
+                .corePoolSize(conf.getNumWorkerThreads())
+                .statsLogger(statsLogger.scope("factory").scope("thread_pool"))
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
+                .build();
         if (conf.getNumReadAheadWorkerThreads() > 0) {
             this.readAheadExecutor = new MonitoredScheduledThreadPoolExecutor(
                     conf.getNumReadAheadWorkerThreads(),
@@ -186,7 +189,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             );
             LOG.info("Created dedicated readahead executor : threads = {}", conf.getNumReadAheadWorkerThreads());
         } else {
-            this.readAheadExecutor = this.scheduledThreadPoolExecutor;
+            this.readAheadExecutor = this.scheduler;
             LOG.info("Used shared executor for readahead.");
         }
         this.lockStateExecutor = OrderedSafeExecutor.newBuilder()
@@ -252,7 +255,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         this.readerBKC = this.sharedReaderBKCBuilder.build();
 
         this.logSegmentRollingPermitManager = new LimitedPermitManager(
-                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduledThreadPoolExecutor);
+                conf.getLogSegmentRollingConcurrency(), 1, TimeUnit.MINUTES, scheduler);
 
         if (conf.getGlobalOutstandingWriteLimit() < 0) {
             this.writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
@@ -274,7 +277,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (conf.getEnableLedgerAllocatorPool()) {
             String allocatorPoolPath = validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
             allocator = LedgerAllocatorUtils.createLedgerAllocatorPool(allocatorPoolPath, conf.getLedgerAllocatorPoolCoreSize(),
-                    conf, sharedWriterZKCForDL, writerBKC, scheduledThreadPoolExecutor);
+                    conf, sharedWriterZKCForDL, writerBKC, scheduler);
             if (null != allocator) {
                 allocator.start();
             }
@@ -420,7 +423,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
 
     private void scheduleTask(Runnable r, long ms) {
         try {
-            scheduledThreadPoolExecutor.schedule(r, ms, TimeUnit.MILLISECONDS);
+            scheduler.schedule(r, ms, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException ree) {
             LOG.error("Task {} scheduled in {} ms is rejected : ", new Object[] { r, ms, ree });
         }
@@ -664,7 +667,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             nameOfLogStream, mergedConfiguration, namespace,
             writerZKCBuilderForDL, readerZKCBuilderForDL,                       /* dl zks */
             writerZKCForBK, readerZKCForBK, writerBKCBuilder, readerBKCBuilder, /* bk zks & bks */
-            scheduledThreadPoolExecutor, readAheadExecutor, lockStateExecutor,
+            scheduler, readAheadExecutor, lockStateExecutor,
             channelFactory, requestTimer, readAheadExceptionsLogger,
             featureProvider.scope("dl"), statsLogger);
         distLogMgr.setClientId(clientId);
@@ -701,7 +704,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 LOG.info("Creating zk based access control manager @ {} for {}",
                         zkRootPath, namespace);
                 accessControlManager = new ZKAccessControlManager(conf, sharedReaderZKCForDL,
-                        zkRootPath, scheduledThreadPoolExecutor);
+                        zkRootPath, scheduler);
                 LOG.info("Created zk based access control manager @ {} for {}",
                         zkRootPath, namespace);
             }
@@ -978,10 +981,12 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             LOG.info("Access Control Manager Stopped.");
         }
 
-        SchedulerUtils.shutdownScheduler(scheduledThreadPoolExecutor, 5000, TimeUnit.MILLISECONDS);
+        SchedulerUtils.shutdownScheduler(scheduler, conf.getSchedulerShutdownTimeoutMs(),
+                TimeUnit.MILLISECONDS);
         LOG.info("Executor Service Stopped.");
-        if (scheduledThreadPoolExecutor != readAheadExecutor) {
-            SchedulerUtils.shutdownScheduler(readAheadExecutor, 5000, TimeUnit.MILLISECONDS);
+        if (scheduler != readAheadExecutor) {
+            SchedulerUtils.shutdownScheduler(readAheadExecutor, conf.getSchedulerShutdownTimeoutMs(),
+                    TimeUnit.MILLISECONDS);
             LOG.info("ReadAhead Executor Service Stopped.");
         }
         if (null != allocator) {

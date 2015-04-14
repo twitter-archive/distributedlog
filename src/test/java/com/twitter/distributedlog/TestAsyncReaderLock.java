@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -333,10 +335,14 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         boolean failed = false;
         AtomicReference<DLSN> currentDLSN;
         String name;
+        final ExecutorService executorService;
 
-        public ReadRecordsListener(AtomicReference<DLSN> currentDLSN, String name) {
+        public ReadRecordsListener(AtomicReference<DLSN> currentDLSN,
+                                   String name,
+                                   ExecutorService executorService) {
             this.currentDLSN = currentDLSN;
             this.name = name;
+            this.executorService = executorService;
         }
         public CountDownLatch getLatch() {
             return latch;
@@ -349,7 +355,16 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         }
 
         @Override
-        public void onSuccess(AsyncLogReader reader) {
+        public void onSuccess(final AsyncLogReader reader) {
+            executorService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    readEntries(reader);
+                }
+            });
+        }
+
+        private void readEntries(AsyncLogReader reader) {
             try {
                 for (int i = 0; i < 300; i++) {
                     LogRecordWithDLSN record = Await.result(reader.readNext());
@@ -361,6 +376,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
                 latch.countDown();
             }
         }
+
         @Override
         public void onFailure(Throwable cause) {
             failed = true;
@@ -368,7 +384,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         }
     }
 
-    @Test(timeout = 60000)
+    @Test
     public void testReaderLockMultiReadersScenario() throws Exception {
         final String name = runtime.getMethodName();
         URI uri = createDLMURI("/" + name);
@@ -403,8 +419,10 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         Future<AsyncLogReader> futureReader3 = dlm3.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
-        ReadRecordsListener listener2 = new ReadRecordsListener(currentDLSN, "reader-2");
-        ReadRecordsListener listener3 = new ReadRecordsListener(currentDLSN, "reader-3");
+        ExecutorService executorService = Executors.newCachedThreadPool();
+
+        ReadRecordsListener listener2 = new ReadRecordsListener(currentDLSN, "reader-2", executorService);
+        ReadRecordsListener listener3 = new ReadRecordsListener(currentDLSN, "reader-3", executorService);
         futureReader2.addEventListener(listener2);
         futureReader3.addEventListener(listener3);
 
@@ -449,6 +467,8 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         dlm1.close();
         dlm2.close();
         dlm3.close();
+
+        executorService.shutdown();
     }
 
     @Test

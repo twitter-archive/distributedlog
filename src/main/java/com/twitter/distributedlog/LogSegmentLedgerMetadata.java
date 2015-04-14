@@ -445,7 +445,7 @@ public class LogSegmentLedgerMetadata {
                 == TruncationStatus.PARTIALLY_TRUNCATED.value);
     }
 
-    public boolean isNontruncated() {
+    public boolean isNonTruncated() {
         return ((status & METADATA_TRUNCATION_STATUS_MASK)
                 == TruncationStatus.ACTIVE.value);
     }

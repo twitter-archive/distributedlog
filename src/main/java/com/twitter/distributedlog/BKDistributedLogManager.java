@@ -15,6 +15,7 @@ import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
 import com.twitter.distributedlog.util.MonitoredFuturePool;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -83,7 +84,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
     private final ScheduledExecutorService readAheadExecutor;
     private boolean ownExecutor;
 
@@ -132,7 +133,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this(name, conf, uri,
              writerZKCBuilder, readerZKCBuilder,
              zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
-             Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+             OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
              null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), featureProvider, statsLogger);
         this.ownExecutor = true;
     }
@@ -146,7 +147,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
-                            ScheduledExecutorService executorService,
+                            OrderedScheduler scheduler,
                             ScheduledExecutorService readAheadExecutor,
                             OrderedSafeExecutor lockStateExecutor,
                             ClientSocketChannelFactory channelFactory,
@@ -157,9 +158,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder, statsLogger);
         Preconditions.checkNotNull(readAheadExceptionsLogger, "No ReadAhead Stats Logger Provided.");
         this.conf = conf;
-        this.executorService = executorService;
+        this.scheduler = scheduler;
         this.lockStateExecutor = lockStateExecutor;
-        this.readAheadExecutor = null == readAheadExecutor ? executorService : readAheadExecutor;
+        this.readAheadExecutor = null == readAheadExecutor ? scheduler : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
         this.pendingReaders = new PendingReaders();
@@ -332,7 +333,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                                                           AsyncNotification notification,
                                                                           boolean isHandleForReading) {
         return new BKLogPartitionReadHandler(name, streamIdentifier, subscriberId, conf, uri,
-                readerZKCBuilder, readerBKCBuilder, executorService, lockExecutor, readAheadExecutor,
+                readerZKCBuilder, readerBKCBuilder, scheduler, lockExecutor, readAheadExecutor,
                 alertStatsLogger, readAheadExceptionsLogger, statsLogger, clientId, notification, isHandleForReading);
     }
 
@@ -363,7 +364,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                writerZKCBuilder, writerBKCBuilder, executorService, orderedFuturePool,
+                writerZKCBuilder, writerBKCBuilder, scheduler, orderedFuturePool,
                 getLockStateExecutor(true), ledgerAllocator, statsLogger, alertStatsLogger, clientId, regionId,
                 writeLimiter, featureProvider);
         PermitManager manager = getLogSegmentRollingPermitManager();
@@ -543,7 +544,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
         Optional<String> subscriberId = Optional.absent();
-        return new BKAsyncLogReaderDLSN(this, executorService, getLockStateExecutor(true),
+        return new BKAsyncLogReaderDLSN(this, scheduler, getLockStateExecutor(true),
                                         conf.getUnpartitionedStreamName(), fromDLSN, subscriberId,
                                         statsLogger);
     }
@@ -576,7 +577,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             return Future.exception(new UnexpectedException("Neither from dlsn nor subscriber id is provided."));
         }
         final BKAsyncLogReaderDLSN reader = new BKAsyncLogReaderDLSN(
-            BKDistributedLogManager.this, executorService,
+            BKDistributedLogManager.this, scheduler,
             getLockStateExecutor(true), conf.getUnpartitionedStreamName(),
             fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN, subscriberId, statsLogger);
         pendingReaders.add(reader);
@@ -1100,10 +1101,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
         // Clean up executor state.
         if (ownExecutor) {
-            SchedulerUtils.shutdownScheduler(executorService, schedTimeout, TimeUnit.MILLISECONDS);
+            SchedulerUtils.shutdownScheduler(scheduler, schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL executor service for {}.", name);
 
-            if (executorService != readAheadExecutor) {
+            if (scheduler != readAheadExecutor) {
                 SchedulerUtils.shutdownScheduler(readAheadExecutor, schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
             }
@@ -1132,7 +1133,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public boolean scheduleTask(Runnable task) {
         try {
-            executorService.submit(task);
+            scheduler.submit(task);
             return true;
         } catch (RejectedExecutionException ree) {
             LOG.error("Task {} is rejected : ", task, ree);
@@ -1156,7 +1157,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             // ownExecutor is a single threaded thread pool
             if (null == orderedFuturePool) {
                 // Readers share the same future pool as the orderedFuturePool
-                orderedFuturePool = buildFuturePool(executorService);
+                orderedFuturePool = buildFuturePool(scheduler);
                 readerFuturePool = orderedFuturePool;
             }
         } else if (ordered && (null == orderedFuturePool)) {
@@ -1167,7 +1168,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             orderedFuturePool = buildFuturePool(orderedFuturePoolExecutorService);
         } else if (!ordered && (null == readerFuturePool)) {
             // readerFuturePool can just use the executor service that was configured with the DLM
-            readerFuturePool = buildFuturePool(executorService);
+            readerFuturePool = buildFuturePool(scheduler);
         }
     }
 
