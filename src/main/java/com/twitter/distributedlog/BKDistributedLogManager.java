@@ -60,7 +60,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     static void createUnpartitionedStream(DistributedLogConfiguration conf, ZooKeeperClient zkc, URI uri, String streamName) throws IOException, InterruptedException {
-        BKLogPartitionWriteHandler.createStreamIfNotExists(getPartitionPath(uri, streamName,
+        BKLogPartitionWriteHandler.createStreamIfNotExists(streamName, getPartitionPath(uri, streamName,
             conf.getUnpartitionedStreamName()), zkc.get(), zkc.getDefaultACL(), true, new DataWithStat(), new DataWithStat(), new DataWithStat());
     }
 

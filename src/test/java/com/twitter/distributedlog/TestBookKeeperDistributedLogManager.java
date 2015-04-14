@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
@@ -1906,6 +1907,31 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         writer.close();
         dlm.close();
+    }
+
+    @Test
+    public void testInvalidStreamFromInvalidZkPath() throws Exception {
+        String baseName = testNames.getMethodName();
+        String streamName = "\0blah";
+        URI uri = createDLMURI("/" + baseName);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+
+        DistributedLogManager dlm = null;
+        AsyncLogWriter writer = null;
+        try {
+            dlm = factory.createDistributedLogManager(streamName);
+            writer = dlm.startAsyncLogSegmentNonPartitioned();
+            fail("should have thrown");
+        } catch (InvalidStreamNameException e) {
+        } finally {
+            if (null != writer) {
+                writer.close();
+            }
+            if (null != dlm) {
+                dlm.close();
+            }
+            factory.close();
+        }
     }
 
     @Test

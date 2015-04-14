@@ -8,6 +8,7 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
@@ -40,6 +41,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -360,7 +362,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new DLInterruptedException("Failed to initialize zookeeper client", e);
             }
 
-            createStreamIfNotExists(partitionRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
+            createStreamIfNotExists(name, partitionRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
         } else {
             getLedgersData(ledgersData);
         }
@@ -429,13 +431,21 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         return this;
     }
 
-    static void createStreamIfNotExists(final String partitionRootPath,
+    static void createStreamIfNotExists(final String name,
+                                        final String partitionRootPath,
                                         final ZooKeeper zk,
                                         final List<ACL> acl,
                                         final boolean ownAllocator,
                                         final DataWithStat allocationData,
                                         final DataWithStat maxTxIdData,
                                         final DataWithStat ledgersData) throws IOException {
+
+        try {
+            PathUtils.validatePath(partitionRootPath);
+        } catch (IllegalArgumentException e) {
+            LOG.error("Illegal path value {} for stream {}", new Object[] { partitionRootPath, name, e });
+            throw new InvalidStreamNameException(name, "Stream name is invalid");
+        }
 
         // Note re. persistent lock state initialization: the read lock persistent state (path) is
         // initialized here but only used in the read handler. The reason is its more convenient and
