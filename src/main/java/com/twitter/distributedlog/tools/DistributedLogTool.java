@@ -40,6 +40,7 @@ import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.auditor.DLAuditor;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookKeeperAccessor;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -2039,6 +2040,62 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    protected static class RecoverLedgerCommand extends PerLedgerCommand {
+
+        RecoverLedgerCommand() {
+            super("recoverledger", "force recover ledger");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
+                    .uri(getUri()).zkAclId(null).build();
+            try {
+                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                        .dlConfig(getConf())
+                        .zkServers(bkdlConfig.getBkZkServersForReader())
+                        .ledgersPath(bkdlConfig.getBkLedgersPath())
+                        .name("dlog")
+                        .build();
+                try {
+                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
+                            dlConf.getBKDigestPW().getBytes(UTF_8));
+                    final CountDownLatch doneLatch = new CountDownLatch(1);
+                    final AtomicInteger resultHolder = new AtomicInteger(-1234);
+                    BookkeeperInternalCallbacks.GenericCallback<Void> recoverCb = new BookkeeperInternalCallbacks.GenericCallback<Void>() {
+                        @Override
+                        public void operationComplete(int rc, Void result) {
+                            resultHolder.set(rc);
+                            doneLatch.countDown();
+                        }
+                    };
+                    try {
+                        BookKeeperAccessor.forceRecoverLedger(lh, recoverCb);
+                        doneLatch.await();
+                        if (BKException.Code.OK != resultHolder.get()) {
+                            throw BKException.create(resultHolder.get());
+                        }
+                    } finally {
+                        lh.close();
+                    }
+                } finally {
+                    bkc.close();
+                }
+            } finally {
+                zkc.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "recoverledger [options]";
+        }
+    }
+
     protected static class ReadLastConfirmedCommand extends PerLedgerCommand {
 
         ReadLastConfirmedCommand() {
@@ -2456,6 +2513,7 @@ public class DistributedLogTool extends Tool {
         addCommand(new ReadLastConfirmedCommand());
         addCommand(new ReadEntriesCommand());
         addCommand(new RecoverCommand());
+        addCommand(new RecoverLedgerCommand());
         addCommand(new ShowCommand());
         addCommand(new TruncateCommand());
     }
