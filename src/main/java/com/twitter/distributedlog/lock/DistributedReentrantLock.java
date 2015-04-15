@@ -243,7 +243,7 @@ public class DistributedReentrantLock {
                         lockCount.incrementAndGet();
                         break;
                     }
-                    if (internalLock.isExpiredOrClosed()) {
+                    if (internalLock.isExpiredOrClosing()) {
                         try {
                             internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
                         } catch (IOException e) {
@@ -297,7 +297,7 @@ public class DistributedReentrantLock {
         checkLockState();
 
         if (null == lockAcquireInfo) {
-            if (internalLock.isExpiredOrClosed()) {
+            if (internalLock.isExpiredOrClosing()) {
                 try {
                     internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
                 } catch (IOException ioe) {

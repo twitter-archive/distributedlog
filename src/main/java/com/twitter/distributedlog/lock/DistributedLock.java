@@ -164,12 +164,87 @@ class DistributedLock {
         CLOSED,    // lock is closed
     }
 
+    /**
+     * Convenience class for state management. Provide debuggability features by tracing unxpected state
+     * transitions.
+     */
+    static class StateManagement {
+
+        static final Logger LOG = LoggerFactory.getLogger(StateManagement.class);
+
+        private volatile State state;
+
+        StateManagement() {
+            this.state = State.INIT;
+        }
+
+        public void transition(State toState) {
+            if (!validTransition(toState)) {
+                LOG.error("Invalid state transition from {} to {} ",
+                        new Object[] { this.state, toState, getStack() });
+            }
+            this.state = toState;
+        }
+
+        private boolean validTransition(State toState) {
+            switch (toState) {
+                case INIT:
+                    return false;
+                case PREPARING:
+                    return inState(State.INIT);
+                case PREPARED:
+                    return inState(State.PREPARING) || inState(State.WAITING);
+                case CLAIMED:
+                    return inState(State.PREPARED);
+                case WAITING:
+                    return inState(State.PREPARED);
+                case EXPIRED:
+                    return isTryingOrClaimed();
+                case CLOSING:
+                    return !inState(State.CLOSED);
+                case CLOSED:
+                    return inState(State.CLOSING) || inState(State.CLOSED);
+                default:
+                    return false;
+            }
+        }
+
+        private State getState() {
+            return state;
+        }
+
+        private boolean isTryingOrClaimed() {
+            return inState(State.PREPARING) || inState(State.PREPARED) ||
+                inState(State.WAITING) || inState(State.CLAIMED);
+        }
+
+        public boolean isExpiredOrClosing() {
+            return inState(State.CLOSED) || inState(State.EXPIRED) || inState(State.CLOSING);
+        }
+
+        public boolean isExpiredOrClosed() {
+            return inState(State.CLOSED) || inState(State.EXPIRED);
+        }
+
+        public boolean isClosed() {
+            return inState(State.CLOSED);
+        }
+
+        private boolean inState(final State state) {
+            return state == this.state;
+        }
+
+        private Exception getStack() {
+            return new Exception();
+        }
+    }
+
     private final ZooKeeperClient zkClient;
     private final ZooKeeper zk;
     private final String lockPath;
     // Identify a unique lock
     private final Pair<String, Long> lockId;
-    private volatile State lockState;
+    private StateManagement lockState;
     private final DistributedLockContext lockContext;
 
     private final Promise<Void> acquireFuture;
@@ -237,7 +312,7 @@ class DistributedLock {
         this.lockContext = lockContext;
         this.lockStateExecutor = lockStateExecutor;
         this.lockListener = lockListener;
-        this.lockState = State.INIT;
+        this.lockState = new StateManagement();
         this.lockOpTimeout = lockOpTimeout;
 
         this.tryStats = statsLogger.getOpStatsLogger("tryAcquire");
@@ -269,7 +344,7 @@ class DistributedLock {
 
     @VisibleForTesting
     State getLockState() {
-        return lockState;
+        return lockState.getState();
     }
 
     @VisibleForTesting
@@ -277,8 +352,8 @@ class DistributedLock {
         return lockId;
     }
 
-    boolean isExpiredOrClosed() {
-        return State.CLOSED == lockState || State.EXPIRED == lockState;
+    boolean isExpiredOrClosing() {
+        return lockState.isExpiredOrClosing();
     }
 
     /**
@@ -424,8 +499,8 @@ class DistributedLock {
                     lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
                         @Override
                         public void safeRun() {
-                            if (State.INIT != lockState) {
-                                result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                            if (!lockState.inState(State.INIT)) {
+                                result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState.getState()));
                                 return;
                             }
                             if (KeeperException.Code.OK.intValue() != rc) {
@@ -481,8 +556,8 @@ class DistributedLock {
         executeLockAction(curEpoch, new LockAction() {
             @Override
             public void execute() {
-                if (State.INIT != lockState) {
-                    result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                if (!lockState.inState(State.INIT)) {
+                    result.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState.getState()));
                     return;
                 }
                 asyncTryLock(false, result);
@@ -558,11 +633,11 @@ class DistributedLock {
         executeLockAction(epoch.get(), new LockAction() {
             @Override
             public void execute() {
-                if (State.INIT != lockState) {
-                    promise.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState));
+                if (!lockState.inState(State.INIT)) {
+                    promise.setException(new LockStateChangedException(lockPath, lockId, State.INIT, lockState.getState()));
                     return;
                 }
-                lockState = State.PREPARING;
+                lockState.transition(State.PREPARING);
 
                 final int curEpoch = epoch.incrementAndGet();
                 watcher = new LockWatcher(curEpoch);
@@ -590,28 +665,29 @@ class DistributedLock {
                                         }
 
                                         if (FailpointUtils.checkFailPointNoThrow(FailpointUtils.FailPointName.FP_LockTryCloseRaceCondition)) {
-                                            lockState = State.CLOSED;
+                                            lockState.transition(State.CLOSING);
+                                            lockState.transition(State.CLOSED);
                                         }
 
                                         currentNode = name;
                                         currentId = getLockIdFromPath(currentNode);
                                         LOG.trace("{} received member id for lock {} : ", lockId, currentId);
 
-                                        if (lockState == State.EXPIRED || lockState == State.CLOSING || lockState == State.CLOSED) {
+                                        if (lockState.isExpiredOrClosing()) {
                                             // Delete node attempt may have come after PREPARING but before create node, in which case
                                             // we'd be left with a dangling node unless we clean up.
                                             Promise<BoxedUnit> deletePromise = new Promise<BoxedUnit>();
                                             deleteLockNode(deletePromise);
                                             deletePromise.ensure(new Function0<BoxedUnit>() {
                                                 public BoxedUnit apply() {
-                                                    promise.setException(new LockClosedException(lockPath, lockId, lockState));
+                                                    promise.setException(new LockClosedException(lockPath, lockId, lockState.getState()));
                                                     return BoxedUnit.UNIT;
                                                 }
                                             });
                                             return;
                                         }
 
-                                        lockState = State.PREPARED;
+                                        lockState.transition(State.PREPARED);
                                         checkLockOwnerAndWaitIfPossible(watcher, wait, promise);
                                     }
 
@@ -708,7 +784,7 @@ class DistributedLock {
             @Override
             public void safeRun() {
                 acquireFuture.updateIfEmpty(new Throw(
-                    new LockClosedException(lockPath, lockId, lockState)));
+                    new LockClosedException(lockPath, lockId, lockState.getState())));
                 unlockInternal(promise);
                 promise.addEventListener(new OpStatsListener(unlockStats));
             }
@@ -732,7 +808,7 @@ class DistributedLock {
     // Lock State Changes (all state changes should be executed under a LockAction)
 
     private void claimOwnership(int lockEpoch) {
-        lockState = State.CLAIMED;
+        lockState.transition(State.CLAIMED);
         // clear previous lock ids
         lockContext.clearLockIds();
         // add current lock id
@@ -746,7 +822,7 @@ class DistributedLock {
     }
 
     public boolean isLockHeld() {
-        return State.CLAIMED == lockState;
+        return lockState.inState(State.CLAIMED);
     }
 
     /**
@@ -760,23 +836,25 @@ class DistributedLock {
             this.zkClient.unregister(watcher);
         }
 
-        if (State.CLOSED == lockState) {
+        if (lockState.inState(State.CLOSED)) {
             promise.setValue(BoxedUnit.UNIT);
             return;
         }
 
         LOG.info("Lock {} for {} is closed from state {}.",
-                new Object[] { lockId, lockPath, lockState });
+                new Object[] { lockId, lockPath, lockState.getState() });
 
-        if (State.INIT == lockState || State.EXPIRED == lockState) {
+        final boolean skipCleanup = lockState.inState(State.INIT) || lockState.inState(State.EXPIRED);
+
+        lockState.transition(State.CLOSING);
+
+        if (skipCleanup) {
             // Nothing to cleanup if INIT (never tried) or EXPIRED (ephemeral node
             // auto-removed)
-            lockState = State.CLOSED;
+            lockState.transition(State.CLOSED);
             promise.setValue(BoxedUnit.UNIT);
             return;
         }
-
-        lockState = State.CLOSING;
 
         // In any other state, we should clean up the member node
         Promise<BoxedUnit> deletePromise = new Promise<BoxedUnit>();
@@ -789,7 +867,7 @@ class DistributedLock {
                 lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
                     @Override
                     public void safeRun() {
-                        lockState = State.CLOSED;
+                        lockState.transition(State.CLOSED);
                         promise.setValue(BoxedUnit.UNIT);
                     }
                 });
@@ -844,13 +922,14 @@ class DistributedLock {
         executeLockAction(lockEpoch, new LockAction() {
             @Override
             public void execute() {
-                if (lockState == State.CLOSED || lockState == State.CLOSING) {
+                if (lockState.inState(State.CLOSED) || lockState.inState(State.CLOSING)) {
                     // Already fully closed, no need to process expire.
                     return;
                 }
 
-                boolean shouldNotifyLockListener = State.CLAIMED == lockState;
-                lockState = State.EXPIRED;
+                boolean shouldNotifyLockListener = lockState.inState(State.CLAIMED);
+                
+                lockState.transition(State.EXPIRED);
 
                 // remove the watcher
                 if (null != watcher) {
@@ -863,7 +942,11 @@ class DistributedLock {
                 // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
                 // we don't even need to clean up the lock as the znode will disappear after session expired
                 acquireFuture.updateIfEmpty(new Throw(
-                        new LockSessionExpiredException(lockPath, lockId, lockState)));
+                        new LockSessionExpiredException(lockPath, lockId, lockState.getState())));
+
+                // session expired, ephemeral node is gone.
+                currentNode = null;
+                currentId = null;
 
                 // session expired, ephemeral node is gone.
                 currentNode = null;
@@ -889,12 +972,13 @@ class DistributedLock {
             @Override
             public void execute() {
                 // The lock is either expired or closed
-                if (State.WAITING != lockState) {
+                if (!lockState.inState(State.WAITING)) {
                     LOG.info("{} ignore watched node {} deleted event, since lock state has moved to {}.",
-                            new Object[] { lockId, event.getPath(), lockState });
+                            new Object[] { lockId, event.getPath(), lockState.getState() });
                     return;
                 }
-                lockState = State.PREPARED;
+                lockState.transition(State.PREPARED);
+
                 // we don't need to wait and check the result, since:
                 // 1) if it claimed the ownership, it would notify the waiters when claimed ownerships
                 // 2) if it failed, it would also notify the waiters, the waiters would cleanup the state.
@@ -958,8 +1042,8 @@ class DistributedLock {
         executeLockAction(lockWatcher.epoch, new LockAction() {
             @Override
             public void execute() {
-                if (State.PREPARED != lockState) { // e.g. lock closed or session expired after prepared
-                    promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState));
+                if (!lockState.inState(State.PREPARED)) { // e.g. lock closed or session expired after prepared
+                    promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState.getState()));
                     return;
                 }
 
@@ -1086,8 +1170,8 @@ class DistributedLock {
                             executeLockAction(lockWatcher.epoch, new LockAction() {
                                 @Override
                                 public void execute() {
-                                    if (lockState != State.PREPARED) {
-                                        promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState));
+                                    if (!lockState.inState(State.PREPARED)) {
+                                        promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState.getState()));
                                         return;
                                     }
 
@@ -1101,7 +1185,7 @@ class DistributedLock {
                                             promise.setValue(currentOwner.getLeft());
                                         } else {
                                             // watch sibling successfully
-                                            lockState = State.WAITING;
+                                            lockState.transition(State.WAITING);
                                             promise.setValue(currentOwner.getLeft());
                                         }
                                     } else if (KeeperException.Code.NONODE.intValue() == rc) {
