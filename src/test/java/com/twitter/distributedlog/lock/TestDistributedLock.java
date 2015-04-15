@@ -309,10 +309,44 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                                         new DelayFailpointAction(60*60*1000));
 
             lock.unlock();
-            assertEquals(State.CLOSED, lock.getLockState());
+            assertEquals(State.CLOSING, lock.getLockState());
         } finally {
             FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockUnlockCleanup);
         }
+    }
+
+    /**
+     * Test try-create after close race condition.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testTryCloseRaceCondition() throws Exception {
+        String name = testNames.getMethodName();
+        String lockPath = "/" + name;
+        String clientId = name;
+
+        createLockPath(zkc.get(), lockPath);
+
+        DistributedLock lock = new DistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor, null,
+                1*1000 /* op timeout */, NullStatsLogger.INSTANCE,
+                new DistributedLockContext());
+
+        try {
+            FailpointUtils.setFailpoint(FailpointUtils.FailPointName.FP_LockTryCloseRaceCondition,
+                                        FailpointUtils.DEFAULT_ACTION);
+
+            lock.tryLock(0, TimeUnit.MILLISECONDS);
+        } catch (LockClosedException ex) {
+            ;
+        } finally {
+            FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_LockTryCloseRaceCondition);
+        }
+
+        assertEquals(State.CLOSED, lock.getLockState());
+        List<String> children = getLockWaiters(zkc, lockPath);
+        assertEquals(0, children.size());
     }
 
     /**
@@ -762,7 +796,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         lock1DoneLatch.countDown();
         lock1Thread.join();
         assertEquals(State.CLAIMED, lock0.getLockState());
-        assertEquals(State.EXPIRED, lock1.getLockState());
+        assertEquals(State.CLOSED, lock1.getLockState());
         children = getLockWaiters(zkc0, lockPath);
         assertEquals(1, children.size());
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
@@ -1018,7 +1052,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                 lock0Thread.join();
 
                 assertEquals(clientId0, ownerFromLock0.get());
-                assertEquals(State.EXPIRED, lock0_1.getLockState());
+                assertEquals(State.CLOSED, lock0_1.getLockState());
 
                 children = getLockWaiters(zkc, lockPath);
                 assertEquals(1, children.size());

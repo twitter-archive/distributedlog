@@ -10,8 +10,10 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
+import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -63,6 +65,43 @@ import static com.google.common.base.Charsets.UTF_8;
  *    claim the ownership; if it is not the first waiter, but first waiter was itself (same client id and same session id)
  *    claim the ownership too; otherwise, it would set watcher on its sibling and wait it to disappared.
  * </p>
+ *
+ *                      +-----------------+
+ *                      |       INIT      | ------------------------------+
+ *                      +--------+--------+                               |
+ *                               |                                        |
+ *                               |                                        |
+ *                      +--------v--------+                               |
+ *                      |    PREPARING    |----------------------------+  |
+ *                      +--------+--------+                            |  |
+ *                               |                                     |  |
+ *                               |                                     |  |
+ *                      +--------v--------+                            |  |
+ *        +-------------|    PREPARED     |--------------+             |  |
+ *        |             +-----^---------+-+              |             |  |
+ *        |                   |  |      |                |             |  |
+ *        |                   |  |      |                |             |  |
+ *        |                   |  |      |                |             |  |
+ * +------V-----------+       |  |      |       +--------v----------+  |  |
+ * |     WAITING      |-------+  |      |       |    CLAIMED        |  |  |
+ * +------+-----+-----+          |      |       +--+----------+-----+  |  |
+ *        |     |                |      |          |        |          |  |
+ *        |     |                |      |          |        |          |  |
+ *        |     |                |      |          |        |          |  |
+ *        |     |                |    +-v----------v----+   |          |  |
+ *        |     +-------------------->|     EXPIRED     |   |          |  |
+ *        |                      |    +--+--------------+   |          |  |
+ *        |                      |       |                  |          |  |
+ *        |                      |       |                  |          |  |
+ *        |             +--------V-------V-+                |          |  |
+ *        +------------>|     CLOSING      |<---------------+----------+--+
+ *                      +------------------+
+ *                               |
+ *                               |
+ *                               |
+ *                      +--------V---------+
+ *                      |     CLOSED       |
+ *                      +------------------+
  */
 class DistributedLock {
 
@@ -121,6 +160,7 @@ class DistributedLock {
         CLAIMED,   // claim lock ownership
         WAITING,   // waiting for the ownership
         EXPIRED,   // lock is expired
+        CLOSING,   // lock is being closed
         CLOSED,    // lock is closed
     }
 
@@ -472,8 +512,10 @@ class DistributedLock {
 
             @Override
             public void onFailure(final Throwable lockCause) {
-                // if tryLock failed due to state changed, we don't need to cleanup
+                // If tryLock failed due to state changed, we don't need to cleanup
                 if (lockCause instanceof LockStateChangedException) {
+                    LOG.info("skipping cleanup for {} at {} after encountering lock " +
+                            "state change exception : ", new Object[] { lockId, lockPath, lockCause });
                     result.setException(lockCause);
                     return;
                 }
@@ -481,10 +523,10 @@ class DistributedLock {
                     LOG.debug("{} is cleaning up its lock state for {} due to : ",
                             new Object[] { lockId, lockPath, lockCause });
                 }
-                // if encountered any exception
-                // we should cleanup
-                Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
-                cleanupResult.addEventListener(new FutureEventListener<BoxedUnit>() {
+
+                // If we encountered any exception we should cleanup
+                Future<BoxedUnit> unlockResult = unlockAsync();
+                unlockResult.addEventListener(new FutureEventListener<BoxedUnit>() {
                     @Override
                     public void onSuccess(BoxedUnit value) {
                         result.setException(lockCause);
@@ -494,7 +536,6 @@ class DistributedLock {
                         result.setException(lockCause);
                     }
                 });
-                cleanup(cleanupResult);
             }
         });
         asyncTryLockWithoutCleanup(wait, lockResult);
@@ -547,10 +588,29 @@ class DistributedLock {
                                             promise.setException(ke);
                                             return;
                                         }
+
+                                        if (FailpointUtils.checkFailPointNoThrow(FailpointUtils.FailPointName.FP_LockTryCloseRaceCondition)) {
+                                            lockState = State.CLOSED;
+                                        }
+
                                         currentNode = name;
                                         currentId = getLockIdFromPath(currentNode);
                                         LOG.trace("{} received member id for lock {} : ", lockId, currentId);
-                                        // Complete preparation
+
+                                        if (lockState == State.EXPIRED || lockState == State.CLOSING || lockState == State.CLOSED) {
+                                            // Delete node attempt may have come after PREPARING but before create node, in which case
+                                            // we'd be left with a dangling node unless we clean up.
+                                            Promise<BoxedUnit> deletePromise = new Promise<BoxedUnit>();
+                                            deleteLockNode(deletePromise);
+                                            deletePromise.ensure(new Function0<BoxedUnit>() {
+                                                public BoxedUnit apply() {
+                                                    promise.setException(new LockClosedException(lockPath, lockId, lockState));
+                                                    return BoxedUnit.UNIT;
+                                                }
+                                            });
+                                            return;
+                                        }
+
                                         lockState = State.PREPARED;
                                         checkLockOwnerAndWaitIfPossible(watcher, wait, promise);
                                     }
@@ -638,29 +698,29 @@ class DistributedLock {
         return isLockHeld();
     }
 
-    synchronized Future<BoxedUnit> unlockAsync() {
-        final Stopwatch stopwatch = Stopwatch.createStarted();
-        acquireFuture.updateIfEmpty(new Throw(
-                new LockClosedException(lockPath, lockId, lockState)));
-        Promise<BoxedUnit> cleanupResult = new Promise<BoxedUnit>();
-        cleanup(cleanupResult);
-        return cleanupResult.addEventListener(new FutureEventListener<BoxedUnit>() {
+    Future<BoxedUnit> unlockAsync() {
+        final Promise<BoxedUnit> promise = new Promise<BoxedUnit>();
+
+        // Use lock executor here rather than lock action, because we want this opertaion to be applied
+        // whether the epoch has changed or not. The member node is EPHEMERAL_SEQUENTIAL so there's no
+        // risk of an ABA problem where we delete and recreate a node and then delete it again here.
+        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
             @Override
-            public void onSuccess(BoxedUnit value) {
-                unlockStats.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-            }
-            @Override
-            public void onFailure(Throwable cause) {
-                LOG.error("{} failed to unlock {} due to ", new Object[] { lockId, lockPath, cause });
-                unlockStats.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+            public void safeRun() {
+                acquireFuture.updateIfEmpty(new Throw(
+                    new LockClosedException(lockPath, lockId, lockState)));
+                unlockInternal(promise);
+                promise.addEventListener(new OpStatsListener(unlockStats));
             }
         });
+
+        return promise;
     }
 
-    public synchronized void unlock() {
-        Future<BoxedUnit> cleanupResult = unlockAsync();
+    void unlock() {
+        Future<BoxedUnit> unlockResult = unlockAsync();
         try {
-            Await.result(cleanupResult, Duration.fromMilliseconds(lockOpTimeout));
+            Await.result(unlockResult, Duration.fromMilliseconds(lockOpTimeout));
         } catch (TimeoutException toe) {
             // This shouldn't happen unless we lose a watch, and may result in a leaked lock.
             LOG.error("Timeout unlocking {} owned by {} : ", new Object[] { lockPath, lockId, toe });
@@ -690,32 +750,58 @@ class DistributedLock {
     }
 
     /**
-     * NOTE: cleanup should only after try lock.
+     * NOTE: unlockInternal should only after try lock.
      */
-    private void cleanup(Promise<BoxedUnit> promise) {
+    private void unlockInternal(final Promise<BoxedUnit> promise) {
+
         // already closed or expired, nothing to cleanup
         this.epoch.incrementAndGet();
         if (null != watcher) {
             this.zkClient.unregister(watcher);
         }
-        if (State.CLOSED == lockState || State.EXPIRED == lockState) {
+
+        if (State.CLOSED == lockState) {
             promise.setValue(BoxedUnit.UNIT);
             return;
         }
 
         LOG.info("Lock {} for {} is closed from state {}.",
                 new Object[] { lockId, lockPath, lockState });
-        if (State.INIT == lockState) {
-            // nothing to cleanup
+
+        if (State.INIT == lockState || State.EXPIRED == lockState) {
+            // Nothing to cleanup if INIT (never tried) or EXPIRED (ephemeral node
+            // auto-removed)
             lockState = State.CLOSED;
             promise.setValue(BoxedUnit.UNIT);
             return;
         }
 
-        lockState = State.CLOSED;
+        lockState = State.CLOSING;
 
-        // in any other state, we should clean the member node
-        deleteLockNode(promise);
+        // In any other state, we should clean up the member node
+        Promise<BoxedUnit> deletePromise = new Promise<BoxedUnit>();
+        deleteLockNode(deletePromise);
+
+        // Set the state to closed after we've cleaned up
+        deletePromise.addEventListener(new FutureEventListener<BoxedUnit>() {
+            @Override
+            public void onSuccess(BoxedUnit complete) {
+                lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                    @Override
+                    public void safeRun() {
+                        lockState = State.CLOSED;
+                        promise.setValue(BoxedUnit.UNIT);
+                    }
+                });
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                // Delete failure is quite serious (causes lock leak) and should be
+                // handled better (PUBSUB-6076)
+                LOG.error("lock node delete failed {} {}", lockId, lockPath);
+                promise.setValue(BoxedUnit.UNIT);
+            }
+        });
     }
 
     private void deleteLockNode(final Promise<BoxedUnit> promise) {
@@ -723,6 +809,7 @@ class DistributedLock {
             promise.setValue(BoxedUnit.UNIT);
             return;
         }
+
         zk.delete(currentNode, -1, new AsyncCallback.VoidCallback() {
             @Override
             public void processResult(final int rc, final String path, Object ctx) {
@@ -735,12 +822,11 @@ class DistributedLock {
 
                             LOG.info("Deleted lock node {} for {} successfully.", path, lockId);
                         } else {
-                            LOG.warn("Failed on deleting lock node {} for {} : {}",
+                            LOG.error("Failed on deleting lock node {} for {} : {}",
                                     new Object[] { path, lockId, KeeperException.Code.get(rc) });
                         }
 
                         FailpointUtils.checkFailPointNoThrow(FailpointUtils.FailPointName.FP_LockUnlockCleanup);
-
                         promise.setValue(BoxedUnit.UNIT);
                     }
                 });
@@ -758,6 +844,11 @@ class DistributedLock {
         executeLockAction(lockEpoch, new LockAction() {
             @Override
             public void execute() {
+                if (lockState == State.CLOSED || lockState == State.CLOSING) {
+                    // Already fully closed, no need to process expire.
+                    return;
+                }
+
                 boolean shouldNotifyLockListener = State.CLAIMED == lockState;
                 lockState = State.EXPIRED;
 
@@ -773,6 +864,10 @@ class DistributedLock {
                 // we don't even need to clean up the lock as the znode will disappear after session expired
                 acquireFuture.updateIfEmpty(new Throw(
                         new LockSessionExpiredException(lockPath, lockId, lockState)));
+
+                // session expired, ephemeral node is gone.
+                currentNode = null;
+                currentId = null;
 
                 if (shouldNotifyLockListener) {
                     // if session expired after claimed, we need to notify the caller to re-lock
@@ -991,6 +1086,11 @@ class DistributedLock {
                             executeLockAction(lockWatcher.epoch, new LockAction() {
                                 @Override
                                 public void execute() {
+                                    if (lockState != State.PREPARED) {
+                                        promise.setException(new LockStateChangedException(lockPath, lockId, State.PREPARED, lockState));
+                                        return;
+                                    }
+
                                     if (KeeperException.Code.OK.intValue() == rc) {
                                         if (siblingNode.equals(ownerNode) &&
                                                 (lockId.compareTo(currentOwner) == 0 || lockContext.hasLockId(currentOwner))) {

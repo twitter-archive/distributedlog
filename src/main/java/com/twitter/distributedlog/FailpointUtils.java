@@ -18,6 +18,7 @@ public class FailpointUtils {
         FP_TransmitComplete,
         FP_WriteInternalLostLock,
         FP_LockUnlockCleanup,
+        FP_LockTryCloseRaceCondition,
         FP_LockTryAcquire,
         FP_ZooKeeperConnectionLoss,
         FP_RecoverIncompleteLogSegments,
