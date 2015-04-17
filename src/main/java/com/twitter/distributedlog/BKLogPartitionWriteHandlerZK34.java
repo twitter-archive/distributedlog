@@ -330,8 +330,8 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
             // write completed ledger znode
             setLastLedgerRollingTimeMillis(logSegment.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId));
-            String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
-            String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
+            String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId, ledgerSeqNo);
+            String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId, ledgerSeqNo);
             // create completed log segments
             tryWrite(txn, zooKeeperClient.getDefaultACL(), logSegment, pathForCompletedLedger);
             // delete inprogress log segment

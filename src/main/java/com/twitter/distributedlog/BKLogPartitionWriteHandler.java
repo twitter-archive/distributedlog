@@ -946,8 +946,8 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
 
             lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, conf.getEnableRecordCounts() ? recordCount : 0, lastEntryId, lastSlotId);
-            String nameForCompletedLedger = completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
-            String pathForCompletedLedger = completedLedgerZNode(ledgerId, firstTxId, lastTxId, ledgerSeqNo);
+            String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId, ledgerSeqNo);
+            String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId, ledgerSeqNo);
             try {
                 l.write(zooKeeperClient, pathForCompletedLedger,
                         LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
@@ -1410,7 +1410,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         super.close();
     }
 
-    String completedLedgerZNodeName(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
+    String completedLedgerZNodeName(long firstTxId, long lastTxId, long ledgerSeqNo) {
         if (DistributedLogConstants.LOGSEGMENT_NAME_VERSION == conf.getLogSegmentNameVersion()) {
             return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, ledgerSeqNo);
         } else {
@@ -1422,9 +1422,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     /**
      * Get the znode path for a finalize ledger
      */
-    String completedLedgerZNode(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
+    String completedLedgerZNode(long firstTxId, long lastTxId, long ledgerSeqNo) {
         return String.format("%s/%s", ledgerPath,
-                completedLedgerZNodeName(ledgerId, firstTxId, lastTxId, ledgerSeqNo));
+            completedLedgerZNodeName(firstTxId, lastTxId, ledgerSeqNo));
     }
 
     /**

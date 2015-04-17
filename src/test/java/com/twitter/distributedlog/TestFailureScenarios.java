@@ -33,12 +33,12 @@ public class TestFailureScenarios extends TestDistributedLogBase {
         out.close();
 
 
-        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(-1, 1, 100, 1), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, 1), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 1, 1), false));
 
         bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
 
-        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(-1, 1, 100, 1), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, 1), false));
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 1, 1), false));
 
         FailpointUtils.setFailpoint(
@@ -69,14 +69,14 @@ public class TestFailureScenarios extends TestDistributedLogBase {
         FailpointUtils.removeFailpoint(
             FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
 
-        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(-1, 101, 101, 2), false));
+        assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, 2), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 101, 2), false));
 
         bkdlmAndClients.close();
         bkdlmAndClients = createNewBKDLM(conf, "distrlog-exc-new-segment");
         bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
 
-        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(-1, 101, 101, 2), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, 2), false));
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 101, 2), false));
         bkdlmAndClients.close();
     }
@@ -113,8 +113,8 @@ public class TestFailureScenarios extends TestDistributedLogBase {
         // both nodes should stay around in the incorrect sequence
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLedgerHandle().getId(),
                 1, out.getLedgerSequenceNumber()), false));
-        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(out.getLedgerHandle().getId(),
-                1, 100, out.getLedgerSequenceNumber()), false));
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(
+            1, 100, out.getLedgerSequenceNumber()), false));
 
         // Make sure that the completionTime will be different
         Thread.sleep(2);
@@ -123,7 +123,7 @@ public class TestFailureScenarios extends TestDistributedLogBase {
 
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLedgerHandle().getId(), 1,
                 out.getLedgerSequenceNumber()), false));
-        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(out.getLedgerHandle().getId(), 1, 100,
+        assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100,
                 out.getLedgerSequenceNumber()), false));
     }
 
