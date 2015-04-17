@@ -932,4 +932,15 @@ public class LogSegmentLedgerMetadata {
     public static boolean supportsLedgerSequenceNo(int version) {
         return version >= LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value;
     }
+
+    @VisibleForTesting
+    void overwriteLastTxId(long lastTxId) {
+        this.lastTxId = lastTxId;
+    }
+
+    @VisibleForTesting
+    void overwriteLastEntryId(long lastEntryId) {
+        this.lastDLSN = new DLSN (lastDLSN.getLedgerSequenceNo(), lastEntryId, lastDLSN.getSlotId());
+    }
+
 }

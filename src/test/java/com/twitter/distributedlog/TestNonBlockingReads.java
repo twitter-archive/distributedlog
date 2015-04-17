@@ -460,4 +460,117 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         reader0.close();
         dlmread.close();
     }
+
+    private long createStreamWithInconsistentMetadata(String name) throws Exception {
+        DistributedLogManager dlm = createNewDLM(conf, name);
+        ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder().zkAclId(null).zkServers("127.0.0.1:7000").sessionTimeoutMs(10000).build();
+        long txid = 1;
+
+        long numRecordsWritten = 0;
+        int segmentSize = 10;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= segmentSize; j++) {
+                LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+                out.write(op);
+                numRecordsWritten++;
+            }
+            out.closeAndComplete();
+        }
+
+        BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        String completedZNode = blplm.completedLedgerZNode(txid - segmentSize, txid - 1, 3);
+        LogSegmentLedgerMetadata metadataToChange = LogSegmentLedgerMetadata.read(zkClient, completedZNode);
+        zkClient.get().delete(completedZNode, -1);
+        metadataToChange.overwriteLastTxId(metadataToChange.getLastTxId() + 100);
+        metadataToChange.overwriteLastEntryId(metadataToChange.getLastEntryId() + 100);
+        metadataToChange.write(zkClient, completedZNode);
+
+        txid += 100;
+
+
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            for (long j = 1; j <= segmentSize; j++) {
+                LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+                out.write(op);
+                numRecordsWritten++;
+            }
+            out.closeAndComplete();
+        }
+        dlm.close();
+
+        return numRecordsWritten;
+    }
+
+
+    @Test
+    public void testHandleInconsistentMetadata() throws Exception {
+        String name = "distrlog-inconsistent-metadata-blocking-read";
+        long numRecordsWritten = createStreamWithInconsistentMetadata(name);
+
+        DistributedLogManager dlm = createNewDLM(conf, name);
+
+        LogReader reader = dlm.getInputStream(45);
+        long numRecordsRead = 0;
+        LogRecord record = reader.readNext(false);
+        long lastTxId = -1;
+        while (null != record) {
+            DLMTestUtil.verifyLogRecord(record);
+            Assert.assertTrue(lastTxId < record.getTransactionId());
+            lastTxId = record.getTransactionId();
+            numRecordsRead++;
+            record = reader.readNext(false);
+        }
+        reader.close();
+        assertEquals(numRecordsWritten / 2, numRecordsRead);
+    }
+
+    @Test(timeout = 15000)
+    public void testHandleInconsistentMetadataNonBlocking() throws Exception {
+        String name = "distrlog-inconsistent-metadata-nonblocking-read";
+        long numRecordsWritten = createStreamWithInconsistentMetadata(name);
+
+        DistributedLogManager dlm = createNewDLM(conf, name);
+
+        LogReader reader = dlm.getInputStream(45);
+        long numRecordsRead = 0;
+        long lastTxId = -1;
+        while (numRecordsRead < (numRecordsWritten / 2)) {
+            LogRecord record = reader.readNext(false);
+            if (record != null) {
+                DLMTestUtil.verifyLogRecord(record);
+                Assert.assertTrue(lastTxId < record.getTransactionId());
+                lastTxId = record.getTransactionId();
+                numRecordsRead++;
+            } else {
+                Thread.sleep(1);
+            }
+        }
+        reader.close();
+    }
+
+    @Test(timeout = 15000)
+    public void testHandleInconsistentMetadataDLSNNonBlocking() throws Exception {
+        String name = "distrlog-inconsistent-metadata-nonblocking-read-dlsn";
+        long numRecordsWritten = createStreamWithInconsistentMetadata(name);
+
+        DistributedLogManager dlm = createNewDLM(conf, name);
+
+        LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
+        long numRecordsRead = 0;
+        long lastTxId = -1;
+        while (numRecordsRead < numRecordsWritten) {
+            LogRecord record = reader.readNext(false);
+            if (record != null) {
+                DLMTestUtil.verifyLogRecord(record);
+                Assert.assertTrue(lastTxId < record.getTransactionId());
+                lastTxId = record.getTransactionId();
+                numRecordsRead++;
+            } else {
+                Thread.sleep(1);
+            }
+        }
+        reader.close();
+    }
 }

@@ -350,16 +350,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             positionDLSN = fromDLSN;
                         }
 
-                        if(l.getLedgerSequenceNumber() == positionDLSN.getLedgerSequenceNo()) {
+                        if (l.getLedgerSequenceNumber() == positionDLSN.getLedgerSequenceNo()) {
                             startBKEntry = Math.max(startBKEntry, positionDLSN.getEntryId());
                         }
 
                         ResumableBKPerStreamLogReader s = new ResumableBKPerStreamLogReader(this,
-                                                                    zooKeeperClient,
-                                                                    ledgerDataAccessor,
-                                                                    l,
-                                                                    startBKEntry,
-                                                                    statsLogger);
+                            zooKeeperClient,
+                            ledgerDataAccessor,
+                            l,
+                            startBKEntry,
+                            statsLogger);
 
 
                         if (s.skipTo(positionDLSN)) {
@@ -375,21 +375,22 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return s;
                         } else {
                             s.close();
-                            return null;
+                            if (!l.isInProgress()) {
+                                LOG.warn("Detected a segment with corrupt metadata {} while positioning on {}, continuing to the next segment", l, fromDLSN);
+                            }
                         }
                     } catch (Exception e) {
                         LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startDLSN " + fromDLSN, e);
                         throw new IOException("Could not open ledger for " + fromDLSN, e);
                     }
-                } else {
-                    if (fromDLSN.getLedgerSequenceNo() == lastDLSN.getLedgerSequenceNo()) {
-                        // We specified a position past the end of the current ledger; position on the first record of the
-                        // next ledger
-                        fromDLSN = fromDLSN.positionOnTheNextLedger();
-                    }
-
-                    ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
                 }
+                if (fromDLSN.getLedgerSequenceNo() == lastDLSN.getLedgerSequenceNo()) {
+                    // We specified a position past the end of the current ledger; position on the first record of the
+                    // next ledger
+                    fromDLSN = fromDLSN.positionOnTheNextLedger();
+                }
+
+                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
             }
         } else {
             if (fThrowOnEmpty) {
@@ -483,15 +484,16 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             return s;
                         } else {
                             s.close();
-                            return null;
+                            if (!l.isInProgress()) {
+                                LOG.warn("Detected a segment with corrupt metadata {} while positioning on {}, continuing to the next segment", l, fromTxId);
+                            }
                         }
                     } catch (IOException e) {
                         LOG.error("Could not open ledger for the stream " + getFullyQualifiedName() + " for startTxId " + fromTxId, e);
                         throw e;
                     }
-                } else {
-                        ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
                 }
+                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
             }
         } else {
             if (fThrowOnEmpty) {
