@@ -115,7 +115,7 @@ public class TestTruncate extends TestDistributedLogBase {
         int txn = 43;
         DLSN dlsn = txid2DLSN.get((long) txn);
         assertTrue(pair.getRight().truncate(dlsn).get());
-        verifyEntries(name, 1, 41, 10);
+        verifyEntries(name, 1, 31, 20);
 
         pair.getRight().close();
         pair.getLeft().close();
@@ -146,7 +146,7 @@ public class TestTruncate extends TestDistributedLogBase {
         int txn = 43;
         DLSN dlsn = txid2DLSN.get((long) txn);
         assertTrue(pair.getRight().truncate(dlsn).get());
-        verifyEntries(name, 1, 41, 10);
+        verifyEntries(name, 1, 31, 20);
 
         pair.getRight().close();
         pair.getLeft().close();
@@ -156,7 +156,7 @@ public class TestTruncate extends TestDistributedLogBase {
         BKLogPartitionWriteHandler handler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         handler.purgeLogsOlderThan(Integer.MAX_VALUE);
 
-        verifyEntries(name, 1, 41, 10);
+        verifyEntries(name, 1, 31, 20);
     }
 
     @Test(timeout = 60000)

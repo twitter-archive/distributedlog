@@ -392,7 +392,7 @@ public class ReadUtils {
      *          threshold dlsn
      * @return a future with last record.
      */
-    public static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
+    static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
             final String streamName,
             final LogSegmentLedgerMetadata l,
             final int scanStartBatchSize,

@@ -115,8 +115,10 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
     // Transactional operations for logsegment
     void tryWrite(Transaction txn, List<ACL> acl, LogSegmentLedgerMetadata metadata, String path) {
+        int writeVersion = getCompleteLogSegmentVersion(metadata);
+
         byte[] finalisedData = metadata.getFinalisedData(
-                LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion())).getBytes(UTF_8);
+                LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(writeVersion)).getBytes(UTF_8);
         txn.create(path, finalisedData, acl, CreateMode.PERSISTENT);
     }
 
@@ -331,9 +333,17 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId, ledgerSeqNo);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId, ledgerSeqNo);
 
+            long startSequenceId = computeStartSequenceId(inprogressLogSegment);
+
             // write completed ledger znode
             LogSegmentLedgerMetadata completedLogSegment =
-                    inprogressLogSegment.completeLogSegment(pathForCompletedLedger, lastTxId, recordCount, lastEntryId, lastSlotId);
+                    inprogressLogSegment.completeLogSegment(
+                            pathForCompletedLedger,
+                            lastTxId,
+                            recordCount,
+                            lastEntryId,
+                            lastSlotId,
+                            startSequenceId);
             setLastLedgerRollingTimeMillis(completedLogSegment.getCompletionTime());
 
             // create completed log segments

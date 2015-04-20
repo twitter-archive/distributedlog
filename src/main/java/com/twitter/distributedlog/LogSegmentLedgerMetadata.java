@@ -318,7 +318,7 @@ public class LogSegmentLedgerMetadata {
     // NOTE: This value is not stored in the Metadata store.
     private final boolean envelopeEntries;
 
-    public static final Comparator COMPARATOR
+    public static final Comparator<LogSegmentLedgerMetadata> COMPARATOR
         = new Comparator<LogSegmentLedgerMetadata>() {
 
         public int compare(LogSegmentLedgerMetadata o1,
@@ -346,7 +346,7 @@ public class LogSegmentLedgerMetadata {
         }
     };
 
-    public static final Comparator DESC_COMPARATOR
+    public static final Comparator<LogSegmentLedgerMetadata> DESC_COMPARATOR
         = new Comparator<LogSegmentLedgerMetadata>() {
         public int compare(LogSegmentLedgerMetadata o1,
                            LogSegmentLedgerMetadata o2) {
@@ -467,7 +467,8 @@ public class LogSegmentLedgerMetadata {
 
     public long getStartSequenceId() {
         // generate negative sequence id for log segments that created <= v4
-        return Long.MIN_VALUE + (getLedgerSequenceNumber() << 32L);
+        return supportsSequenceId() && startSequenceId != DistributedLogConstants.UNASSIGNED_SEQUENCE_ID ?
+                startSequenceId : Long.MIN_VALUE + (getLedgerSequenceNumber() << 32L);
     }
 
     public boolean isTruncated() {
@@ -547,7 +548,8 @@ public class LogSegmentLedgerMetadata {
                                                 long newLastTxId,
                                                 int recordCount,
                                                 long lastEntryId,
-                                                long lastSlotId) {
+                                                long lastSlotId,
+                                                long startSequenceId) {
         assert this.lastTxId == DistributedLogConstants.INVALID_TXID;
 
         return new Mutator(this)
@@ -557,6 +559,7 @@ public class LogSegmentLedgerMetadata {
                 .setInprogress(false)
                 .setCompletionTime(Utils.nowInMillis())
                 .setRecordCount(recordCount)
+                .setStartSequenceId(startSequenceId)
                 .build();
     }
 
@@ -1077,6 +1080,10 @@ public class LogSegmentLedgerMetadata {
      */
     public static boolean supportsEnvelopedEntries(int version) {
         return version >= LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value;
+    }
+
+    public boolean supportsSequenceId() {
+        return supportsSequenceId(version.value);
     }
 
     /**

@@ -216,10 +216,11 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
             long expectedTxID = 1L;
             LogReader reader = dlm.getInputStream(DLSN.InitialDLSN);
-            LogRecord record = reader.readNext(false);
+            LogRecordWithDLSN record = reader.readNext(false);
             while (null != record) {
                 DLMTestUtil.verifyLogRecord(record);
                 assertEquals(expectedTxID++, record.getTransactionId());
+                assertEquals(record.getTransactionId() - 1, record.getSequenceId());
 
                 record = reader.readNext(false);
             }
@@ -355,6 +356,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             LogRecordWithDLSN record = Await.result(reader.readNext());
             DLMTestUtil.verifyLogRecord(record);
             assertEquals(i, record.getTransactionId());
+            assertEquals(record.getTransactionId() - 1, record.getSequenceId());
         }
 
         BKPerStreamLogWriter perStreamWriter = writer.perStreamWriter;

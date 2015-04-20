@@ -543,10 +543,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         }
     }
 
-    private void setWatcherOnLedgerRoot(Watcher watcher) throws ZooKeeperClient.ZooKeeperConnectionException, KeeperException, InterruptedException {
-        zooKeeperClient.get().getChildren(ledgerPath, watcher);
-    }
-
     public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),

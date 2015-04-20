@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 public class TestNonBlockingReads extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestNonBlockingReads.class);
@@ -43,10 +43,11 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                     reader.setForceBlockingRead((Math.random() < 0.5));
                 }
 
-                LogRecord record = reader.readNext(true);
+                LogRecordWithDLSN record = reader.readNext(true);
                 if (null != record) {
                     DLMTestUtil.verifyLogRecord(record);
-                    assert (lastTxId < record.getTransactionId());
+                    assertTrue(lastTxId < record.getTransactionId());
+                    assertEquals(record.getTransactionId() - 1, record.getSequenceId());
                     lastTxId = record.getTransactionId();
                     numTrans++;
                     continue;

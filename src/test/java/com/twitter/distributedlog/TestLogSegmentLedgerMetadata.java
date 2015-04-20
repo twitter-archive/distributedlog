@@ -91,7 +91,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
                 new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
                         "/metadata", LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
                         .setRegionId(0).setLedgerSequenceNo(1L).build();
-        metadata = metadata.completeLogSegment("/completed-metadata", 1000L, 1000, 1000L, 0L);
+        metadata = metadata.completeLogSegment("/completed-metadata", 1000L, 1000, 1000L, 0L, 0L);
 
         LogSegmentLedgerMetadata partiallyTruncatedSegment =
                 metadata.mutator()

@@ -53,8 +53,9 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         Future<AsyncLogReader> futureReader1 = dlm.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         BKAsyncLogReaderDLSN reader1 = (BKAsyncLogReaderDLSN) Await.result(futureReader1);
-        LogRecord record = Await.result(reader1.readNext());
+        LogRecordWithDLSN record = Await.result(reader1.readNext());
         assertEquals(1L, record.getTransactionId());
+        assertEquals(0L, record.getSequenceId());
         DLMTestUtil.verifyLogRecord(record);
 
         String readLockPath = reader1.bkLedgerManager.getReadLockPath();
@@ -66,6 +67,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         AsyncLogReader reader2 = Await.result(futureReader2);
         record = Await.result(reader2.readNext());
         assertEquals(1L, record.getTransactionId());
+        assertEquals(0L, record.getSequenceId());
         DLMTestUtil.verifyLogRecord(record);
     }
 
@@ -504,6 +506,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             DLMTestUtil.verifyEmptyLogRecord(record);
             ++numTxns;
             assertEquals(numTxns, record.getTransactionId());
+            assertEquals(record.getTransactionId() - 1, record.getSequenceId());
 
             if (txid - 1 == numTxns) {
                 break;
@@ -525,6 +528,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             ++numTxns;
             ++startTxID;
             assertEquals(startTxID, record.getTransactionId());
+            assertEquals(record.getTransactionId() - 1L, record.getSequenceId());
 
             if (startTxID == txid - 1) {
                 break;

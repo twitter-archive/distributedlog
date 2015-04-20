@@ -482,7 +482,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                                  final CountDownLatch syncLatch,
                                  final AsyncLogReader reader,
                                  final DLSN startPosition,
-                                 final long startSequenceId) {
+                                 final long startSequenceId,
+                                 final boolean monotonic) {
         Future<LogRecordWithDLSN> record = null;
         try {
             record = reader.readNext();
@@ -495,8 +496,12 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 @Override
                 public void onSuccess(LogRecordWithDLSN value) {
                     assertTrue(value.getDlsn().compareTo(startPosition) >= 0);
-                    assertTrue(value.getSequenceId() > startSequenceId);
-                    assertTrue(value.getSequenceId() < 0);
+                    if (monotonic) {
+                        assertEquals(startSequenceId, value.getSequenceId());
+                    } else {
+                        assertTrue(value.getSequenceId() < 0);
+                        assertTrue(value.getSequenceId() > startSequenceId);
+                    }
                     try {
                         LOG.debug("DLSN: " + value.getDlsn());
                         assertTrue(!value.isControl());
@@ -510,7 +515,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                     syncLatch.countDown();
                     LOG.debug("SyncLatch: " + syncLatch.getCount());
                     TestAsyncReaderWriter.readNext(threadToInterrupt, syncLatch, reader,
-                            value.getDlsn().getNextDLSN(), value.getSequenceId());
+                            value.getDlsn().getNextDLSN(),
+                            monotonic ? value.getSequenceId() + 1 : value.getSequenceId(), monotonic);
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -681,8 +687,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
         final Thread currentThread = Thread.currentThread();
 
+        boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
         TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
-                DLSN.InvalidDLSN, Long.MIN_VALUE);
+                DLSN.InvalidDLSN, monotonic ? 0L : Long.MIN_VALUE, monotonic);
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -805,8 +812,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertEquals(name, reader.getStreamName());
         final Thread currentThread = Thread.currentThread();
 
+        boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
         TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
-                new DLSN(2, 3, 0), Long.MIN_VALUE + (2 << 32L));
+                new DLSN(2, 3, 0), monotonic ? 13L : Long.MIN_VALUE, monotonic);
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -920,8 +928,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(record, currentLedgerSeqNo, currentEntryId, currentThread));
                 if (i == 0 && j == 0) {
+                    boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(logSegmentVersion);
                     TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
-                            DLSN.InvalidDLSN, Long.MIN_VALUE);
+                            DLSN.InvalidDLSN, monotonic ? 0L : Long.MIN_VALUE, monotonic);
                 }
             }
             writer.closeAndComplete();
@@ -1169,8 +1178,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                     }
                 });
                 if (i == 0 && j == 0) {
+                    boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
                     TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
-                            DLSN.InvalidDLSN, Long.MIN_VALUE);
+                            DLSN.InvalidDLSN, monotonic ? 0L : Long.MIN_VALUE, monotonic);
                 }
             }
             writer.closeAndComplete();

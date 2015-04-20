@@ -420,7 +420,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         long txid = 1;
         Map<Long, DLSN> txid2DLSN = new HashMap<Long, DLSN>();
-        for (int s = 1; s <= 2; s++) {
+        for (int s = 1; s <= 3; s++) {
             for (long i = 1; i <= 10; i++) {
                 long curTxId = txid++;
                 logger.debug("Write entry {} to stream {}.", curTxId, name);
@@ -428,12 +428,12 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
                         ByteBuffer.wrap(("" + curTxId).getBytes())).get();
                 txid2DLSN.put(curTxId, dlsn);
             }
-            if (s == 1) {
+            if (s <= 2) {
                 dlClient.dlClient.release(name).get();
             }
         }
 
-        DLSN dlsnToDelete = txid2DLSN.get(11L);
+        DLSN dlsnToDelete = txid2DLSN.get(21L);
         dlClient.dlClient.truncate(name, dlsnToDelete).get();
 
         DistributedLogManager readDLM = DLMTestUtil.createNewDLM(name, conf, getUri());
@@ -447,7 +447,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             ++numRead;
             r = reader.readNext(false);
         }
-        assertEquals(10, numRead);
+        assertEquals(20, numRead);
         reader.close();
         readDLM.close();
     }

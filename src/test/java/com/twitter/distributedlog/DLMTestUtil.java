@@ -325,7 +325,7 @@ public class DLMTestUtil {
                     .setLedgerSequenceNo(ledgerSeqNo)
                     .build();
         return metadata.completeLogSegment(ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
-                lastTxId, recordCount, lastEntryId, lastSlotId);
+                lastTxId, recordCount, lastEntryId, lastSlotId, firstTxId);
     }
 
     public static void generateCompletedLogSegments(DistributedLogManager manager, DistributedLogConfiguration conf,
