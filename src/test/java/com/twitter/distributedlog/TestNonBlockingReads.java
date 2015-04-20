@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,7 +15,6 @@ import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
-import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
 
 import static org.junit.Assert.assertEquals;
 
@@ -480,11 +478,14 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
         BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         String completedZNode = blplm.completedLedgerZNode(txid - segmentSize, txid - 1, 3);
-        LogSegmentLedgerMetadata metadataToChange = LogSegmentLedgerMetadata.read(zkClient, completedZNode);
+        LogSegmentLedgerMetadata metadata = LogSegmentLedgerMetadata.read(zkClient, completedZNode);
         zkClient.get().delete(completedZNode, -1);
-        metadataToChange.overwriteLastTxId(metadataToChange.getLastTxId() + 100);
-        metadataToChange.overwriteLastEntryId(metadataToChange.getLastEntryId() + 100);
-        metadataToChange.write(zkClient, completedZNode);
+        LogSegmentLedgerMetadata metadataToChange =
+                metadata.mutator()
+                        .setLastEntryId(metadata.getLastEntryId() + 100)
+                        .setLastTxId(metadata.getLastTxId() + 100)
+                        .build();
+        metadataToChange.write(zkClient);
 
         txid += 100;
 

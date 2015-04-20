@@ -318,14 +318,14 @@ public class DLMTestUtil {
                                                                long lastEntryId, long lastSlotId) {
         LogSegmentLedgerMetadata metadata =
                 new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
-                        ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
+                        ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
                         LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                         ledgerId, firstTxId)
                     .setInprogress(false)
                     .setLedgerSequenceNo(ledgerSeqNo)
                     .build();
-        metadata.finalizeLedger(lastTxId, recordCount, lastEntryId, lastSlotId);
-        return metadata;
+        return metadata.completeLogSegment(ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
+                lastTxId, recordCount, lastEntryId, lastSlotId);
     }
 
     public static void generateCompletedLogSegments(DistributedLogManager manager, DistributedLogConfiguration conf,
@@ -378,7 +378,7 @@ public class DLMTestUtil {
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
                 .setLedgerSequenceNo(ledgerSeqNo)
                 .build();
-        l.write(dlm.writerZKC, znodePath);
+        l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
@@ -420,7 +420,7 @@ public class DLMTestUtil {
             .setLedgerSequenceNo(ledgerSeqNo)
             .setInprogress(false)
             .build();
-        l.write(dlm.writerZKC, znodePath);
+        l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,

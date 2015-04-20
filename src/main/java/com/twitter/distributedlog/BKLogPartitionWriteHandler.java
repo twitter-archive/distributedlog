@@ -706,7 +706,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
             String znodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);
-            LogSegmentLedgerMetadata l =
+            LogSegmentLedgerMetadata inprogressLogSegment =
                 new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId)
                     .setLedgerSequenceNo(ledgerSeqNo)
@@ -722,7 +722,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * In this case, throw an exception. We don't want to continue
              * as this would lead to a split brain situation.
              */
-            l.write(zooKeeperClient, znodePath,
+            inprogressLogSegment.write(zooKeeperClient,
                     LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
             wroteInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
@@ -730,9 +730,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate);
 
             maxTxId.store(txId);
-            addLogSegmentToCache(inprogressZnodeName, l);
+            addLogSegmentToCache(inprogressZnodeName, inprogressLogSegment);
             LOG.info("Created inprogress log segment {} for {} : {}",
-                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
+                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), inprogressLogSegment });
             return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName,
                     conf, conf.getDLLedgerMetadataLayoutVersion(), lh, lock, txId, ledgerSeqNo,
                     scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
@@ -932,33 +932,41 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
             lock.checkOwnershipAndReacquire(true);
-            LogSegmentLedgerMetadata l
+            LogSegmentLedgerMetadata inprogressLogSegment
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
-            if (l.getLedgerId() != ledgerId) {
+            if (inprogressLogSegment.getLedgerId() != ledgerId) {
                 throw new IOException("Active ledger has different ID to inprogress. "
-                        + l.getLedgerId() + " found, " + ledgerId + " expected");
+                        + inprogressLogSegment.getLedgerId() + " found, " + ledgerId + " expected");
             }
 
-            if (l.getFirstTxId() != firstTxId) {
+            if (inprogressLogSegment.getFirstTxId() != firstTxId) {
                 throw new IOException("Transaction id not as expected, "
-                    + l.getFirstTxId() + " found, " + firstTxId + " expected");
+                    + inprogressLogSegment.getFirstTxId() + " found, " + firstTxId + " expected");
             }
 
-            lastLedgerRollingTimeMillis = l.finalizeLedger(lastTxId, conf.getEnableRecordCounts() ? recordCount : 0, lastEntryId, lastSlotId);
             String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId, ledgerSeqNo);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId, ledgerSeqNo);
+
+            // write completed ledger znode
+            LogSegmentLedgerMetadata completedLogSegment =
+                    inprogressLogSegment.completeLogSegment(
+                            pathForCompletedLedger,
+                            lastTxId, conf.getEnableRecordCounts() ? recordCount : 0,
+                            lastEntryId,
+                            lastSlotId);
+            setLastLedgerRollingTimeMillis(completedLogSegment.getCompletionTime());
             try {
-                l.write(zooKeeperClient, pathForCompletedLedger,
+                completedLogSegment.write(zooKeeperClient,
                         LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
             } catch (KeeperException.NodeExistsException nee) {
-                if (!l.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
+                if (!completedLogSegment.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
                     throw new IOException("Node " + pathForCompletedLedger + " already exists"
                         + " but data doesn't match");
                 }
             }
             LOG.info("Created {} for completing segment {} for {} : {}",
-                     new Object[] { nameForCompletedLedger, ledgerSeqNo, getFullyQualifiedName(), l });
+                     new Object[] { nameForCompletedLedger, ledgerSeqNo, getFullyQualifiedName(), completedLogSegment });
 
             LOG.debug("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressPath, lastTxId);
             maxTxId.store(lastTxId);
@@ -970,14 +978,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             try {
                 zooKeeperClient.get().delete(inprogressPath, inprogressStat.getVersion());
                 LOG.info("Deleted {} for completing segment {} for {} : {}",
-                        new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), l });
+                        new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName(), completedLogSegment });
             } catch (KeeperException.NoNodeException nne) {
                 LOG.warn("No segment {} to delete for completing segment {} for {}",
                          new Object[] { inprogressZnodeName, ledgerSeqNo, getFullyQualifiedName() });
             }
 
             removeLogSegmentFromCache(inprogressZnodeName);
-            addLogSegmentToCache(nameForCompletedLedger, l);
+            addLogSegmentToCache(nameForCompletedLedger, completedLogSegment);
         } catch (InterruptedException e) {
             throw new DLInterruptedException("Interrupted when finalising stream " + partitionRootPath, e);
         } catch (KeeperException e) {
@@ -1199,8 +1207,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         return true;
     }
 
-    Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanTimestamp(
-            final long minTimestampToKeep, final long sanityCheckThreshold) {
+    Future<List<LogSegmentLedgerMetadata>> purgeLogsOlderThanTimestamp(final long minTimestampToKeep) {
         if (minTimestampToKeep >= Utils.nowInMillis()) {
             return Future.exception(new IllegalArgumentException(
                     "Invalid timestamp " + minTimestampToKeep + " to purge logs for " + getFullyQualifiedName()));
@@ -1210,20 +1217,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             @Override
             public Future<List<LogSegmentLedgerMetadata>> apply(List<LogSegmentLedgerMetadata> logSegments) {
                 List<LogSegmentLedgerMetadata> purgeList = new ArrayList<LogSegmentLedgerMetadata>(logSegments.size());
+
                 for (int iterator = 0; iterator < (logSegments.size() - 1); iterator++) {
                     LogSegmentLedgerMetadata l = logSegments.get(iterator);
                     // When application explicitly truncates segments; timestamp based purge is
                     // only used to cleanup log segments that have been marked for truncation
                     if ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
                         !l.isInProgress() && (l.getCompletionTime() < minTimestampToKeep)) {
-                        // Something went wrong - leave the ledger around for debugging
-                        //
-                        if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                            LOG.warn("Found a ledger {} older than {} for {}",
-                                     new Object[] { l, sanityCheckThreshold, getFullyQualifiedName() });
-                        } else {
-                            purgeList.add(l);
-                        }
+                        purgeList.add(l);
                     } else {
                         // stop truncating log segments if we find either an inprogress or a partially
                         // truncated log segment

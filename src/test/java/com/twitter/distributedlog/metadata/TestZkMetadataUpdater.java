@@ -61,13 +61,13 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
             LogSegmentLedgerMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
             completedLogSegments.put(((long)i), segment);
             LOG.info("Create completed segment {} : {}", segment.getZkPath(), segment);
-            segment.write(zkc, segment.getZkPath());
+            segment.write(zkc);
         }
         // Create a smaller inprogress log segment
         long inprogressSeqNo = 3;
         LogSegmentLedgerMetadata segment = DLMTestUtil.inprogressLogSegment(ledgerPath, inprogressSeqNo, 5 * 100, inprogressSeqNo);
         LOG.info("Create inprogress segment {} : {}", segment.getZkPath(), segment);
-        segment.write(zkc, segment.getZkPath());
+        segment.write(zkc);
 
         Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);
         assertEquals(5, segmentList.size());
@@ -109,10 +109,10 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         zkc.get().create(ledgerPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         // Create 1 completed log segment
         LogSegmentLedgerMetadata completedLogSegment = DLMTestUtil.completedLogSegment(ledgerPath, 1L, 0L, 99L, 100, 1L, 99L, 0L);
-        completedLogSegment.write(zkc, completedLogSegment.getZkPath());
+        completedLogSegment.write(zkc);
         // Create 1 inprogress log segment
         LogSegmentLedgerMetadata inprogressLogSegment = DLMTestUtil.inprogressLogSegment(ledgerPath, 2L, 100L, 2L);
-        inprogressLogSegment.write(zkc, inprogressLogSegment.getZkPath());
+        inprogressLogSegment.write(zkc);
 
         DLSN badLastDLSN = new DLSN(99L, 0L, 0L);
         DLSN goodLastDLSN1 = new DLSN(1L, 100L, 0L);
@@ -204,7 +204,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
             LogSegmentLedgerMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
             completedLogSegments.put(((long)i), segment);
             LOG.info("Create completed segment {} : {}", segment.getZkPath(), segment);
-            segment.write(zkc, segment.getZkPath());
+            segment.write(zkc);
         }
 
         Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);

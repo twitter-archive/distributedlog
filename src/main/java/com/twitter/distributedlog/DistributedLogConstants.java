@@ -28,6 +28,7 @@ public class DistributedLogConstants {
     public static final long LOGSEGMENT_DEFAULT_STATUS = 0;
     public static final int INPUTSTREAM_MARK_LIMIT = 16;
     public static final long UNASSIGNED_LEDGER_SEQNO = 0;
+    public static final long UNASSIGNED_SEQUENCE_ID = -1L;
     public static final long FIRST_LEDGER_SEQNO = 1;
     public static final long UNRESOLVED_LEDGER_ID = -1;
     public static final long LATENCY_WARN_THRESHOLD_IN_MILLIS = TimeUnit.SECONDS.toMillis(1);

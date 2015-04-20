@@ -164,9 +164,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ZK_PREFIX = "dlZKPrefix";
     public static final String BKDL_ZK_PREFIX_DEFAULT = "/messaging/distributedlog";
 
-    public static final String BKDL_SANITYCHECK_BEFORE_DELETE = "sanityCheckDelete";
-    public static final boolean BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT = true;
-
     public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
     public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
 
@@ -1447,26 +1444,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setBKClientWriteTimeout(int writeTimeout) {
         setProperty(BKDL_BKCLIENT_WRITE_TIMEOUT, writeTimeout);
         return this;
-    }
-
-    /**
-     * Set if we should sanity check before deleting
-     *
-     * @param sanityCheckDeletes check before deleting
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setSanityCheckDeletes(boolean sanityCheckDeletes) {
-        setProperty(BKDL_SANITYCHECK_BEFORE_DELETE, sanityCheckDeletes);
-        return this;
-    }
-
-    /**
-     * Whether sanity check is enabled before deletes
-     *
-     * @return if we should check before deleting
-     */
-    public boolean getSanityCheckDeletes() {
-        return getBoolean(BKDL_SANITYCHECK_BEFORE_DELETE, BKDL_SANITYCHECK_BEFORE_DELETE_DEFAULT);
     }
 
     /**

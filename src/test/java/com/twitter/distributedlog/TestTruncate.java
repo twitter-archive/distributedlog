@@ -68,7 +68,6 @@ public class TestTruncate extends TestDistributedLogBase {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setRetentionPeriodHours(1);
-        confLocal.setSanityCheckDeletes(false);
         confLocal.setExplicitTruncationByApplication(false);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
@@ -207,7 +206,6 @@ public class TestTruncate extends TestDistributedLogBase {
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(confLocal);
         newConf.setRetentionPeriodHours(1);
-        newConf.setSanityCheckDeletes(false);
 
         DistributedLogManager newDLM = createNewDLM(newConf, name);
         AsyncLogWriter newWriter = newDLM.startAsyncLogSegmentNonPartitioned();

@@ -215,11 +215,9 @@ public abstract class BKBaseLogWriter {
             boolean truncationEnabled = false;
 
             long minTimestampToKeep = 0;
-            long sanityCheckThreshold = 0;
 
             if (retentionPeriodInMillis > 0) {
                 minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
-                sanityCheckThreshold = Utils.nowInMillis() - 2 * retentionPeriodInMillis;
                 truncationEnabled = true;
             }
 
@@ -232,8 +230,7 @@ public abstract class BKBaseLogWriter {
             //
             if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDone())) {
                 LogTruncationTask truncationTask = new LogTruncationTask(ledgerManager,
-                        minTimestampToKeep,
-                        sanityCheckThreshold);
+                        minTimestampToKeep);
                 if (bkDistributedLogManager.scheduleTask(truncationTask)) {
                     lastTruncationAttempt = truncationTask;
                 }
@@ -253,15 +250,13 @@ public abstract class BKBaseLogWriter {
     static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentLedgerMetadata>> {
         private final BKLogPartitionWriteHandler ledgerManager;
         private final long minTimestampToKeep;
-        private final long sanityCheckThreshold;
         private volatile boolean done = false;
         private volatile boolean running = false;
         private final CountDownLatch latch = new CountDownLatch(1);
 
-        LogTruncationTask(BKLogPartitionWriteHandler ledgerManager, long minTimestampToKeep, long sanityCheckThreshold) {
+        LogTruncationTask(BKLogPartitionWriteHandler ledgerManager, long minTimestampToKeep) {
             this.ledgerManager = ledgerManager;
             this.minTimestampToKeep = minTimestampToKeep;
-            this.sanityCheckThreshold = sanityCheckThreshold;
         }
 
         boolean isDone() {
@@ -273,7 +268,7 @@ public abstract class BKBaseLogWriter {
             LOG.info("Try to purge logs older than {} for {}.",
                      minTimestampToKeep, ledgerManager.getFullyQualifiedName());
             running = true;
-            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep, sanityCheckThreshold)
+            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep)
                          .addEventListener(this);
         }
 
@@ -304,8 +299,8 @@ public abstract class BKBaseLogWriter {
 
         @Override
         public String toString() {
-            return String.format("LogTruncationTask (%s : minTimestampToKeep=%d, sanityCheckThreshold=%d, running=%s, done=%s)",
-                    ledgerManager.getFullyQualifiedName(), minTimestampToKeep, sanityCheckThreshold, running, done);
+            return String.format("LogTruncationTask (%s : minTimestampToKeep=%d, running=%s, done=%s)",
+                    ledgerManager.getFullyQualifiedName(), minTimestampToKeep, running, done);
         }
     }
 
