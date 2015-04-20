@@ -210,6 +210,7 @@ public class LogRecord {
         private final RecordStream recordStream;
         private final DataInputStream in;
         private final int logVersion;
+        private final long startSequenceId;
         private static final int SKIP_BUFFER_SIZE = 512;
 
         /**
@@ -217,10 +218,14 @@ public class LogRecord {
          *
          * @param in The stream to read from.
          */
-        public Reader(RecordStream recordStream, DataInputStream in, int logVersion) {
+        public Reader(RecordStream recordStream,
+                      DataInputStream in,
+                      int logVersion,
+                      long startSequenceId) {
             this.logVersion = logVersion;
             this.recordStream = recordStream;
             this.in = in;
+            this.startSequenceId = startSequenceId;
         }
 
         /**
@@ -240,7 +245,7 @@ public class LogRecord {
                 // retrieve the currentDLSN and advance to the next
                 // Given that there are 20 bytes following the read position of the previous call
                 // to readLong, we should not have moved ahead in the stream.
-                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition());
+                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition(), startSequenceId);
                 nextRecordInStream.setMetadata(metadata);
                 recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());

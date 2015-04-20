@@ -207,7 +207,10 @@ public class ReadUtils {
             LedgerEntry entry,
             ScanContext context,
             LogRecordSelector selector) throws IOException {
-        LogRecord.Reader reader = new LedgerEntryReader(streamName, ledgerSeqNo, entry, metadata.getEnvelopeEntries(), new NullStatsLogger());
+        LogRecord.Reader reader =
+                new LedgerEntryReader(streamName, ledgerSeqNo, entry,
+                        metadata.getEnvelopeEntries(), metadata.getStartSequenceId(),
+                        NullStatsLogger.INSTANCE);
         LogRecordWithDLSN nextRecord = reader.readOp();
         while (nextRecord != null) {
             LogRecordWithDLSN record = nextRecord;

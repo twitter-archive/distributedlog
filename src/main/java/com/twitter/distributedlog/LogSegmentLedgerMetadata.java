@@ -933,6 +933,11 @@ public class LogSegmentLedgerMetadata {
         return version >= LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value;
     }
 
+    public long getStartSequenceId() {
+        // generate negative sequence id for log segments that created <= v4
+        return Long.MIN_VALUE + (getLedgerSequenceNumber() << 32L);
+    }
+
     @VisibleForTesting
     void overwriteLastTxId(long lastTxId) {
         this.lastTxId = lastTxId;

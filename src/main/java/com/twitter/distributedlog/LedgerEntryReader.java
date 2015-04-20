@@ -36,10 +36,19 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          ledger entry
      * @param envelopeEntries
      *          Are the entries enveloped.
+     * @param startSequenceId
+     *          Start sequence id for the records to generate sequence id.
+     * @param statsLogger
+     *          stats logger
      */
-    public LedgerEntryReader(final String name, final long ledgerSeqNo, final LedgerEntry ledgerEntry,
-                             final boolean envelopeEntries, StatsLogger statsLogger) throws IOException {
-        this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(), envelopeEntries, statsLogger);
+    public LedgerEntryReader(final String name,
+                             final long ledgerSeqNo,
+                             final LedgerEntry ledgerEntry,
+                             final boolean envelopeEntries,
+                             final long startSequenceId,
+                             StatsLogger statsLogger) throws IOException {
+        this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(),
+                envelopeEntries, startSequenceId, statsLogger);
     }
 
     /**
@@ -53,9 +62,20 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          entry id
      * @param in
      *          input stream of the data
+     * @param envelopeEntries
+     *          Are the entries enveloped.
+     * @param startSequenceId
+     *          Start sequence id for the records to generate sequence id.
+     * @param statsLogger
+     *          stats logger
      */
-    public LedgerEntryReader(final String name, final long ledgerSeqNo, final long entryId, final InputStream in,
-                             final boolean envelopeEntries, StatsLogger statsLogger) throws IOException {
+    public LedgerEntryReader(final String name,
+                             final long ledgerSeqNo,
+                             final long entryId,
+                             final InputStream in,
+                             final boolean envelopeEntries,
+                             final long startSequenceId,
+                             StatsLogger statsLogger) throws IOException {
         super(new RecordStream() {
             long slotId = 0;
 
@@ -73,6 +93,6 @@ public class LedgerEntryReader extends LogRecord.Reader {
             public String getName() {
                 return name;
             }
-        }, getInputStream(in, envelopeEntries, statsLogger), 0);
+        }, getInputStream(in, envelopeEntries, statsLogger), 0, startSequenceId);
     }
 }

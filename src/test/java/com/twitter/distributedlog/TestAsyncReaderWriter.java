@@ -27,7 +27,6 @@ import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -482,7 +481,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     private static void readNext(final Thread threadToInterrupt,
                                  final CountDownLatch syncLatch,
                                  final AsyncLogReader reader,
-                                 final DLSN startPosition) {
+                                 final DLSN startPosition,
+                                 final long startSequenceId) {
         Future<LogRecordWithDLSN> record = null;
         try {
             record = reader.readNext();
@@ -494,12 +494,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             record.addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
                 @Override
                 public void onSuccess(LogRecordWithDLSN value) {
-                    assert(value.getDlsn().compareTo(startPosition) >= 0);
+                    assertTrue(value.getDlsn().compareTo(startPosition) >= 0);
+                    assertTrue(value.getSequenceId() > startSequenceId);
+                    assertTrue(value.getSequenceId() < 0);
                     try {
                         LOG.debug("DLSN: " + value.getDlsn());
-                        assert(!value.isControl());
-                        assert(value.getDlsn().getSlotId() == 0);
-                        assert(value.getDlsn().compareTo(startPosition) >= 0);
+                        assertTrue(!value.isControl());
+                        assertTrue(value.getDlsn().getSlotId() == 0);
+                        assertTrue(value.getDlsn().compareTo(startPosition) >= 0);
                         DLMTestUtil.verifyLargeLogRecord(value);
                     } catch (Exception exc) {
                         LOG.debug("Exception Encountered when verifying log records" + value.getDlsn(), exc);
@@ -507,7 +509,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                     }
                     syncLatch.countDown();
                     LOG.debug("SyncLatch: " + syncLatch.getCount());
-                    TestAsyncReaderWriter.readNext(threadToInterrupt, syncLatch, reader, value.getDlsn().getNextDLSN());
+                    TestAsyncReaderWriter.readNext(threadToInterrupt, syncLatch, reader,
+                            value.getDlsn().getNextDLSN(), value.getSequenceId());
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -678,7 +681,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
         final Thread currentThread = Thread.currentThread();
 
-        TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
+        TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
+                DLSN.InvalidDLSN, Long.MIN_VALUE);
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -801,7 +805,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         assertEquals(name, reader.getStreamName());
         final Thread currentThread = Thread.currentThread();
 
-        TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader, new DLSN(2, 3, 0));
+        TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
+                new DLSN(2, 3, 0), Long.MIN_VALUE + (2 << 32L));
 
         boolean success = false;
         if (!(Thread.interrupted())) {
@@ -915,7 +920,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(record, currentLedgerSeqNo, currentEntryId, currentThread));
                 if (i == 0 && j == 0) {
-                    TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
+                    TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
+                            DLSN.InvalidDLSN, Long.MIN_VALUE);
                 }
             }
             writer.closeAndComplete();
@@ -1163,7 +1169,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                     }
                 });
                 if (i == 0 && j == 0) {
-                    TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader, DLSN.InvalidDLSN);
+                    TestAsyncReaderWriter.readNext(currentThread, syncLatch, reader,
+                            DLSN.InvalidDLSN, Long.MIN_VALUE);
                 }
             }
             writer.closeAndComplete();

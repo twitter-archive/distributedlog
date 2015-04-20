@@ -5,6 +5,8 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.codec.binary.Base64;
 import java.nio.ByteBuffer;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 public class DLSN implements Comparable<DLSN> {
 
     public static final byte VERSION0 = (byte) 0;
@@ -51,11 +53,11 @@ public class DLSN implements Comparable<DLSN> {
         }
     }
 
-    public String serialize() {
-        return serialize(CUR_VERSION);
+    public byte[] serializeBytes() {
+        return serializeBytes(CUR_VERSION);
     }
 
-    public String serialize(byte version) {
+    public byte[] serializeBytes(byte version) {
         Preconditions.checkArgument(version <= CUR_VERSION);
         byte[] data = new byte[CUR_VERSION == version ? VERSION1_LEN : VERSION0_LEN];
         ByteBuffer bb = ByteBuffer.wrap(data);
@@ -63,23 +65,35 @@ public class DLSN implements Comparable<DLSN> {
         bb.putLong(ledgerSequenceNo);
         bb.putLong(entryId);
         bb.putLong(slotId);
-        return Base64.encodeBase64String(data);
+        return data;
+    }
+
+    public String serialize() {
+        return serialize(CUR_VERSION);
+    }
+
+    public String serialize(byte version) {
+        return Base64.encodeBase64String(serializeBytes(version));
     }
 
     public static DLSN deserialize(String dlsn) {
         byte[] data = Base64.decodeBase64(dlsn);
+        return deserializeBytes(data);
+    }
+
+    public static DLSN deserializeBytes(byte[] data) {
         ByteBuffer bb = ByteBuffer.wrap(data);
         byte version = bb.get();
         if (VERSION0 == version) {
             if (VERSION0_LEN != data.length) {
-                throw new IllegalArgumentException("Invalid version zero DLSN " + dlsn);
+                throw new IllegalArgumentException("Invalid version zero DLSN " + new String(data, UTF_8));
             }
         } else if (VERSION1 == version) {
             if (VERSION1_LEN != data.length) {
-                throw new IllegalArgumentException("Invalid version one DLSN " + dlsn);
+                throw new IllegalArgumentException("Invalid version one DLSN " + new String(data, UTF_8));
             }
         } else {
-            throw new IllegalArgumentException("Invalid DLSN " + dlsn);
+            throw new IllegalArgumentException("Invalid DLSN " + new String(data, UTF_8));
         }
         return new DLSN(bb.getLong(), bb.getLong(), bb.getLong());
     }

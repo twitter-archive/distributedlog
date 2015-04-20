@@ -1626,8 +1626,12 @@ public class DistributedLogTool extends Tool {
                 throw new IOException("Entry " + lac + " isn't found for " + segment);
             }
             LedgerEntry lastEntry = entries.nextElement();
-            LedgerEntryReader reader = new LedgerEntryReader("dlog", segment.getLedgerSequenceNumber(), lastEntry,
-                                                             LogSegmentLedgerMetadata.supportsEnvelopedEntries(segment.getVersion()), new NullStatsLogger());
+            LedgerEntryReader reader = new LedgerEntryReader("dlog",
+                                                             segment.getLedgerSequenceNumber(),
+                                                             lastEntry,
+                                                             LogSegmentLedgerMetadata.supportsEnvelopedEntries(segment.getVersion()),
+                                                             segment.getStartSequenceId(),
+                                                             NullStatsLogger.INSTANCE);
             LogRecordWithDLSN record = reader.readOp();
             LogRecordWithDLSN lastRecord = null;
             while (null != record) {
@@ -2262,7 +2266,7 @@ public class DistributedLogTool extends Tool {
                     if (BKException.Code.OK == rr.getResultCode()) {
                         LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
                                                                          LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                         new NullStatsLogger());
+                                                                         0L, NullStatsLogger.INSTANCE);
                         printEntry(reader);
                     } else {
                         System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
@@ -2317,7 +2321,7 @@ public class DistributedLogTool extends Tool {
                 System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
                 LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry,
                                                                  LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                 new NullStatsLogger());
+                                                                 0L, NullStatsLogger.INSTANCE);
                 printEntry(reader);
                 ++i;
             }

@@ -42,6 +42,7 @@ class BKPerStreamLogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogReader.class);
 
     private final String fullyQualifiedName;
+    private final long startSequenceId;
     private final long firstTxId;
     private final int logVersion;
     protected boolean inProgress;
@@ -62,6 +63,7 @@ class BKPerStreamLogReader {
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
+        this.startSequenceId = metadata.getStartSequenceId();
         this.statsLogger = statsLogger;
         this.isExhausted = false;
         this.enableTrace = false;
@@ -79,6 +81,7 @@ class BKPerStreamLogReader {
         throws IOException {
         this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
+        this.startSequenceId = metadata.getStartSequenceId();
         this.logVersion = metadata.getVersion();
         this.inProgress = metadata.isInProgress();
         this.dontSkipControl = dontSkipControl;
@@ -96,7 +99,7 @@ class BKPerStreamLogReader {
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
                 DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
-            logVersion);
+            logVersion, startSequenceId);
         // Note: The caller of the function (or a derived class is expected to open the
         // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader
         this.ledgerDescriptor = desc;

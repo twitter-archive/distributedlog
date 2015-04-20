@@ -1689,7 +1689,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             nextReadAheadPosition.advance();
 
                             ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()),
-                                                   entry, null != ctx ? ctx.toString() : "", currentMetadata.getEnvelopeEntries());
+                                                   entry, null != ctx ? ctx.toString() : "",
+                                                   currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
 
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
@@ -1783,7 +1784,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             nextReadAheadPosition.advance();
                             LedgerEntry e = seq.nextElement();
                             LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLedgerSequenceNumber(), e.getEntryId());
-                            ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "", currentMetadata.getEnvelopeEntries());
+                            ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "",
+                                    currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
                             ++numReads;
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Read entry {} of {}.", readPosition, fullyQualifiedName);

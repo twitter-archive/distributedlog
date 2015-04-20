@@ -248,13 +248,14 @@ public class LedgerDataAccessor {
         return !readAheadRecords.isEmpty() || (lastEntryProcessTime.elapsed(timeUnit) > idleReaderErrorThreshold);
     }
 
-    public void set(LedgerReadPosition key, LedgerEntry entry, String reason, boolean envelopeEntries) {
+    public void set(LedgerReadPosition key, LedgerEntry entry, String reason,
+                    boolean envelopeEntries, long startSequenceId) {
         LOG.trace("Set Called");
         if (null != readAheadCache) {
             setReadAheadCacheEntry(key, entry);
         } else {
             LOG.trace("Calling process");
-            processNewLedgerEntry(key, entry, reason, envelopeEntries);
+            processNewLedgerEntry(key, entry, reason, envelopeEntries, startSequenceId);
             lastEntryProcessTime.reset().start();
             AsyncNotification n = notification;
             if (null != n) {
@@ -377,10 +378,10 @@ public class LedgerDataAccessor {
     }
 
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
-                               final String reason, boolean envelopeEntries) {
+                               final String reason, boolean envelopeEntries, long startSequenceId) {
         try {
             LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
-                    ledgerEntry, envelopeEntries, statsLogger);
+                    ledgerEntry, envelopeEntries, startSequenceId, statsLogger);
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();
 

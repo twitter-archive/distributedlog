@@ -281,7 +281,7 @@ public class DLMTestUtil {
     }
 
     public static LogRecordWithDLSN getLogRecordWithDLSNInstance(DLSN dlsn, long txId) {
-        LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId));
+        LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId), 1L);
         record.setPositionWithinLogSegment((int)txId + 1);
         return record;
     }

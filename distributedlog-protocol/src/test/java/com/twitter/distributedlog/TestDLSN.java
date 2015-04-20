@@ -5,7 +5,7 @@ import static org.junit.Assert.*;
 
 public class TestDLSN {
 
-    @Test
+    @Test(timeout = 60000)
     public void testDLSN() {
         DLSN dlsn = new DLSN(99L, 88L, 77L);
         String dlsnv0 = dlsn.serialize(DLSN.VERSION0);
@@ -31,5 +31,12 @@ public class TestDLSN {
             fail("Should fail on deserializing bad dlsn");
         } catch (IllegalArgumentException iae) {
         }
+    }
+
+    @Test(timeout = 60000)
+    public void testSerializeDeserializeBytes() {
+        DLSN dlsn = new DLSN(99L, 88L, 77L);
+        byte[] data = dlsn.serializeBytes();
+        assertEquals(dlsn, DLSN.deserializeBytes(data));
     }
 }
