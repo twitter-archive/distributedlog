@@ -1,3 +1,12 @@
+0.3.30
+------
+- Sequence ID Support
+- Handle disconnect between lastTxId/lastDLSN in metadata and contents of the log segment
+- Address lock race conditions
+- Validate stream path
+- Truncation fixes
+- Region based stats on distributedlog lock
+
 0.3.29
 ------
 - Provide zookeeper watcher manager to manage watchers
