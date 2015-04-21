@@ -122,12 +122,7 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     }
 
     @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
-        return getHost(key, previousAddr, StatusCode.FOUND);
-    }
-
-    @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+    public SocketAddress getHost(String key, RoutingContext rContext)
             throws NoBrokersAvailableException {
         SocketAddress address = null;
         synchronized (hostSet) {
@@ -135,14 +130,14 @@ class ServerSetRoutingService extends Thread implements RoutingService {
                 int hashCode = hasher.hashUnencodedChars(key).asInt();
                 int hostId = signSafeMod(hashCode, hostList.size());
                 address = hostList.get(hostId);
-                if (null != previousAddr && address.equals(previousAddr)) {
+                if (rContext.isTriedHost(address)) {
                     ArrayList<SocketAddress> newList = new ArrayList<SocketAddress>(hostList);
                     newList.remove(hostId);
                     // pickup a new host by rehashing it.
                     hostId = signSafeMod(hashCode, newList.size());
                     address = newList.get(hostId);
                     int i = hostId;
-                    while (previousAddr.equals(address)) {
+                    while (rContext.isTriedHost(address)) {
                         i = (i+1) % newList.size();
                         if (i == hostId) {
                             address = null;

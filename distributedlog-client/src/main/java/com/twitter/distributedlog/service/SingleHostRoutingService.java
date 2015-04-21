@@ -1,8 +1,6 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.base.Preconditions;
-import com.twitter.distributedlog.service.RoutingService;
-import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
@@ -71,15 +69,10 @@ class SingleHostRoutingService implements RoutingService {
     }
 
     @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
-        return getHost(key, previousAddr, StatusCode.FOUND);
-    }
-
-    @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+    public SocketAddress getHost(String key, RoutingContext rContext)
             throws NoBrokersAvailableException {
-        if (address.equals(previousAddr)) {
-            throw new NoBrokersAvailableException("No hosts is available than " + previousAddr);
+        if (rContext.isTriedHost(address)) {
+            throw new NoBrokersAvailableException("No hosts is available : routing context = " + rContext);
         }
         return address;
     }

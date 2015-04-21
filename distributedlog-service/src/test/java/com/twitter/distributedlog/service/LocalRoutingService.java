@@ -1,11 +1,9 @@
 package com.twitter.distributedlog.service;
 
-import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 
 import java.net.SocketAddress;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -80,36 +78,18 @@ public class LocalRoutingService implements RoutingService {
     }
 
     @Override
-    public synchronized SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
-        return getHost(key, previousAddr, StatusCode.FOUND);
-    }
-
-    public synchronized SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+    public synchronized SocketAddress getHost(String key, RoutingContext rContext)
             throws NoBrokersAvailableException {
         LinkedHashSet<SocketAddress> addresses = localAddresses.get(key);
 
         SocketAddress candidate = null;
         if (null != addresses) {
-            if (addresses.size() == 1) {
-                if (!allowRetrySameHost && previousAddr != null && addresses.contains(previousAddr)) {
-                    throw new NoBrokersAvailableException("No host available");
-                }
-                candidate = addresses.iterator().next();
-            } else if (addresses.size() > 1) {
-                Iterator<SocketAddress> iter = addresses.iterator();
-                if (null == previousAddr || !addresses.contains(previousAddr)) {
-                    candidate = iter.next();
+            for (SocketAddress host : addresses) {
+                if (rContext.isTriedHost(host) && !allowRetrySameHost) {
+                    continue;
                 } else {
-                    SocketAddress nextAddr;
-                    while (iter.hasNext()) {
-                        nextAddr = iter.next();
-                        if (nextAddr.equals(previousAddr)) {
-                            break;
-                        }
-                    }
-                    if (iter.hasNext()) {
-                        candidate = iter.next();
-                    }
+                    candidate = host;
+                    break;
                 }
             }
         }

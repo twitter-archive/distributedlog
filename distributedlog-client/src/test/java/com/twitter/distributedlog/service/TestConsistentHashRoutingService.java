@@ -22,7 +22,7 @@ public class TestConsistentHashRoutingService {
                 .serverSet(new NameServerSet(name))
                 .resolveFromName(true)
                 .numReplicas(997)
-                .blackoutSeconds(5)
+                .blackoutSeconds(2)
                 .build();
 
         InetSocketAddress address = new InetSocketAddress("127.0.0.1", 3181);
@@ -32,18 +32,21 @@ public class TestConsistentHashRoutingService {
 
         routingService.startService();
 
+        RoutingService.RoutingContext routingContext =
+                RoutingService.RoutingContext.of(new TwitterRegionResolver());
+
         String streamName = "test-blackout-host";
-        assertEquals(address, routingService.getHost(streamName, null));
+        assertEquals(address, routingService.getHost(streamName, routingContext));
         routingService.removeHost(address, new ChannelWriteException(new IOException("test exception")));
         try {
-            routingService.getHost(streamName, null);
+            routingService.getHost(streamName, routingContext);
             fail("Should fail to get host since no brokers are available");
         } catch (NoBrokersAvailableException nbae) {
             // expected
         }
 
-        TimeUnit.SECONDS.sleep(8);
-        assertEquals(address, routingService.getHost(streamName, null));
+        TimeUnit.SECONDS.sleep(3);
+        assertEquals(address, routingService.getHost(streamName, routingContext));
 
         routingService.stopService();
     }

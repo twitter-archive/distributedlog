@@ -10,7 +10,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.junit.Test;
-
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.slf4j.Logger;
@@ -101,7 +100,8 @@ public class TestRoutingService {
         for (int i = 0; i < 1000; i++) {
             for (int j = 0; j < 5; j++) {
                 String stream = "TestStream-" + i + "-" + j;
-                mapping.add(routingService.getHost(stream, null));
+                mapping.add(routingService.getHost(stream,
+                        RoutingService.RoutingContext.of(new TwitterRegionResolver())));
             }
         }
 

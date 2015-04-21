@@ -10,8 +10,8 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.service.RoutingService.RoutingContext;
 import com.twitter.distributedlog.service.stats.ClientStats;
-import com.twitter.distributedlog.service.stats.ClientStatsLogger;
 import com.twitter.distributedlog.service.stats.OwnershipStatsLogger;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
@@ -32,9 +32,7 @@ import com.twitter.finagle.ServiceException;
 import com.twitter.finagle.ServiceTimeoutException;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
-import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.NullStatsReceiver;
-import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.ThriftMuxClient;
 import com.twitter.finagle.thrift.ClientId;
@@ -70,7 +68,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -90,6 +87,7 @@ public class DistributedLogClientBuilder {
     private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
     private ClientConfig _clientConfig = new ClientConfig();
     private boolean _enableRegionStats = false;
+    private final RegionResolver _regionResolver = new TwitterRegionResolver();
 
     /**
      * Create a client builder
@@ -181,7 +179,7 @@ public class DistributedLogClientBuilder {
                     .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
         }
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
-                .resolver(new TwitterRegionResolver())
+                .resolver(_regionResolver)
                 .routingServiceBuilders(builders);
         newBuilder._enableRegionStats = remotes.length > 0;
         return newBuilder;
@@ -229,7 +227,7 @@ public class DistributedLogClientBuilder {
         }
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .routingServiceBuilders(builders)
-                .resolver(new TwitterRegionResolver());
+                .resolver(_regionResolver);
         newBuilder._enableRegionStats = remotes.length > 0;
         return newBuilder;
     }
@@ -422,8 +420,9 @@ public class DistributedLogClientBuilder {
 
         RoutingService routingService = _routingServiceBuilder.build();
         DistributedLogClientImpl clientImpl =
-                new DistributedLogClientImpl(_name, _clientId, routingService, _clientBuilder, _clientConfig,
-                                             _statsReceiver, _streamStatsReceiver, _enableRegionStats);
+                new DistributedLogClientImpl(
+                        _name, _clientId, routingService, _clientBuilder, _clientConfig,
+                        _statsReceiver, _streamStatsReceiver, _regionResolver, _enableRegionStats);
         routingService.startService();
         clientImpl.handshake();
         return clientImpl;
@@ -555,6 +554,9 @@ public class DistributedLogClientBuilder {
         // Timer
         private final HashedWheelTimer dlTimer;
 
+        // region resolver
+        private final RegionResolver regionResolver;
+
         // Ownership maintenance
         private final ConcurrentHashMap<String, SocketAddress> stream2Addresses =
                 new ConcurrentHashMap<String, SocketAddress>();
@@ -572,6 +574,7 @@ public class DistributedLogClientBuilder {
             final String stream;
 
             final AtomicInteger tries = new AtomicInteger(0);
+            final RoutingContext routingContext = RoutingContext.of(regionResolver);
             final WriteContext ctx = new WriteContext();
             final Stopwatch stopwatch;
             SocketAddress nextAddressToSend;
@@ -917,6 +920,7 @@ public class DistributedLogClientBuilder {
                                          ClientConfig clientConfig,
                                          StatsReceiver statsReceiver,
                                          StatsReceiver streamStatsReceiver,
+                                         RegionResolver regionResolver,
                                          boolean enableRegionStats) {
             this.clientName = name;
             this.clientId = clientId;
@@ -924,6 +928,7 @@ public class DistributedLogClientBuilder {
             this.clientConfig = clientConfig;
             this.streamFailfast = clientConfig.getStreamFailfast();
             this.streamNameRegexPattern = Pattern.compile(clientConfig.getStreamNameRegex());
+            this.regionResolver = regionResolver;
             // Build the timer
             this.dlTimer = new HashedWheelTimer(
                     new ThreadFactoryBuilder().setNameFormat("DLClient-" + name + "-timer-%d").build(),
@@ -933,7 +938,7 @@ public class DistributedLogClientBuilder {
             this.routingService.registerListener(this);
             // Stats
             // Client Stats
-            this.clientStats = new ClientStats(statsReceiver, enableRegionStats);
+            this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
             // Ownership Stats
             this.ownershipStatsLogger = new OwnershipStatsLogger(statsReceiver, streamStatsReceiver);
             // Cache Stats
@@ -1212,19 +1217,25 @@ public class DistributedLogClientBuilder {
             }
         }
 
-        private void doSend(final StreamOp op, SocketAddress previousAddr) {
-            doSend(op, previousAddr, StatusCode.FOUND);
-        }
-
-        private void doSend(final StreamOp op, SocketAddress previousAddr,
-                StatusCode previousCode) {
+        /**
+         * Send the stream operation by routing service, excluding previous address if it is not null.
+         *
+         * @param op
+         *          stream operation.
+         * @param previousAddr
+         *          previous tried address.
+         */
+        private void doSend(final StreamOp op, final SocketAddress previousAddr) {
+            if (null != previousAddr) {
+                op.routingContext.addTriedHost(previousAddr, StatusCode.WRITE_EXCEPTION);
+            }
             // Get host first
             SocketAddress address = stream2Addresses.get(op.stream);
-            if (null == address || address.equals(previousAddr)) {
+            if (null == address || op.routingContext.isTriedHost(address)) {
                 ownershipStatsLogger.onMiss(op.stream);
                 // pickup host by hashing
                 try {
-                    address = routingService.getHost(op.stream, previousAddr, previousCode);
+                    address = routingService.getHost(op.stream, op.routingContext);
                 } catch (NoBrokersAvailableException nbae) {
                     op.fail(null, nbae);
                     return;
@@ -1247,6 +1258,8 @@ public class DistributedLogClientBuilder {
                         logger.debug("Received response; header: {}", header);
                     }
                     clientStats.completeProxyRequest(addr, header.getCode(), startTimeNanos);
+                    // update routing context
+                    op.routingContext.addTriedHost(addr, header.getCode());
                     switch (header.getCode()) {
                         case SUCCESS:
                             // success handling is done per stream op
@@ -1278,11 +1291,11 @@ public class DistributedLogClientBuilder {
                             routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
                             onServerLeft(addr);
                             // redirect the request to other host.
-                            redirect(op, addr, StatusCode.FOUND, null);
+                            redirect(op, null);
                             break;
                         case REGION_UNAVAILABLE:
                             // region is unavailable, redirect the request to hosts in other region
-                            redirect(op, addr, StatusCode.REGION_UNAVAILABLE, null);
+                            redirect(op, null);
                             break;
                         case STREAM_UNAVAILABLE:
                         case ZOOKEEPER_ERROR:
@@ -1299,7 +1312,7 @@ public class DistributedLogClientBuilder {
                                 logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
                                 op.fail(addr, DLException.of(header));
                             } else {
-                                redirect(op, addr, StatusCode.FOUND, null);
+                                redirect(op, null);
                             }
                             break;
                     }
@@ -1340,14 +1353,22 @@ public class DistributedLogClientBuilder {
 
         // Response Handlers
 
-        void redirect(StreamOp op, SocketAddress oldAddr, StatusCode oldCode,
-                      SocketAddress newAddr) {
+        /**
+         * Redirect the request to new proxy <i>newAddr</i>. If <i>newAddr</i> is null,
+         * it would pick up a host from routing service.
+         *
+         * @param op
+         *          stream operation
+         * @param newAddr
+         *          new proxy address
+         */
+        void redirect(StreamOp op, SocketAddress newAddr) {
             ownershipStatsLogger.onRedirect(op.stream);
             if (null != newAddr) {
                 logger.debug("Redirect request {} to new owner {}.", op, newAddr);
                 op.send(newAddr);
             } else {
-                doSend(op, oldAddr, oldCode);
+                doSend(op, null);
             }
         }
 
@@ -1395,7 +1416,7 @@ public class DistributedLogClientBuilder {
                     ownerAddr = null;
                 }
             }
-            redirect(op, curAddr, StatusCode.FOUND, ownerAddr);
+            redirect(op, ownerAddr);
         }
 
         void updateOwnership(String stream, String location) {

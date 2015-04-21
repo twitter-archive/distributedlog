@@ -1,6 +1,8 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Sets;
+import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.finagle.NoBrokersAvailableException;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;
@@ -79,10 +81,31 @@ public class TestRegionsRoutingService {
                     .build();
         regionsRoutingService.startService();
 
+        RoutingService.RoutingContext routingContext =
+                RoutingService.RoutingContext.of(new TwitterRegionResolver())
+                        .addTriedHost(new InetSocketAddress("127.0.0.1", 3183), StatusCode.WRITE_EXCEPTION);
         assertEquals(new InetSocketAddress("127.0.0.1", 3181),
-                regionsRoutingService.getHost("any", new InetSocketAddress("127.0.0.1", 3183)));
+                regionsRoutingService.getHost("any", routingContext));
+
+        routingContext =
+                RoutingService.RoutingContext.of(new TwitterRegionResolver())
+                        .addTriedHost(new InetSocketAddress("127.0.0.1", 3181), StatusCode.WRITE_EXCEPTION);
         assertEquals(new InetSocketAddress("127.0.0.1", 3182),
-                regionsRoutingService.getHost("any", new InetSocketAddress("127.0.0.1", 3181)));
+                regionsRoutingService.getHost("any", routingContext));
+
+        // add 3182 to routing context as tried host
+        routingContext.addTriedHost(new InetSocketAddress("127.0.0.1", 3182), StatusCode.WRITE_EXCEPTION);
+        assertEquals(new InetSocketAddress("127.0.0.1", 3183),
+                regionsRoutingService.getHost("any", routingContext));
+
+        // add 3183 to routing context as tried host
+        routingContext.addTriedHost(new InetSocketAddress("127.0.0.1", 3183), StatusCode.WRITE_EXCEPTION);
+        try {
+            regionsRoutingService.getHost("any", routingContext);
+            fail("Should fail to get host since all regions are tried.");
+        } catch (NoBrokersAvailableException nbae) {
+            // expected
+        }
     }
 
 }

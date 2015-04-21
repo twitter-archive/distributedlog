@@ -10,7 +10,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.thrift.Endpoint;
@@ -24,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
@@ -132,23 +132,34 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             }
         }
 
-        public SocketAddress get(String key, SocketAddress prevAddr) {
+        public SocketAddress get(String key, RoutingContext rContext) {
             long hash = hashFunction.hashUnencodedChars(key).asLong();
-            Pair<Long, SocketAddress> pair = get(hash);
-            if (null == pair) {
+            return find(hash, rContext);
+        }
+
+        private synchronized SocketAddress find(long hash, RoutingContext rContext) {
+            if (circle.isEmpty()) {
                 return null;
-            } else {
-                if (pair.getRight().equals(prevAddr)) {
-                    Pair<Long, SocketAddress> pair2 = get(pair.getLeft() + 1);
-                    if (null == pair2) {
-                        return null;
-                    } else {
-                        return pair2.getRight();
-                    }
-                } else {
-                    return pair.getRight();
+            }
+
+            Iterator<Map.Entry<Long, SocketAddress>> iterator =
+                    circle.tailMap(hash).entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Long, SocketAddress> entry = iterator.next();
+                if (!rContext.isTriedHost(entry.getValue())) {
+                    return entry.getValue();
                 }
             }
+            // the tail map has been checked
+            iterator = circle.headMap(hash).entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Long, SocketAddress> entry = iterator.next();
+                if (!rContext.isTriedHost(entry.getValue())) {
+                    return entry.getValue();
+                }
+            }
+
+            return null;
         }
 
         private synchronized Pair<Long, SocketAddress> get(long hash) {
@@ -248,18 +259,13 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     }
 
     @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr) throws NoBrokersAvailableException {
-        return getHost(key, previousAddr, StatusCode.FOUND);
-    }
-
-    @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr, StatusCode previousCode)
+    public SocketAddress getHost(String key, RoutingContext rContext)
             throws NoBrokersAvailableException {
-        SocketAddress host = circle.get(key, previousAddr);
+        SocketAddress host = circle.get(key, rContext);
         if (null != host) {
             return host;
         }
-        throw new NoBrokersAvailableException("No host found for " + key + ", previous : " + previousAddr);
+        throw new NoBrokersAvailableException("No host found for " + key + ", routing context : " + rContext);
     }
 
     @Override
@@ -399,83 +405,6 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             for (RoutingListener listener : listeners) {
                 listener.onServerJoin(addr);
             }
-        }
-    }
-
-    public static void main(String[] args) {
-        ConsistentHash circle = new ConsistentHash(Hashing.md5(), 997);
-
-        int numNodes = 40;
-        int numStreams = 8000;
-
-        for (int i = 0; i < numNodes; i++) {
-            circle.add(i, new InetSocketAddress("localhost", 8000 + i));
-        }
-
-        circle.dumpHashRing();
-
-        Map<SocketAddress, Set<String>> addr2Streams =
-                new HashMap<SocketAddress, Set<String>>();
-        for (int i = 0; i < numNodes; i++) {
-            for (int j = 0; j < numStreams / numNodes; j++) {
-                String stream = "QuantumLeapX-" + i + "-" + j;
-                SocketAddress address = circle.get(stream, null);
-                Set<String> streams = addr2Streams.get(address);
-                if (null == streams) {
-                    streams = new HashSet<String>();
-                    addr2Streams.put(address, streams);
-                }
-                streams.add(stream);
-            }
-        }
-
-        for (Map.Entry<SocketAddress, Set<String>> entry : addr2Streams.entrySet()) {
-            System.out.println(entry.getKey() + " : size = " + entry.getValue().size() + ", -> " + entry.getValue());
-        }
-
-        circle.remove(0, new InetSocketAddress("localhost", 8000));
-        // circle.add(0, new InetSocketAddress("localhost", 9000));
-        Map<SocketAddress, Set<String>> addr2Streams2 =
-                new HashMap<SocketAddress, Set<String>>();
-        for (int i = 0; i < numNodes; i++) {
-            for (int j = 0; j < numStreams / numNodes; j++) {
-                String stream = "QuantumLeapX-" + i + "-" + j;
-                SocketAddress address = circle.get(stream, null);
-                Set<String> streams = addr2Streams2.get(address);
-                if (null == streams) {
-                    streams = new HashSet<String>();
-                    addr2Streams2.put(address, streams);
-                }
-                streams.add(stream);
-            }
-        }
-        diff(addr2Streams, addr2Streams2);
-
-        for (Map.Entry<SocketAddress, Set<String>> entry : addr2Streams2.entrySet()) {
-            System.out.println(entry.getKey() + " : size = " + entry.getValue().size() + ", -> " + entry.getValue());
-        }
-    }
-
-    private static void diff(Map<SocketAddress, Set<String>> map1, Map<SocketAddress, Set<String>> map2) {
-        Set<SocketAddress> ks1 = map1.keySet();
-        Set<SocketAddress> ks2 = map2.keySet();
-        Set<SocketAddress> diff1 = Sets.difference(ks1, ks2).immutableCopy();
-        System.out.println("Map1 - Map2");
-        for (SocketAddress addr : diff1) {
-            Set<String> streams = map1.get(addr);
-            System.out.println(addr + " : size = " + streams.size() + ", -> " + streams);
-        }
-        Set<SocketAddress> diff2 = Sets.difference(ks2, ks1).immutableCopy();
-        System.out.println("Map2 - Map1");
-        for (SocketAddress addr : diff2) {
-            Set<String> streams = map2.get(addr);
-            System.out.println(addr + " : size = " + streams.size() + ", -> " + streams);
-        }
-        Set<SocketAddress> diff3 = Sets.intersection(ks1, ks2).immutableCopy();
-        for (SocketAddress addr : diff3) {
-            Set<String> ss1 = map1.get(addr);
-            Set<String> ss2 = map2.get(addr);
-            System.out.println(addr + " : diff " + Sets.symmetricDifference(ss1, ss2));
         }
     }
 

@@ -1,7 +1,6 @@
 package com.twitter.distributedlog.service.stats;
 
 import com.twitter.distributedlog.service.RegionResolver;
-import com.twitter.distributedlog.service.TwitterRegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.stats.StatsReceiver;
 
@@ -23,12 +22,14 @@ public class ClientStats {
     private final boolean enableRegionStats;
     private final ConcurrentMap<String, ClientStatsLogger> regionClientStatsLoggers;
 
-    public ClientStats(StatsReceiver statsReceiver, boolean enableRegionStats) {
+    public ClientStats(StatsReceiver statsReceiver,
+                       boolean enableRegionStats,
+                       RegionResolver regionResolver) {
         this.statsReceiver = statsReceiver;
         this.clientStatsLogger = new ClientStatsLogger(statsReceiver);
         this.enableRegionStats = enableRegionStats;
         this.regionClientStatsLoggers = new ConcurrentHashMap<String, ClientStatsLogger>();
-        this.regionResolver = new TwitterRegionResolver();
+        this.regionResolver = regionResolver;
     }
 
     private ClientStatsLogger getRegionClientStatsLogger(SocketAddress address) {

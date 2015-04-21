@@ -1,8 +1,6 @@
 package com.twitter.distributedlog.service;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,30 +95,19 @@ public class RegionsRoutingService implements RoutingService {
     }
 
     @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr)
+    public SocketAddress getHost(String key, RoutingContext routingContext)
             throws NoBrokersAvailableException {
-        return getHost(key, previousAddr, StatusCode.FOUND);
-    }
-
-    @Override
-    public SocketAddress getHost(String key, SocketAddress previousAddr,
-                                 StatusCode previousCode)
-            throws NoBrokersAvailableException {
-        String previousRegion = null;
-        if (null != previousAddr) {
-            previousRegion = regionResolver.resolveRegion(previousAddr);
-        }
         for (RoutingService service : routingServices) {
             try {
-                SocketAddress addr = service.getHost(key, previousAddr);
-                if (StatusCode.REGION_UNAVAILABLE.equals(previousCode)) {
+                SocketAddress addr = service.getHost(key, routingContext);
+                if (routingContext.hasUnavailableRegions()) {
                     // current region is unavailable
                     String region = regionResolver.resolveRegion(addr);
-                    if (Objects.equal(region, previousRegion)) {
+                    if (routingContext.isUnavailableRegion(region)) {
                         continue;
                     }
                 }
-                if (!Objects.equal(addr, previousAddr)) {
+                if (!routingContext.isTriedHost(addr)) {
                     return addr;
                 }
             } catch (NoBrokersAvailableException nbae) {
@@ -128,7 +115,7 @@ public class RegionsRoutingService implements RoutingService {
                 logger.debug("No brokers available in region {} : ", service, nbae);
             }
         }
-        throw new NoBrokersAvailableException("No host found for " + key + ", previous : " + previousAddr);
+        throw new NoBrokersAvailableException("No host found for " + key + ", routing context : " + routingContext);
     }
 
     @Override
