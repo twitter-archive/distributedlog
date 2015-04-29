@@ -106,6 +106,11 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     }
 
     @VisibleForTesting
+    BKPerStreamLogWriter getPerStreamWriter() {
+        return perStreamWriter;
+    }
+
+    @VisibleForTesting
     void closeAndComplete() throws IOException {
         closeAndComplete(true);
     }

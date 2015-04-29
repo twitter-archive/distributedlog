@@ -252,6 +252,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private ScheduledFuture<?> periodicFlushSchedule = null;
     final private AtomicReference<ScheduledFuture<?>> transmitSchedFutureRef = new AtomicReference<ScheduledFuture<?>>(null);
     final private AtomicReference<ScheduledFuture<?>> immFlushSchedFutureRef = new AtomicReference<ScheduledFuture<?>>(null);
+    final private AtomicReference<Exception> scheduledFlushException = new AtomicReference<Exception>(null);
     private boolean enforceLock = true;
     private boolean closed = true;
     private final boolean enableRecordCounts;
@@ -852,7 +853,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                         scheduledFutureRef.set(null);
                         try {
                             callable.call();
+
+                            // Flush was successful or wasn't needed, the exception should be unset.
+                            scheduledFlushException.set(null);
                         } catch (Exception exc) {
+                            scheduledFlushException.set(exc);
                             LOG.error("Delayed flush failed", exc);
                         }
                     }
@@ -876,6 +881,15 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                         return null;
                     }
                 }, transmitSchedFutureRef);
+
+                // Timing here is not very important--the last flush failed and we should
+                // indicate this to the caller. The next flush may succeed and unset the
+                // scheduledFlushException in which case the next write will succeed (if the caller
+                // hasn't already closed the writer).
+                if (scheduledFlushException.get() != null) {
+                    throw new FlushException("Last flush encountered an error while writing data to the backend",
+                        getLastTxId(), getLastTxIdAcknowledged(), scheduledFlushException.get());
+                }
             }
         }
     }
@@ -895,11 +909,11 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
                 } catch (Exception exc) {
                     shouldFlushControl.addAndGet(preFlushCounter);
                     preFlushCounter = 0;
-                    throw new FlushException("Flush encountered an error while writing data to the backend", getLastTxId(), lastTxIdAcknowledged, exc);
+                    throw new FlushException("Flush encountered an error while writing data to the backend", getLastTxId(), getLastTxIdAcknowledged(), exc);
                 }
             }
 
-            return lastTxIdAcknowledged;
+            return getLastTxIdAcknowledged();
         }
     }
 
@@ -915,7 +929,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             }
         }
         synchronized (this) {
-            return lastTxIdAcknowledged;
+            return getLastTxIdAcknowledged();
         }
     }
 
@@ -1250,8 +1264,6 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
             LOG.error("Log Segment {}: Error encountered by the periodic flush", fullyQualifiedLogSegment, exc);
         }
     }
-
-
 
     public boolean shouldStartNewSegment(int numRecords) {
         return (numRecords > (Integer.MAX_VALUE - positionWithinLogSegment));

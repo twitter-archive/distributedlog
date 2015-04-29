@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -21,12 +22,14 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.FlushException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -1417,6 +1420,53 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
+    @Test
+    public void testAsyncWriteWithMinDelayBetweenFlushesFlushFailure() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setMinDelayBetweenImmediateFlushMs(1);
+
+        URI uri = createDLMURI("/" + name);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri);
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
+        dlm.setClientId("gabbagoo");
+        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
+        dlm1.setClientId("tortellini");
+
+        int txid = 1;
+        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+
+        // First write succeeds since lock isnt checked until transmit, which is scheduled
+        Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
+        writer.flushAndSyncAll();
+
+        BKPerStreamLogWriter perStreamWriter = writer.getPerStreamWriter();
+        DistributedReentrantLock lock = perStreamWriter.getLock();
+        lock.close();
+
+        // Get second writer, steal lock
+        BKUnPartitionedAsyncLogWriter writer2 = (BKUnPartitionedAsyncLogWriter)(dlm1.startAsyncLogSegmentNonPartitioned());
+
+        try {
+            // Succeeds, kicks off scheduked flush
+            writer.write(DLMTestUtil.getLogRecordInstance(txid++));
+
+            // Succeeds, kicks off scheduled flush
+            Thread.sleep(100);
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
+            fail("should have thrown");
+        } catch (LockingException ex) {
+            LOG.debug("caught exception ", ex);
+        }
+
+        writer.close();
+        dlm.close();
+    }
+
     public void writeRecordsWithOutstandingWriteLimit(int stream, int global, boolean shouldFail) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.addConfiguration(testConf);
@@ -1505,7 +1555,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKPerStreamLogWriter logWriter = writer.perStreamWriter;
+        BKPerStreamLogWriter logWriter = writer.getPerStreamWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
@@ -1548,7 +1598,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKPerStreamLogWriter logWriter = writer.perStreamWriter;
+        BKPerStreamLogWriter logWriter = writer.getPerStreamWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
