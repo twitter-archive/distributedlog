@@ -29,6 +29,7 @@ import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
 import com.twitter.finagle.ServiceException;
+import com.twitter.finagle.ServiceFactoryWrapper$;
 import com.twitter.finagle.ServiceTimeoutException;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
@@ -1039,6 +1040,7 @@ public class DistributedLogClientBuilder {
             return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                    .failFast(false)
+                   .failureAccrual(ServiceFactoryWrapper$.MODULE$.identity())
                    .keepAlive(true);
         }
 
