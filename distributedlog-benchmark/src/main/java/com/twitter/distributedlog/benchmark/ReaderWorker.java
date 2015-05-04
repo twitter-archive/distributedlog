@@ -25,6 +25,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.lang3.tuple.Pair;
@@ -72,14 +73,20 @@ public class ReaderWorker implements Worker {
     final OpStatsLogger negativeDeliveryStat;
     final OpStatsLogger truncationStat;
     final Counter invalidRecordsCounter;
+    final Counter outOfOrderSequenceIdCounter;
 
-    class StreamReader implements FutureEventListener<LogRecordWithDLSN>, Runnable {
+    class StreamReader implements FutureEventListener<LogRecordWithDLSN>, Runnable, Gauge<Number> {
 
         final int streamIdx;
+        final String streamName;
         DLSN prevDLSN = null;
+        long prevSequenceId = Long.MIN_VALUE;
 
-        StreamReader(int idx) {
+        StreamReader(int idx, StatsLogger statsLogger) {
             this.streamIdx = idx;
+            int streamId = startStreamId + streamIdx;
+            streamName = String.format("%s_%d", streamPrefix, streamId);
+            statsLogger.scope(streamName).registerGauge("sequence_id", this);
         }
 
         @Override
@@ -106,6 +113,15 @@ public class ReaderWorker implements Worker {
             } else {
                 negativeDeliveryStat.registerSuccessfulEvent(-deliveryLatency);
             }
+            synchronized (this) {
+                if (record.getSequenceId() <= prevSequenceId
+                        || (prevSequenceId >= 0L && record.getSequenceId() != prevSequenceId + 1)) {
+                    outOfOrderSequenceIdCounter.inc();
+                    LOG.warn("Encountered decreasing sequence id for stream {} : previous = {}, current = {}",
+                            new Object[]{streamIdx, prevSequenceId, record.getSequenceId()});
+                }
+                prevSequenceId = record.getSequenceId();
+            }
             prevDLSN = record.getDlsn();
             readLoop();
         }
@@ -115,6 +131,8 @@ public class ReaderWorker implements Worker {
             scheduleReinitStream(streamIdx).map(new Function<Void, Void>() {
                 @Override
                 public Void apply(Void value) {
+                    prevDLSN = null;
+                    prevSequenceId = Long.MIN_VALUE;
                     readLoop();
                     return null;
                 }
@@ -134,8 +152,6 @@ public class ReaderWorker implements Worker {
             if (null == dlsnToTruncate) {
                 return;
             }
-            int streamId = startStreamId + streamIdx;
-            final String streamName = String.format("%s_%d", streamPrefix, streamId);
             final Stopwatch stopwatch = Stopwatch.createStarted();
             dlc.truncate(streamName, dlsnToTruncate).addEventListener(
                     new FutureEventListener<Boolean>() {
@@ -148,9 +164,19 @@ public class ReaderWorker implements Worker {
                         public void onFailure(Throwable cause) {
                             truncationStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MILLISECONDS));
                             LOG.error("Failed to truncate stream {} to {} : ",
-                                      new Object[] { streamName, dlsnToTruncate, cause });
+                                    new Object[]{streamName, dlsnToTruncate, cause});
                         }
                     });
+        }
+
+        @Override
+        public Number getDefaultValue() {
+            return Long.MIN_VALUE;
+        }
+
+        @Override
+        public synchronized Number getSample() {
+            return prevSequenceId;
         }
     }
 
@@ -177,6 +203,7 @@ public class ReaderWorker implements Worker {
         this.negativeDeliveryStat = this.statsLogger.getOpStatsLogger("deliveryNegative");
         this.truncationStat = this.statsLogger.getOpStatsLogger("truncation");
         this.invalidRecordsCounter = this.statsLogger.getCounter("invalid_records");
+        this.outOfOrderSequenceIdCounter = this.statsLogger.getCounter("out_of_order_seq_id");
         this.executorService = Executors.newScheduledThreadPool(
             readThreadPoolSize, new ThreadFactoryBuilder().setNameFormat("benchmark.reader-%d").build());
 
@@ -243,7 +270,7 @@ public class ReaderWorker implements Worker {
         }
         this.streamReaders = new StreamReader[numStreams];
         for (int i = 0; i < numStreams; i++) {
-            streamReaders[i] = new StreamReader(i);
+            streamReaders[i] = new StreamReader(i, statsLogger.scope("perstream"));
             if (truncationIntervalInSeconds > 0) {
                 executorService.scheduleWithFixedDelay(streamReaders[i],
                         truncationIntervalInSeconds, truncationIntervalInSeconds, TimeUnit.SECONDS);
