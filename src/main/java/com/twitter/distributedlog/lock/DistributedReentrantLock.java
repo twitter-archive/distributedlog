@@ -556,6 +556,7 @@ public class DistributedReentrantLock {
     }
 
     private Future<String> reacquireLock(boolean throwLockAcquireException) throws LockingException {
+        LOG.info("reacquiring lock at {}", lockPath);
         final Stopwatch stopwatch = Stopwatch.createStarted();
         Promise<String> lockPromise;
         synchronized (this) {

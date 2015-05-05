@@ -669,9 +669,14 @@ class DistributedLock {
                                             lockState.transition(State.CLOSED);
                                         }
 
+                                        if (null != currentNode) {
+                                            LOG.error("Current node for {} overwritten current = {} new = {}",
+                                                new Object[] { lockPath, lockId, getLockIdFromPath(currentNode) });
+                                        }
+
                                         currentNode = name;
                                         currentId = getLockIdFromPath(currentNode);
-                                        LOG.trace("{} received member id for lock {} : ", lockId, currentId);
+                                        LOG.trace("{} received member id for lock {}", lockId, currentId);
 
                                         if (lockState.isExpiredOrClosing()) {
                                             // Delete node attempt may have come after PREPARING but before create node, in which case
@@ -894,11 +899,12 @@ class DistributedLock {
                 lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
                     @Override
                     public void safeRun() {
-                        if (KeeperException.Code.OK.intValue() == rc ||
-                                KeeperException.Code.NONODE.intValue() == rc ||
-                                KeeperException.Code.SESSIONEXPIRED.intValue() == rc) {
-
+                        if (KeeperException.Code.OK.intValue() == rc) {
                             LOG.info("Deleted lock node {} for {} successfully.", path, lockId);
+                        } else if (KeeperException.Code.NONODE.intValue() == rc ||
+                                KeeperException.Code.SESSIONEXPIRED.intValue() == rc) {
+                            LOG.info("Delete node failed. Node already gone for node {} id {}, rc = {}",
+                                    new Object[] { path, lockId, KeeperException.Code.get(rc) });
                         } else {
                             LOG.error("Failed on deleting lock node {} for {} : {}",
                                     new Object[] { path, lockId, KeeperException.Code.get(rc) });
@@ -928,7 +934,7 @@ class DistributedLock {
                 }
 
                 boolean shouldNotifyLockListener = lockState.inState(State.CLAIMED);
-                
+
                 lockState.transition(State.EXPIRED);
 
                 // remove the watcher
@@ -943,10 +949,6 @@ class DistributedLock {
                 // we don't even need to clean up the lock as the znode will disappear after session expired
                 acquireFuture.updateIfEmpty(new Throw(
                         new LockSessionExpiredException(lockPath, lockId, lockState.getState())));
-
-                // session expired, ephemeral node is gone.
-                currentNode = null;
-                currentId = null;
 
                 // session expired, ephemeral node is gone.
                 currentNode = null;
