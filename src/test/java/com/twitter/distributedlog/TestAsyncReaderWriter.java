@@ -11,8 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.base.Stopwatch;
-
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -22,7 +20,7 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.FlushException;
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
@@ -725,6 +723,92 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setTaskExecutionWarnTimeMicros(1000);
         confLocal.setEnableTaskExecutionStats(true);
         simpleAsyncReadTest(name, confLocal);
+    }
+
+    @Test
+    public void testBulkAsyncRead() throws Exception {
+        String name = "distrlog-bulkasyncread";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadMaxEntries(10000);
+        confLocal.setReadAheadBatchSize(10);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)dlm.startAsyncLogSegmentNonPartitioned();
+            for (long j = 1; j <= 20; j++) {
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++)).get();
+            }
+            writer.closeAndComplete();
+        }
+
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+
+        int expectedTxID = 1;
+        int numReads = 0;
+        while (expectedTxID <= 60) {
+            if (expectedTxID == 60) {
+                break;
+            }
+            List<LogRecordWithDLSN> records = reader.readBulk(20).get();
+            LOG.info("Bulk read {} entries.", records.size());
+
+            assertTrue(records.size() >= 1);
+            for (LogRecordWithDLSN record : records) {
+                assertEquals(expectedTxID, record.getTransactionId());
+                ++expectedTxID;
+            }
+            ++numReads;
+        }
+
+        // we expect bulk read works
+        assertTrue(numReads < 60);
+
+        reader.close();
+        dlm.close();
+    }
+
+    @Test
+    public void testBulkAsyncReadWithWriteBatch() throws Exception {
+        String name = "distrlog-bulkasyncread-with-writebatch";
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(conf);
+        confLocal.setOutputBufferSize(1024000);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadMaxEntries(10000);
+        confLocal.setReadAheadBatchSize(10);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        int txid = 1;
+        for (long i = 0; i < 3; i++) {
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            // we batched 20 entries into single bookkeeper entry
+            for (long j = 1; j <= 20; j++) {
+                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
+            }
+            writer.closeAndComplete();
+        }
+
+        final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+
+        int expectedTxID = 1;
+        for (long i = 0; i < 3; i++) {
+            // since we batched 20 entries into single bookkeeper entry
+            // we should be able to read 20 entries as a batch.
+            List<LogRecordWithDLSN> records = reader.readBulk(20).get();
+            assertEquals(20, records.size());
+            for (LogRecordWithDLSN record : records) {
+                assertEquals(expectedTxID, record.getTransactionId());
+                ++expectedTxID;
+            }
+        }
+
+        reader.close();
+        dlm.close();
     }
 
     @Test
