@@ -211,10 +211,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return executeOp(writer);
         }
 
-        boolean applyServiceTimeout() {
-            return false;
-        }
-
         abstract Future<Void> completionFuture();
 
         /**
@@ -322,11 +318,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         @Override
         public long getPayloadSize() {
           return payloadSize;
-        }
-
-        @Override
-        boolean applyServiceTimeout() {
-            return true;
         }
 
         @Override
@@ -597,11 +588,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        boolean applyServiceTimeout() {
-            return true;
-        }
-
-        @Override
         Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
             if (!stream.equals(writer.getStreamName())) {
                 logger.error("Write: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
@@ -829,7 +815,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             writeSinceLastAcquire = true;
 
             // Timeout stream op if requested.
-            if (op.applyServiceTimeout() && serviceTimeoutMs > 0) {
+            if (serviceTimeoutMs > 0) {
                 scheduleTimeout(op);
             }
 
