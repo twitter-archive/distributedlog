@@ -46,6 +46,7 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.client.LedgerReader;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
@@ -907,27 +908,27 @@ public class DistributedLogTool extends Tool {
         private void printEppStatsHeader(DistributedLogManager dlm) throws Exception {
             String label = "Ledger Placement :";
             println(label);
-            Map<InetSocketAddress, Integer> totals = new HashMap<InetSocketAddress, Integer>();
+            Map<BookieSocketAddress, Integer> totals = new HashMap<BookieSocketAddress, Integer>();
             List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
             for (LogSegmentLedgerMetadata segment : segments) {
                 if (include(segment)) {
                     merge(totals, getBookieStats(segment));
                 }
             }
-            List<Map.Entry<InetSocketAddress, Integer>> entries = new ArrayList<Map.Entry<InetSocketAddress, Integer>>(totals.entrySet());
-            Collections.sort(entries, new Comparator<Map.Entry<InetSocketAddress, Integer>>() {
+            List<Map.Entry<BookieSocketAddress, Integer>> entries = new ArrayList<Map.Entry<BookieSocketAddress, Integer>>(totals.entrySet());
+            Collections.sort(entries, new Comparator<Map.Entry<BookieSocketAddress, Integer>>() {
                 @Override
-                public int compare(Map.Entry<InetSocketAddress, Integer> o1, Map.Entry<InetSocketAddress, Integer> o2) {
+                public int compare(Map.Entry<BookieSocketAddress, Integer> o1, Map.Entry<BookieSocketAddress, Integer> o2) {
                     return o2.getValue() - o1.getValue();
                 }
             });
             int width = 0;
             int totalEntries = 0;
-            for (Map.Entry<InetSocketAddress, Integer> entry : entries) {
+            for (Map.Entry<BookieSocketAddress, Integer> entry : entries) {
                 width = Math.max(width, label.length() + 1 + entry.getKey().toString().length());
                 totalEntries += entry.getValue();
             }
-            for (Map.Entry<InetSocketAddress, Integer> entry : entries) {
+            for (Map.Entry<BookieSocketAddress, Integer> entry : entries) {
                 println(String.format("%"+width+"s\t%6.2f%%\t\t%d", entry.getKey(), entry.getValue()*1.0/totalEntries, entry.getValue()));
             }
         }
@@ -936,15 +937,15 @@ public class DistributedLogTool extends Tool {
             println(segment.getLedgerSequenceNumber() + "\t: " + segment);
         }
 
-        private Map<InetSocketAddress, Integer> getBookieStats(LogSegmentLedgerMetadata segment) throws Exception {
-            Map<InetSocketAddress, Integer> stats = new HashMap<InetSocketAddress, Integer>();
+        private Map<BookieSocketAddress, Integer> getBookieStats(LogSegmentLedgerMetadata segment) throws Exception {
+            Map<BookieSocketAddress, Integer> stats = new HashMap<BookieSocketAddress, Integer>();
             LedgerHandle lh = bkc.client().get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
                     getConf().getBKDigestPW().getBytes(UTF_8));
             long eidFirst = 0;
-            for (SortedMap.Entry<Long, ArrayList<InetSocketAddress>> entry : LedgerReader.bookiesForLedger(lh).entrySet()) {
+            for (SortedMap.Entry<Long, ArrayList<BookieSocketAddress>> entry : LedgerReader.bookiesForLedger(lh).entrySet()) {
                 long eidLast = entry.getKey().longValue();
                 long count = eidLast - eidFirst + 1;
-                for (InetSocketAddress bookie : entry.getValue()) {
+                for (BookieSocketAddress bookie : entry.getValue()) {
                     merge(stats, bookie, (int) count);
                 }
                 eidFirst = eidLast;
@@ -952,7 +953,7 @@ public class DistributedLogTool extends Tool {
             return stats;
         }
 
-        void merge(Map<InetSocketAddress, Integer> m, InetSocketAddress bookie, Integer count) {
+        void merge(Map<BookieSocketAddress, Integer> m, BookieSocketAddress bookie, Integer count) {
             if (m.containsKey(bookie)) {
                 m.put(bookie, count + m.get(bookie).intValue());
             } else {
@@ -960,8 +961,8 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        void merge(Map<InetSocketAddress, Integer> m1, Map<InetSocketAddress, Integer> m2) {
-            for (Map.Entry<InetSocketAddress, Integer> entry : m2.entrySet()) {
+        void merge(Map<BookieSocketAddress, Integer> m1, Map<BookieSocketAddress, Integer> m2) {
+            for (Map.Entry<BookieSocketAddress, Integer> entry : m2.entrySet()) {
                 merge(m1, entry.getKey(), entry.getValue());
             }
         }
@@ -1713,7 +1714,7 @@ public class DistributedLogTool extends Tool {
         boolean fenceOnly = false;
         int fenceRate = 1;
         int concurrency = 1;
-        final Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        final Set<BookieSocketAddress> bookiesSrc = new HashSet<BookieSocketAddress>();
         int partition = 0;
         int numPartitions = 0;
 
@@ -1794,7 +1795,7 @@ public class DistributedLogTool extends Tool {
                             + bookieStr);
                 }
                 try {
-                    bookiesSrc.add(new InetSocketAddress(bookieStrParts[0],
+                    bookiesSrc.add(new BookieSocketAddress(bookieStrParts[0],
                             Integer.parseInt(bookieStrParts[1])));
                 } catch (NumberFormatException nfe) {
                     throw new ParseException("Invalid ledger id provided : " + cmdline.getOptionValue("l"));
@@ -1906,7 +1907,7 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private int bkQuery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs)
+        private int bkQuery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs)
                 throws InterruptedException, BKException {
             SortedMap<Long, LedgerMetadata> ledgersContainBookies =
                     bkAdmin.getLedgersContainBookies(bookieAddrs);
@@ -1926,14 +1927,14 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<InetSocketAddress> bookiesToInspect) {
+        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<BookieSocketAddress> bookiesToInspect) {
             Map<Long, Integer> numBookiesToReplacePerEnsemble = new TreeMap<Long, Integer>();
-            for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
-                ArrayList<InetSocketAddress> bookieList = ensemble.getValue();
+            for (Map.Entry<Long, ArrayList<BookieSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
+                ArrayList<BookieSocketAddress> bookieList = ensemble.getValue();
                 System.out.print(ensemble.getKey() + ":\t");
                 int numBookiesToReplace = 0;
-                for (InetSocketAddress bookie: bookieList) {
-                    System.out.print(StringUtils.addrToString(bookie));
+                for (BookieSocketAddress bookie: bookieList) {
+                    System.out.print(bookie.toString());
                     if (bookiesToInspect.contains(bookie)) {
                         System.out.print("*");
                         ++numBookiesToReplace;
@@ -1948,7 +1949,7 @@ public class DistributedLogTool extends Tool {
             return numBookiesToReplacePerEnsemble;
         }
 
-        private int bkRecovery(final LinkedBlockingQueue<Long> ledgers, final Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(final LinkedBlockingQueue<Long> ledgers, final Set<BookieSocketAddress> bookieAddrs,
                                final boolean dryrun, final boolean skipOpenLedgers)
                 throws Exception {
             return runBKCommand(new BKCommandRunner() {
@@ -1966,7 +1967,7 @@ public class DistributedLogTool extends Tool {
         }
 
         private int bkRecovery(final BookKeeperAdmin bkAdmin, final LinkedBlockingQueue<Long> ledgers,
-                               final Set<InetSocketAddress> bookieAddrs,
+                               final Set<BookieSocketAddress> bookieAddrs,
                                final boolean dryrun, final boolean skipOpenLedgers)
                 throws InterruptedException, BKException {
             final AtomicInteger numPendings = new AtomicInteger(ledgers.size());
@@ -2001,7 +2002,7 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs,
                                boolean dryrun, boolean skipOpenLedgers)
                 throws InterruptedException, BKException {
             bkAdmin.recoverBookieData(bookieAddrs, dryrun, skipOpenLedgers);

@@ -1,5 +1,6 @@
 package org.apache.bookkeeper.client;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
@@ -64,7 +65,7 @@ public class LedgerReader {
         bookieClient = bkc.getBookieClient();
     }
 
-    static public SortedMap<Long, ArrayList<InetSocketAddress>> bookiesForLedger(final LedgerHandle lh) {
+    static public SortedMap<Long, ArrayList<BookieSocketAddress>> bookiesForLedger(final LedgerHandle lh) {
         return lh.getLedgerMetadata().getEnsembles();
     }
 
@@ -76,16 +77,16 @@ public class LedgerReader {
         ReadEntryCallback readEntryCallback = new ReadEntryCallback() {
             @Override
             public void readEntryComplete(int rc, long lid, long eid, ChannelBuffer buffer, Object ctx) {
-                InetSocketAddress bookieAddress = (InetSocketAddress) ctx;
+                BookieSocketAddress bookieAddress = (BookieSocketAddress) ctx;
                 ReadResult<InputStream> rr;
                 if (BKException.Code.OK != rc) {
-                    rr = new ReadResult<InputStream>(eid, rc, null, bookieAddress);
+                    rr = new ReadResult<InputStream>(eid, rc, null, bookieAddress.getSocketAddress());
                 } else {
                     try {
                         ChannelBufferInputStream is = lh.macManager.verifyDigestAndReturnData(eid, buffer);
-                        rr = new ReadResult<InputStream>(eid, BKException.Code.OK, is, bookieAddress);
+                        rr = new ReadResult<InputStream>(eid, BKException.Code.OK, is, bookieAddress.getSocketAddress());
                     } catch (BKException.BKDigestMatchException e) {
-                        rr = new ReadResult<InputStream>(eid, BKException.Code.DigestMatchException, null, bookieAddress);
+                        rr = new ReadResult<InputStream>(eid, BKException.Code.DigestMatchException, null, bookieAddress.getSocketAddress());
                     }
                 }
                 readResults.add(rr);
@@ -95,7 +96,7 @@ public class LedgerReader {
             }
         };
 
-        ArrayList<InetSocketAddress> ensemble = lh.getLedgerMetadata().getEnsemble(eid);
+        ArrayList<BookieSocketAddress> ensemble = lh.getLedgerMetadata().getEnsemble(eid);
         for (Integer idx : writeSet) {
             bookieClient.readEntry(ensemble.get(idx), lh.getId(), eid, readEntryCallback, ensemble.get(idx));
         }
@@ -186,7 +187,7 @@ public class LedgerReader {
             }
         };
 
-        ArrayList<InetSocketAddress> ensemble = lh.getLedgerMetadata().getEnsemble(eid);
+        ArrayList<BookieSocketAddress> ensemble = lh.getLedgerMetadata().getEnsemble(eid);
         for (Integer idx : writeSet) {
             bookieClient.readEntry(ensemble.get(idx), lh.getId(), eid, readEntryCallback, ensemble.get(idx));
         }
