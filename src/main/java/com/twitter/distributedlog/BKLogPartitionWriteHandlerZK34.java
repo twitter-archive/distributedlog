@@ -192,33 +192,7 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
             // Try obtaining an new ledger
             LedgerHandle lh = ledgerAllocator.tryObtain(txn);
 
-            // For any active stream we will always make sure that there is at least one
-            // active ledger (except when the stream first starts out). Therefore when we
-            // see no ledger metadata for a stream, we assume that this is the first ledger
-            // in the stream
-            long ledgerSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
-
-            if (LogSegmentLedgerMetadata.supportsLedgerSequenceNo(conf.getDLLedgerMetadataLayoutVersion())) {
-                List<LogSegmentLedgerMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
-                ledgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
-                if (!ledgerListDesc.isEmpty()) {
-                    ledgerSeqNo = ledgerListDesc.get(0).getLedgerSequenceNumber() + 1;
-                }
-            }
-
-            if (DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO == maxLedgerSequenceNo.getSequenceNumber()) {
-                // no ledger seqno stored in /ledgers before
-                LOG.warn("No max ledger sequence number found while creating log segment {} for {}.",
-                        ledgerSeqNo, getFullyQualifiedName());
-            } else if (maxLedgerSequenceNo.getSequenceNumber() + 1 != ledgerSeqNo) {
-                LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
-                         new Object[] { maxLedgerSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
-                                 getCachedFullLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR) });
-                // there is max log segment number recorded there and it isn't match. throw exception.
-                throw new DLIllegalStateException("Unexpected max log segment sequence number "
-                        + maxLedgerSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
-                        + ", expected " + (ledgerSeqNo - 1));
-            }
+            long ledgerSeqNo = assignLedgerSequenceNumber();
 
             String inprogressZnodeName = inprogressZNodeName(lh.getId(), txId, ledgerSeqNo);
             String inprogressZnodePath = inprogressZNode(lh.getId(), txId, ledgerSeqNo);

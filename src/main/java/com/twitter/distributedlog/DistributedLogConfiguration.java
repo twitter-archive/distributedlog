@@ -40,6 +40,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
     public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = 2; //VERSION_V2_LEDGER_SEQNO
 
+    public static final String BKDL_FIRST_LEDGER_SEQUENCE_NUMBER = "first-ledger-sequence-number";
+    public static final long BKDL_FIRST_LEDGER_SEQUENCE_NUMBER_DEFAULT = DistributedLogConstants.FIRST_LEDGER_SEQNO;
+
     // Name for the default (non-partitioned) stream
     public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
     public static final String BKDL_UNPARTITIONED_STREAM_NAME_DEFAULT = "<default>";
@@ -1488,6 +1491,34 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
         }
         setProperty(BKDL_LEDGER_METADATA_LAYOUT_VERSION, layoutVersion);
+        return this;
+    }
+
+    /**
+     * Get the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams
+     *
+     * @return first ledger sequence number
+     */
+    public long getFirstLedgerSequenceNumber() {
+        return this.getLong(BKDL_FIRST_LEDGER_SEQUENCE_NUMBER, BKDL_FIRST_LEDGER_SEQUENCE_NUMBER_DEFAULT);
+    }
+
+    /**
+     * Set the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams
+     *
+     * @param firstLedgerSequenceNumber first ledger sequence number
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setFirstLedgerSequenceNumber(long firstLedgerSequenceNumber) throws IllegalArgumentException {
+        if (firstLedgerSequenceNumber <= 0) {
+            // Incorrect ledger sequence number specified
+            throw new IllegalArgumentException("Incorrect value for ledger sequence number");
+        }
+        setProperty(BKDL_FIRST_LEDGER_SEQUENCE_NUMBER, firstLedgerSequenceNumber);
         return this;
     }
 

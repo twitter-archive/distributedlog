@@ -3,6 +3,7 @@ package com.twitter.distributedlog.metadata;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.thrift.BKDLConfigFormat;
 import com.twitter.distributedlog.util.DLUtils;
@@ -35,8 +36,9 @@ public class BKDLConfig implements DLConfig {
     public static void propagateConfiguration(BKDLConfig bkdlConfig, DistributedLogConfiguration dlConf) {
         dlConf.setSanityCheckTxnID(bkdlConfig.getSanityCheckTxnID());
         dlConf.setEncodeRegionIDInVersion(bkdlConfig.getEncodeRegionID());
-        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}.",
-                dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion());
+        dlConf.setFirstLedgerSequenceNumber(bkdlConfig.getFirstLedgerSeqNo());
+        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}. firstLedgerSequenceNumber = {}",
+                new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion(), dlConf.getFirstLedgerSequenceNumber()});
     }
 
     public static BKDLConfig resolveDLConfig(ZooKeeperClient zkc, URI uri) throws IOException {
@@ -65,6 +67,7 @@ public class BKDLConfig implements DLConfig {
     private String dlZkServersForWriter;
     private String dlZkServersForReader;
     private String aclRootPath;
+    private long firstLedgerSeqNo;
 
     /**
      * Construct a empty config with given <i>uri</i>.
@@ -194,6 +197,30 @@ public class BKDLConfig implements DLConfig {
         return aclRootPath;
     }
 
+    /**
+     * Set the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams
+     *
+     * @param firstLedgerSeqNo first ledger sequence number
+     * @return bk dl config
+     */
+    public BKDLConfig setFirstLedgerSeqNo(long firstLedgerSeqNo) {
+        this.firstLedgerSeqNo = firstLedgerSeqNo;
+        return this;
+    }
+
+    /**
+     * Get the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams
+     *
+     * @return first ledger sequence number
+     */
+    public long getFirstLedgerSeqNo() {
+        return firstLedgerSeqNo;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hashCode(bkZkServersForWriter, bkZkServersForReader,
@@ -299,6 +326,12 @@ public class BKDLConfig implements DLConfig {
         encodeRegionID = configFormat.isSetEncodeRegionID() && configFormat.isEncodeRegionID();
         if (configFormat.isSetAclRootPath()) {
             aclRootPath = configFormat.getAclRootPath();
+        }
+
+        if (configFormat.isSetFirstLedgerSeqNo()) {
+            firstLedgerSeqNo = configFormat.getFirstLedgerSeqNo();
+        } else {
+            firstLedgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
         }
 
         // Validate the settings

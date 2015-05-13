@@ -9,6 +9,7 @@ struct BKDLConfigFormat {
     6: optional string dlZkServersForWriter
     7: optional string dlZkServersForReader
     8: optional string aclRootPath
+    9: optional i64 firstLedgerSeqNo
 }
 
 struct AccessControlEntry {

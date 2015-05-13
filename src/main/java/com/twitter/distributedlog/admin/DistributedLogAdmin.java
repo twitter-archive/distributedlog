@@ -468,6 +468,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             options.addOption("dlzr", "dlZkServersForReader", true, "ZooKeeper servers used for distributedlog for readers.");
             options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
             options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
+            options.addOption("seqno", "firstLedgerSeqNo", true, "The first ledger sequence number to use after upgrade");
             options.addOption("f", "force", false, "Force binding without prompt.");
             options.addOption("c", "creation", false, "Whether is it a creation binding.");
             options.addOption("q", "query", false, "Query the bookkeeper bindings");
@@ -537,6 +538,11 @@ public class DistributedLogAdmin extends DistributedLogTool {
                                        bkZkServersForWriter, bkZkServersForReader, bkLedgersPath)
                                 .setSanityCheckTxnID(sanityCheckTxnID)
                                 .setEncodeRegionID(encodeRegionID);
+
+                if (cmdline.hasOption("seqno")) {
+                    newBKDLConfig = newBKDLConfig.setFirstLedgerSeqNo(Long.parseLong(cmdline.getOptionValue("seqno")));
+                }
+
                 BKDLConfig bkdlConfig;
                 try {
                     bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
