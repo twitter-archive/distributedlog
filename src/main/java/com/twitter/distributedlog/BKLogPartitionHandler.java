@@ -1322,7 +1322,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (final String segment: segmentsAdded) {
-                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + segment,
+                        LogSegmentLedgerMetadata.read(zooKeeperClient, ledgerPath + "/" + segment, conf.getDLLedgerMetadataSkipMinVersionCheck(),
                             new GenericCallback<LogSegmentLedgerMetadata>() {
                                 @Override
                                 public void operationComplete(int rc, LogSegmentLedgerMetadata result) {

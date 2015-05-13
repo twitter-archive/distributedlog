@@ -40,6 +40,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
     public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = 2; //VERSION_V2_LEDGER_SEQNO
 
+    public static final String BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK = "ledgerMetadataSkipMinVersionCheck";
+    public static final boolean BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT = false;
+
     public static final String BKDL_FIRST_LEDGER_SEQUENCE_NUMBER = "first-ledger-sequence-number";
     public static final long BKDL_FIRST_LEDGER_SEQUENCE_NUMBER_DEFAULT = DistributedLogConstants.FIRST_LEDGER_SEQNO;
 
@@ -1491,6 +1494,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
         }
         setProperty(BKDL_LEDGER_METADATA_LAYOUT_VERSION, layoutVersion);
+        return this;
+    }
+
+    /**
+     * Get the setting for whether we should enforce the min ledger metadata version check
+     *
+     * @return whether we should enforce the min ledger metadata version check
+     */
+    public boolean getDLLedgerMetadataSkipMinVersionCheck() {
+        return this.getBoolean(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK, BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT);
+    }
+
+    /**
+     * Set if we should skip the enforcement of min ledger metadata version
+     *
+     * @param skipMinVersionCheck whether we should enforce the min ledger metadata version check
+     * @return distributed log configuration
+     */
+    public DistributedLogConfiguration setDLLedgerMetadataSkipMinVersionCheck(boolean skipMinVersionCheck) throws IllegalArgumentException {
+        setProperty(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK, skipMinVersionCheck);
         return this;
     }
 

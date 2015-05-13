@@ -68,6 +68,8 @@ enum StatusCode {
     REGION_UNAVAILABLE = 519,
     // Invalid Enveloped Entry
     INVALID_ENVELOPED_ENTRY = 520,
+    // Unsupported metadata version
+    UNSUPPORTED_METADATA_VERSION = 521,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

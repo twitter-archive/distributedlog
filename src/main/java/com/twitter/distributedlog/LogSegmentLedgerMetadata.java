@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.UnsupportedMetadataVersionException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -374,6 +375,9 @@ public class LogSegmentLedgerMetadata {
     public static final int LEDGER_METADATA_CURRENT_LAYOUT_VERSION =
                 LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value;
 
+    public static final int LEDGER_METADATA_OLDEST_SUPPORTED_VERSION =
+        LogSegmentLedgerMetadataVersion.VERSION_V2_LEDGER_SEQNO.value;
+
     static final int LOGRECORD_COUNT_SHIFT = 32;
     static final long LOGRECORD_COUNT_MASK = 0xffffffff00000000L;
     static final int REGION_SHIFT = 28;
@@ -565,10 +569,15 @@ public class LogSegmentLedgerMetadata {
 
     public static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path)
         throws IOException, KeeperException.NoNodeException {
+        return read(zkc, path, false);
+    }
+
+    public static LogSegmentLedgerMetadata read(ZooKeeperClient zkc, String path, boolean skipMinVersionCheck)
+        throws IOException, KeeperException.NoNodeException {
         try {
             Stat stat = new Stat();
             byte[] data = zkc.get().getData(path, false, stat);
-            LogSegmentLedgerMetadata metadata = parseData(path, data);
+            LogSegmentLedgerMetadata metadata = parseData(path, data, skipMinVersionCheck);
             return metadata;
         } catch (KeeperException.NoNodeException nne) {
             throw nne;
@@ -584,6 +593,11 @@ public class LogSegmentLedgerMetadata {
 
     public static void read(ZooKeeperClient zkc, String path,
                             final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
+        read(zkc, path, false, callback);
+    }
+
+    public static void read(ZooKeeperClient zkc, String path, final boolean skipMinVersionCheck,
+                            final BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata> callback) {
         try {
             zkc.get().getData(path, false, new AsyncCallback.DataCallback() {
                 @Override
@@ -593,7 +607,7 @@ public class LogSegmentLedgerMetadata {
                         return;
                     }
                     try {
-                        LogSegmentLedgerMetadata metadata = parseData(path, data);
+                        LogSegmentLedgerMetadata metadata = parseData(path, data, skipMinVersionCheck);
                         callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
                     } catch (IOException ie) {
                         LOG.error("Error on parsing log segment metadata from {} : ", path, ie);
@@ -848,13 +862,23 @@ public class LogSegmentLedgerMetadata {
         }
     }
 
-    static LogSegmentLedgerMetadata parseData(String path, byte[] data) throws IOException {
+    static LogSegmentLedgerMetadata parseData(String path, byte[] data, boolean skipMinVersionCheck) throws IOException {
         String[] parts = new String(data, UTF_8).split(";");
         long version;
         try {
             version = Long.valueOf(parts[0]) & METADATA_VERSION_MASK;
         } catch (Exception exc) {
             throw new IOException("Invalid ledger entry, "
+                + new String(data, UTF_8));
+        }
+
+        if (!skipMinVersionCheck && version < LogSegmentLedgerMetadata.LEDGER_METADATA_OLDEST_SUPPORTED_VERSION) {
+            throw new UnsupportedMetadataVersionException("Ledger metadata version '" + version + "' is no longer supported: "
+                + new String(data, UTF_8));
+        }
+
+        if (version > LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION) {
+            throw new UnsupportedMetadataVersionException("Metadata version '" + version + "' is higher than the highest supported version : "
                 + new String(data, UTF_8));
         }
 
@@ -865,11 +889,9 @@ public class LogSegmentLedgerMetadata {
         } else if (LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value >= version &&
                    LogSegmentLedgerMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version) {
             return parseDataVersionsWithMinActiveDLSN(path, data, parts);
-        } else if (LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version) {
-            return parseDataVersionsWithSequenceId(path, data, parts);
         } else {
-            throw new IOException("Unsupported log segment ledger metadata version '" + version + "' : "
-                + new String(data, UTF_8));
+            assert(version >= LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
+            return parseDataVersionsWithSequenceId(path, data, parts);
         }
     }
 

@@ -140,6 +140,8 @@ public class DistributedLogTool extends Tool {
         protected PerDLCommand(String name, String description) {
             super(name, description);
             dlConf = new DistributedLogConfiguration();
+            // Tools are allowed to read old metadata as long as they can interpret it
+            dlConf.setDLLedgerMetadataSkipMinVersionCheck(true);
             options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("c", "conf", true, "DistributedLog Configuration File");
             options.addOption("a", "zk-acl-id", true, "Zookeeper ACL ID");
