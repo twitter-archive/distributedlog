@@ -10,3 +10,9 @@ dl.disable_logsegment_rolling:
   default_availability: 0
 dl.disable_write_limit:
   default_availability: 0
+bkc.atla.disallow_bookie_placement
+  default_availability: 0
+bkc.atlb.disallow_bookie_placement
+  default_availability: 0
+bkc.smf1.disallow_bookie_placement
+  default_availability: 0

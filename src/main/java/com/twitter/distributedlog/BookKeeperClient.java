@@ -64,6 +64,8 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         bkConfig.setNumWorkerThreads(conf.getBKClientNumberWorkerThreads());
         bkConfig.setEnsemblePlacementPolicy(RegionAwareEnsemblePlacementPolicy.class);
         bkConfig.setZkRequestRateLimit(conf.getBKClientZKRequestRateLimit());
+        bkConfig.setProperty(RegionAwareEnsemblePlacementPolicy.REPP_DISALLOW_BOOKIE_PLACEMENT_IN_REGION_FEATURE_NAME,
+                DistributedLogConstants.DISALLOW_PLACEMENT_IN_REGION_FEATURE_NAME);
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
         final DNSToSwitchMapping dnsResolver;
@@ -73,13 +75,6 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             dnsResolver = new TwitterDNSResolverForRacks(conf.getBkDNSResolverOverrides());
         }
 
-        FeatureProvider actualFeatureProvider;
-        if (featureProvider.isPresent()) {
-            actualFeatureProvider = featureProvider.get();
-        } else {
-            actualFeatureProvider = null;
-        }
-
         this.bkc = BookKeeper.newBuilder()
             .config(bkConfig)
             .zk(zkc.get())
@@ -87,7 +82,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             .statsLogger(statsLogger)
             .dnsResolver(dnsResolver)
             .requestTimer(requestTimer)
-            .featureProvider(actualFeatureProvider)
+            .featureProvider(featureProvider.orNull())
             .build();
 
         if (registerExpirationHandler) {
