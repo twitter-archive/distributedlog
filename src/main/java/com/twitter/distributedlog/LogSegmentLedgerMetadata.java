@@ -969,11 +969,6 @@ public class LogSegmentLedgerMetadata {
 
     public void write(ZooKeeperClient zkc)
         throws IOException, KeeperException.NodeExistsException {
-        write(zkc, version);
-    }
-
-    public void write(ZooKeeperClient zkc, LogSegmentLedgerMetadataVersion version)
-        throws IOException, KeeperException.NodeExistsException {
         String finalisedData = getFinalisedData(version);
         try {
             zkc.get().create(zkPath, finalisedData.getBytes(UTF_8),

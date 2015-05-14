@@ -754,8 +754,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
              * In this case, throw an exception. We don't want to continue
              * as this would lead to a split brain situation.
              */
-            inprogressLogSegment.write(zooKeeperClient,
-                    LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion()));
+            inprogressLogSegment.write(zooKeeperClient);
             wroteInprogressZnode = true;
             LOG.debug("Storing MaxTxId in startLogSegment  {} {}", znodePath, txId);
 
@@ -1032,8 +1031,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                             startSequenceId);
             setLastLedgerRollingTimeMillis(completedLogSegment.getCompletionTime());
             try {
-                completedLogSegment.write(zooKeeperClient,
-                        LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(getCompleteLogSegmentVersion(completedLogSegment)));
+                completedLogSegment.write(zooKeeperClient);
             } catch (KeeperException.NodeExistsException nee) {
                 if (!completedLogSegment.checkEquivalence(zooKeeperClient, pathForCompletedLedger)) {
                     throw new IOException("Node " + pathForCompletedLedger + " already exists"

@@ -152,7 +152,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     protected void updateSegmentMetadata(LogSegmentLedgerMetadata segment) throws IOException {
-        byte[] finalisedData = segment.getFinalisedData(metadataVersion).getBytes(UTF_8);
+        byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
         try {
             zkc.get().setData(segment.getZkPath(), finalisedData, -1);
         } catch (KeeperException e) {
@@ -167,7 +167,7 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
                                                     LogSegmentLedgerMetadata oldSegment) throws IOException {
         try {
-            byte[] finalisedData = newSegment.getFinalisedData(metadataVersion).getBytes(UTF_8);
+            byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
             if (newSegment.getZkPath().equalsIgnoreCase(oldSegment.getZkPath())) {
                 zkc.get().setData(newSegment.getZkPath(), finalisedData, -1);
             } else {

@@ -25,7 +25,7 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
         LOG.info("old segment {} new segment {}", oldSegment, newSegment);
         try {
             Transaction txn = zkc.get().transaction();
-            byte[] finalisedData = newSegment.getFinalisedData(metadataVersion).getBytes(UTF_8);
+            byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
             // delete old log segment
             txn.delete(oldSegment.getZkPath(), -1);
             // create new log segment
