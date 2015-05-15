@@ -27,6 +27,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -1485,6 +1486,70 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         assertEquals(Await.result(store.getLastCommitPosition()), commitPosition2);
         SubscriptionStateStore store1 = dlm.getSubscriptionStateStore(subscriberId);
         assertEquals(Await.result(store1.getLastCommitPosition()), commitPosition2);
+    }
+
+    @Test(timeout = 60000)
+    public void testSubscriptionsStore() throws Exception {
+        String name = "distrlog-subscriptions-store";
+        String subscriber0 = "subscriber-0";
+        String subscriber1 = "subscriber-1";
+        String subscriber2 = "subscriber-2";
+
+        DLSN commitPosition0 = new DLSN(4, 33, 5);
+        DLSN commitPosition1 = new DLSN(4, 34, 5);
+        DLSN commitPosition2 = new DLSN(5, 34, 5);
+        DLSN commitPosition3 = new DLSN(6, 35, 6);
+
+        DistributedLogManager dlm = createNewDLM(conf, name);
+
+        SubscriptionsStore store = dlm.getSubscriptionsStore();
+
+        // no data
+        assertEquals(Await.result(store.getLastCommitPosition(subscriber0)), DLSN.NonInclusiveLowerBound);
+        assertEquals(Await.result(store.getLastCommitPosition(subscriber1)), DLSN.NonInclusiveLowerBound);
+        assertEquals(Await.result(store.getLastCommitPosition(subscriber2)), DLSN.NonInclusiveLowerBound);
+        // empty
+        assertTrue(Await.result(store.getLastCommitPositions()).isEmpty());
+
+        // subscriber 0 advance
+        Await.result(store.advanceCommitPosition(subscriber0, commitPosition0));
+        assertEquals(commitPosition0, Await.result(store.getLastCommitPosition(subscriber0)));
+        Map<String, DLSN> committedPositions = Await.result(store.getLastCommitPositions());
+        assertEquals(1, committedPositions.size());
+        assertEquals(commitPosition0, committedPositions.get(subscriber0));
+
+        // subscriber 1 advance
+        Await.result(store.advanceCommitPosition(subscriber1, commitPosition1));
+        assertEquals(commitPosition1, Await.result(store.getLastCommitPosition(subscriber1)));
+        committedPositions = Await.result(store.getLastCommitPositions());
+        assertEquals(2, committedPositions.size());
+        assertEquals(commitPosition0, committedPositions.get(subscriber0));
+        assertEquals(commitPosition1, committedPositions.get(subscriber1));
+
+        // subscriber 2 advance
+        Await.result(store.advanceCommitPosition(subscriber2, commitPosition2));
+        assertEquals(commitPosition2, Await.result(store.getLastCommitPosition(subscriber2)));
+        committedPositions = Await.result(store.getLastCommitPositions());
+        assertEquals(3, committedPositions.size());
+        assertEquals(commitPosition0, committedPositions.get(subscriber0));
+        assertEquals(commitPosition1, committedPositions.get(subscriber1));
+        assertEquals(commitPosition2, committedPositions.get(subscriber2));
+
+        // subscriber 2 advance again
+        DistributedLogManager newDLM = createNewDLM(conf, name);
+        SubscriptionsStore newStore = newDLM.getSubscriptionsStore();
+        Await.result(newStore.advanceCommitPosition(subscriber2, commitPosition3));
+        newStore.close();
+        newDLM.close();
+
+        committedPositions = Await.result(store.getLastCommitPositions());
+        assertEquals(3, committedPositions.size());
+        assertEquals(commitPosition0, committedPositions.get(subscriber0));
+        assertEquals(commitPosition1, committedPositions.get(subscriber1));
+        assertEquals(commitPosition3, committedPositions.get(subscriber2));
+
+        dlm.close();
+
     }
 
     private long writeAndMarkEndOfStream(DistributedLogManager dlm, long txid) throws Exception {

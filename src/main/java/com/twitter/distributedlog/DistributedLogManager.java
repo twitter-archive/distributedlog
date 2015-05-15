@@ -19,10 +19,10 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.util.Future;
 import java.io.IOException;
 import java.util.List;
-
 
 /**
  * A DistributedLogManager is responsible for managing a single place of storing
@@ -372,6 +372,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @param subscriberId - Application specific Id associated with the subscriber
      * @return Subscription state store
      */
+    @Deprecated
     public SubscriptionStateStore getSubscriptionStateStore(String subscriberId);
 
     /**
@@ -381,5 +382,21 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @param subscriberId - Application specific Id associated with the subscriber
      * @return Subscription state store
      */
+    @Deprecated
     public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId);
+
+    /**
+     * Get the subscriptions store provided by the distributedlog manager.
+     *
+     * @return subscriptions store manages subscriptions for current stream.
+     */
+    public SubscriptionsStore getSubscriptionsStore();
+
+    /**
+     * Get the subscriptions store provided by the distributedlog manager.
+     *
+     * @param partitionId partition id.
+     * @return subscriptions store manages subscriptions for given partition.
+     */
+    public SubscriptionsStore getSubscriptionsStore(PartitionId partitionId);
 }

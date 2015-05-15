@@ -21,7 +21,6 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 
-
 public class ZKSubscriptionStateStore implements SubscriptionStateStore {
 
     static final Logger logger = LoggerFactory.getLogger(ZKSubscriptionStateStore.class);
@@ -44,37 +43,41 @@ public class ZKSubscriptionStateStore implements SubscriptionStateStore {
      */
     @Override
     public Future<DLSN> getLastCommitPosition() {
-        final Promise<DLSN> result = new Promise<DLSN>();
         if (null != lastCommittedPosition.get()) {
-            result.setValue(lastCommittedPosition.get());
+            return Future.value(lastCommittedPosition.get());
         } else {
-            try {
-                logger.debug("Reading last commit position from path {}", zkPath);
-                zooKeeperClient.get().getData(zkPath, false, new AsyncCallback.DataCallback() {
-                    @Override
-                    public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
-                        logger.debug("Read last commit position from path {}: rc = {}", zkPath, rc);
-                        if (KeeperException.Code.NONODE.intValue() == rc) {
+            return getLastCommitPositionFromZK();
+        }
+    }
+
+    Future<DLSN> getLastCommitPositionFromZK() {
+        final Promise<DLSN> result = new Promise<DLSN>();
+        try {
+            logger.debug("Reading last commit position from path {}", zkPath);
+            zooKeeperClient.get().getData(zkPath, false, new AsyncCallback.DataCallback() {
+                @Override
+                public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                    logger.debug("Read last commit position from path {}: rc = {}", zkPath, rc);
+                    if (KeeperException.Code.NONODE.intValue() == rc) {
+                        result.setValue(DLSN.NonInclusiveLowerBound);
+                    } else if (KeeperException.Code.OK.intValue() != rc) {
+                        result.setException(KeeperException.create(KeeperException.Code.get(rc), path));
+                    } else {
+                        try {
+                            DLSN dlsn = DLSN.deserialize(new String(data, Charsets.UTF_8));
+                            result.setValue(dlsn);
+                        } catch (Exception t) {
+                            logger.warn("Invalid last commit position found from path {}", zkPath, t);
+                            // invalid dlsn recorded in subscription state store
                             result.setValue(DLSN.NonInclusiveLowerBound);
-                        } else if (KeeperException.Code.OK.intValue() != rc) {
-                            result.setException(KeeperException.create(KeeperException.Code.get(rc), path));
-                        } else {
-                            try {
-                                DLSN dlsn = DLSN.deserialize(new String(data, Charsets.UTF_8));
-                                result.setValue(dlsn);
-                            } catch (Exception t) {
-                                logger.warn("Invalid last commit position found from path {}", zkPath, t);
-                                // invalid dlsn recorded in subscription state store
-                                result.setValue(DLSN.NonInclusiveLowerBound);
-                            }
                         }
                     }
-                }, null);
-            } catch (ZooKeeperClient.ZooKeeperConnectionException zkce) {
-                result.setException(zkce);
-            } catch (InterruptedException ie) {
-                result.setException(new DLInterruptedException("getLastCommitPosition was interrupted", ie));
-            }
+                }
+            }, null);
+        } catch (ZooKeeperClient.ZooKeeperConnectionException zkce) {
+            result.setException(zkce);
+        } catch (InterruptedException ie) {
+            result.setException(new DLInterruptedException("getLastCommitPosition was interrupted", ie));
         }
         return result;
     }

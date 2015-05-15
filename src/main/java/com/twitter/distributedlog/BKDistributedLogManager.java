@@ -13,7 +13,9 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
+import com.twitter.distributedlog.subscription.ZKSubscriptionsStore;
 import com.twitter.distributedlog.util.MonitoredFuturePool;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
@@ -1215,5 +1217,27 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return new ZKSubscriptionStateStore(writerZKC,
             String.format("%s%s/%s", getPartitionPath(uri, name, streamIdentifier),
                     BKLogPartitionHandler.SUBSCRIBERS_PATH, subscriberId));
+    }
+
+    @Override
+    public SubscriptionsStore getSubscriptionsStore() {
+        return getSubscriptionsStoreInternal(conf.getUnpartitionedStreamName());
+    }
+
+    @Override
+    public SubscriptionsStore getSubscriptionsStore(PartitionId partitionId) {
+        return getSubscriptionsStoreInternal(partitionId.toString());
+    }
+
+    /**
+     * Get the subscription state storage provided by the distributed log manager
+     *
+     * @param streamIdentifier - Identifier associated with the stream
+     * @return Subscriptions store
+     */
+    private SubscriptionsStore getSubscriptionsStoreInternal(String streamIdentifier) {
+        return new ZKSubscriptionsStore(writerZKC,
+                String.format("%s%s", getPartitionPath(uri, name, streamIdentifier),
+                        BKLogPartitionHandler.SUBSCRIBERS_PATH));
     }
 }
