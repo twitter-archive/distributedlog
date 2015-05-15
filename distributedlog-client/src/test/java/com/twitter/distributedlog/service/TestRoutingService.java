@@ -58,7 +58,7 @@ public class TestRoutingService {
         if (weightedAddresses) {
             ArrayList<SocketAddress> wAddresses = new ArrayList<SocketAddress>();
             for (SocketAddress address: addresses) {
-                wAddresses.add(WeightedSocketAddress.apply(address, 1.0));
+                wAddresses.add(new WeightedSocketAddress(address, 1.0));
             }
             return wAddresses;
         } else {

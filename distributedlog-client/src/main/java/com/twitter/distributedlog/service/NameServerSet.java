@@ -77,7 +77,7 @@ class NameServerSet implements ServerSet {
     }
 
     private ServiceInstance socketAddressToServiceInstance(SocketAddress socketAddress) {
-        socketAddress = WeightedSocketAddress.unapply(socketAddress).get()._1();
+        socketAddress = WeightedSocketAddress.extract(socketAddress)._1();
         if (socketAddress instanceof InetSocketAddress) {
             InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
             Endpoint endpoint = new Endpoint(inetSocketAddress.getHostString(), inetSocketAddress.getPort());
