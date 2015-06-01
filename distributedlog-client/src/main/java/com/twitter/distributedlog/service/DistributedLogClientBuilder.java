@@ -25,6 +25,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.finagle.CancelledRequestException;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.ConnectionFailedException;
+import com.twitter.finagle.Failure;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
@@ -1322,6 +1323,17 @@ public class DistributedLogClientBuilder {
 
                 @Override
                 public void onFailure(Throwable cause) {
+                    if (cause instanceof Failure) {
+                        Failure failure = (Failure) cause;
+                        if (failure.isFlagged(Failure.Wrapped())) {
+                            try {
+                                // if it is a wrapped failure, unwrap it first
+                                cause = failure.show();
+                            } catch (IllegalArgumentException iae) {
+                                logger.warn("Failed to unwrap finagle failure of stream {} : ", op.stream, iae);
+                            }
+                        }
+                    }
                     clientStats.failProxyRequest(addr, cause, startTimeNanos);
                     if (cause instanceof ConnectionFailedException) {
                         routingService.removeHost(addr, cause);
@@ -1329,8 +1341,15 @@ public class DistributedLogClientBuilder {
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ChannelException) {
-                        routingService.removeHost(addr, cause);
-                        clearHostFromStream(op.stream, addr, cause.toString());
+                        // java.net.ConnectException typically means connection is refused remotely
+                        // no process listening on remote address/port.
+                        if (cause.getCause() instanceof java.net.ConnectException) {
+                            routingService.removeHost(addr, cause.getCause());
+                            onServerJoin(addr);
+                        } else {
+                            routingService.removeHost(addr, cause);
+                            clearHostFromStream(op.stream, addr, cause.toString());
+                        }
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ServiceTimeoutException) {
@@ -1345,6 +1364,8 @@ public class DistributedLogClientBuilder {
                         doSend(op, addr);
                     } else if (cause instanceof TApplicationException) {
                         handleTApplicationException(cause, op, addr, sc);
+                    } else if (cause instanceof Failure) {
+                        handleFinagleFailure((Failure) cause, op, addr);
                     } else {
                         // Default handler
                         handleException(cause, op, addr);
@@ -1371,6 +1392,16 @@ public class DistributedLogClientBuilder {
                 op.send(newAddr);
             } else {
                 doSend(op, null);
+            }
+        }
+
+        void handleFinagleFailure(Failure failure, StreamOp op, SocketAddress addr) {
+            if (failure.isFlagged(Failure.Restartable())) {
+                // redirect the request to other host
+                doSend(op, addr);
+            } else {
+                // fail the request if it is other types of failures
+                handleException(failure, op, addr);
             }
         }
 
