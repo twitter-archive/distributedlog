@@ -1304,6 +1304,7 @@ public class DistributedLogClientBuilder {
                             // service is unavailable, remove it out of routing service
                             routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
                             onServerLeft(addr);
+                            clearHostFromStream(op.stream, addr, addr + " is unavailable now.");
                             // redirect the request to other host.
                             redirect(op, null);
                             break;
@@ -1346,21 +1347,25 @@ public class DistributedLogClientBuilder {
                         }
                     }
                     clientStats.failProxyRequest(addr, cause, startTimeNanos);
-                    if (cause instanceof ConnectionFailedException) {
+                    if (cause instanceof ConnectionFailedException || cause instanceof java.net.ConnectException) {
                         routingService.removeHost(addr, cause);
                         onServerLeft(addr, sc);
+                        clearHostFromStream(op.stream, addr, cause.getMessage());
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ChannelException) {
                         // java.net.ConnectException typically means connection is refused remotely
                         // no process listening on remote address/port.
+                        String reason;
                         if (cause.getCause() instanceof java.net.ConnectException) {
                             routingService.removeHost(addr, cause.getCause());
-                            onServerJoin(addr);
+                            onServerLeft(addr);
+                            reason = cause.getCause().getMessage();
                         } else {
                             routingService.removeHost(addr, cause);
-                            clearHostFromStream(op.stream, addr, cause.toString());
+                            reason = cause.getMessage();
                         }
+                        clearHostFromStream(op.stream, addr, reason);
                         // redirect the request to other host.
                         doSend(op, addr);
                     } else if (cause instanceof ServiceTimeoutException) {
