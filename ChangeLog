@@ -1,3 +1,13 @@
+0.3.31
+------
+- Routing context for tried host history
+- Propagate flush delayed exception when minDelayBetwenFlush is enabled
+- Disable failure accrual on distributedlog client
+- Async readBulk interface for reader
+- Update BKC to 4.3.0-TWTTR
+- Metadata upgrade changes
+- Get subscription states for DL stream
+
 0.3.30
 ------
 - Sequence ID Support
