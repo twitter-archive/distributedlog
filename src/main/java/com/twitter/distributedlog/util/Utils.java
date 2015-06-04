@@ -1,10 +1,12 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.util;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.DistributedLogConstants;
+import com.twitter.distributedlog.ZooKeeperClient;
 import scala.runtime.BoxedUnit;
 
 import org.apache.zookeeper.AsyncCallback;
@@ -104,7 +106,7 @@ public class Utils {
      * @param callback Callback
      * @param ctx Context object
      */
-    static void zkAsyncCreateFullPathOptimisticRecursive(
+    public static void zkAsyncCreateFullPathOptimisticRecursive(
         final ZooKeeperClient zkc,
         final String pathToCreate,
         final Optional<String> parentPathShouldNotCreate,

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.util.SyncObject;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -23,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static com.google.common.base.Charsets.UTF_8;
 
-public class LedgerHandleCache {
+class LedgerHandleCache {
     static final Logger LOG = LoggerFactory.getLogger(LedgerHandleCache.class);
 
     ConcurrentHashMap<LedgerDescriptor, RefCountedLedgerHandle> handlesMap =

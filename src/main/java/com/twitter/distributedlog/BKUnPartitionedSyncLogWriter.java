@@ -3,8 +3,7 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.List;
 
-
-public class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implements LogWriter {
+class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implements LogWriter {
 
     public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
         super(conf, bkdlm);

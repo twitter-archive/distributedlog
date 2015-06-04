@@ -4,7 +4,7 @@ import com.twitter.distributedlog.LockingException;
 
 /**
  * Exception indicates that epoch already changed when executing a given
- * {@link DistributedReentrantLock.LockAction}.
+ * {@link LockAction}.
  */
 public class EpochChangedException extends LockingException {
 

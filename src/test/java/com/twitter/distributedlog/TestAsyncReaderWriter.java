@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -169,8 +170,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         long slotIndex = 0;
 
         FailpointUtils.setFailpoint(
-            FailpointUtils.FailPointName.FP_TransmitComplete,
-            FailpointUtils.FailPointActions.FailPointAction_Default
+                FailpointUtils.FailPointName.FP_TransmitComplete,
+                FailpointUtils.FailPointActions.FailPointAction_Default
         );
 
         try {

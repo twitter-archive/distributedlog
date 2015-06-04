@@ -22,8 +22,8 @@ import java.io.IOException;
 import java.util.Comparator;
 
 import com.google.common.annotations.VisibleForTesting;
-
 import com.google.common.base.Objects;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;

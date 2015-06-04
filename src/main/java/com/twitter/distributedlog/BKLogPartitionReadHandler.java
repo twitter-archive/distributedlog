@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.util.Utils;
 import scala.Function0;
 import scala.runtime.BoxedUnit;
 
@@ -50,7 +51,6 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
-import com.twitter.util.ExecutorServiceFuturePool;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -598,30 +598,30 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         Utils.zkAsyncCreateFullPathOptimisticRecursive(zooKeeperClient, readLockPath, parentPathShouldNotCreate,
                 new byte[0], zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
                 new org.apache.zookeeper.AsyncCallback.StringCallback() {
-                @Override
-                public void processResult(final int rc, final String path, Object ctx, String name) {
-                    scheduler.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (KeeperException.Code.NONODE.intValue() == rc) {
-                                promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
-                            } else if (KeeperException.Code.OK.intValue() == rc) {
-                                promise.setValue(null);
-                                LOG.trace("Created path {}.", path);
-                            } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                                promise.setValue(null);
-                                LOG.trace("Path {} is already existed.", path);
-                            } else if (DistributedLogConstants.ZK_CONNECTION_EXCEPTION_RESULT_CODE == rc) {
-                                promise.setException(new ZooKeeperClient.ZooKeeperConnectionException(path));
-                            } else if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
-                                promise.setException(new DLInterruptedException(path));
-                            } else {
-                                promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                    @Override
+                    public void processResult(final int rc, final String path, Object ctx, String name) {
+                        scheduler.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (KeeperException.Code.NONODE.intValue() == rc) {
+                                    promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                                } else if (KeeperException.Code.OK.intValue() == rc) {
+                                    promise.setValue(null);
+                                    LOG.trace("Created path {}.", path);
+                                } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
+                                    promise.setValue(null);
+                                    LOG.trace("Path {} is already existed.", path);
+                                } else if (DistributedLogConstants.ZK_CONNECTION_EXCEPTION_RESULT_CODE == rc) {
+                                    promise.setException(new ZooKeeperClient.ZooKeeperConnectionException(path));
+                                } else if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
+                                    promise.setException(new DLInterruptedException(path));
+                                } else {
+                                    promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                                }
                             }
-                        }
-                    });
-                }
-            }, null);
+                        });
+                    }
+                }, null);
         return promise;
     }
 

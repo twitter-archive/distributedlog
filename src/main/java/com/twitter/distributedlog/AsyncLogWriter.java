@@ -17,13 +17,13 @@ public interface AsyncLogWriter extends Closeable {
     public Future<DLSN> write(LogRecord record);
 
     /**
-     * Write log records to the stream in bulk. Each future in the list represents the result of 
-     * one write operation. The size of the result list is equal to the size of the input list. 
+     * Write log records to the stream in bulk. Each future in the list represents the result of
+     * one write operation. The size of the result list is equal to the size of the input list.
      * Buffers are written in order, and the list of result futures has the same order.
      *
      * @param record set of log records
      * @return A Future which contains a list of Future DLSNs if the record was successfully written
-     * or an exception if the operation fails. 
+     * or an exception if the operation fails.
      */
     public Future<List<Future<DLSN>>> writeBulk(List<LogRecord> record);
 
@@ -43,7 +43,6 @@ public interface AsyncLogWriter extends Closeable {
     public void abort() throws IOException;
 
     /**
-     * *TEMP HACK*
      * Get the name of the stream this writer writes data to
      */
     public String getStreamName();

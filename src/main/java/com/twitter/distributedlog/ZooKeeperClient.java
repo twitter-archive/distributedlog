@@ -16,6 +16,7 @@
 
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.zk.ZKWatcherManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;

@@ -102,9 +102,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
 
-    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH = "bkLedgersPath";
-    public static final String BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT = "/ledgers";
-
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
     public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
@@ -166,9 +163,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS = "zkRetryMaxBackoffMillis";
     public static final int BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
-
-    public static final String BKDL_ZK_PREFIX = "dlZKPrefix";
-    public static final String BKDL_ZK_PREFIX_DEFAULT = "/messaging/distributedlog";
 
     public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
     public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
@@ -428,7 +422,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set digest id to use for ZK acl.
      *
-     * @param zk acl id.
+     * @param zkAclId acl id.
      */
     public void setZkAclId(String zkAclId) {
         setProperty(BKDL_ZK_ACL_ID, zkAclId);
@@ -1189,55 +1183,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_READAHEAD_MAX_ENTRIES, readAheadMaxEntries);
         return this;
     }
-
-    /**
-     * Set BK Ledgers path
-     *
-     * @deprecated BookKeeper configuration is self-managed by DL. You should not rely on this.
-     * @param bkLedgersPath
-     *          BK ledgers path
-     */
-    @Deprecated
-    public DistributedLogConfiguration setBKLedgersPath(String bkLedgersPath) {
-        setProperty(BKDL_BOOKKEEPER_LEDGERS_PATH, bkLedgersPath);
-        return this;
-    }
-
-    /**
-     * Get BK ledgers path.
-     *
-     * @deprecated BookKeeper configuration is self-managed by DL. You should not rely on this.
-     * @return bk ledgers root path
-     */
-    @Deprecated
-    public String getBKLedgersPath() {
-        return getString(BKDL_BOOKKEEPER_LEDGERS_PATH, BKDL_BOOKKEEPER_LEDGERS_PATH_DEFAULT);
-    }
-
-    /**
-     * Set path prefix for the distributedlog path in ZK
-     *
-     * @deprecated The DL zk prefix is self-explained in the URI. You should not rely on this.
-     * @param dlZKPath
-     *          distributedlog ZK path
-     */
-    @Deprecated
-    public DistributedLogConfiguration setDLZKPathPrefix(String dlZKPath) {
-        setProperty(BKDL_ZK_PREFIX, dlZKPath);
-        return this;
-    }
-
-    /**
-     * Get path prefix for the distributedlog path in ZK
-     *
-     * @deprecated The DL zk prefix is self-explained in the URI. You should not rely on this.
-     * @return bk ledgers root path
-     */
-    @Deprecated
-    public String getDLZKPathPrefix() {
-        return getString(BKDL_ZK_PREFIX, BKDL_ZK_PREFIX_DEFAULT);
-    }
-
 
     /**
      * Get lock timeout

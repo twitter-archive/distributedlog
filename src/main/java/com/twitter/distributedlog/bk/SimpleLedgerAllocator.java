@@ -3,7 +3,7 @@ package com.twitter.distributedlog.bk;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.Utils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;

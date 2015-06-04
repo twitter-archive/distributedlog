@@ -24,9 +24,10 @@ public class DLServerSetWatcher {
      *
      * @param monitor the server set monitor to call back when the host set changes
      * @return A command which, when executed, will stop monitoring the host set.
-     * @throws MonitorException if there is a problem monitoring the host set
+     * @throws DynamicHostSet.MonitorException if there is a problem monitoring the host set
      */
-    public Command watch(final DLHostChangeMonitor<ServiceInstance> monitor) throws DynamicHostSet.MonitorException {
+    public Command watch(final DLHostChangeMonitor<ServiceInstance> monitor)
+            throws DynamicHostSet.MonitorException {
         return serverSet.watch(new DynamicHostSet.HostChangeMonitor<ServiceInstance>() {
             @Override
             public void onChange(ImmutableSet<ServiceInstance> hostSet) {

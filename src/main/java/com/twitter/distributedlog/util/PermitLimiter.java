@@ -1,10 +1,11 @@
 package com.twitter.distributedlog.util;
 
 /**
- * A simple limiter interface which tracks acquire/release of permits, for 
+ * A simple limiter interface which tracks acquire/release of permits, for
  * example for tracking outstanding writes.
  */
 public interface PermitLimiter {
+
     public static PermitLimiter NULL_PERMIT_LIMITER = new PermitLimiter() {
         @Override
         public boolean acquire() {
@@ -15,6 +16,15 @@ public interface PermitLimiter {
         }
     };
 
+    /**
+     * Acquire a permit.
+     *
+     * @return true if successfully acquire a permit, otherwise false.
+     */
     boolean acquire();
+
+    /**
+     * Release a permit.
+     */
     void release();
 }

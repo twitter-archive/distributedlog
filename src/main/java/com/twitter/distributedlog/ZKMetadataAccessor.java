@@ -9,6 +9,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
@@ -135,10 +136,10 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             if (currentStat == null) {
                 if (metadata.length > 0) {
                     Utils.zkCreateFullPathOptimistic(writerZKC,
-                        zkPath,
-                        metadata,
-                        writerZKC.getDefaultACL(),
-                        CreateMode.PERSISTENT);
+                            zkPath,
+                            metadata,
+                            writerZKC.getDefaultACL(),
+                            CreateMode.PERSISTENT);
                 }
             } else {
                 writerZKC.get().setData(zkPath, metadata, currentStat.getVersion());

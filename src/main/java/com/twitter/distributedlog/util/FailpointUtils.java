@@ -1,4 +1,4 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.util;
 
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;

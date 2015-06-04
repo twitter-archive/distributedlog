@@ -5,7 +5,6 @@ import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.net.UnknownHostException;
 
 public class DLSocketAddress {
@@ -23,14 +22,29 @@ public class DLSocketAddress {
         this.socketAddress = socketAddress;
     }
 
+    /**
+     * Shard id for dl write proxy.
+     *
+     * @return shard id for dl write proxy.
+     */
     public int getShard() {
         return shard;
     }
 
+    /**
+     * Socket address for dl write proxy
+     *
+     * @return socket address for dl write proxy
+     */
     public InetSocketAddress getSocketAddress() {
         return socketAddress;
     }
 
+    /**
+     * Serialize the write proxy identifier to string.
+     *
+     * @return serialized write proxy identifier.
+     */
     public String serialize() {
         return toLockId(socketAddress, shard);
     }
@@ -54,6 +68,14 @@ public class DLSocketAddress {
         return toLockId(socketAddress, shard);
     }
 
+    /**
+     * Deserialize proxy address from a string representation.
+     *
+     * @param lockId
+     *          string representation of the proxy address.
+     * @return proxy address.
+     * @throws IOException
+     */
     public static DLSocketAddress deserialize(String lockId) throws IOException {
         String parts[] = lockId.split(SEP);
         if (3 != parts.length) {
@@ -78,6 +100,13 @@ public class DLSocketAddress {
         return new DLSocketAddress(shardId, address);
     }
 
+    /**
+     * Parse the inet socket address from the string representation.
+     *
+     * @param addr
+     *          string representation
+     * @return inet socket address
+     */
     public static InetSocketAddress parseSocketAddress(String addr) {
         String[] parts =  addr.split(COLON);
         Preconditions.checkArgument(parts.length == 2);
@@ -90,6 +119,13 @@ public class DLSocketAddress {
         return new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), port);
     }
 
+    /**
+     * Convert inet socket address to the string representation.
+     *
+     * @param address
+     *          inet socket address.
+     * @return string representation of inet socket address.
+     */
     public static String toString(InetSocketAddress address) {
         StringBuilder sb = new StringBuilder();
         sb.append(address.getHostName()).append(COLON).append(address.getPort());

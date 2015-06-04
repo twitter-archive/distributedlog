@@ -8,14 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import scala.runtime.AbstractFunction1;
-import scala.runtime.BoxedUnit;
-
 import com.google.common.collect.ImmutableSet;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.twitter.common.base.Command;
 import com.twitter.common.base.Commands;
 import com.twitter.common.zookeeper.Group;
@@ -27,6 +20,10 @@ import com.twitter.finagle.WeightedSocketAddress;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
 import com.twitter.thrift.Status;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 class NameServerSet implements ServerSet {
 
@@ -159,12 +156,13 @@ class NameServerSet implements ServerSet {
      * @param additionalEndpoints and additional endpoints keyed by their logical name
      * @param status the current service status
      * @return an EndpointStatus object that allows the endpoint to adjust its status
-     * @throws JoinException if there was a problem joining the server set
+     * @throws Group.JoinException if there was a problem joining the server set
      * @throws InterruptedException if interrupted while waiting to join the server set
      * @deprecated The status field is deprecated. Please use {@link #join(java.net.InetSocketAddress, java.util.Map)}
      */
     @Override
-    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints, Status status) throws Group.JoinException, InterruptedException {
+    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints, Status status)
+            throws Group.JoinException, InterruptedException {
         throw new UnsupportedOperationException("NameServerSet does not support join");
     }
 
@@ -174,11 +172,12 @@ class NameServerSet implements ServerSet {
      * @param endpoint the primary service endpoint
      * @param additionalEndpoints and additional endpoints keyed by their logical name
      * @return an EndpointStatus object that allows the endpoint to adjust its status
-     * @throws JoinException if there was a problem joining the server set
+     * @throws Group.JoinException if there was a problem joining the server set
      * @throws InterruptedException if interrupted while waiting to join the server set
      */
     @Override
-    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints) throws Group.JoinException, InterruptedException {
+    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints)
+            throws Group.JoinException, InterruptedException {
         throw new UnsupportedOperationException("NameServerSet does not support join");
     }
 
@@ -189,11 +188,12 @@ class NameServerSet implements ServerSet {
      * @param additionalEndpoints and additional endpoints keyed by their logical name
      * @param shardId Unique shard identifier for this member of the service.
      * @return an EndpointStatus object that allows the endpoint to adjust its status
-     * @throws JoinException if there was a problem joining the server set
+     * @throws Group.JoinException if there was a problem joining the server set
      * @throws InterruptedException if interrupted while waiting to join the server set
      */
     @Override
-    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints, int shardId) throws Group.JoinException, InterruptedException {
+    public EndpointStatus join(InetSocketAddress endpoint, Map<String, InetSocketAddress> additionalEndpoints, int shardId)
+            throws Group.JoinException, InterruptedException {
         throw new UnsupportedOperationException("NameServerSet does not support join");
     }
 

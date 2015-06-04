@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.PermitManager;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 
@@ -14,7 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
-public abstract class BKBaseLogWriter {
+abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;

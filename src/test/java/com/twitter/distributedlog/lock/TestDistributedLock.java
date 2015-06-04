@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.lock;
 
 import com.twitter.distributedlog.DLMTestUtil;
-import com.twitter.distributedlog.FailpointUtils;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;

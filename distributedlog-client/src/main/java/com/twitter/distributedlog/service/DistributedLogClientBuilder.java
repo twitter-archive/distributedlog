@@ -238,6 +238,13 @@ public class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Address of write proxy to connect.
+     *
+     * @param address
+     *          write proxy address.
+     * @return client builder.
+     */
     public DistributedLogClientBuilder host(SocketAddress address) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
@@ -293,6 +300,13 @@ public class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Set underlying finagle client builder.
+     *
+     * @param builder
+     *          finagle client builder.
+     * @return client builder.
+     */
     public DistributedLogClientBuilder clientBuilder(ClientBuilder builder) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientBuilder = builder;
@@ -411,6 +425,11 @@ public class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Build distributedlog client.
+     *
+     * @return distributedlog client.
+     */
     public DistributedLogClient build() {
         return buildClient();
     }

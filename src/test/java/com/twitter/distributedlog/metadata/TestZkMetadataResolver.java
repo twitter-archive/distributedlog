@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.Utils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;

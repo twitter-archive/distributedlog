@@ -23,11 +23,28 @@ public interface RoutingService {
 
     }
 
+    /**
+     * Listener for server changes on routing service
+     */
     public static interface RoutingListener {
+        /**
+         * Trigger when server left.
+         *
+         * @param address left server.
+         */
         void onServerLeft(SocketAddress address);
+
+        /**
+         * Trigger when server joint.
+         *
+         * @param address joint server.
+         */
         void onServerJoin(SocketAddress address);
     }
 
+    /**
+     * Routing Context of a request.
+     */
     public static class RoutingContext {
 
         public static RoutingContext of(RegionResolver resolver) {
@@ -49,6 +66,15 @@ public interface RoutingService {
             return "(tried hosts=" + triedHosts + ")";
         }
 
+        /**
+         * Add tried host to routing context.
+         *
+         * @param socketAddress
+         *          socket address of tried host.
+         * @param code
+         *          status code returned from tried host.
+         * @return routing context.
+         */
         public synchronized RoutingContext addTriedHost(SocketAddress socketAddress, StatusCode code) {
             this.triedHosts.put(socketAddress, code);
             if (StatusCode.REGION_UNAVAILABLE == code) {
@@ -57,30 +83,85 @@ public interface RoutingService {
             return this;
         }
 
+        /**
+         * Is the host <i>address</i> already tried.
+         *
+         * @param address
+         *          socket address to check
+         * @return true if the address is already tried, otherwise false.
+         */
         public synchronized boolean isTriedHost(SocketAddress address) {
             return this.triedHosts.containsKey(address);
         }
 
+        /**
+         * Whether encountered unavailable regions.
+         *
+         * @return true if encountered unavailable regions, otherwise false.
+         */
         public synchronized boolean hasUnavailableRegions() {
             return !unavailableRegions.isEmpty();
         }
 
+        /**
+         * Whether the <i>region</i> is unavailable.
+         *
+         * @param region
+         *          region
+         * @return true if the region is unavailable, otherwise false.
+         */
         public synchronized boolean isUnavailableRegion(String region) {
             return unavailableRegions.contains(region);
         }
 
     }
 
+    /**
+     * Start routing service.
+     */
     void startService();
 
+    /**
+     * Stop routing service.
+     */
     void stopService();
 
+    /**
+     * Register routing listener.
+     *
+     * @param listener routing listener.
+     * @return routing service.
+     */
     RoutingService registerListener(RoutingListener listener);
 
+    /**
+     * Unregister routing listener.
+     *
+     * @param listener routing listener.
+     * @return routing service.
+     */
     RoutingService unregisterListener(RoutingListener listener);
 
+    /**
+     * Get the host to route the request by <i>key</i>.
+     *
+     * @param key
+     *          key to route the request.
+     * @param rContext
+     *          routing context.
+     * @return host to route the request
+     * @throws NoBrokersAvailableException
+     */
     SocketAddress getHost(String key, RoutingContext rContext)
             throws NoBrokersAvailableException;
 
+    /**
+     * Remove the host <i>address</i> for a specific <i>reason</i>.
+     *
+     * @param address
+     *          host address to remove
+     * @param reason
+     *          reason to remove the host
+     */
     void removeHost(SocketAddress address, Throwable reason);
 }

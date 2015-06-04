@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;

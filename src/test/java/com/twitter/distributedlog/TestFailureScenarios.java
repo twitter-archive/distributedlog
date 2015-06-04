@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
+import com.twitter.distributedlog.util.FailpointUtils;
 import org.junit.Test;
 
 import static org.junit.Assert.assertNotNull;
@@ -42,8 +43,8 @@ public class TestFailureScenarios extends TestDistributedLogBase {
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(-1, 1, 1), false));
 
         FailpointUtils.setFailpoint(
-            FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate,
-            FailpointUtils.FailPointActions.FailPointAction_Throw);
+                FailpointUtils.FailPointName.FP_StartLogSegmentAfterInProgressCreate,
+                FailpointUtils.FailPointActions.FailPointAction_Throw);
 
         LogWriter outAborted = null;
         try {

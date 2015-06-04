@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Stopwatch;
-
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -23,12 +23,9 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-
-public class LedgerDataAccessor {
+class LedgerDataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
 
-    //
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
     private int readAheadBatchSize = 1;

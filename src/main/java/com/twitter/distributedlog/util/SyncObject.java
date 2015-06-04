@@ -1,20 +1,20 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.util;
 
-class SyncObject<T> {
+public class SyncObject<T> {
     int i;
     int rc;
     T value = null;
 
-    synchronized void inc() {
+    public synchronized void inc() {
         i++;
     }
 
-    synchronized void dec() {
+    public synchronized void dec() {
         i--;
         notifyAll();
     }
 
-    synchronized void block(int limit) throws InterruptedException {
+    public synchronized void block(int limit) throws InterruptedException {
         while (i > limit) {
             int prev = i;
             wait();
@@ -24,19 +24,19 @@ class SyncObject<T> {
         }
     }
 
-    void setrc(int rc) {
+    public void setrc(int rc) {
         this.rc = rc;
     }
 
-    int getrc() {
+    public int getrc() {
         return rc;
     }
 
-    void setValue(T value) {
+    public void setValue(T value) {
         this.value = value;
     }
 
-    T getValue() {
+    public T getValue() {
         return this.value;
     }
 

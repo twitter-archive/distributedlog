@@ -6,7 +6,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase implements LogReader {
+class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase implements LogReader {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderDLSN.class);
 
     private final DLSN startDLSN;

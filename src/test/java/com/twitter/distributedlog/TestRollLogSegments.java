@@ -3,10 +3,10 @@ package com.twitter.distributedlog;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.SettableFeature;
