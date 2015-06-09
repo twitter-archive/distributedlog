@@ -1,12 +1,15 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+
 import java.io.IOException;
 import java.util.List;
 
 class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implements LogWriter {
 
-    public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
-        super(conf, bkdlm);
+    public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
+                                        BKDistributedLogManager bkdlm) {
+        super(conf, dynConf, bkdlm);
     }
     /**
      * Write log records to the stream.

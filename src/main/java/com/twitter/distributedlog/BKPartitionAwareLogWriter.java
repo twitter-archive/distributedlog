@@ -9,6 +9,8 @@ import java.util.Map;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,8 +20,9 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     private final HashMap<String, BKPerStreamLogWriter> partitionToAllocatedWriter;
     private final HashMap<String, BKLogPartitionWriteHandler> partitionToLedger;
 
-    public BKPartitionAwareLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
-        super(conf, bkdlm);
+    public BKPartitionAwareLogWriter(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
+                                     BKDistributedLogManager bkdlm) {
+        super(conf, dynConf, bkdlm);
         this.partitionToWriter = new HashMap<String, BKPerStreamLogWriter>();
         this.partitionToAllocatedWriter = new HashMap<String, BKPerStreamLogWriter>();
         this.partitionToLedger = new HashMap<String, BKLogPartitionWriteHandler>();

@@ -86,10 +86,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
     public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
 
-    // Bookkeeper quorum size
-    public static final String BKDL_BOOKKEEPER_QUORUM_SIZE = "quorum-size";
-    public static final int BKDL_BOOKKEEPER_QUORUM_SIZE_DEFAULT = 2;
-
     // Bookkeeper write quorum size
     public static final String BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE = "write-quorum-size";
     public static final int BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT = 2;
@@ -341,6 +337,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_DECIDER_ENVIRONMENT = "deciderEnvironment";
     public static final String BKDL_DECIDER_ENVIRONMENT_DEFAULT = null;
 
+    public static final String BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC = "dynamicConfigReloadIntervalSec";
+    public static final int BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT = 60;
+
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
         BKDL_READER_POSITION_GAP_DETECTION_ENABLED,
@@ -566,28 +565,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEnsembleSize(int ensembleSize) {
         setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, ensembleSize);
-        return this;
-    }
-
-    /**
-     * Get quorum size
-     *
-     * @return quorum size
-     */
-    @Deprecated
-    public int getQuorumSize() {
-        return this.getInt(BKDL_BOOKKEEPER_QUORUM_SIZE, BKDL_BOOKKEEPER_QUORUM_SIZE_DEFAULT);
-    }
-
-    /**
-     * Set quorum size.
-     *
-     * @param quorumSize quorum size.
-     * @return distributed log configuration
-     */
-    @Deprecated
-    public DistributedLogConfiguration setQuorumSize(int quorumSize) {
-        setProperty(BKDL_BOOKKEEPER_QUORUM_SIZE, quorumSize);
         return this;
     }
 
@@ -2429,6 +2406,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setDeciderEnvironment(String environment) {
         setProperty(BKDL_DECIDER_ENVIRONMENT, environment);
+        return this;
+    }
+
+    /**
+     * Get dynamic configuration reload interval in seconds.
+     *
+     * @return dynamic configuration reload interval
+     */
+    public int getDynamicConfigReloadIntervalSec() {
+        return getInt(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT);
+    }
+
+    /**
+     * Get dynamic configuration reload interval in seconds.
+     *
+     * @param intervalSec dynamic configuration reload interval in seconds
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
+        setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
         return this;
     }
 }

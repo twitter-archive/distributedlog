@@ -6,13 +6,16 @@ import java.util.LinkedList;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+
 abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
     protected BKPerStreamLogWriter perStreamWriter = null;
     protected BKPerStreamLogWriter allocatedPerStreamWriter = null;
     protected BKLogPartitionWriteHandler partitionHander = null;
 
-    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
-        super(conf, bkdlm);
+    public BKUnPartitionedLogWriterBase(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
+                                        BKDistributedLogManager bkdlm) {
+        super(conf, dynConf, bkdlm);
     }
 
     @Override

@@ -9,6 +9,9 @@ import com.twitter.distributedlog.acl.ZKAccessControlManager;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
+import com.twitter.distributedlog.config.ConcurrentBaseConfiguration;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
@@ -503,9 +506,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     @Deprecated
     public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
         Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
         return createDistributedLogManager(nameOfLogStream,
             ClientSharingOption.PerStreamClients,
-            streamConfiguration);
+            streamConfiguration,
+            dynamicStreamConfiguration);
     }
 
 
@@ -528,9 +533,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedZK(String nameOfLogStream) throws IOException, IllegalArgumentException {
         Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
         return createDistributedLogManager(nameOfLogStream,
             ClientSharingOption.SharedZKClientPerStreamBKClient,
-            streamConfiguration);
+            streamConfiguration,
+            dynamicStreamConfiguration);
     }
 
 
@@ -548,9 +555,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
         throws IOException, IllegalArgumentException {
         Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
+        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
         return createDistributedLogManager(nameOfLogStream,
             ClientSharingOption.SharedClients,
-            streamConfiguration);
+            streamConfiguration,
+            dynamicStreamConfiguration);
     }
 
     /**
@@ -569,7 +578,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream, DistributedLogConfiguration streamConfiguration)
         throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(nameOfLogStream, ClientSharingOption.SharedClients, Optional.of(streamConfiguration));
+        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream,
+            ClientSharingOption.SharedClients,
+            Optional.of(streamConfiguration),
+            dynamicStreamConfiguration);
     }
 
     /**
@@ -588,14 +601,19 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
             ClientSharingOption clientSharingOption)
         throws IOException, IllegalArgumentException {
         Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
-        return createDistributedLogManager(nameOfLogStream, clientSharingOption, streamConfiguration);
+        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
+        return createDistributedLogManager(nameOfLogStream,
+            clientSharingOption,
+            streamConfiguration,
+            dynamicStreamConfiguration);
     }
 
     /**
      * Create a DistributedLogManager for <i>nameOfLogStream</i>, with specified client sharing options.
-     * Override whitelisted stream-level configuration settings with settings found in
-     * <i>streamConfiguration</i>.
-     *
+     * This method allows the caller to override global configuration options by supplying stream
+     * configuration overrides. Stream config overrides come in two flavors, static and dynamic. Static
+     * config never changes, and DynamicDistributedLogConfiguration is a) reloaded periodically and
+     * b) safe to access from any context.
      *
      * @param nameOfLogStream
      *          name of log stream.
@@ -603,6 +621,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      *          specifies if the ZK/BK clients are shared
      * @param streamConfiguration
      *          stream configuration overrides.
+     * @param dynamicStreamConfiguration
+     *          dynamic stream configuration overrides.
      * @return distributedlog manager instance.
      * @throws IOException
      * @throws IllegalArgumentException
@@ -610,13 +630,23 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     public DistributedLogManager createDistributedLogManager(
             String nameOfLogStream,
             ClientSharingOption clientSharingOption,
-            Optional<DistributedLogConfiguration> streamConfiguration)
+            Optional<DistributedLogConfiguration> streamConfiguration,
+            Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration)
         throws IOException, IllegalArgumentException {
+
         // Make sure the name is well formed
         DistributedLogManagerFactory.validateName(nameOfLogStream);
 
         DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
         mergedConfiguration.loadStreamConf(streamConfiguration);
+
+        // If dynamic config was not provided, default to a static view of the global configuration.
+        DynamicDistributedLogConfiguration dynConf = null;
+        if (dynamicStreamConfiguration.isPresent()) {
+            dynConf = dynamicStreamConfiguration.get();
+        } else {
+            dynConf = getConstDynConf(mergedConfiguration);
+        }
 
         ZooKeeperClientBuilder writerZKCBuilderForDL = null;
         ZooKeeperClientBuilder readerZKCBuilderForDL = null;
@@ -664,7 +694,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         }
 
         BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
-            nameOfLogStream, mergedConfiguration, namespace,
+            nameOfLogStream, mergedConfiguration, dynConf, namespace,
             writerZKCBuilderForDL, readerZKCBuilderForDL,                       /* dl zks */
             writerZKCForBK, readerZKCForBK, writerBKCBuilder, readerBKCBuilder, /* bk zks & bks */
             scheduler, readAheadExecutor, lockStateExecutor,
@@ -742,6 +772,11 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         return createDistributedLogManager(name, new DistributedLogConfiguration(), uri);
     }
 
+    private static DynamicDistributedLogConfiguration getConstDynConf(DistributedLogConfiguration conf) {
+        ConcurrentConstConfiguration constConf = new ConcurrentConstConfiguration(conf);
+        return new DynamicDistributedLogConfiguration(constConf, constConf);
+    }
+
     private static void validateInput(DistributedLogConfiguration conf, URI uri, String nameOfStream)
         throws IllegalArgumentException, InvalidStreamNameException {
         validateConfAndURI(conf, uri);
@@ -805,8 +840,8 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
-        return new BKDistributedLogManager(name, conf, uri, zkcBuilder, zkcBuilder, null, null, bkcBuilder, bkcBuilder,
-                new SettableFeatureProvider("", 0), statsLogger);
+        return new BKDistributedLogManager(name, conf, getConstDynConf(conf), uri, zkcBuilder, zkcBuilder,
+                null, null, bkcBuilder, bkcBuilder, new SettableFeatureProvider("", 0), statsLogger);
     }
 
     @Deprecated

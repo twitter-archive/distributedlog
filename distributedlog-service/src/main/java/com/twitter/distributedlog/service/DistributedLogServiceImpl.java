@@ -17,6 +17,9 @@ import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
+import com.twitter.distributedlog.config.DynamicConfigurationFactory;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
@@ -49,6 +52,7 @@ import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.commons.configuration.ConfigurationException;
 
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
@@ -651,6 +655,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         // lock
         final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
+        final DistributedLogManagerFactory.ClientSharingOption CLIENT_SHARING_OPTION =
+                DistributedLogManagerFactory.ClientSharingOption.SharedClients;
 
         DistributedLogManager manager;
 
@@ -688,9 +694,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
         }
 
+        private DistributedLogManager createDistributedLogManager(String name) throws IOException {
+            Optional<DistributedLogConfiguration> streamConfig =
+                    Optional.<DistributedLogConfiguration>absent();
+            return dlFactory.createDistributedLogManager(name, CLIENT_SHARING_OPTION,
+                    streamConfig, dlDynamicConfig);
+        }
+
         // Expensive initialization, only called once per stream.
         public Stream initialize() throws IOException {
-            manager = dlFactory.createDistributedLogManagerWithSharedClients(name);
+            manager = createDistributedLogManager(name);
 
             // Better to avoid registering the gauge multiple times, so do this in init
             // which only gets called once.
@@ -1239,6 +1252,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     }
 
     private final DistributedLogConfiguration dlConfig;
+    private final Optional<DynamicDistributedLogConfiguration> dlDynamicConfig;
     private final DistributedLogManagerFactory dlFactory;
     private final ConcurrentHashMap<String, Stream> streams =
             new ConcurrentHashMap<String, Stream>();
@@ -1302,11 +1316,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final ScheduledExecutorService executorService;
     private final AccessControlManager accessControlManager;
     private final long delayMs;
-
     private final boolean failFastOnStreamNotReady;
-
     private final HashedWheelTimer dlTimer;
-
     private long serviceTimeoutMs;
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
@@ -1330,7 +1341,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
         this.keepAliveLatch = keepAliveLatch;
         this.failFastOnStreamNotReady = dlConf.getFailFastOnStreamNotReady();
-
         this.dlTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("DLService-timer-%d").build(),
                 dlConf.getTimeoutTimerTickDurationMs(),
@@ -1444,8 +1454,27 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
         perStreamStatLogger = enablePerStreamStat ? statsLogger.scope("perstreams") : NullStatsLogger.INSTANCE;
 
+        this.dlDynamicConfig = getDlDynamicConfig();
+
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
+    }
+
+    private Optional<DynamicDistributedLogConfiguration> getDlDynamicConfig() {
+        // Global dynamic stream config is a placeholder until per-stream configs are added (PUBSUB-6994).
+        DynamicConfigurationFactory dynamicConfigFactory = new DynamicConfigurationFactory(executorService,
+            dlConfig.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS,
+            new ConcurrentConstConfiguration(dlConfig));
+        Optional<DynamicDistributedLogConfiguration> dynConfig = Optional.<DynamicDistributedLogConfiguration>absent();
+        String globalDynamicConfigPath = dlConfig.getString("server_dyn_config_path", null);
+        try {
+            if (null != globalDynamicConfigPath) {
+                dynConfig = dynamicConfigFactory.getDynamicConfiguration(globalDynamicConfigPath);
+            }
+        } catch (ConfigurationException ex) {
+            logger.error("Unexpected configuration exception {}", ex);
+        }
+        return dynConfig;
     }
 
     @VisibleForTesting

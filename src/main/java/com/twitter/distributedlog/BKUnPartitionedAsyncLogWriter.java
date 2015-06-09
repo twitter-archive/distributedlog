@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
@@ -121,11 +122,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private final Feature disableLogSegmentRollingFeature;
 
     public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
+                                         DynamicDistributedLogConfiguration dynConf,
                                          BKDistributedLogManager bkdlm,
                                          FuturePool orderedFuturePool,
                                          FeatureProvider featureProvider,
                                          StatsLogger dlmStatsLogger) throws IOException {
-        super(conf, bkdlm);
+        super(conf, dynConf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
 

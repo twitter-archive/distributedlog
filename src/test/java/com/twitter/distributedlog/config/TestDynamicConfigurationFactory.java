@@ -6,6 +6,7 @@ import com.google.common.base.Optional;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -29,7 +30,8 @@ public class TestDynamicConfigurationFactory {
     private DynamicConfigurationFactory getConfigFactory(File configFile) {
         String streamConfigPath = configFile.getParent();
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        return new DynamicConfigurationFactory(executorService, 100, TimeUnit.MILLISECONDS);
+        ConcurrentBaseConfiguration defaultConf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
+        return new DynamicConfigurationFactory(executorService, 100, TimeUnit.MILLISECONDS, defaultConf);
     }
 
     private String getNamePart(File configFile) {
@@ -63,7 +65,11 @@ public class TestDynamicConfigurationFactory {
     public void testMissingConfig() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
         DynamicConfigurationFactory factory = getConfigFactory(writer.getFile());
-        Optional<DynamicDistributedLogConfiguration> conf = factory.getDynamicConfiguration("missing_config.blah");
-        assertFalse(conf.isPresent());
+        try {
+            factory.getDynamicConfiguration("missing_config.blah");
+            fail("Should have thrown failing to find the missing config");
+        } catch (ConfigurationException ex) {
+            assertTrue(ex.getCause() instanceof FileNotFoundException);
+        }
     }
 }

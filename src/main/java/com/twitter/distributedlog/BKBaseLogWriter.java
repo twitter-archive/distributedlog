@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.Utils;
@@ -14,12 +15,12 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 abstract class BKBaseLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
-    private final long retentionPeriodInMillis;
     // Used by tests
     private Long minTimestampToKeepOverride = null;
     private boolean closed = false;
@@ -27,12 +28,15 @@ abstract class BKBaseLogWriter {
     private boolean forceRecovery = false;
     private LogTruncationTask lastTruncationAttempt = null;
     protected final DistributedLogConfiguration conf;
+    private final DynamicDistributedLogConfiguration dynConf;
 
-    public BKBaseLogWriter(DistributedLogConfiguration conf, BKDistributedLogManager bkdlm) {
+    public BKBaseLogWriter(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
+                           BKDistributedLogManager bkdlm) {
         this.conf = conf;
+        this.dynConf = dynConf;
         this.bkDistributedLogManager = bkdlm;
-        this.retentionPeriodInMillis = (long) (conf.getRetentionPeriodHours()) * 3600 * 1000;
-        LOG.info("Retention Period for {} : {}", bkdlm.getStreamName(), retentionPeriodInMillis);
+        LOG.info("Initial retention period for {} : {}", bkdlm.getStreamName(),
+                TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS));
     }
 
     abstract protected BKLogPartitionWriteHandler getCachedPartitionHandler(String streamIdentifier);
@@ -217,6 +221,7 @@ abstract class BKBaseLogWriter {
 
             long minTimestampToKeep = 0;
 
+            long retentionPeriodInMillis = TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS);
             if (retentionPeriodInMillis > 0) {
                 minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
                 truncationEnabled = true;

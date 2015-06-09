@@ -7,6 +7,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.callback.LogSegmentListener;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -85,6 +86,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private final DistributedLogConfiguration conf;
+    private final DynamicDistributedLogConfiguration dynConf;
     private boolean closed = true;
     private final OrderedScheduler scheduler;
     private final ScheduledExecutorService readAheadExecutor;
@@ -123,6 +125,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     BKDistributedLogManager(String name,
                             DistributedLogConfiguration conf,
+                            DynamicDistributedLogConfiguration dynConf,
                             URI uri,
                             ZooKeeperClientBuilder writerZKCBuilder,
                             ZooKeeperClientBuilder readerZKCBuilder,
@@ -132,7 +135,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             BookKeeperClientBuilder readerBKCBuilder,
                             FeatureProvider featureProvider,
                             StatsLogger statsLogger) throws IOException {
-        this(name, conf, uri,
+        this(name, conf, dynConf, uri,
              writerZKCBuilder, readerZKCBuilder,
              zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
              OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
@@ -142,6 +145,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     BKDistributedLogManager(String name,
                             DistributedLogConfiguration conf,
+                            DynamicDistributedLogConfiguration dynConf,
                             URI uri,
                             ZooKeeperClientBuilder writerZKCBuilder,
                             ZooKeeperClientBuilder readerZKCBuilder,
@@ -166,6 +170,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
         this.pendingReaders = new PendingReaders();
+        this.dynConf = dynConf;
 
         // create the bkc for writers
         if (null == writerBKCBuilder) {
@@ -362,7 +367,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     synchronized BKLogPartitionWriteHandler doCreateWriteLedgerHandler(String streamIdentifier,
-                                                                   FuturePool orderedFuturePool)
+                                                                       FuturePool orderedFuturePool)
             throws IOException {
         BKLogPartitionWriteHandler writeHandler =
             BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
@@ -468,7 +473,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public PartitionAwareLogWriter startLogSegment() throws IOException {
         checkClosedOrInError("startLogSegment");
-        return new BKPartitionAwareLogWriter(conf, this);
+        return new BKPartitionAwareLogWriter(conf, dynConf, this);
     }
 
     /**
@@ -479,7 +484,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedSyncLogWriter(conf, this);
+        return new BKUnPartitionedSyncLogWriter(conf, dynConf, this);
     }
 
     /**
@@ -496,7 +501,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
             // proactively recover incomplete logsegments for async log writer
             writer = new BKUnPartitionedAsyncLogWriter(
-                    conf, this, orderedFuturePool, featureProvider, statsLogger);
+                    conf, dynConf, this, orderedFuturePool, featureProvider, statsLogger);
         }
         return writer.recover();
     }
