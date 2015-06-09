@@ -2300,7 +2300,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @return distributedlog configuration
      */
     public DistributedLogConfiguration setEIInjectReadAheadDelayPercent(int percent) {
-        setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT);
+        setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, percent);
         return this;
     }
 
