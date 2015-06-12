@@ -51,6 +51,7 @@ public class Benchmarker {
     int hostConnectionLimit = 10;
     boolean thriftmux = false;
     boolean handshakeWithClientInfo = false;
+    boolean readFromHead = false;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -81,6 +82,7 @@ public class Benchmarker {
         options.addOption("hcl", "host-connection-limit", true, "Finagle hostConnectionLimit");
         options.addOption("mx", "thriftmux", false, "Enable thriftmux (write mode only)");
         options.addOption("hsci", "handshake-with-client-info", false, "Enable handshaking with client info");
+        options.addOption("rfh", "read-from-head", false, "Read from head of the stream");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -162,6 +164,7 @@ public class Benchmarker {
         }
         thriftmux = cmdline.hasOption("mx");
         handshakeWithClientInfo = cmdline.hasOption("hsci");
+        readFromHead = cmdline.hasOption("rfh");
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -205,6 +208,7 @@ public class Benchmarker {
         if (null != statsProvider) {
             statsProvider.stop();
         }
+        Runtime.getRuntime().exit(0);
     }
 
     Worker runWriter() {
@@ -272,6 +276,7 @@ public class Benchmarker {
                 concurrency,
                 ssPaths,
                 truncationInterval,
+                readFromHead,
                 statsReceiver,
                 statsProvider.getStatsLogger("dlreader"));
     }

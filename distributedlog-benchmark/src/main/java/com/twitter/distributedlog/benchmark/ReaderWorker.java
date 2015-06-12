@@ -56,6 +56,7 @@ public class ReaderWorker implements Worker {
     final AsyncLogReader[] logReaders;
     final StreamReader[] streamReaders;
     final int numStreams;
+    final boolean readFromHead;
 
     final int truncationIntervalInSeconds;
     // DL Client Related Variables
@@ -188,6 +189,7 @@ public class ReaderWorker implements Worker {
                         int readThreadPoolSize,
                         List<String> serverSetPaths,
                         int truncationIntervalInSeconds,
+                        boolean readFromHead, /* read from the earliest data of log */
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger) throws IOException {
         Preconditions.checkArgument(startStreamId <= endStreamId);
@@ -195,6 +197,7 @@ public class ReaderWorker implements Worker {
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
         this.truncationIntervalInSeconds = truncationIntervalInSeconds;
+        this.readFromHead = readFromHead;
         this.statsReceiver = statsReceiver;
         this.statsLogger = statsLogger;
         this.e2eStat = this.statsLogger.getOpStatsLogger("e2e");
@@ -315,12 +318,16 @@ public class ReaderWorker implements Worker {
             return;
         }
         DLSN lastDLSN;
-        try {
-            lastDLSN = dlms[idx].getLastDLSN();
-        } catch (IOException ioe) {
-            LOG.error("Failed on getting last dlsn from stream {} : ", streamName, ioe);
-            scheduleReinitStream(idx, promise);
-            return;
+        if (readFromHead) {
+            lastDLSN = DLSN.InitialDLSN;
+        } else {
+            try {
+                lastDLSN = dlms[idx].getLastDLSN();
+            } catch (IOException ioe) {
+                LOG.error("Failed on getting last dlsn from stream {} : ", streamName, ioe);
+                scheduleReinitStream(idx, promise);
+                return;
+            }
         }
         try {
             logReaders[idx] = dlms[idx].getAsyncLogReader(lastDLSN);
