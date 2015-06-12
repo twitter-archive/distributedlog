@@ -1515,12 +1515,13 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setMinDelayBetweenImmediateFlushMs(1);
 
         URI uri = createDLMURI("/" + name);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri);
 
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri, NullStatsLogger.INSTANCE,
+                "gabbagoo", DistributedLogConstants.LOCAL_REGION_ID);
         BKDistributedLogManager dlm = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        dlm.setClientId("gabbagoo");
-        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        dlm1.setClientId("tortellini");
+        DistributedLogManagerFactory factory1 = new DistributedLogManagerFactory(confLocal, uri, NullStatsLogger.INSTANCE,
+                "tortellini", DistributedLogConstants.LOCAL_REGION_ID);
+        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory1.createDistributedLogManagerWithSharedClients(name);
 
         int txid = 1;
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
@@ -1559,10 +1560,12 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setPerWriterOutstandingWriteLimit(stream);
         confLocal.setOutstandingWriteLimitDarkmode(false);
-        DistributedLogManager dlm = createNewDLM(confLocal, runtime.getMethodName());
+        DistributedLogManager dlm;
         if (global > -1) {
-            ((BKDistributedLogManager) dlm).setWriteLimiter(new SimplePermitLimiter(
-                false, global, new NullStatsLogger(), true, new FixedValueFeature("", 0)));
+            dlm = createNewDLM(confLocal, runtime.getMethodName(),
+                    new SimplePermitLimiter(false, global, new NullStatsLogger(), true, new FixedValueFeature("", 0)));
+        } else {
+            dlm = createNewDLM(confLocal, runtime.getMethodName());
         }
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);

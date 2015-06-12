@@ -1,6 +1,13 @@
 package com.twitter.distributedlog.examples;
 
-import com.twitter.distributedlog.*;
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.DistributedLogManagerFactory;
+import com.twitter.distributedlog.LogReader;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
+import com.twitter.distributedlog.PartitionAwareLogWriter;
+import com.twitter.distributedlog.PartitionId;
 
 import java.net.URI;
 
@@ -27,8 +34,10 @@ public class DistributedLogExample {
                 .setAckQuorumSize(2) // 2 replicas
                 .setEnsembleSize(3); // how many hosts to store a log segment
         // Create a distributedlog
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+
         DistributedLogManager unpartitionedDLM =
-            DistributedLogManagerFactory.createDistributedLogManager("unpartitioned-example", conf, uri);
+            factory.createDistributedLogManagerWithSharedClients("unpartitioned-example");
         System.out.println("Create unpartitioned stream : unpartitioned-example");
         LogWriter unpartitionedWriter = unpartitionedDLM.startLogSegmentNonPartitioned();
         for (long i = 1; i <= 10; i++) {
@@ -41,7 +50,8 @@ public class DistributedLogExample {
         System.out.println("Read unpartitioned stream : unpartitioned-example");
         LogRecord unpartitionedRecord = unpartitionedReader.readNext(false);
         while (null != unpartitionedRecord) {
-            System.out.println(String.format("txn %d : %s", unpartitionedRecord.getTransactionId(), new String(unpartitionedRecord.getPayload(), "UTF-8")));
+            System.out.println(String.format("txn %d : %s",
+                    unpartitionedRecord.getTransactionId(), new String(unpartitionedRecord.getPayload(), "UTF-8")));
             unpartitionedRecord = unpartitionedReader.readNext(false);
         }
         unpartitionedReader.close();
@@ -50,7 +60,8 @@ public class DistributedLogExample {
         LogReader unpartitionedReader2 = unpartitionedDLM.getInputStream(5);
         LogRecord unpartitionedRecord2 = unpartitionedReader2.readNext(false);
         while (null != unpartitionedRecord2) {
-            System.out.println(String.format("txn %d : %s", unpartitionedRecord2.getTransactionId(), new String(unpartitionedRecord2.getPayload(), "UTF-8")));
+            System.out.println(String.format("txn %d : %s",
+                    unpartitionedRecord2.getTransactionId(), new String(unpartitionedRecord2.getPayload(), "UTF-8")));
             unpartitionedRecord2 = unpartitionedReader2.readNext(false);
         }
         unpartitionedReader2.close();
@@ -60,7 +71,7 @@ public class DistributedLogExample {
 
         // Create partitioned dlm
         DistributedLogManager partitionedDLM =
-                DistributedLogManagerFactory.createDistributedLogManager("partitioned-example", conf, uri);
+                factory.createDistributedLogManagerWithSharedClients("partitioned-example");
         PartitionAwareLogWriter partitionedWriter = partitionedDLM.startLogSegment();
         int numPartitions = 4;
         for (long i = 0; i < 20; i++) {
@@ -77,7 +88,8 @@ public class DistributedLogExample {
             System.out.println("Read partitioned stream : partitioned-example, partition : " + i);
             LogRecord record = partitionedReader.readNext(false);
             while (null != record) {
-                System.out.println(String.format("partition %d, txn %d : %s", i, record.getTransactionId(), new String(record.getPayload(), "UTF-8")));
+                System.out.println(String.format("partition %d, txn %d : %s",
+                        i, record.getTransactionId(), new String(record.getPayload(), "UTF-8")));
                 record = partitionedReader.readNext(false);
             }
             partitionedReader.close();

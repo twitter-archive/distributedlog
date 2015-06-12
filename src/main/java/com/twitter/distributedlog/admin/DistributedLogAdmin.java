@@ -627,22 +627,18 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL()) :
-                        ZkMetadataUpdater.createMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL());
-                System.out.println("List of streams : ");
-                System.out.println(streams);
-                if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
-                    return -1;
-                }
-                for (String stream : streams) {
-                    fixInprogressSegmentWithLowerSequenceNumber(factory, metadataUpdater, stream, verbose, !getForce());
-                }
-                return 0;
-            } finally {
-                factory.close();
+            MetadataUpdater metadataUpdater = dryrun ?
+                    new DryrunZkMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL()) :
+                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL());
+            System.out.println("List of streams : ");
+            System.out.println(streams);
+            if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
+                return -1;
             }
+            for (String stream : streams) {
+                fixInprogressSegmentWithLowerSequenceNumber(getFactory(), metadataUpdater, stream, verbose, !getForce());
+            }
+            return 0;
         }
 
         @Override
@@ -680,22 +676,17 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
+            MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL()) :
+                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL());
+            ExecutorService executorService = Executors.newCachedThreadPool();
+            BookKeeperClient bkc = getFactory().getReaderBKC();
             try {
-                MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL()) :
-                        ZkMetadataUpdater.createMetadataUpdater(getConf(), factory.getSharedWriterZKCForDL());
-                ExecutorService executorService = Executors.newCachedThreadPool();
-                BookKeeperClient bkc = factory.getReaderBKC();
-                try {
-                    checkAndRepairDLNamespace(getUri(), factory, metadataUpdater, executorService,
-                                              bkc, getConf().getBKDigestPW(), verbose, !getForce(), concurrency);
-                } finally {
-                    SchedulerUtils.shutdownScheduler(executorService, 5, TimeUnit.MINUTES);
-                }
-                return 0;
+                checkAndRepairDLNamespace(getUri(), getFactory(), metadataUpdater, executorService,
+                                          bkc, getConf().getBKDigestPW(), verbose, !getForce(), concurrency);
             } finally {
-                factory.close();
+                SchedulerUtils.shutdownScheduler(executorService, 5, TimeUnit.MINUTES);
             }
+            return 0;
         }
 
         @Override
@@ -724,19 +715,14 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
-                if (null == bkdlConfig.getACLRootPath()) {
-                    // acl isn't enabled for this namespace.
-                    println("ACL isn't enabled for namespace " + getUri());
-                    return -1;
-                }
-                String zkPath = getUri() + "/" + bkdlConfig.getACLRootPath() + "/" + stream;
-                ZKAccessControl.delete(factory.getSharedWriterZKCForDL(), zkPath);
-            } finally {
-                factory.close();
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getFactory().getSharedWriterZKCForDL(), getUri());
+            if (null == bkdlConfig.getACLRootPath()) {
+                // acl isn't enabled for this namespace.
+                println("ACL isn't enabled for namespace " + getUri());
+                return -1;
             }
+            String zkPath = getUri() + "/" + bkdlConfig.getACLRootPath() + "/" + stream;
+            ZKAccessControl.delete(getFactory().getSharedWriterZKCForDL(), zkPath);
             return 0;
         }
 
@@ -842,26 +828,21 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
-                if (null == bkdlConfig.getACLRootPath()) {
-                    // acl isn't enabled for this namespace.
-                    println("ACL isn't enabled for namespace " + getUri());
-                    return -1;
-                }
-                String zkPath = getZKPath(getUri().getPath() + "/" + bkdlConfig.getACLRootPath());
-                ZKAccessControl accessControl = getZKAccessControl(factory.getSharedWriterZKCForDL(), zkPath);
-                AccessControlEntry acl = accessControl.getAccessControlEntry();
-                acl.setDenyWrite(denyWrite);
-                acl.setDenyTruncate(denyTruncate);
-                acl.setDenyDelete(denyDelete);
-                acl.setDenyAcquire(denyAcquire);
-                acl.setDenyRelease(denyRelease);
-                setZKAccessControl(factory.getSharedWriterZKCForDL(), accessControl);
-            } finally {
-                factory.close();
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getFactory().getSharedWriterZKCForDL(), getUri());
+            if (null == bkdlConfig.getACLRootPath()) {
+                // acl isn't enabled for this namespace.
+                println("ACL isn't enabled for namespace " + getUri());
+                return -1;
             }
+            String zkPath = getZKPath(getUri().getPath() + "/" + bkdlConfig.getACLRootPath());
+            ZKAccessControl accessControl = getZKAccessControl(getFactory().getSharedWriterZKCForDL(), zkPath);
+            AccessControlEntry acl = accessControl.getAccessControlEntry();
+            acl.setDenyWrite(denyWrite);
+            acl.setDenyTruncate(denyTruncate);
+            acl.setDenyDelete(denyDelete);
+            acl.setDenyAcquire(denyAcquire);
+            acl.setDenyRelease(denyRelease);
+            setZKAccessControl(getFactory().getSharedWriterZKCForDL(), accessControl);
             return 0;
         }
 

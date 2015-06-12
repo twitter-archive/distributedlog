@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -408,12 +409,15 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         int recordCount = 0;
         AtomicReference<DLSN> currentDLSN = new AtomicReference<DLSN>(DLSN.InitialDLSN);
 
-        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        dlm1.setClientId("gabbagoo");
-        BKDistributedLogManager dlm2 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        dlm1.setClientId("tortellini");
-        BKDistributedLogManager dlm3 = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        dlm1.setClientId("parmigianino");
+        DistributedLogManagerFactory factory1 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
+                "gabbagoo", DistributedLogConstants.LOCAL_REGION_ID);
+        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory1.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogManagerFactory factory2 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
+                "tortellini", DistributedLogConstants.LOCAL_REGION_ID);
+        BKDistributedLogManager dlm2 = (BKDistributedLogManager) factory2.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogManagerFactory factory3 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
+                "parmigianino", DistributedLogConstants.LOCAL_REGION_ID);
+        BKDistributedLogManager dlm3 = (BKDistributedLogManager) factory3.createDistributedLogManagerWithSharedClients(name);
 
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);

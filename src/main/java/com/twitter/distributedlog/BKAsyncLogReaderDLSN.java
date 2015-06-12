@@ -271,7 +271,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 @Override
                 public void onSuccess(Void value) {
                     try {
-                        bkLedgerManager.startReadAhead(new LedgerReadPosition(startDLSN), simulateErrors);
+                        bkLedgerManager.startReadAhead(new LedgerReadPosition(getStartDLSN()), simulateErrors);
                         if (disableReadAheadZKNotification) {
                             bkLedgerManager.disableReadAheadZKNotification();
                         }
@@ -427,7 +427,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         // read single record
                         do {
                             record = bkLedgerManager.getNextReadAheadRecord();
-                        } while (null != record && (record.isControl() || (record.getDlsn().compareTo(startDLSN) < 0)));
+                        } while (null != record && (record.isControl() || (record.getDlsn().compareTo(getStartDLSN()) < 0)));
                         if (null == record) {
                             break;
                         } else {

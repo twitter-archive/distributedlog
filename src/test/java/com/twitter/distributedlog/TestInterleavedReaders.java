@@ -250,9 +250,11 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         DistributedLogManager[] dlms = new DistributedLogManager[count];
         for (int s = 0; s < count; s++) {
             if (shareBK) {
-                dlms[s] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", s));
+                dlms[s] = factory.createDistributedLogManager(name + String.format("%d", s),
+                        DistributedLogManagerFactory.ClientSharingOption.SharedClients);
             } else {
-                dlms[s] = factory.createDistributedLogManagerWithSharedZK(name + String.format("%d", s));
+                dlms[s] = factory.createDistributedLogManager(name + String.format("%d", s),
+                        DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
             }
         }
 
@@ -278,9 +280,11 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
                 // continue without restart
                 dlms[0].close();
                 if (shareBK) {
-                    dlms[0] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", 0));
+                    dlms[0] = factory.createDistributedLogManager(name + String.format("%d", 0),
+                            DistributedLogManagerFactory.ClientSharingOption.SharedClients);
                 } else {
-                    dlms[0] = factory.createDistributedLogManagerWithSharedZK(name + String.format("%d", 0));
+                    dlms[0] = factory.createDistributedLogManager(name + String.format("%d", 0),
+                            DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
                 }
             }
 

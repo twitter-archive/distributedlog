@@ -8,7 +8,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
-import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -33,11 +32,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.RateLimiter;
-
-import com.twitter.distributedlog.auditor.DLAuditor;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAccessor;
@@ -50,7 +44,6 @@ import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -60,6 +53,9 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DLSN;
@@ -76,6 +72,7 @@ import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.auditor.DLAuditor;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -136,6 +133,7 @@ public class DistributedLogTool extends Tool {
         protected URI uri;
         protected String zkAclId = null;
         protected boolean force = false;
+        protected DistributedLogManagerFactory factory = null;
 
         protected PerDLCommand(String name, String description) {
             super(name, description);
@@ -157,7 +155,15 @@ public class DistributedLogTool extends Tool {
                 printUsage();
                 return -1;
             }
-            return runCmd();
+            try {
+                return runCmd();
+            } finally {
+                synchronized (this) {
+                    if (null != factory) {
+                        factory.close();
+                    }
+                }
+            }
         }
 
         protected abstract int runCmd() throws Exception;
@@ -217,6 +223,14 @@ public class DistributedLogTool extends Tool {
 
         protected void setForce(boolean force) {
             this.force = force;
+        }
+
+        protected synchronized DistributedLogManagerFactory getFactory() throws IOException {
+            if (null == this.factory) {
+                this.factory = new DistributedLogManagerFactory(getConf(), getUri());
+                logger.info("Construct DLM : uri = {}", getUri());
+            }
+            return this.factory;
         }
     }
 
@@ -281,20 +295,10 @@ public class DistributedLogTool extends Tool {
         @Override
         protected int runCmd() throws Exception {
             String rootPath = getUri().getPath() + "/" + allocationPoolPath;
-            final ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(dlConf.getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).zkAclId(getZkAclId()).build();
-            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-            final BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                    .dlConfig(getConf())
-                    .zkServers(bkdlConfig.getBkZkServersForWriter())
-                    .ledgersPath(bkdlConfig.getBkLedgersPath())
-                    .name("dlog_tool")
-                    .build();
             final ScheduledExecutorService allocationExecutor = Executors.newSingleThreadScheduledExecutor();
             ExecutorService executorService = Executors.newFixedThreadPool(concurrency);
             try {
-                List<String> pools = zkc.get().getChildren(rootPath, false);
+                List<String> pools = getFactory().getSharedWriterZKCForDL().get().getChildren(rootPath, false);
                 final LinkedBlockingQueue<String> poolsToDelete = new LinkedBlockingQueue<String>();
                 if (getForce() || IOUtils.confirmPrompt("Are you sure you want to delete allocator pools : " + pools)) {
                     for (String pool : pools) {
@@ -313,7 +317,9 @@ public class DistributedLogTool extends Tool {
                                     }
                                     try {
                                         LedgerAllocator allocator =
-                                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(), zkc, bkc, allocationExecutor);
+                                                LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(),
+                                                        getFactory().getSharedWriterZKCForDL(), getFactory().getReaderBKC(),
+                                                        allocationExecutor);
                                         if (null == allocator) {
                                             println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
                                         } else {
@@ -333,8 +339,6 @@ public class DistributedLogTool extends Tool {
                 }
             } finally {
                 executorService.shutdown();
-                bkc.close();
-                zkc.close();
                 allocationExecutor.shutdown();
             }
             return 0;
@@ -371,16 +375,10 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            DistributedLogManagerFactory factory =
-                    new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                if (printMetadata) {
-                    printStreamsWithMetadata(factory);
-                } else {
-                    printStreams(factory);
-                }
-            } finally {
-                factory.close();
+            if (printMetadata) {
+                printStreamsWithMetadata(getFactory());
+            } else {
+                printStreams(getFactory());
             }
             return 0;
         }
@@ -455,37 +453,31 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory =
-                    new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates =
-                        new TreeMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>>();
-                inspectStreams(factory, corruptedCandidates);
-                System.out.println("Corrupted Candidates : ");
-                if (printStreamsOnly) {
-                    System.out.println(corruptedCandidates.keySet());
-                    return 0;
-                }
-                for (Map.Entry<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
-                    System.out.println(entry.getKey() + " : \n");
-                    List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(entry.getValue().size());
-                    for (Pair<LogSegmentLedgerMetadata, List<String>> pair : entry.getValue()) {
-                        segments.add(pair.getLeft());
-                        System.out.println("\t - " + pair.getLeft());
-                        if (printInprogressOnly && dumpEntries) {
-                            int i = 0;
-                            for (String entryData : pair.getRight()) {
-                                System.out.println("\t" + i + "\t: " + entryData);
-                                ++i;
-                            }
+            SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates =
+                    new TreeMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>>();
+            inspectStreams(getFactory(), corruptedCandidates);
+            System.out.println("Corrupted Candidates : ");
+            if (printStreamsOnly) {
+                System.out.println(corruptedCandidates.keySet());
+                return 0;
+            }
+            for (Map.Entry<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
+                System.out.println(entry.getKey() + " : \n");
+                List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(entry.getValue().size());
+                for (Pair<LogSegmentLedgerMetadata, List<String>> pair : entry.getValue()) {
+                    segments.add(pair.getLeft());
+                    System.out.println("\t - " + pair.getLeft());
+                    if (printInprogressOnly && dumpEntries) {
+                        int i = 0;
+                        for (String entryData : pair.getRight()) {
+                            System.out.println("\t" + i + "\t: " + entryData);
+                            ++i;
                         }
                     }
-                    System.out.println();
                 }
-                return 0;
-            } finally {
-                factory.close();
+                System.out.println();
             }
+            return 0;
         }
 
         private void inspectStreams(final DistributedLogManagerFactory factory,
@@ -662,13 +654,7 @@ public class DistributedLogTool extends Tool {
         @Override
         protected int runCmd() throws Exception {
             getConf().setZkAclId(getZkAclId());
-            final DistributedLogManagerFactory factory =
-                    new DistributedLogManagerFactory(getConf(), getUri());
-            try {
-                return truncateStreams(factory);
-            } finally {
-                factory.close();
-            }
+            return truncateStreams(getFactory());
         }
 
         private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
@@ -825,8 +811,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                    getStreamName(), getConf(), getUri());
+            DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
             try {
                 if (listEppStats) {
                     bkc = new SimpleBookKeeperClient(getConf(), getUri());
@@ -1016,16 +1001,19 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                    getStreamName(), getConf(), getUri());
-            long count = 0;
-            if (null == endDLSN) {
-                count = countToLastRecord(dlm);
-            } else {
-                count = countFromStartToEnd(dlm);
+            DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
+            try {
+                long count = 0;
+                if (null == endDLSN) {
+                    count = countToLastRecord(dlm);
+                } else {
+                    count = countFromStartToEnd(dlm);
+                }
+                println("total is " + count + " records.");
+                return 0;
+            } finally {
+                dlm.close();
             }
-            println("total is " + count + " records.");
-            return 0;
         }
 
         int countFromStartToEnd(DistributedLogManager dlm) throws Exception {
@@ -1076,8 +1064,7 @@ public class DistributedLogTool extends Tool {
         @Override
         protected int runCmd() throws Exception {
             getConf().setZkAclId(getZkAclId());
-            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                    getStreamName(), getConf(), getUri());
+            DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
             try {
                 dlm.delete();
             } finally {
@@ -1155,7 +1142,6 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            final DistributedLogManagerFactory factory = new DistributedLogManagerFactory(getConf(), getUri());
             ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
             try {
                 final AtomicInteger numLedgers = new AtomicInteger(0);
@@ -1175,7 +1161,7 @@ public class DistributedLogTool extends Tool {
                                     break;
                                 }
                                 try {
-                                    factory.getReaderBKC().get().deleteLedger(ledger);
+                                    getFactory().getReaderBKC().get().deleteLedger(ledger);
                                     int numLedgersDeleted = numLedgers.incrementAndGet();
                                     if (numLedgersDeleted % 1000 == 0) {
                                         println("Deleted " + numLedgersDeleted + " ledgers.");
@@ -1201,7 +1187,6 @@ public class DistributedLogTool extends Tool {
                 }
             } finally {
                 executorService.shutdown();
-                factory.close();
             }
             return 0;
         }
@@ -1236,7 +1221,6 @@ public class DistributedLogTool extends Tool {
         }
 
         protected void generateStreams(String streamPrefix, String streamExpression) throws ParseException {
-
             // parse the stream expression
             if (streamExpression.contains("-")) {
                 // a range expression
@@ -1379,8 +1363,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                    getStreamName(), getConf(), getUri());
+            DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
             try {
                 LogReader reader;
                 try {
@@ -1485,8 +1468,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            DistributedLogManager dlm = DistributedLogManagerFactory.createDistributedLogManager(
-                    getStreamName(), getConf(), getUri());
+            DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
             try {
                 return inspectAndRepair(dlm.getLogSegments());
             } finally {
@@ -1679,28 +1661,7 @@ public class DistributedLogTool extends Tool {
         }
 
         protected int runBKCommand(BKCommandRunner runner) throws Exception {
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .zkAclId(getConf().getZkAclId())
-                    .uri(getUri())
-                    .build();
-            try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
-                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .zkc(zkc)
-                        .dlConfig(getConf())
-                        .ledgersPath(bkdlConfig.getBkLedgersPath())
-                        .name("dlog")
-                        .build();
-                try {
-                    return runner.run(zkc, bkc);
-                } finally {
-                    bkc.close();
-                }
-            } finally {
-                zkc.close();
-            }
+            return runner.run(getFactory().getSharedWriterZKCForDL(), getFactory().getReaderBKC());
         }
 
         abstract protected int runBKCmd(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception;
@@ -2055,44 +2016,26 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).zkAclId(null).build();
+            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(
+                    getLedgerID(), BookKeeper.DigestType.CRC32, dlConf.getBKDigestPW().getBytes(UTF_8));
+            final CountDownLatch doneLatch = new CountDownLatch(1);
+            final AtomicInteger resultHolder = new AtomicInteger(-1234);
+            BookkeeperInternalCallbacks.GenericCallback<Void> recoverCb =
+                    new BookkeeperInternalCallbacks.GenericCallback<Void>() {
+                @Override
+                public void operationComplete(int rc, Void result) {
+                    resultHolder.set(rc);
+                    doneLatch.countDown();
+                }
+            };
             try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
-                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(getConf())
-                        .zkServers(bkdlConfig.getBkZkServersForReader())
-                        .ledgersPath(bkdlConfig.getBkLedgersPath())
-                        .name("dlog")
-                        .build();
-                try {
-                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
-                            dlConf.getBKDigestPW().getBytes(UTF_8));
-                    final CountDownLatch doneLatch = new CountDownLatch(1);
-                    final AtomicInteger resultHolder = new AtomicInteger(-1234);
-                    BookkeeperInternalCallbacks.GenericCallback<Void> recoverCb = new BookkeeperInternalCallbacks.GenericCallback<Void>() {
-                        @Override
-                        public void operationComplete(int rc, Void result) {
-                            resultHolder.set(rc);
-                            doneLatch.countDown();
-                        }
-                    };
-                    try {
-                        BookKeeperAccessor.forceRecoverLedger(lh, recoverCb);
-                        doneLatch.await();
-                        if (BKException.Code.OK != resultHolder.get()) {
-                            throw BKException.create(resultHolder.get());
-                        }
-                    } finally {
-                        lh.close();
-                    }
-                } finally {
-                    bkc.close();
+                BookKeeperAccessor.forceRecoverLedger(lh, recoverCb);
+                doneLatch.await();
+                if (BKException.Code.OK != resultHolder.get()) {
+                    throw BKException.create(resultHolder.get());
                 }
             } finally {
-                zkc.close();
+                lh.close();
             }
             return 0;
         }
@@ -2111,32 +2054,13 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).zkAclId(null).build();
+            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(
+                    getLedgerID(), BookKeeper.DigestType.CRC32, dlConf.getBKDigestPW().getBytes(UTF_8));
             try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
-                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(getConf())
-                        .zkServers(bkdlConfig.getBkZkServersForReader())
-                        .ledgersPath(bkdlConfig.getBkLedgersPath())
-                        .name("dlog")
-                        .build();
-                try {
-                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
-                            dlConf.getBKDigestPW().getBytes(UTF_8));
-                    try {
-                        long lac = lh.readLastConfirmed();
-                        println("LastAddConfirmed: " + lac);
-                    } finally {
-                        lh.close();
-                    }
-                } finally {
-                    bkc.close();
-                }
+                long lac = lh.readLastConfirmed();
+                println("LastAddConfirmed: " + lac);
             } finally {
-                zkc.close();
+                lh.close();
             }
             return 0;
         }
@@ -2192,50 +2116,31 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).zkAclId(null).build();
+            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
+                    dlConf.getBKDigestPW().getBytes(UTF_8));
             try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
-                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(getConf())
-                        .zkServers(bkdlConfig.getBkZkServersForReader())
-                        .ledgersPath(bkdlConfig.getBkLedgersPath())
-                        .name("dlog")
-                        .build();
-                try {
-                    LedgerHandle lh = bkc.get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
-                            dlConf.getBKDigestPW().getBytes(UTF_8));
-                    try {
-                        if (null == fromEntryId) {
-                            fromEntryId = 0L;
-                        }
-                        if (null == untilEntryId) {
-                            untilEntryId = lh.readLastConfirmed();
-                        }
-                        if (untilEntryId >= fromEntryId) {
-                            if (readAllBookies) {
-                                LedgerReader lr = new LedgerReader(bkc.get());
-                                if (readLac) {
-                                    readLacsFromAllBookies(lr, lh, fromEntryId, untilEntryId);
-                                } else {
-                                    readEntriesFromAllBookies(lr, lh, fromEntryId, untilEntryId);
-                                }
-                            } else {
-                                simpleReadEntries(lh, fromEntryId, untilEntryId);
-                            }
+                if (null == fromEntryId) {
+                    fromEntryId = 0L;
+                }
+                if (null == untilEntryId) {
+                    untilEntryId = lh.readLastConfirmed();
+                }
+                if (untilEntryId >= fromEntryId) {
+                    if (readAllBookies) {
+                        LedgerReader lr = new LedgerReader(getFactory().getReaderBKC().get());
+                        if (readLac) {
+                            readLacsFromAllBookies(lr, lh, fromEntryId, untilEntryId);
                         } else {
-                            System.out.println("No entries.");
+                            readEntriesFromAllBookies(lr, lh, fromEntryId, untilEntryId);
                         }
-                    } finally {
-                        lh.close();
+                    } else {
+                        simpleReadEntries(lh, fromEntryId, untilEntryId);
                     }
-                } finally {
-                    bkc.close();
+                } else {
+                    System.out.println("No entries.");
                 }
             } finally {
-                zkc.close();
+                lh.close();
             }
             return 0;
         }

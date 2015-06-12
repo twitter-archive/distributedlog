@@ -9,26 +9,23 @@ import com.twitter.distributedlog.acl.ZKAccessControlManager;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
-import com.twitter.distributedlog.config.ConcurrentBaseConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
-import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
-import com.twitter.distributedlog.util.SimplePermitLimiter;
-
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.Feature;
-import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -58,7 +55,6 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -489,100 +485,17 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
     }
 
     /**
-     * Create a DistributedLogManager as <i>nameOfLogStream</i>.
-     *
-     * <p>
-     * For zookeeper session expire handling purpose, we don't use zookeeper client & bookkeeper client builder inside factory.
-     * We managed the shared executor service for all the {@link DistributedLogManager}s created by this factory, so we don't
-     * spawn too much threads.
-     * </p>
+     * Create a DistributedLogManager for <i>nameOfLogStream</i>, with default shared clients.
      *
      * @param nameOfLogStream
-     *          name of log stream.
-     * @return distributedlog manager instance.
+     *          name of log stream
+     * @return distributedlog manager
+     * @throws com.twitter.distributedlog.exceptions.InvalidStreamNameException if stream name is invalid
      * @throws IOException
-     * @throws IllegalArgumentException
      */
-    @Deprecated
-    public DistributedLogManager createDistributedLogManager(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
-        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
-        return createDistributedLogManager(nameOfLogStream,
-            ClientSharingOption.PerStreamClients,
-            streamConfiguration,
-            dynamicStreamConfiguration);
-    }
-
-
-    /**
-     * Create a DistributedLogManager as <i>nameOfLogStream</i>.
-     *
-     * <p>
-     * For zookeeper session expire handling purpose, we don't use shared bookkeeper client builder inside factory. We however use
-     * shared zookeeper client as the ZooKeeper client can seamlessly reconnect on a session expiration
-     * We managed the shared executor service for all the {@link DistributedLogManager}s created by this factory, so we don't
-     * spawn too much threads.
-     * </p>
-     *
-     * @param nameOfLogStream
-     *          name of log stream.
-     * @return distributedlog manager instance.
-     * @throws IOException
-     * @throws IllegalArgumentException
-     */
-    @Deprecated
-    public DistributedLogManager createDistributedLogManagerWithSharedZK(String nameOfLogStream) throws IOException, IllegalArgumentException {
-        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
-        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
-        return createDistributedLogManager(nameOfLogStream,
-            ClientSharingOption.SharedZKClientPerStreamBKClient,
-            streamConfiguration,
-            dynamicStreamConfiguration);
-    }
-
-
-    /**
-     * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
-     * used by the factory.
-     *
-     * @param nameOfLogStream
-     *          name of log stream.
-     * @return distributedlog manager instance.
-     * @throws IOException
-     * @throws IllegalArgumentException
-     */
-    @Deprecated
     public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream)
-        throws IOException, IllegalArgumentException {
-        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
-        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
-        return createDistributedLogManager(nameOfLogStream,
-            ClientSharingOption.SharedClients,
-            streamConfiguration,
-            dynamicStreamConfiguration);
-    }
-
-    /**
-     * Create a DistributedLogManager as <i>nameOfLogStream</i>, which shared the zookeeper & bookkeeper builder
-     * used by the factory. Override whitelisted stream-level configuration settings with settings found in
-     * <i>streamConfiguration</i>.
-     *
-     * @param nameOfLogStream
-     *          name of log stream.
-     * @param streamConfiguration
-     *          stream configuration overrides.
-     * @return distributedlog manager instance.
-     * @throws IOException
-     * @throws IllegalArgumentException
-     */
-    @Deprecated
-    public DistributedLogManager createDistributedLogManagerWithSharedClients(String nameOfLogStream, DistributedLogConfiguration streamConfiguration)
-        throws IOException, IllegalArgumentException {
-        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
-        return createDistributedLogManager(nameOfLogStream,
-            ClientSharingOption.SharedClients,
-            Optional.of(streamConfiguration),
-            dynamicStreamConfiguration);
+        throws InvalidStreamNameException, IOException {
+        return createDistributedLogManager(nameOfLogStream, ClientSharingOption.SharedClients);
     }
 
     /**
@@ -593,13 +506,13 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @param clientSharingOption
      *          specifies if the ZK/BK clients are shared
      * @return distributedlog manager instance.
+     * @throws com.twitter.distributedlog.exceptions.InvalidStreamNameException if stream name is invalid
      * @throws IOException
-     * @throws IllegalArgumentException
      */
     public DistributedLogManager createDistributedLogManager(
             String nameOfLogStream,
             ClientSharingOption clientSharingOption)
-        throws IOException, IllegalArgumentException {
+        throws InvalidStreamNameException, IOException {
         Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
         Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
         return createDistributedLogManager(nameOfLogStream,
@@ -624,20 +537,20 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
      * @param dynamicStreamConfiguration
      *          dynamic stream configuration overrides.
      * @return distributedlog manager instance.
+     * @throws com.twitter.distributedlog.exceptions.InvalidStreamNameException if stream name is invalid
      * @throws IOException
-     * @throws IllegalArgumentException
      */
     public DistributedLogManager createDistributedLogManager(
             String nameOfLogStream,
             ClientSharingOption clientSharingOption,
             Optional<DistributedLogConfiguration> streamConfiguration,
             Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration)
-        throws IOException, IllegalArgumentException {
-
+        throws InvalidStreamNameException, IOException {
         // Make sure the name is well formed
         DistributedLogManagerFactory.validateName(nameOfLogStream);
 
-        DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
+        DistributedLogConfiguration mergedConfiguration = new DistributedLogConfiguration();
+        mergedConfiguration.addConfiguration(conf);
         mergedConfiguration.loadStreamConf(streamConfiguration);
 
         // If dynamic config was not provided, default to a static view of the global configuration.
@@ -645,7 +558,7 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (dynamicStreamConfiguration.isPresent()) {
             dynConf = dynamicStreamConfiguration.get();
         } else {
-            dynConf = getConstDynConf(mergedConfiguration);
+            dynConf = ConfUtils.getConstDynConf(mergedConfiguration);
         }
 
         ZooKeeperClientBuilder writerZKCBuilderForDL = null;
@@ -693,25 +606,42 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
                 break;
         }
 
-        BKDistributedLogManager distLogMgr = new BKDistributedLogManager(
-            nameOfLogStream, mergedConfiguration, dynConf, namespace,
-            writerZKCBuilderForDL, readerZKCBuilderForDL,                       /* dl zks */
-            writerZKCForBK, readerZKCForBK, writerBKCBuilder, readerBKCBuilder, /* bk zks & bks */
-            scheduler, readAheadExecutor, lockStateExecutor,
-            channelFactory, requestTimer, readAheadExceptionsLogger,
-            featureProvider.scope("dl"), statsLogger);
-        distLogMgr.setClientId(clientId);
-        distLogMgr.setRegionId(regionId);
-        distLogMgr.setWriteLimiter(writeLimiter);
-
-        if (clientSharingOption == ClientSharingOption.SharedClients) {
-            distLogMgr.setLedgerAllocator(allocator);
-            distLogMgr.setLogSegmentRollingPermitManager(logSegmentRollingPermitManager);
+        LedgerAllocator dlmLedgerAlloctor = null;
+        PermitManager dlmLogSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
+        if (ClientSharingOption.SharedClients == clientSharingOption) {
+            dlmLedgerAlloctor = this.allocator;
+            dlmLogSegmentRollingPermitManager = this.logSegmentRollingPermitManager;
         }
-        return distLogMgr;
+
+        return new BKDistributedLogManager(
+                nameOfLogStream,                    /* Log Name */
+                mergedConfiguration,                /* Configuration */
+                dynConf,                            /* Dynamic Configuration */
+                namespace,                          /* Namespace */
+                writerZKCBuilderForDL,              /* ZKC Builder for DL Writer */
+                readerZKCBuilderForDL,              /* ZKC Builder for DL Reader */
+                writerZKCForBK,                     /* ZKC for BookKeeper for DL Writers */
+                readerZKCForBK,                     /* ZKC for BookKeeper for DL Readers */
+                writerBKCBuilder,                   /* BookKeeper Builder for DL Writers */
+                readerBKCBuilder,                   /* BookKeeper Builder for DL Readers */
+                scheduler,                          /* DL scheduler */
+                readAheadExecutor,                  /* Read Aheader Executor */
+                lockStateExecutor,                  /* Lock State Executor */
+                channelFactory,                     /* Netty Channel Factory */
+                requestTimer,                       /* Request Timer */
+                readAheadExceptionsLogger,          /* ReadAhead Exceptions Logger */
+                clientId,                           /* Client Id */
+                regionId,                           /* Region Id */
+                dlmLedgerAlloctor,                  /* Ledger Allocator */
+                writeLimiter,                       /* Write Limiter */
+                dlmLogSegmentRollingPermitManager,  /* Log segment rolling limiter */
+                featureProvider.scope("dl"),        /* Feature Provider */
+                statsLogger                         /* Stats Logger */
+        );
     }
 
-    public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode) throws IOException, IllegalArgumentException {
+    public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode)
+            throws InvalidStreamNameException, IOException {
         DistributedLogManagerFactory.validateName(nameOfMetadataNode);
         return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace,
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, statsLogger);
@@ -767,16 +697,6 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         });
     }
 
-    @Deprecated
-    public static DistributedLogManager createDistributedLogManager(String name, URI uri) throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(name, new DistributedLogConfiguration(), uri);
-    }
-
-    private static DynamicDistributedLogConfiguration getConstDynConf(DistributedLogConfiguration conf) {
-        ConcurrentConstConfiguration constConf = new ConcurrentConstConfiguration(conf);
-        return new DynamicDistributedLogConfiguration(constConf, constConf);
-    }
-
     private static void validateInput(DistributedLogConfiguration conf, URI uri, String nameOfStream)
         throws IllegalArgumentException, InvalidStreamNameException {
         validateConfAndURI(conf, uri);
@@ -803,75 +723,6 @@ public class DistributedLogManagerFactory implements Watcher, AsyncCallback.Chil
         if (isReservedStreamName(nameOfStream)) {
             throw new InvalidStreamNameException(nameOfStream, "Stream Name is reserved");
         }
-    }
-
-    @Deprecated
-    public static DistributedLogManager createDistributedLogManager(
-            String name,
-            DistributedLogConfiguration conf,
-            URI uri)
-        throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(name, conf, uri, (ZooKeeperClientBuilder) null, (BookKeeperClientBuilder) null,
-                NullStatsLogger.INSTANCE);
-    }
-
-    @Deprecated
-    public static DistributedLogManager createDistributedLogManager(
-            String name,
-            DistributedLogConfiguration conf,
-            URI uri,
-            ZooKeeperClient zkc,
-            BookKeeperClient bkc)
-        throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
-                BookKeeperClientBuilder.newBuilder().bkc(bkc), NullStatsLogger.INSTANCE);
-    }
-
-    @Deprecated
-    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                                                                    ZooKeeperClient zkc, BookKeeperClient bkc, StatsLogger statsLogger)
-        throws IOException, IllegalArgumentException {
-        return createDistributedLogManager(name, conf, uri, ZooKeeperClientBuilder.newBuilder().zkc(zkc),
-                BookKeeperClientBuilder.newBuilder().bkc(bkc).statsLogger(statsLogger), statsLogger);
-    }
-
-    @Deprecated
-    public static DistributedLogManager createDistributedLogManager(String name, DistributedLogConfiguration conf, URI uri,
-                ZooKeeperClientBuilder zkcBuilder, BookKeeperClientBuilder bkcBuilder, StatsLogger statsLogger)
-        throws IOException, IllegalArgumentException {
-        validateInput(conf, uri, name);
-        return new BKDistributedLogManager(name, conf, getConstDynConf(conf), uri, zkcBuilder, zkcBuilder,
-                null, null, bkcBuilder, bkcBuilder, new SettableFeatureProvider("", 0), statsLogger);
-    }
-
-    @Deprecated
-    public static MetadataAccessor createMetadataAccessor(
-            String name,
-            URI uri,
-            DistributedLogConfiguration conf)
-        throws IOException, IllegalArgumentException {
-        return createMetadataAccessor(name, uri, conf, (ZooKeeperClientBuilder) null);
-    }
-
-    @Deprecated
-    public static MetadataAccessor createMetadataAccessor(
-            String name,
-            URI uri,
-            DistributedLogConfiguration conf,
-            ZooKeeperClient zkc)
-        throws IOException, IllegalArgumentException {
-        return createMetadataAccessor(name, uri, conf, ZooKeeperClientBuilder.newBuilder().zkc(zkc));
-    }
-
-    @Deprecated
-    public static MetadataAccessor createMetadataAccessor(
-            String name,
-            URI uri,
-            DistributedLogConfiguration conf,
-            ZooKeeperClientBuilder zkcBuilder)
-        throws IOException, IllegalArgumentException {
-        validateInput(conf, uri, name);
-        return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder, NullStatsLogger.INSTANCE);
     }
 
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)

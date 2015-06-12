@@ -1,6 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.util.PermitLimiter;
+import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.io.FileUtils;
@@ -91,7 +96,43 @@ public class TestDistributedLogBase {
 
     public DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name) throws Exception {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
+        URI uri = createDLMURI("/" + name);
+
+        return new BKDistributedLogManager(
+                name,
+                conf,
+                uri,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new SettableFeatureProvider("", 0),
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                NullStatsLogger.INSTANCE
+        );
+    }
+
+    public DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
+                                              String name,
+                                              PermitLimiter writeLimiter)
+            throws Exception {
+        URI uri = createDLMURI("/" + name);
+        return new BKDistributedLogManager(
+                name,
+                conf,
+                uri,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new SettableFeatureProvider("", 0),
+                writeLimiter,
+                NullStatsLogger.INSTANCE
+        );
     }
 
     public DLMTestUtil.BKLogPartitionWriteHandlerAndClients createNewBKDLM(

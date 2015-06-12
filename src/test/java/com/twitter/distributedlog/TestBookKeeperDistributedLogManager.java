@@ -27,7 +27,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -41,11 +40,11 @@ import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -1984,7 +1983,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         DistributedLogManager dlm = null;
         AsyncLogWriter writer = null;
         try {
-            dlm = factory.createDistributedLogManager(streamName);
+            dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
             writer = dlm.startAsyncLogSegmentNonPartitioned();
             fail("should have thrown");
         } catch (InvalidStreamNameException e) {

@@ -1455,10 +1455,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 LOG.trace("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
                                           new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
                             }
-                            boolean callbackImmediately;
                             switch(ReadLACOption.values()[conf.getReadLACOption()]) {
                                 case LONGPOLL:
-                                    LOG.warn("Using deprecated option, falling back to {}", ReadLACOption.READENTRYPIGGYBACK_PARALLEL);
+                                    // Using deprecated option, falling back to read_entry_piggyback
                                 case READENTRYPIGGYBACK_PARALLEL:
                                     issueReadLastConfirmedAndEntry(true, lastAddConfirmed);
                                     break;

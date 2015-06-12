@@ -2,7 +2,6 @@ package com.twitter.distributedlog.auditor;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-
 import com.google.common.util.concurrent.SettableFuture;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;

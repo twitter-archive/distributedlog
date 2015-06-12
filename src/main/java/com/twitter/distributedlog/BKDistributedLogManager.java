@@ -17,6 +17,7 @@ import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionsStore;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.MonitoredFuturePool;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
@@ -83,14 +84,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 }
             };
 
-    private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
-    private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
+
+    private final String clientId;
+    private final int regionId;
     private final DistributedLogConfiguration conf;
     private final DynamicDistributedLogConfiguration dynConf;
     private boolean closed = true;
     private final OrderedScheduler scheduler;
     private final ScheduledExecutorService readAheadExecutor;
     private boolean ownExecutor;
+    private final FeatureProvider featureProvider;
+    private final StatsLogger statsLogger;
+    private final AlertStatsLogger alertStatsLogger;
 
     // bookkeeper clients
     // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
@@ -103,29 +108,31 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final BookKeeperClientBuilder readerBKCBuilder;
     private final BookKeeperClient readerBKC;
     private final boolean ownReaderBKC;
-    private final FeatureProvider featureProvider;
-    private final StatsLogger statsLogger;
-    private LedgerAllocator ledgerAllocator = null;
-    // Log Segment Rolling Manager to control rolling speed
-    private PermitManager logSegmentRollingPermitManager = PermitManager.UNLIMITED_PERMIT_MANAGER;
-    // read handler for listener.
-    private BKLogPartitionReadHandler readHandlerForListener = null;
-    private ExecutorService orderedFuturePoolExecutorService = null;
-    private FuturePool orderedFuturePool = null;
-    private FuturePool readerFuturePool = null;
-    private OrderedSafeExecutor lockStateExecutor;
 
-    private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
-    private final AlertStatsLogger alertStatsLogger;
+    //
+    // Writer Related Variables
+    //
+    private final LedgerAllocator ledgerAllocator;
+    private final PermitLimiter writeLimiter;
+    // Log Segment Rolling Manager to control rolling speed
+    private final PermitManager logSegmentRollingPermitManager;
+    private ExecutorService writerFuturePoolExecutorService = null;
+    private FuturePool writerFuturePool = null;
+    private OrderedSafeExecutor lockStateExecutor = null;
+    // writer stats
     private final OpStatsLogger createWriteHandlerStats;
 
-    final private PendingReaders pendingReaders;
-
-    private PermitLimiter writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
+    //
+    // Reader Related Variables
+    ///
+    // read handler for listener.
+    private BKLogPartitionReadHandler readHandlerForListener = null;
+    private FuturePool readerFuturePool = null;
+    private final PendingReaders pendingReaders;
+    private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
 
     BKDistributedLogManager(String name,
                             DistributedLogConfiguration conf,
-                            DynamicDistributedLogConfiguration dynConf,
                             URI uri,
                             ZooKeeperClientBuilder writerZKCBuilder,
                             ZooKeeperClientBuilder readerZKCBuilder,
@@ -134,12 +141,31 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
                             FeatureProvider featureProvider,
+                            PermitLimiter writeLimiter,
                             StatsLogger statsLogger) throws IOException {
-        this(name, conf, dynConf, uri,
-             writerZKCBuilder, readerZKCBuilder,
-             zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
+        this(name,
+             conf,
+             ConfUtils.getConstDynConf(conf),
+             uri,
+             writerZKCBuilder,
+             readerZKCBuilder,
+             zkcForWriterBKC,
+             zkcForReaderBKC,
+             writerBKCBuilder,
+             readerBKCBuilder,
              OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
-             null, null, null, null, new ReadAheadExceptionsLogger(statsLogger), featureProvider, statsLogger);
+             null,
+             null,
+             null,
+             null,
+             new ReadAheadExceptionsLogger(statsLogger),
+             DistributedLogConstants.UNKNOWN_CLIENT_ID,
+             DistributedLogConstants.LOCAL_REGION_ID,
+             null,
+             writeLimiter,
+             PermitManager.UNLIMITED_PERMIT_MANAGER,
+             featureProvider,
+             statsLogger);
         this.ownExecutor = true;
     }
 
@@ -159,18 +185,28 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ClientSocketChannelFactory channelFactory,
                             HashedWheelTimer requestTimer,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
+                            String clientId,
+                            Integer regionId,
+                            LedgerAllocator ledgerAllocator,
+                            PermitLimiter writeLimiter,
+                            PermitManager logSegmentRollingPermitManager,
                             FeatureProvider featureProvider,
                             StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder, statsLogger);
         Preconditions.checkNotNull(readAheadExceptionsLogger, "No ReadAhead Stats Logger Provided.");
         this.conf = conf;
+        this.dynConf = dynConf;
         this.scheduler = scheduler;
         this.lockStateExecutor = lockStateExecutor;
         this.readAheadExecutor = null == readAheadExecutor ? scheduler : readAheadExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
         this.pendingReaders = new PendingReaders();
-        this.dynConf = dynConf;
+        this.regionId = regionId;
+        this.clientId = clientId;
+        this.ledgerAllocator = ledgerAllocator;
+        this.writeLimiter = writeLimiter;
+        this.logSegmentRollingPermitManager = logSegmentRollingPermitManager;
 
         // create the bkc for writers
         if (null == writerBKCBuilder) {
@@ -381,36 +417,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return writeHandler;
     }
 
-    public String getClientId() {
-        return clientId;
-    }
-
-    public void setClientId(String clientId) {
-        this.clientId = clientId;
-    }
-
-    int getRegionId() {
-        return regionId;
-    }
-
-    void setRegionId(int regionId) {
-        this.regionId = regionId;
-    }
-
-    public synchronized void setLedgerAllocator(LedgerAllocator allocator) {
-        this.ledgerAllocator = allocator;
-    }
-
     PermitManager getLogSegmentRollingPermitManager() {
         return logSegmentRollingPermitManager;
-    }
-
-    void setLogSegmentRollingPermitManager(PermitManager manager) {
-        this.logSegmentRollingPermitManager = manager;
-    }
-
-    void setWriteLimiter(PermitLimiter limiter) {
-        this.writeLimiter = limiter;
     }
 
     /**
@@ -501,7 +509,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
             // proactively recover incomplete logsegments for async log writer
             writer = new BKUnPartitionedAsyncLogWriter(
-                    conf, dynConf, this, orderedFuturePool, featureProvider, statsLogger);
+                    conf, dynConf, this, writerFuturePool, featureProvider, statsLogger);
         }
         return writer.recover();
     }
@@ -1119,8 +1127,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL Lock State Executor for {}.", name);
         } else {
-            if (null != orderedFuturePoolExecutorService) {
-                SchedulerUtils.shutdownScheduler(orderedFuturePoolExecutorService, schedTimeout, TimeUnit.MILLISECONDS);
+            if (null != writerFuturePoolExecutorService) {
+                SchedulerUtils.shutdownScheduler(writerFuturePoolExecutorService, schedTimeout, TimeUnit.MILLISECONDS);
                 LOG.info("Stopped Ordered Future Pool for {}.", name);
             }
         }
@@ -1157,22 +1165,22 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     private void initializeFuturePool(boolean ordered) {
-        // Note for orderedFuturePool:
+        // Note for writerFuturePool:
         // Single Threaded Future Pool inherently preserves order by tasks one by one
         //
         if (ownExecutor) {
             // ownExecutor is a single threaded thread pool
-            if (null == orderedFuturePool) {
-                // Readers share the same future pool as the orderedFuturePool
-                orderedFuturePool = buildFuturePool(scheduler);
-                readerFuturePool = orderedFuturePool;
+            if (null == writerFuturePool) {
+                // Readers share the same future pool as the writerFuturePool
+                writerFuturePool = buildFuturePool(scheduler);
+                readerFuturePool = writerFuturePool;
             }
-        } else if (ordered && (null == orderedFuturePool)) {
+        } else if (ordered && (null == writerFuturePool)) {
             // When we are using a thread pool that was passed from the factory, we can use
             // the executor service
-            orderedFuturePoolExecutorService = Executors.newScheduledThreadPool(1,
+            writerFuturePoolExecutorService = Executors.newScheduledThreadPool(1,
                 new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build());
-            orderedFuturePool = buildFuturePool(orderedFuturePoolExecutorService);
+            writerFuturePool = buildFuturePool(writerFuturePoolExecutorService);
         } else if (!ordered && (null == readerFuturePool)) {
             // readerFuturePool can just use the executor service that was configured with the DLM
             readerFuturePool = buildFuturePool(scheduler);

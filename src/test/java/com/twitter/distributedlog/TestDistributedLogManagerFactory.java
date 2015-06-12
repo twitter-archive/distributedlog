@@ -154,13 +154,14 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         dlm.close();
 
         try {
-            DistributedLogManagerFactory.createDistributedLogManager(".test2", uri);
+            factory.createDistributedLogManagerWithSharedClients(".test2");
             fail("Should fail to create invalid stream .test");
         } catch (InvalidStreamNameException isne) {
             // expected
         }
 
-        DistributedLogManager newDLM = DistributedLogManagerFactory.createDistributedLogManager("test2", uri);
+        DistributedLogManager newDLM =
+                factory.createDistributedLogManagerWithSharedClients("test2");
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
         newWriter.write(DLMTestUtil.getLogRecordInstance(1));
         newWriter.close();

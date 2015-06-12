@@ -1,5 +1,8 @@
 package com.twitter.distributedlog.util;
 
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import org.apache.commons.configuration.Configuration;
 
 import java.util.Iterator;
@@ -25,5 +28,17 @@ public class ConfUtils {
                 targetConf.setProperty(key.substring(section.length()), srcConf.getProperty(key));
             }
         }
+    }
+
+    /**
+     * Create const dynamic configuration based on distributedlog configuration.
+     *
+     * @param conf
+     *          static distributedlog configuration.
+     * @return dynamic configuration
+     */
+    public static DynamicDistributedLogConfiguration getConstDynConf(DistributedLogConfiguration conf) {
+        ConcurrentConstConfiguration constConf = new ConcurrentConstConfiguration(conf);
+        return new DynamicDistributedLogConfiguration(constConf, constConf);
     }
 }

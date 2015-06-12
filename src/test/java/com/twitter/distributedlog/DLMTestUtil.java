@@ -91,14 +91,18 @@ public class DLMTestUtil {
         return createNewBKDLM(new PartitionId(0), conf, path, port);
     }
 
-    public static DistributedLogManager createNewDLM(String name, DistributedLogConfiguration conf,
+    public static DistributedLogManager createNewDLM(String name,
+                                                     DistributedLogConfiguration conf,
                                                      URI uri) throws Exception {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, uri);
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        return factory.createDistributedLogManagerWithSharedClients(name);
     }
 
     static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,
-                                                      String name, URI uri) throws Exception {
-        return DistributedLogManagerFactory.createMetadataAccessor(name, uri, conf);
+                                                      String name,
+                                                      URI uri) throws Exception {
+        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        return factory.createMetadataAccessor(name);
     }
 
     public static class BKLogPartitionWriteHandlerAndClients {
