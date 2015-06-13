@@ -115,8 +115,6 @@ class BKLogPartitionWriteHandlerZK34 extends BKLogPartitionWriteHandler {
 
     // Transactional operations for logsegment
     void tryWrite(Transaction txn, List<ACL> acl, LogSegmentLedgerMetadata metadata, String path) {
-        int writeVersion = getCompleteLogSegmentVersion(metadata);
-
         byte[] finalisedData = metadata.getFinalisedData().getBytes(UTF_8);
         txn.create(path, finalisedData, acl, CreateMode.PERSISTENT);
     }

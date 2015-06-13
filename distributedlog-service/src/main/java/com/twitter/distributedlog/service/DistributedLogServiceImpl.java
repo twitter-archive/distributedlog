@@ -744,6 +744,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             this.status = StreamStatus.INITIALIZING;
                             acquiredStreams.remove(name, this);
                             needAcquire = true;
+                            break;
                         case BACKOFF:
                             // We may end up here after timeout on streamLock. To avoid acquire on every timeout
                             // we should only try again if a write has been attempted since the last acquire
@@ -927,10 +928,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             final DLException dle = (DLException) cause;
                             switch (dle.getCode()) {
                             case FOUND:
+                                assert(cause instanceof OwnershipAcquireFailedException);
                                 countAsException = false;
                                 handleOwnershipAcquireFailedException(op, (OwnershipAcquireFailedException) cause);
                                 break;
                             case ALREADY_CLOSED:
+                                assert(cause instanceof AlreadyClosedException);
                                 op.fail(null, cause);
                                 handleAlreadyClosedException((AlreadyClosedException) cause);
                                 break;

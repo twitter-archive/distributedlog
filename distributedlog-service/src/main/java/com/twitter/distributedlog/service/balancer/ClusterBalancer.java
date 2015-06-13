@@ -15,6 +15,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -83,7 +84,9 @@ public class ClusterBalancer implements Balancer {
         }
     }
 
-    static class HostComparator implements Comparator<Host> {
+    static class HostComparator implements Comparator<Host>, Serializable {
+        private static final long serialVersionUID = 7984973796525102538L;
+
         @Override
         public int compare(Host h1, Host h2) {
             return h2.streams.size() - h1.streams.size();

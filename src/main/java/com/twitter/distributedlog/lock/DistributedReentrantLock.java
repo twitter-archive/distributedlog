@@ -350,17 +350,17 @@ public class DistributedReentrantLock {
     void doRelease(LockReason reason, boolean exceptionOnUnbalancedHandling) {
         LOG.trace("Lock Release {}, {}", lockPath, reason);
         int perReasonLockCount = lockAcqTracker.decrementAndGet(reason.value);
-        if ((perReasonLockCount < 0) && logUnbalancedWarning) {
-            LOG.warn("Unbalanced lock handling for {} type {}, lockCount is {} ",
-                new Object[]{lockPath, reason, perReasonLockCount});
-            if (exceptionOnUnbalancedHandling) {
-                throw new IllegalStateException(
-                    String.format("Unbalanced lock handling for %s type %s, lockCount is %s",
-                        lockPath, reason, perReasonLockCount));
-            }
-        }
         Future<BoxedUnit> unlockFuture = Future.Done();
         synchronized (this) {
+            if ((perReasonLockCount < 0) && logUnbalancedWarning) {
+                LOG.warn("Unbalanced lock handling for {} type {}, lockCount is {} ",
+                    new Object[]{lockPath, reason, perReasonLockCount});
+                if (exceptionOnUnbalancedHandling) {
+                    throw new IllegalStateException(
+                        String.format("Unbalanced lock handling for %s type %s, lockCount is %s",
+                            lockPath, reason, perReasonLockCount));
+                }
+            }
             if (lockCount.decrementAndGet() <= 0) {
                 if (logUnbalancedWarning && (lockCount.get() < 0)) {
                     LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",

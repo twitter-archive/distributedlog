@@ -70,7 +70,7 @@ public class SimpleBalancer implements Balancer {
                     new Object[] {target1, streamCount1, proxyCount1, target2, streamCount2, proxyCount2 });
 
         String source, target;
-        Map<SocketAddress, Set<String>> srcDistribution, targetDistribution;
+        Map<SocketAddress, Set<String>> srcDistribution;
         DistributedLogClient srcClient, targetClient;
         MonitorServiceClient srcMonitor, targetMonitor;
         int srcStreamCount, targetStreamCount;
@@ -85,7 +85,6 @@ public class SimpleBalancer implements Balancer {
             targetStreamCount = streamCount2;
             targetClient = targetClient2;
             targetMonitor = targetMonitor2;
-            targetDistribution = distribution2;
         } else {
             source = target2;
             srcStreamCount = streamCount2;
@@ -97,7 +96,6 @@ public class SimpleBalancer implements Balancer {
             targetStreamCount = streamCount1;
             targetClient = targetClient1;
             targetMonitor = targetMonitor1;
-            targetDistribution = distribution1;
         }
 
         Map<String, Integer> loadDistribution = new HashMap<String, Integer>();

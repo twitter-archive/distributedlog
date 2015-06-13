@@ -177,9 +177,9 @@ public class EnvelopedEntry {
     }
 
     public static class Header {
-        public static int COMPRESSION_CODEC_MASK = 0x3;
-        public static int COMPRESSION_CODEC_NONE = 0x0;
-        public static int COMPRESSION_CODEC_LZ4 = 0x1;
+        public static final int COMPRESSION_CODEC_MASK = 0x3;
+        public static final int COMPRESSION_CODEC_NONE = 0x0;
+        public static final int COMPRESSION_CODEC_LZ4 = 0x1;
 
         private int flags = 0;
         private int decompressedSize = 0;

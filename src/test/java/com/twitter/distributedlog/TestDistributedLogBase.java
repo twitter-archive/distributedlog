@@ -97,7 +97,6 @@ public class TestDistributedLogBase {
     public DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name) throws Exception {
         URI uri = createDLMURI("/" + name);
-
         return new BKDistributedLogManager(
                 name,
                 conf,

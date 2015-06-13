@@ -58,7 +58,7 @@ public class LocalDLMEmulator {
      * Try to start zookkeeper locally on any port.
      */
     public static Pair<ZooKeeperServerShim, Integer> runZookeeperOnAnyPort(File zkDir) throws Exception {
-        return runZookeeperOnAnyPort((int) Math.random()*10000+7000, zkDir);
+        return runZookeeperOnAnyPort((int) (Math.random()*10000+7000), zkDir);
     }
 
     /**

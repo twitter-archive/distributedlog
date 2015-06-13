@@ -563,7 +563,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
         LOG.info("Closing BKPerStreamLogWriter for {} lastDLSN = {} outstandingTransmits = {} " +
             "writesPendingTransmit = {} addCompletesPending = {}", new Object[] { fullyQualifiedLogSegment,
-            lastDLSN, outstandingTransmits.get(), getWritesPendingTransmit(), getPendingAddCompleteCount() });
+            getLastDLSN(), outstandingTransmits.get(), getWritesPendingTransmit(), getPendingAddCompleteCount() });
 
         // Save the current packet to reset, leave a new empty packet to avoid a race with
         // addCompleteDeferredProcessing.
@@ -1283,7 +1283,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         return positionWithinLogSegment;
     }
 
-    public DLSN getLastDLSN() {
+    public synchronized DLSN getLastDLSN() {
         return lastDLSN;
     }
 

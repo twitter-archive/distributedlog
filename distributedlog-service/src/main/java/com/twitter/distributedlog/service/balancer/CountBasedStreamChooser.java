@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service.balancer;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.tuple.Pair;
 
+import java.io.Serializable;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,7 +13,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-class CountBasedStreamChooser implements StreamChooser, Comparator<Pair<SocketAddress, LinkedList<String>>> {
+class CountBasedStreamChooser implements StreamChooser, Serializable,
+        Comparator<Pair<SocketAddress, LinkedList<String>>> {
+
+    private static final long serialVersionUID = 4664153397369979203L;
 
     final List<Pair<SocketAddress, LinkedList<String>>> streamsDistribution;
 

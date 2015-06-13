@@ -2,11 +2,15 @@ package com.twitter.distributedlog.tools;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -875,13 +879,13 @@ public class DistributedLogTool extends Tool {
 
         private void printHeader(DistributedLogManager dlm, PartitionId pid) throws Exception {
             DLSN firstDlsn = null == pid ? Await.result(dlm.getFirstDLSNAsync()) : DLSN.InvalidDLSN;
-            boolean endOfStreamMarked = null == pid ? dlm.isEndOfStreamMarked() : false;
+            boolean endOfStreamMarked = null == pid && dlm.isEndOfStreamMarked();
             DLSN lastDlsn = null == pid ? dlm.getLastDLSN() : dlm.getLastDLSN(pid);
             long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
             long lastTxnId = null == pid ? dlm.getLastTxId() : dlm.getLastTxId(pid);
             long recordCount = null == pid ? dlm.getLogRecordCount() : dlm.getLogRecordCount(pid);
-            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b)",
-                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked);
+            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b, recordCount=%d)",
+                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked, recordCount);
             println(result);
             if (listEppStats) {
                 printEppStatsHeader(dlm);
@@ -1111,7 +1115,9 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("lf")) {
                 BufferedReader br = null;
                 try {
-                    br = new BufferedReader(new FileReader(new File(cmdline.getOptionValue("lf"))));
+
+                    br = new BufferedReader(new InputStreamReader(
+                            new FileInputStream(new File(cmdline.getOptionValue("lf"))), UTF_8.name()));
                     String line;
                     while ((line = br.readLine()) != null) {
                         ledgers.add(Long.parseLong(line));
@@ -1671,7 +1677,6 @@ public class DistributedLogTool extends Tool {
 
         final List<Long> ledgers = new ArrayList<Long>();
         boolean query = false;
-        boolean force = false;
         boolean dryrun = false;
         boolean skipOpenLedgers = false;
         boolean fenceOnly = false;
@@ -1687,7 +1692,6 @@ public class DistributedLogTool extends Tool {
             options.addOption("lf", "ledgerfile", true, "File contains ledgers list");
             options.addOption("q", "query", false, "Query the ledgers that contain given bookies");
             options.addOption("d", "dryrun", false, "Print the recovery plan w/o actually recovering");
-            options.addOption("f", "force", false, "Force recovery without confirmation");
             options.addOption("cy", "concurrency", true, "Number of ledgers could be recovered in parallel");
             options.addOption("sk", "skipOpenLedgers", false, "Skip recovering open ledgers");
             options.addOption("p", "partition", true, "partition");
@@ -1717,7 +1721,8 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("lf")) {
                 String file = cmdline.getOptionValue("lf");
                 try {
-                    BufferedReader br = new BufferedReader(new FileReader(file));
+                    BufferedReader br = new BufferedReader(
+                            new InputStreamReader(new FileInputStream(file), UTF_8.name()));
                     try {
                         String line = br.readLine();
 
@@ -1728,7 +1733,7 @@ public class DistributedLogTool extends Tool {
                     } finally {
                         br.close();
                     }
-                } catch (Exception e) {
+                } catch (IOException e) {
                     throw new ParseException("Invalid ledgers file provided : " + file);
                 }
             }
@@ -2082,9 +2087,6 @@ public class DistributedLogTool extends Tool {
 
         int metadataVersion = LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
-        long startEntryId = 0L;
-        int numEntries = 100;
-
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
             options.addOption("x", "hex", false, "Print record in hex format");
@@ -2371,8 +2373,8 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        void dumpLedgers(Set<Long> ledgers, File targetFile) throws Exception{
-            PrintWriter pw = new PrintWriter(new FileWriter(targetFile));
+        void dumpLedgers(Set<Long> ledgers, File targetFile) throws Exception {
+            PrintWriter pw = new PrintWriter(new OutputStreamWriter(new FileOutputStream(targetFile), UTF_8.name()));
             try {
                 for (Long ledger : ledgers) {
                     pw.println(ledger);

@@ -209,7 +209,7 @@ public class DistributedLogServer implements Runnable {
         if (thriftmux) {
             logger.info("Using thriftmux.");
             Tuple2<Transport.Liveness, Stack.Param<Transport.Liveness>> livenessParam = new Transport.Liveness(
-                    Duration.Top(), Duration.Top(), Option.apply((Object) new Boolean(true))).mk();
+                    Duration.Top(), Duration.Top(), Option.apply((Object) Boolean.valueOf(true))).mk();
             serverBuilder = serverBuilder.stack(ThriftMuxServer$.MODULE$.configured(livenessParam._1(), livenessParam._2()));
         }
 
