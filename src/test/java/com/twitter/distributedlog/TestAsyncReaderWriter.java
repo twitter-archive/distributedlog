@@ -562,8 +562,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                         threadToInterrupt.interrupt();
                     }
                     synchronized (syncLatch) {
-                        syncLatch.countDown();
                         readCount.incrementAndGet();
+                        syncLatch.countDown();
                     }
                     LOG.debug("SyncLatch: " + syncLatch.getCount());
                     if(0 == syncLatch.getCount()) {
@@ -1693,6 +1693,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
 
         try {
+            // insert a write to detect the fencing state, to make test more robust.
+            writer.write(DLMTestUtil.getLogRecordInstance(txId++));
             writer.closeAndComplete();
             fail("Should fail to complete a log segment when its ledger is fenced");
         } catch (IOException ioe) {
