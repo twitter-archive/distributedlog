@@ -339,6 +339,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC = "dynamicConfigReloadIntervalSec";
     public static final int BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT = 60;
+    public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS = "streamConfigRouterClass";
+    public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT = "com.twitter.distributedlog.service.config.IdentityConfigRouter";
 
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
@@ -2426,6 +2428,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
         setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
+        return this;
+    }
+
+    /**
+     * Get config router class which determines how stream name is mapped to configuration.
+     *
+     * @return config router class.
+     */
+    public String getStreamConfigRouterClass() {
+        return getString(BKDL_STREAM_CONFIG_ROUTER_CLASS, BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT);
+    }
+
+    /**
+     * Set config router class.
+     *
+     * @param routerClass
+     *          config router class.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setStreamConfigRouterClass(String routerClass) {
+        setProperty(BKDL_STREAM_CONFIG_ROUTER_CLASS, routerClass);
         return this;
     }
 }

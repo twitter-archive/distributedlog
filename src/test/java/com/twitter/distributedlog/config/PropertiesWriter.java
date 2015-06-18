@@ -7,18 +7,26 @@ import java.util.Properties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class PropertiesWriter {
+public class PropertiesWriter {
     static final Logger LOG = LoggerFactory.getLogger(PropertiesWriter.class);
 
     final FileOutputStream outputStream;
-    final File tempFile;
+    final File configFile;
     final Properties properties;
 
-    PropertiesWriter() throws Exception {
-        this.tempFile = File.createTempFile("temp", ".conf");
-        tempFile.deleteOnExit();
+    public PropertiesWriter() throws Exception {
+        this(null);
+    }
+
+    public PropertiesWriter(File configFile) throws Exception {
+        if (null == configFile) {
+            this.configFile = File.createTempFile("temp", ".conf");
+        } else {
+            this.configFile = configFile;
+        }
+        this.configFile.deleteOnExit();
         this.properties = new Properties();
-        this.outputStream = new FileOutputStream(tempFile);
+        this.outputStream = new FileOutputStream(this.configFile);
     }
 
     public void setProperty(String key, String value) {
@@ -30,13 +38,13 @@ class PropertiesWriter {
     }
 
     public void save() throws Exception {
-        FileOutputStream outputStream = new FileOutputStream(tempFile);
+        FileOutputStream outputStream = new FileOutputStream(configFile);
         properties.store(outputStream, null);
-        tempFile.setLastModified(tempFile.lastModified()+1000);
-        LOG.debug("save modified={}", tempFile.lastModified());
+        configFile.setLastModified(configFile.lastModified()+1000);
+        LOG.debug("save modified={}", configFile.lastModified());
     }
 
     public File getFile() {
-        return tempFile;
+        return configFile;
     }
 }

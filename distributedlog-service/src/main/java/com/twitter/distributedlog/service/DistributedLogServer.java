@@ -1,10 +1,17 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
+import com.twitter.distributedlog.service.config.DefaultStreamConfigProvider;
+import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
+import com.twitter.distributedlog.service.config.ServiceStreamConfigProvider;
+import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.finagle.Stack;
 import com.twitter.finagle.ThriftMuxServer$;
 import com.twitter.finagle.builder.Server;
@@ -39,6 +46,10 @@ import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import scala.Option;
 import scala.Tuple2;
@@ -89,12 +100,14 @@ public class DistributedLogServer implements Runnable {
     private StatsProvider statsProvider = null;
     private Announcer announcer = null;
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
+    private ScheduledExecutorService configExecutorService;
 
     DistributedLogServer(String[] args) {
         this.args = args;
         // prepare options
         options.addOption("u", "uri", true, "DistributedLog URI");
         options.addOption("c", "conf", true, "DistributedLog Configuration File");
+        options.addOption("sc", "stream-conf", true, "Per Stream Configuration Directory");
         options.addOption("s", "provider", true, "DistributedLog Stats Provider");
         options.addOption("p", "port", true, "DistributedLog Server Port");
         options.addOption("sp", "stats-port", true, "DistributedLog Stats Port");
@@ -118,13 +131,16 @@ public class DistributedLogServer implements Runnable {
         } catch (ParseException pe) {
             printUsage();
             Runtime.getRuntime().exit(-1);
+        } catch (ConfigurationException ce) {
+            printUsage();
+            Runtime.getRuntime().exit(-1);
         } catch (IOException ie) {
             logger.error("Failed to start distributedlog server : ", ie);
             Runtime.getRuntime().exit(-1);
         }
     }
 
-    void runCmd(CommandLine cmdline) throws ParseException, IOException {
+    void runCmd(CommandLine cmdline) throws ParseException, IOException, ConfigurationException {
         if (!cmdline.hasOption("u")) {
             throw new ParseException("No distributedlog uri provided.");
         }
@@ -168,9 +184,14 @@ public class DistributedLogServer implements Runnable {
 
         boolean thriftmux = cmdline.hasOption("mx");
 
+        configExecutorService = Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Dyncfg-%d").build());
+
+        StreamConfigProvider streamConfProvider = getStreamConfigProvider(cmdline, dlConf);
+
         Pair<DistributedLogServiceImpl, Server>
             serverPair = runServer(dlConf, uri, statsProvider, servicePort,
-                  keepAliveLatch, statsReceiver, thriftmux);
+                  keepAliveLatch, statsReceiver, thriftmux, streamConfProvider);
         this.dlService = serverPair.getLeft();
         this.server = serverPair.getRight();
 
@@ -178,20 +199,36 @@ public class DistributedLogServer implements Runnable {
         announcer.announce();
     }
 
+    private StreamConfigProvider getStreamConfigProvider(CommandLine cmdline, DistributedLogConfiguration dlConf)
+            throws ConfigurationException {
+        StreamConfigProvider streamConfProvider = new NullStreamConfigProvider();
+        if (cmdline.hasOption("sc")) {
+            String configPath = cmdline.getOptionValue("sc");
+            streamConfProvider = new ServiceStreamConfigProvider(configPath, dlConf.getStreamConfigRouterClass(),
+                    dlConf, configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
+        } else if (cmdline.hasOption("c")) {
+            String configFile = cmdline.getOptionValue("c");
+            streamConfProvider = new DefaultStreamConfigProvider(configFile, configExecutorService,
+                    dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
+        }
+        return streamConfProvider;
+    }
+
     static Pair<DistributedLogServiceImpl, Server> runServer(
             DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
         return runServer(dlConf, dlUri, provider, port,
-                         new CountDownLatch(0), new NullStatsReceiver(), false);
+                         new CountDownLatch(0), new NullStatsReceiver(), false, new NullStreamConfigProvider());
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
             DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port,
-            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver, boolean thriftmux) throws IOException {
+            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver, boolean thriftmux,
+            StreamConfigProvider streamConfProvider) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
 
         // dl service
         DistributedLogServiceImpl dlService =
-                new DistributedLogServiceImpl(dlConf, dlUri, provider.getStatsLogger(""), keepAliveLatch);
+                new DistributedLogServiceImpl(dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
         DistributedLogAdminService adminService = new DistributedLogAdminService(dlService);
         ServiceTracker.register(adminService);
@@ -247,6 +284,7 @@ public class DistributedLogServer implements Runnable {
             }
             announcer.close();
         }
+        SchedulerUtils.shutdownScheduler(configExecutorService, 60, TimeUnit.SECONDS);
         closeServer(Pair.of(dlService, server));
         if (statsProvider != null) {
             statsProvider.stop();

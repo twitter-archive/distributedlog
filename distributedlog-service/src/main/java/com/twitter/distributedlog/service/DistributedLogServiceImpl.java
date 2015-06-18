@@ -26,6 +26,7 @@ import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -697,8 +698,11 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         private DistributedLogManager createDistributedLogManager(String name) throws IOException {
             Optional<DistributedLogConfiguration> streamConfig =
                     Optional.<DistributedLogConfiguration>absent();
+            Optional<DynamicDistributedLogConfiguration> dynamicStreamConfig =
+                    streamConfigProvider.getDynamicStreamConfig(name);
+
             return dlFactory.createDistributedLogManager(name, CLIENT_SHARING_OPTION,
-                    streamConfig, dlDynamicConfig);
+                    streamConfig, dynamicStreamConfig);
         }
 
         // Expensive initialization, only called once per stream.
@@ -1322,8 +1326,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final boolean failFastOnStreamNotReady;
     private final HashedWheelTimer dlTimer;
     private long serviceTimeoutMs;
+    private final StreamConfigProvider streamConfigProvider;
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
+                              StreamConfigProvider streamConfigProvider,
                               URI uri,
                               StatsLogger statsLogger,
                               CountDownLatch keepAliveLatch)
@@ -1348,8 +1354,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 new ThreadFactoryBuilder().setNameFormat("DLService-timer-%d").build(),
                 dlConf.getTimeoutTimerTickDurationMs(),
                 TimeUnit.MILLISECONDS);
-
         this.serviceTimeoutMs = dlConf.getServiceTimeoutMs();
+        this.streamConfigProvider = streamConfigProvider;
 
         // Access Control Manager
         this.accessControlManager = this.dlFactory.createAccessControlManager();
