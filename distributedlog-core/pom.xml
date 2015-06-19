@@ -143,11 +143,6 @@
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.1</version>
-        <configuration>
-          <testExcludes>
-            <exclude>**/TestFailureScenarios.java</exclude>
-          </testExcludes>
-        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

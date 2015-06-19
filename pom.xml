@@ -37,11 +37,7 @@
     <module>distributedlog-protocol</module>
     <module>distributedlog-core</module>
     <module>distributedlog-client</module>
-    <module>distributedlog-proxy</module>
     <module>distributedlog-service</module>
-    <module>distributedlog-core-zk33</module>
-    <module>distributedlog-proxy-zk33</module>
-    <module>distributedlog-service-zk33</module>
     <module>distributedlog-benchmark</module>
   </modules>
   <properties>
