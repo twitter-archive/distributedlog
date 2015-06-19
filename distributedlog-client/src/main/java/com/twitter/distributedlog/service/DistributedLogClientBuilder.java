@@ -30,17 +30,12 @@ import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
 import com.twitter.finagle.Service;
 import com.twitter.finagle.ServiceException;
-import com.twitter.finagle.ServiceFactory;
-import com.twitter.finagle.ServiceFactoryWrapper$;
 import com.twitter.finagle.ServiceTimeoutException;
-import com.twitter.finagle.Stack;
 import com.twitter.finagle.ThriftMux;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
-import com.twitter.finagle.service.FailureAccrualFactory;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
-import com.twitter.finagle.ThriftMuxClient;
 import com.twitter.finagle.thrift.ClientId;
 import com.twitter.finagle.thrift.ThriftClientFramedCodec;
 import com.twitter.finagle.thrift.ThriftClientRequest;
@@ -988,14 +983,7 @@ public class DistributedLogClientBuilder {
             // client builder
             ClientBuilder builder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
             if (clientConfig.getThriftMux()) {
-                // Remove failure accrual factory from the thrift mux stack: https://jira.twitter.biz/browse/CSL-1852
-                builder = builder.stack(
-                    ThriftMux.client().withClientId(clientId).transformed(new Stack.Transformer() {
-                        @Override
-                        public <Req, Rep> Stack<ServiceFactory<Req, Rep>> apply(Stack<ServiceFactory<Req, Rep>> stack) {
-                            return stack.remove(FailureAccrualFactory.role());
-                        }
-                    }));
+                builder = builder.stack(ThriftMux.client().withClientId(clientId));
             }
             this.clientBuilder = builder;
             logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}, thriftmux = {}",
@@ -1071,7 +1059,7 @@ public class DistributedLogClientBuilder {
             return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                    .failFast(false)
-                   .failureAccrual(ServiceFactoryWrapper$.MODULE$.identity())
+                   .noFailureAccrual()
                    .keepAlive(true);
         }
 
