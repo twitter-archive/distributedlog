@@ -1,9 +1,9 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
-import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.zk.DataWithStat;
-import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 import org.junit.Rule;
 import org.junit.Test;
@@ -60,22 +60,22 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
                 .setImmediateFlushEnabled(true)
                 .setEnableLedgerAllocatorPool(true)
                 .setLedgerAllocatorPoolName("test");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
-        BKDistributedLogManager.createUnpartitionedStream(conf, factory.getSharedWriterZKCForDL(), uri, streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        namespace.createLog(streamName);
+        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
             BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
         dlm.close();
-        factory.close();
+        namespace.close();
     }
 
     /**
@@ -91,49 +91,49 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
                 .setImmediateFlushEnabled(true)
                 .setEnableLedgerAllocatorPool(true)
                 .setLedgerAllocatorPoolName("test");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
-        BKDistributedLogManager.createUnpartitionedStream(conf, factory.getSharedWriterZKCForDL(), uri, streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        namespace.createLog(streamName);
+        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
             BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
 
         // nuke the max ledger sequence number
-        updateMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
-        DistributedLogManager dlm1 = factory.createDistributedLogManagerWithSharedClients(streamName);
+        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
+        DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
             BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
             out1.write(DLMTestUtil.getLogRecordInstance(numSegments));
             out1.closeAndComplete();
-            MaxLedgerSequenceNo max3 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+            MaxLedgerSequenceNo max3 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
             assertEquals(4, max3.getSequenceNumber());
         } finally {
             dlm1.close();
         }
 
         // invalid max ledger sequence number
-        updateMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
-        DistributedLogManager dlm2 = factory.createDistributedLogManagerWithSharedClients(streamName);
+        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
+        DistributedLogManager dlm2 = namespace.openLog(streamName);
         try {
             BKUnPartitionedSyncLogWriter out2 = (BKUnPartitionedSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
             out2.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
             out2.closeAndComplete();
-            MaxLedgerSequenceNo max4 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+            MaxLedgerSequenceNo max4 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
             assertEquals(5, max4.getSequenceNumber());
         } finally {
             dlm2.close();
         }
 
         dlm.close();
-        factory.close();
+        namespace.close();
     }
 
     /**
@@ -149,25 +149,25 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
                 .setImmediateFlushEnabled(true)
                 .setEnableLedgerAllocatorPool(true)
                 .setLedgerAllocatorPoolName("test");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
-        BKDistributedLogManager.createUnpartitionedStream(conf, factory.getSharedWriterZKCForDL(), uri, streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        namespace.createLog(streamName);
+        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
             BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
 
         // update the max ledger sequence number
-        updateMaxLedgerSequenceNo(factory.getSharedWriterZKCForDL(), uri, streamName, conf, MaxLedgerSequenceNo.toBytes(99));
+        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, MaxLedgerSequenceNo.toBytes(99));
 
-        DistributedLogManager dlm1 = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
             BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
             out1.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
@@ -179,7 +179,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
             dlm1.close();
         }
 
-        DistributedLogManager dlm2 = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager dlm2 = namespace.openLog(streamName);
         List<LogSegmentLedgerMetadata> segments = dlm2.getLogSegments();
         try {
             assertEquals(3, segments.size());
@@ -191,7 +191,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         }
 
         dlm.close();
-        factory.close();
+        namespace.close();
     }
 
     @Test(timeout = 60000)
@@ -204,11 +204,11 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
                 .setImmediateFlushEnabled(true)
                 .setEnableLedgerAllocatorPool(true)
                 .setLedgerAllocatorPoolName("test");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder().conf(conf).uri(uri).build();
 
-        BKDistributedLogManager.createUnpartitionedStream(conf, factory.getSharedWriterZKCForDL(), uri, streamName);
-        DistributedLogManager dlm1 = factory.createDistributedLogManagerWithSharedClients(streamName);
-        DistributedLogManager dlm2 = factory.createDistributedLogManagerWithSharedClients(streamName);
+        namespace.createLog(streamName);
+        DistributedLogManager dlm1 = namespace.openLog(streamName);
+        DistributedLogManager dlm2 = namespace.openLog(streamName);
 
         // dlm1 is writing
         BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();

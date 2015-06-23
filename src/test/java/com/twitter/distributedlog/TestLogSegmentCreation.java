@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import java.net.URI;
 import java.util.List;
 
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,8 +25,9 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
                 .setImmediateFlushEnabled(true)
                 .setEnableLedgerAllocatorPool(true)
                 .setLedgerAllocatorPoolName("test");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(uri).build();
+        DistributedLogManager dlm = namespace.openLog(name);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
             BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
@@ -36,8 +39,8 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         LOG.info("Segments : {}", segments);
         assertEquals(3, segments.size());
 
-        final DistributedLogManager dlm1 = factory.createDistributedLogManagerWithSharedClients(name);
-        final DistributedLogManager dlm2 = factory.createDistributedLogManagerWithSharedClients(name);
+        final DistributedLogManager dlm1 = namespace.openLog(name);
+        final DistributedLogManager dlm2 = namespace.openLog(name);
 
         BKUnPartitionedAsyncLogWriter writer1 = (BKUnPartitionedAsyncLogWriter) dlm1.startAsyncLogSegmentNonPartitioned();
         LOG.info("Created writer 1.");
@@ -95,6 +98,6 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         dlm2.close();
         dlm.close();
 
-        factory.close();
+        namespace.close();
     }
 }

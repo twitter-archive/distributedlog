@@ -246,14 +246,15 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
 
     private void testFactory(String name, boolean shareBK) throws Exception {
         int count = 3;
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, createDLMURI("/" + name));
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
+                .conf(conf).uri(createDLMURI("/" + name)).build();
         DistributedLogManager[] dlms = new DistributedLogManager[count];
         for (int s = 0; s < count; s++) {
             if (shareBK) {
-                dlms[s] = factory.createDistributedLogManager(name + String.format("%d", s),
+                dlms[s] = namespace.createDistributedLogManager(name + String.format("%d", s),
                         DistributedLogManagerFactory.ClientSharingOption.SharedClients);
             } else {
-                dlms[s] = factory.createDistributedLogManager(name + String.format("%d", s),
+                dlms[s] = namespace.createDistributedLogManager(name + String.format("%d", s),
                         DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
             }
         }
@@ -280,10 +281,10 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
                 // continue without restart
                 dlms[0].close();
                 if (shareBK) {
-                    dlms[0] = factory.createDistributedLogManager(name + String.format("%d", 0),
+                    dlms[0] = namespace.createDistributedLogManager(name + String.format("%d", 0),
                             DistributedLogManagerFactory.ClientSharingOption.SharedClients);
                 } else {
-                    dlms[0] = factory.createDistributedLogManager(name + String.format("%d", 0),
+                    dlms[0] = namespace.createDistributedLogManager(name + String.format("%d", 0),
                             DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
                 }
             }
@@ -294,6 +295,6 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
             dlms[s].close();
         }
 
-        factory.close();
+        namespace.close();
     }
 }

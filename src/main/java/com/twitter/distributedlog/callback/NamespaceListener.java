@@ -1,7 +1,10 @@
 package com.twitter.distributedlog.callback;
 
-import java.util.Collection;
+import com.google.common.annotations.Beta;
 
+import java.util.Iterator;
+
+@Beta
 public interface NamespaceListener {
 
     /**
@@ -10,5 +13,5 @@ public interface NamespaceListener {
      * @param streams
      *          latest list of streams under a given namespace.
      */
-    void onStreamsChanged(Collection<String> streams);
+    void onStreamsChanged(Iterator<String> streams);
 }

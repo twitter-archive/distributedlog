@@ -9,20 +9,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TestName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.lock.LockClosedException;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.util.Await;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TestName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -400,24 +400,25 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         // Otherwise, we won't be able to run scheduled threads for readahead when we're in a callback.
         localConf.setNumWorkerThreads(2);
 
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(localConf, uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(localConf).uri(uri).build();
 
-        DistributedLogManager dlm0 = factory.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogManager dlm0 = namespace.openLog(name);
         DLMTestUtil.generateCompletedLogSegments(dlm0, localConf, 9, 100);
         dlm0.close();
 
         int recordCount = 0;
         AtomicReference<DLSN> currentDLSN = new AtomicReference<DLSN>(DLSN.InitialDLSN);
 
-        DistributedLogManagerFactory factory1 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
-                "gabbagoo", DistributedLogConstants.LOCAL_REGION_ID);
-        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory1.createDistributedLogManagerWithSharedClients(name);
-        DistributedLogManagerFactory factory2 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
-                "tortellini", DistributedLogConstants.LOCAL_REGION_ID);
-        BKDistributedLogManager dlm2 = (BKDistributedLogManager) factory2.createDistributedLogManagerWithSharedClients(name);
-        DistributedLogManagerFactory factory3 = new DistributedLogManagerFactory(localConf, uri, NullStatsLogger.INSTANCE,
-                "parmigianino", DistributedLogConstants.LOCAL_REGION_ID);
-        BKDistributedLogManager dlm3 = (BKDistributedLogManager) factory3.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogNamespace namespace1 = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(localConf).uri(uri).clientId("gabbagoo").build();
+        DistributedLogManager dlm1 = namespace1.openLog(name);
+        DistributedLogNamespace namespace2 = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(localConf).uri(uri).clientId("tortellinin").build();
+        DistributedLogManager dlm2 = namespace2.openLog(name);
+        DistributedLogNamespace namespace3 = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(localConf).uri(uri).clientId("parmigianino").build();
+        DistributedLogManager dlm3 = namespace3.openLog(name);
 
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);

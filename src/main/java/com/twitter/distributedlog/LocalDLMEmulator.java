@@ -52,7 +52,7 @@ public class LocalDLMEmulator {
     protected static final Logger LOG = LoggerFactory.getLogger(LocalDLMEmulator.class);
     protected static final int DEFAULT_BOOKIE_INITIAL_PORT = 0; // Use ephemeral ports
 
-    static final String DLOG_NAMESPACE = "/messaging/distributedlog";
+    public static final String DLOG_NAMESPACE = "/messaging/distributedlog";
 
     /**
      * Try to start zookkeeper locally on any port.

@@ -6,7 +6,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -14,13 +13,10 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.util.SchedulerUtils;
-import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,9 +97,9 @@ public class TestDLCK extends TestDistributedLogBase {
         DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 4L, 31L, 10, true);
 
         // dryrun
-        BookKeeperClient bkc = factory.getReaderBKC();
+        BookKeeperClient bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                new DryrunZkMetadataUpdater(conf, factory.getSharedWriterZKCForDL()),
+                new DryrunZkMetadataUpdater(conf, getZooKeeperClient(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentLedgerMetadata> segments = getLogSegments(dlm);
@@ -114,9 +110,9 @@ public class TestDLCK extends TestDistributedLogBase {
         verifyLogSegment(segments, new DLSN(4L, 16L, 0L), 4L, 9, 39L);
 
         // check and repair
-        bkc = factory.getReaderBKC();
+        bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                ZkMetadataUpdater.createMetadataUpdater(conf, factory.getSharedWriterZKCForDL()),
+                ZkMetadataUpdater.createMetadataUpdater(conf, getZooKeeperClient(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);

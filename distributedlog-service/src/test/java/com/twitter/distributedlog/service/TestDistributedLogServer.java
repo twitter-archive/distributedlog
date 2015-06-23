@@ -4,6 +4,9 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogReader;
@@ -460,13 +463,20 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         AccessControlEntry ace = new AccessControlEntry();
         ace.setDenyWrite(true);
-        DistributedLogManagerFactory factory = dlServer.dlServer.getLeft().getDlFactory();
-        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(factory.getSharedWriterZKCForDL(), getUri());
+        ZooKeeperClient zkc = ZooKeeperClientBuilder
+                .newBuilder()
+                .uri(getUri())
+                .connectionTimeoutMs(60000)
+                .sessionTimeoutMs(60000)
+                .zkAclId(null)
+                .build();
+        DistributedLogNamespace dlNamespace = dlServer.dlServer.getLeft().getDistributedLogNamespace();
+        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
         String zkPath = getUri().getPath() + "/" + bkdlConfig.getACLRootPath() + "/" + name;
         ZKAccessControl accessControl = new ZKAccessControl(ace, zkPath);
-        accessControl.create(factory.getSharedWriterZKCForDL());
+        accessControl.create(zkc);
 
-        AccessControlManager acm = factory.createAccessControlManager();
+        AccessControlManager acm = dlNamespace.createAccessControlManager();
         while (acm.allowWrite(name)) {
             Thread.sleep(100);
         }

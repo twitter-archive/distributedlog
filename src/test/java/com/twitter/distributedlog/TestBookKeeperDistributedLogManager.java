@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,8 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.util.Await;
@@ -828,7 +831,10 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         dlmdelete.delete();
         dlmdelete.close();
 
-        assertFalse(DistributedLogManagerFactory.checkIfLogExists(conf, createDLMURI("/" + name), name));
+        URI uri = createDLMURI("/" + name);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(uri).build();
+        assertFalse(namespace.logExists(name));
 
         DistributedLogManager dlmwrite2 = createNewDLM(conf, name);
 
@@ -849,7 +855,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         }
         writer.close();
 
-        assertTrue(DistributedLogManagerFactory.checkIfLogExists(conf, createDLMURI("/" + name), name));
+        assertTrue(namespace.logExists(name));
 
         LogRecord record = reader0.readNext(false);
         while (null != record) {
@@ -1395,18 +1401,26 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         writer.close();
         assertEquals(name, new String(dlm.getMetadata()));
 
-        assert (DistributedLogManagerFactory.checkIfLogExists(conf, createDLMURI("/" + name), name));
-        assert (!DistributedLogManagerFactory.checkIfLogExists(conf, createDLMURI("/" + name), "non-existent-log"));
-        assert (!DistributedLogManagerFactory.checkIfLogExists(conf, createDLMURI("/" + "non-existent-ns"), name));
+        URI uri = createDLMURI("/" + name);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
+                .conf(conf).uri(uri).build();
+        assertTrue(namespace.logExists(name));
+        assertFalse(namespace.logExists("non-existent-log"));
+        URI nonExistentUri = createDLMURI("/" + "non-existent-ns");
+        DistributedLogNamespace nonExistentNS = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(nonExistentUri).build();
+        assertFalse(nonExistentNS.logExists(name));
 
         int logCount = 0;
-        for(String log: DistributedLogManagerFactory.enumerateAllLogsInNamespace(conf, createDLMURI("/" + name))) {
+        Iterator<String> logIter = namespace.getLogs();
+        while(logIter.hasNext()) {
+            String log = logIter.next();
             logCount++;
             assertEquals(name, log);
         }
         assertEquals(1, logCount);
 
-        for(Map.Entry<String, byte[]> logEntry: DistributedLogManagerFactory.enumerateLogsWithMetadataInNamespace(conf, createDLMURI("/" + name)).entrySet()) {
+        for(Map.Entry<String, byte[]> logEntry: namespace.enumerateLogsWithMetadataInNamespace().entrySet()) {
             assertEquals(name, new String(logEntry.getValue()));
         }
 
@@ -1978,12 +1992,13 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         String baseName = testNames.getMethodName();
         String streamName = "\0blah";
         URI uri = createDLMURI("/" + baseName);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(uri).build();
 
         DistributedLogManager dlm = null;
         AsyncLogWriter writer = null;
         try {
-            dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+            dlm = namespace.openLog(streamName);
             writer = dlm.startAsyncLogSegmentNonPartitioned();
             fail("should have thrown");
         } catch (InvalidStreamNameException e) {
@@ -1994,7 +2009,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             if (null != dlm) {
                 dlm.close();
             }
-            factory.close();
+            namespace.close();
         }
     }
 

@@ -3,12 +3,14 @@ package com.twitter.distributedlog.auditor;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.SettableFuture;
+import com.twitter.distributedlog.BKDistributedLogNamespace;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -55,6 +57,12 @@ public class DLAuditor {
 
     public DLAuditor(DistributedLogConfiguration conf) {
         this.conf = conf;
+    }
+
+    private ZooKeeperClient getZooKeeperClient(DistributedLogManagerFactory factory) {
+        DistributedLogNamespace namespace = factory.getNamespace();
+        assert(namespace instanceof BKDistributedLogNamespace);
+        return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
     }
 
     private String validateAndGetZKServers(List<URI> uris) {
@@ -250,7 +258,7 @@ public class DLAuditor {
         for (String allocationPath : allocationPaths) {
             String rootPath = uri.getPath() + "/" + allocationPath;
             try {
-                List<String> pools = factory.getSharedWriterZKCForDL().get().getChildren(rootPath, false);
+                List<String> pools = getZooKeeperClient(factory).get().getChildren(rootPath, false);
                 for (String pool : pools) {
                     poolQueue.add(rootPath + "/" + pool);
                 }
@@ -281,11 +289,11 @@ public class DLAuditor {
                             }
                             List<String> allocators;
                             try {
-                                allocators = factory.getSharedWriterZKCForDL().get()
+                                allocators = getZooKeeperClient(factory).get()
                                         .getChildren(poolPath, false);
                                 for (String allocator : allocators) {
                                     String allocatorPath = poolPath + "/" + allocator;
-                                    byte[] data = factory.getSharedWriterZKCForDL().get().getData(allocatorPath, false, new Stat());
+                                    byte[] data = getZooKeeperClient(factory).get().getData(allocatorPath, false, new Stat());
                                     if (null != data && data.length > 0) {
                                         try {
                                             long ledgerId = Utils.bytes2LedgerId(data);

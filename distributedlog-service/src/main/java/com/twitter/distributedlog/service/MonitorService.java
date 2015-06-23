@@ -14,6 +14,8 @@ import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.Stat;
@@ -43,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,7 +66,7 @@ public class MonitorService implements Runnable, NamespaceListener {
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private int interval = 100;
     private String streamRegex = null;
-    private DistributedLogManagerFactory dlFactory = null;
+    private DistributedLogNamespace dlNamespace = null;
     private ZooKeeperClient[] zkClients = null;
     private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
     private StatsProvider statsProvider = null;
@@ -100,7 +103,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         public void run() {
             if (null == dlm) {
                 try {
-                    dlm = dlFactory.createDistributedLogManagerWithSharedClients(name);
+                    dlm = dlNamespace.openLog(name);
                     dlm.registerListener(this);
                 } catch (IOException e) {
                     if (null != dlm) {
@@ -319,9 +322,10 @@ public class MonitorService implements Runnable, NamespaceListener {
     }
 
     @Override
-    public void onStreamsChanged(Collection<String> streams) {
+    public void onStreamsChanged(Iterator<String> streams) {
         Set<String> newSet = new HashSet<String>();
-        for (String s : streams) {
+        while (streams.hasNext()) {
+            String s = streams.next();
             if (null == streamRegex || s.matches(streamRegex)) {
                 if (Math.abs(hashFunction.hashUnencodedChars(s).asInt()) % totalInstances == instanceId) {
                     newSet.add(s);
@@ -367,12 +371,15 @@ public class MonitorService implements Runnable, NamespaceListener {
                 return knownStreams.size();
             }
         });
-        logger.info("Construct dl factory @ {}", dlUri);
-        dlFactory = new DistributedLogManagerFactory(conf, dlUri);
+        logger.info("Construct dl namespace @ {}", dlUri);
+        dlNamespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf)
+                .uri(dlUri)
+                .build();
         if (watchNamespaceChanges) {
-            dlFactory.registerNamespaceListener(this);
+            dlNamespace.registerNamespaceListener(this);
         } else {
-            onStreamsChanged(dlFactory.enumerateAllLogsInNamespace());
+            onStreamsChanged(dlNamespace.getLogs());
         }
     }
 
@@ -389,8 +396,8 @@ public class MonitorService implements Runnable, NamespaceListener {
                 zkClient.close();
             }
         }
-        if (null != dlFactory) {
-            dlFactory.close();
+        if (null != dlNamespace) {
+            dlNamespace.close();
         }
         executorService.shutdown();
         try {

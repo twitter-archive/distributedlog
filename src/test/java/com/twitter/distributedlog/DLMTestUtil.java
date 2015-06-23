@@ -20,6 +20,8 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
@@ -94,15 +96,19 @@ public class DLMTestUtil {
     public static DistributedLogManager createNewDLM(String name,
                                                      DistributedLogConfiguration conf,
                                                      URI uri) throws Exception {
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
-        return factory.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(uri).build();
+        return namespace.openLog(name);
     }
 
     static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,
                                                       String name,
                                                       URI uri) throws Exception {
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
-        return factory.createMetadataAccessor(name);
+        // TODO: Metadata Accessor seems to be a legacy object which only used by kestrel
+        //       (we might consider deprecating this)
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
+                .conf(conf).uri(uri).build();
+        return namespace.createMetadataAccessor(name);
     }
 
     public static class BKLogPartitionWriteHandlerAndClients {

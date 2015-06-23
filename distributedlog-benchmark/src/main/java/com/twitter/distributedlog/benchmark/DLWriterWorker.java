@@ -6,8 +6,9 @@ import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -45,7 +46,7 @@ public class DLWriterWorker implements Worker {
     final ScheduledExecutorService rescueService;
     final RateLimiter rateLimiter;
     final Random random;
-    final DistributedLogManagerFactory factory;
+    final DistributedLogNamespace namespace;
     final List<DistributedLogManager> dlms;
     final List<AsyncLogWriter> streamWriters;
     final int numStreams;
@@ -78,7 +79,11 @@ public class DLWriterWorker implements Worker {
         this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
 
-        this.factory = new DistributedLogManagerFactory(conf, uri, statsLogger.scope("dl"));
+        this.namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf)
+                .uri(uri)
+                .statsLogger(statsLogger.scope("dl"))
+                .build();
         this.numStreams = endStreamId - startStreamId;
         dlms = new ArrayList<DistributedLogManager>(numStreams);
         streamWriters = new ArrayList<AsyncLogWriter>(numStreams);
@@ -86,7 +91,7 @@ public class DLWriterWorker implements Worker {
         final CountDownLatch latch = new CountDownLatch(this.numStreams);
         for (int i = startStreamId; i < endStreamId; i++) {
             final String streamName = String.format("%s_%d", streamPrefix, i);
-            final DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+            final DistributedLogManager dlm = namespace.openLog(streamName);
             executorService.submit(new Runnable() {
                 @Override
                 public void run() {
@@ -166,7 +171,7 @@ public class DLWriterWorker implements Worker {
         for (DistributedLogManager dlm : dlms) {
             dlm.close();
         }
-        factory.close();
+        namespace.close();
     }
 
     @Override

@@ -11,7 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -29,6 +28,9 @@ import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -1096,7 +1098,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(10);
         confLocal.setReadAheadBatchSize(10);
         confLocal.setOutputBufferSize(1024);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, createDLMURI("/" + name));
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(confLocal).uri(createDLMURI("/" + name)).build();
         DistributedLogManager[] dlms = new DistributedLogManager[count];
         final AtomicInteger[] readCounts = new AtomicInteger[count];
         final AtomicInteger[] executionCounts = new AtomicInteger[count];
@@ -1106,7 +1109,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (int s = 0; s < count; s++) {
             executionCounts[s] = new AtomicInteger(0);
             readCounts[s] = new AtomicInteger(0);
-            dlms[s] = factory.createDistributedLogManagerWithSharedClients(name + String.format("%d", s));
+            dlms[s] = namespace.openLog(name + String.format("%d", s));
             positionReader(currentThread, syncLatch, dlms[s], false,
                     DLSN.InvalidDLSN, new ScheduledThreadPoolExecutor(1), 0, readCounts[s], executionCounts[s],
                     doneLatch);
@@ -1516,12 +1519,12 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         URI uri = createDLMURI("/" + name);
 
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri, NullStatsLogger.INSTANCE,
-                "gabbagoo", DistributedLogConstants.LOCAL_REGION_ID);
-        BKDistributedLogManager dlm = (BKDistributedLogManager) factory.createDistributedLogManagerWithSharedClients(name);
-        DistributedLogManagerFactory factory1 = new DistributedLogManagerFactory(confLocal, uri, NullStatsLogger.INSTANCE,
-                "tortellini", DistributedLogConstants.LOCAL_REGION_ID);
-        BKDistributedLogManager dlm1 = (BKDistributedLogManager) factory1.createDistributedLogManagerWithSharedClients(name);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(confLocal).uri(uri).clientId("gabbagoo").build();
+        DistributedLogManager dlm = namespace.openLog(name);
+        DistributedLogNamespace namespace1 = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(confLocal).uri(uri).clientId("tortellini").build();
+        DistributedLogManager dlm1 = namespace1.openLog(name);
 
         int txid = 1;
         BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());

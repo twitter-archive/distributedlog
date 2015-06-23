@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
-import com.google.common.base.Optional;
-import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.PermitLimiter;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -138,5 +137,17 @@ public class TestDistributedLogBase {
             DistributedLogConfiguration conf,
             String path) throws Exception {
         return DLMTestUtil.createNewBKDLM(new PartitionId(0), conf, path, zkPort);
+    }
+
+    protected ZooKeeperClient getZooKeeperClient(DistributedLogManagerFactory factory) throws Exception {
+        DistributedLogNamespace namespace = factory.getNamespace();
+        assert(namespace instanceof BKDistributedLogNamespace);
+        return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
+    }
+
+    protected BookKeeperClient getBookKeeperClient(DistributedLogManagerFactory factory) throws Exception {
+        DistributedLogNamespace namespace = factory.getNamespace();
+        assert(namespace instanceof BKDistributedLogNamespace);
+        return ((BKDistributedLogNamespace) namespace).getReaderBKC();
     }
 }

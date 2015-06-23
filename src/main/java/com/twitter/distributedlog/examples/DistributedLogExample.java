@@ -2,12 +2,13 @@ package com.twitter.distributedlog.examples;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.PartitionAwareLogWriter;
 import com.twitter.distributedlog.PartitionId;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 
 import java.net.URI;
 
@@ -34,10 +35,13 @@ public class DistributedLogExample {
                 .setAckQuorumSize(2) // 2 replicas
                 .setEnsembleSize(3); // how many hosts to store a log segment
         // Create a distributedlog
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf)
+                .uri(uri)
+                .build();
 
         DistributedLogManager unpartitionedDLM =
-            factory.createDistributedLogManagerWithSharedClients("unpartitioned-example");
+            namespace.openLog("unpartitioned-example");
         System.out.println("Create unpartitioned stream : unpartitioned-example");
         LogWriter unpartitionedWriter = unpartitionedDLM.startLogSegmentNonPartitioned();
         for (long i = 1; i <= 10; i++) {
@@ -71,7 +75,7 @@ public class DistributedLogExample {
 
         // Create partitioned dlm
         DistributedLogManager partitionedDLM =
-                factory.createDistributedLogManagerWithSharedClients("partitioned-example");
+                namespace.openLog("partitioned-example");
         PartitionAwareLogWriter partitionedWriter = partitionedDLM.startLogSegment();
         int numPartitions = 4;
         for (long i = 0; i < 20; i++) {

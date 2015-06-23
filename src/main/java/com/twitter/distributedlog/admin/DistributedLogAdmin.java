@@ -628,8 +628,8 @@ public class DistributedLogAdmin extends DistributedLogTool {
         @Override
         protected int runCmd() throws Exception {
             MetadataUpdater metadataUpdater = dryrun ?
-                    new DryrunZkMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL()) :
-                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL());
+                    new DryrunZkMetadataUpdater(getConf(), getZooKeeperClient()) :
+                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getZooKeeperClient());
             System.out.println("List of streams : ");
             System.out.println(streams);
             if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
@@ -676,10 +676,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL()) :
-                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getFactory().getSharedWriterZKCForDL());
+            MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), getZooKeeperClient()) :
+                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getZooKeeperClient());
             ExecutorService executorService = Executors.newCachedThreadPool();
-            BookKeeperClient bkc = getFactory().getReaderBKC();
+            BookKeeperClient bkc = getBookKeeperClient();
             try {
                 checkAndRepairDLNamespace(getUri(), getFactory(), metadataUpdater, executorService,
                                           bkc, getConf().getBKDigestPW(), verbose, !getForce(), concurrency);
@@ -715,14 +715,14 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getFactory().getSharedWriterZKCForDL(), getUri());
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getZooKeeperClient(), getUri());
             if (null == bkdlConfig.getACLRootPath()) {
                 // acl isn't enabled for this namespace.
                 println("ACL isn't enabled for namespace " + getUri());
                 return -1;
             }
             String zkPath = getUri() + "/" + bkdlConfig.getACLRootPath() + "/" + stream;
-            ZKAccessControl.delete(getFactory().getSharedWriterZKCForDL(), zkPath);
+            ZKAccessControl.delete(getZooKeeperClient(), zkPath);
             return 0;
         }
 
@@ -828,21 +828,21 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getFactory().getSharedWriterZKCForDL(), getUri());
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getZooKeeperClient(), getUri());
             if (null == bkdlConfig.getACLRootPath()) {
                 // acl isn't enabled for this namespace.
                 println("ACL isn't enabled for namespace " + getUri());
                 return -1;
             }
             String zkPath = getZKPath(getUri().getPath() + "/" + bkdlConfig.getACLRootPath());
-            ZKAccessControl accessControl = getZKAccessControl(getFactory().getSharedWriterZKCForDL(), zkPath);
+            ZKAccessControl accessControl = getZKAccessControl(getZooKeeperClient(), zkPath);
             AccessControlEntry acl = accessControl.getAccessControlEntry();
             acl.setDenyWrite(denyWrite);
             acl.setDenyTruncate(denyTruncate);
             acl.setDenyDelete(denyDelete);
             acl.setDenyAcquire(denyAcquire);
             acl.setDenyRelease(denyRelease);
-            setZKAccessControl(getFactory().getSharedWriterZKCForDL(), accessControl);
+            setZKAccessControl(getZooKeeperClient(), accessControl);
             return 0;
         }
 

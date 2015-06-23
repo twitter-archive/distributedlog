@@ -13,7 +13,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.AccessControlManager;
@@ -26,6 +25,9 @@ import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.feature.AbstractFeatureProvider;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
@@ -48,6 +50,7 @@ import com.twitter.util.Promise;
 import com.twitter.util.Try;
 
 import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -656,8 +659,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         // lock
         final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
-        final DistributedLogManagerFactory.ClientSharingOption CLIENT_SHARING_OPTION =
-                DistributedLogManagerFactory.ClientSharingOption.SharedClients;
 
         DistributedLogManager manager;
 
@@ -695,19 +696,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
         }
 
-        private DistributedLogManager createDistributedLogManager(String name) throws IOException {
+        private DistributedLogManager openLog(String name) throws IOException {
             Optional<DistributedLogConfiguration> streamConfig =
-                    Optional.<DistributedLogConfiguration>absent();
+                    Optional.absent();
             Optional<DynamicDistributedLogConfiguration> dynamicStreamConfig =
                     streamConfigProvider.getDynamicStreamConfig(name);
 
-            return dlFactory.createDistributedLogManager(name, CLIENT_SHARING_OPTION,
-                    streamConfig, dynamicStreamConfig);
+            return dlNamespace.openLog(name, streamConfig, dynamicStreamConfig);
         }
 
         // Expensive initialization, only called once per stream.
         public Stream initialize() throws IOException {
-            manager = createDistributedLogManager(name);
+            manager = openLog(name);
 
             // Better to avoid registering the gauge multiple times, so do this in init
             // which only gets called once.
@@ -1260,7 +1260,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
     private final DistributedLogConfiguration dlConfig;
     private final Optional<DynamicDistributedLogConfiguration> dlDynamicConfig;
-    private final DistributedLogManagerFactory dlFactory;
+    private final DistributedLogNamespace dlNamespace;
     private final ConcurrentHashMap<String, Stream> streams =
             new ConcurrentHashMap<String, Stream>();
     private final ConcurrentHashMap<String, Stream> acquiredStreams =
@@ -1276,6 +1276,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final AtomicInteger pendingOpsCounter;
 
     // Features
+    private final FeatureProvider featureProvider;
     private final Feature featureRegionStopAcceptNewStream;
 
     // Stats
@@ -1347,7 +1348,19 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
         String allocatorPoolName = String.format("allocator_%04d_%010d", serverRegionId, shard);
         dlConf.setLedgerAllocatorPoolName(allocatorPoolName);
-        this.dlFactory = new DistributedLogManagerFactory(dlConf, uri, statsLogger, clientId, serverRegionId);
+        this.featureProvider = AbstractFeatureProvider.getFeatureProvider("", dlConf, statsLogger.scope("features"));
+
+        // Build the namespace
+        this.dlNamespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(dlConf)
+                .uri(uri)
+                .statsLogger(statsLogger)
+                .featureProvider(this.featureProvider)
+                .clientId(clientId)
+                .regionId(serverRegionId)
+                .build();
+        this.accessControlManager = this.dlNamespace.createAccessControlManager();
+
         this.keepAliveLatch = keepAliveLatch;
         this.failFastOnStreamNotReady = dlConf.getFailFastOnStreamNotReady();
         this.dlTimer = new HashedWheelTimer(
@@ -1356,9 +1369,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 TimeUnit.MILLISECONDS);
         this.serviceTimeoutMs = dlConf.getServiceTimeoutMs();
         this.streamConfigProvider = streamConfigProvider;
-
-        // Access Control Manager
-        this.accessControlManager = this.dlFactory.createAccessControlManager();
 
         // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(numThreads,
@@ -1369,8 +1379,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             this.delayMs = 0;
         }
 
-        // features
-        this.featureRegionStopAcceptNewStream = this.dlFactory.getFeatureProvider().getFeature(
+        // service features
+        this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
 
         // status about server health
@@ -1492,8 +1502,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     }
 
     @VisibleForTesting
-    public DistributedLogManagerFactory getDlFactory() {
-        return dlFactory;
+    public DistributedLogNamespace getDistributedLogNamespace() {
+        return dlNamespace;
     }
 
     @VisibleForTesting
@@ -1834,10 +1844,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 logger.warn("Sorry, we didn't close all streams gracefully in 5 minutes : ", e);
             }
 
-            // shutdown the dl factory
-            logger.info("Closing distributedlog factory ...");
-            dlFactory.close();
-            logger.info("Closed distributedlog factory.");
+            // shutdown the dl namespace
+            logger.info("Closing distributedlog namespace ...");
+            dlNamespace.close();
+            logger.info("Closed distributedlog namespace .");
 
             // shutdown the executor after requesting closing streams.
             SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);

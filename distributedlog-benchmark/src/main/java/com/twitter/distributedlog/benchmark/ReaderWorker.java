@@ -9,10 +9,11 @@ import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.benchmark.thrift.Message;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -51,7 +52,7 @@ public class ReaderWorker implements Worker {
     final int startStreamId;
     final int endStreamId;
     final ScheduledExecutorService executorService;
-    final DistributedLogManagerFactory factory;
+    final DistributedLogNamespace namespace;
     final DistributedLogManager[] dlms;
     final AsyncLogReader[] logReaders;
     final StreamReader[] streamReaders;
@@ -245,7 +246,11 @@ public class ReaderWorker implements Worker {
         }
 
         // construct the factory
-        this.factory = new DistributedLogManagerFactory(conf, uri, statsLogger.scope("dl"));
+        this.namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf)
+                .uri(uri)
+                .statsLogger(statsLogger.scope("dl"))
+                .build();
         this.numStreams = endStreamId - startStreamId;
         this.dlms = new DistributedLogManager[numStreams];
         this.logReaders = new AsyncLogReader[numStreams];
@@ -311,7 +316,7 @@ public class ReaderWorker implements Worker {
         }
 
         try {
-            dlms[idx] = factory.createDistributedLogManagerWithSharedClients(streamName);
+            dlms[idx] = namespace.openLog(streamName);
         } catch (IOException ioe) {
             LOG.error("Failed on creating dlm {} : ", streamName, ioe);
             scheduleReinitStream(idx, promise);
@@ -369,7 +374,7 @@ public class ReaderWorker implements Worker {
                 dlm.close();
             }
         }
-        factory.close();
+        namespace.close();
         SchedulerUtils.shutdownScheduler(executorService, 2, TimeUnit.MINUTES);
         if (this.dlc != null) {
             this.dlc.close();

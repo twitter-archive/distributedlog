@@ -4,12 +4,18 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.collect.Sets;
+import com.twitter.distributedlog.callback.NamespaceListener;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
@@ -19,21 +25,17 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.callback.NamespaceListener;
-import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
-
 import static org.junit.Assert.*;
 
-public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
+public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
 
     @Rule
     public TestName runtime = new TestName();
 
-    static final Logger LOG = LoggerFactory.getLogger(TestDistributedLogManagerFactory.class);
+    static final Logger LOG = LoggerFactory.getLogger(TestBKDistributedLogNamespace.class);
 
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
@@ -62,8 +64,9 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(false);
         String streamName = "test-stream";
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(newConf, uri);
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(newConf).uri(uri).build();
+        DistributedLogManager dlm = namespace.openLog(streamName);
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         try {
             writer.write(DLMTestUtil.getLogRecordInstance(1L));
@@ -76,7 +79,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         // create the stream
         BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, streamName);
 
-        DistributedLogManager newDLM = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogManager newDLM = namespace.openLog(streamName);
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
         newWriter.write(DLMTestUtil.getLogRecordInstance(1L));
         newWriter.close();
@@ -86,13 +89,14 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
     @Test
     public void testClientSharingOptions() throws Exception {
         URI uri = createDLMURI("/clientSharingOptions");
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
+                .conf(conf).uri(uri).build();
 
         {
-            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("perstream1",
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)namespace.createDistributedLogManager("perstream1",
                                         DistributedLogManagerFactory.ClientSharingOption.PerStreamClients);
 
-            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("perstream2",
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)namespace.createDistributedLogManager("perstream2",
                 DistributedLogManagerFactory.ClientSharingOption.PerStreamClients);
 
             assert(bkdlm1.getReaderBKC() != bkdlm2.getReaderBKC());
@@ -103,10 +107,10 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         }
 
         {
-            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedZK1",
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)namespace.createDistributedLogManager("sharedZK1",
                 DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
 
-            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedZK2",
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)namespace.createDistributedLogManager("sharedZK2",
                 DistributedLogManagerFactory.ClientSharingOption.SharedZKClientPerStreamBKClient);
 
             assert(bkdlm1.getReaderBKC() != bkdlm2.getReaderBKC());
@@ -116,10 +120,10 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         }
 
         {
-            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedBoth1",
+            BKDistributedLogManager bkdlm1 = (BKDistributedLogManager)namespace.createDistributedLogManager("sharedBoth1",
                 DistributedLogManagerFactory.ClientSharingOption.SharedClients);
 
-            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)factory.createDistributedLogManager("sharedBoth2",
+            BKDistributedLogManager bkdlm2 = (BKDistributedLogManager)namespace.createDistributedLogManager("sharedBoth2",
                 DistributedLogManagerFactory.ClientSharingOption.SharedClients);
 
             assert(bkdlm1.getReaderBKC() == bkdlm2.getReaderBKC());
@@ -133,62 +137,62 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     @Test
     public void testInvalidStreamName() throws Exception {
-        assertFalse(DistributedLogManagerFactory.isReservedStreamName("test"));
-        assertTrue(DistributedLogManagerFactory.isReservedStreamName(".test"));
+        assertFalse(BKDistributedLogNamespace.isReservedStreamName("test"));
+        assertTrue(BKDistributedLogNamespace.isReservedStreamName(".test"));
 
         URI uri = createDLMURI("/" + runtime.getMethodName());
 
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
+                .conf(conf).uri(uri).build();
 
         try {
-            factory.createDistributedLogManagerWithSharedClients(".test1");
+            namespace.openLog(".test1");
             fail("Should fail to create invalid stream .test");
         } catch (InvalidStreamNameException isne) {
             // expected
         }
 
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients("test1");
+        DistributedLogManager dlm = namespace.openLog("test1");
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(1));
         writer.close();
         dlm.close();
 
         try {
-            factory.createDistributedLogManagerWithSharedClients(".test2");
+            namespace.openLog(".test2");
             fail("Should fail to create invalid stream .test");
         } catch (InvalidStreamNameException isne) {
             // expected
         }
 
         DistributedLogManager newDLM =
-                factory.createDistributedLogManagerWithSharedClients("test2");
+                namespace.openLog("test2");
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
         newWriter.write(DLMTestUtil.getLogRecordInstance(1));
         newWriter.close();
         newDLM.close();
 
-        Collection<String> streams = factory.enumerateAllLogsInNamespace();
-        Set<String> streamSet = new HashSet<String>();
-        streamSet.addAll(streams);
+        Iterator<String> streamIter = namespace.getLogs();
+        Set<String> streamSet = Sets.newHashSet(streamIter);
 
-        assertEquals(2, streams.size());
         assertEquals(2, streamSet.size());
         assertTrue(streamSet.contains("test1"));
         assertTrue(streamSet.contains("test2"));
 
-        Map<String, byte[]> streamMetadatas = factory.enumerateLogsWithMetadataInNamespace();
+        Map<String, byte[]> streamMetadatas = namespace.enumerateLogsWithMetadataInNamespace();
         assertEquals(2, streamMetadatas.size());
         assertTrue(streamMetadatas.containsKey("test1"));
         assertTrue(streamMetadatas.containsKey("test2"));
 
-        factory.close();
+        namespace.close();
     }
 
     @Test(timeout = 60000)
     public void testNamespaceListener() throws Exception {
         URI uri = createDLMURI("/" + runtime.getMethodName());
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(conf).uri(uri).build();
         final CountDownLatch[] latches = new CountDownLatch[3];
         for (int i = 0; i < 3; i++) {
             latches[i] = new CountDownLatch(1);
@@ -196,15 +200,16 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         final AtomicInteger numUpdates = new AtomicInteger(0);
         final AtomicInteger numFailures = new AtomicInteger(0);
         final AtomicReference<Collection<String>> receivedStreams = new AtomicReference<Collection<String>>(null);
-        factory.registerNamespaceListener(new NamespaceListener() {
+        namespace.registerNamespaceListener(new NamespaceListener() {
             @Override
-            public void onStreamsChanged(Collection<String> streams) {
+            public void onStreamsChanged(Iterator<String> streams) {
+                Set<String> streamSet = Sets.newHashSet(streams);
                 int updates = numUpdates.incrementAndGet();
-                if (streams.size() != updates - 1) {
+                if (streamSet.size() != updates - 1) {
                     numFailures.incrementAndGet();
                 }
 
-                receivedStreams.set(streams);
+                receivedStreams.set(streamSet);
                 latches[updates - 1].countDown();
             }
         });
@@ -223,21 +228,22 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
         assertTrue(streamSet.contains("test2"));
     }
 
-    private void initDlogMeta(String namespace, String un, String streamName) throws Exception {
-        URI uri = createDLMURI(namespace);
+    private void initDlogMeta(String dlNamespace, String un, String streamName) throws Exception {
+        URI uri = createDLMURI(dlNamespace);
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(true);
         newConf.setZkAclId(un);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(newConf, uri);
-        DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(newConf).uri(uri).build();
+        DistributedLogManager dlm = namespace.openLog(streamName);
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (int i = 0; i < 10; i++) {
             writer.write(DLMTestUtil.getLogRecordInstance(1L));
         }
         writer.close();
         dlm.close();
-        factory.close();
+        namespace.close();
     }
 
     @Test
@@ -326,7 +332,7 @@ public class TestDistributedLogManagerFactory extends TestDistributedLogBase {
 
     static void validateBadAllocatorConfiguration(DistributedLogConfiguration conf, URI uri) throws Exception {
         try {
-            DistributedLogManagerFactory.validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
+            BKDistributedLogNamespace.validateAndGetFullLedgerAllocatorPoolPath(conf, uri);
             fail("Should throw exception when bad allocator configuration provided");
         } catch (IOException ioe) {
             // expected

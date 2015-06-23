@@ -5,8 +5,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -36,6 +34,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.BKDistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAccessor;
@@ -236,6 +236,18 @@ public class DistributedLogTool extends Tool {
             }
             return this.factory;
         }
+
+        protected ZooKeeperClient getZooKeeperClient() throws IOException {
+            DistributedLogNamespace namespace = getFactory().getNamespace();
+            assert(namespace instanceof BKDistributedLogNamespace);
+            return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
+        }
+
+        protected BookKeeperClient getBookKeeperClient() throws IOException {
+            DistributedLogNamespace namespace = getFactory().getNamespace();
+            assert(namespace instanceof BKDistributedLogNamespace);
+            return ((BKDistributedLogNamespace) namespace).getReaderBKC();
+        }
     }
 
     /**
@@ -302,7 +314,7 @@ public class DistributedLogTool extends Tool {
             final ScheduledExecutorService allocationExecutor = Executors.newSingleThreadScheduledExecutor();
             ExecutorService executorService = Executors.newFixedThreadPool(concurrency);
             try {
-                List<String> pools = getFactory().getSharedWriterZKCForDL().get().getChildren(rootPath, false);
+                List<String> pools = getZooKeeperClient().get().getChildren(rootPath, false);
                 final LinkedBlockingQueue<String> poolsToDelete = new LinkedBlockingQueue<String>();
                 if (getForce() || IOUtils.confirmPrompt("Are you sure you want to delete allocator pools : " + pools)) {
                     for (String pool : pools) {
@@ -322,7 +334,7 @@ public class DistributedLogTool extends Tool {
                                     try {
                                         LedgerAllocator allocator =
                                                 LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(),
-                                                        getFactory().getSharedWriterZKCForDL(), getFactory().getReaderBKC(),
+                                                        getZooKeeperClient(), getBookKeeperClient(),
                                                         allocationExecutor);
                                         if (null == allocator) {
                                             println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
@@ -459,7 +471,7 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates =
                     new TreeMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>>();
-            inspectStreams(getFactory(), corruptedCandidates);
+            inspectStreams(corruptedCandidates);
             System.out.println("Corrupted Candidates : ");
             if (printStreamsOnly) {
                 System.out.println(corruptedCandidates.keySet());
@@ -484,10 +496,9 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private void inspectStreams(final DistributedLogManagerFactory factory,
-                                    final SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
+        private void inspectStreams(final SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
                 throws Exception {
-            Collection<String> streamCollection = factory.enumerateAllLogsInNamespace();
+            Collection<String> streamCollection = getFactory().enumerateAllLogsInNamespace();
             final List<String> streams = new ArrayList<String>();
             if (null != streamPrefix) {
                 for (String s : streamCollection) {
@@ -514,7 +525,7 @@ public class DistributedLogTool extends Tool {
                     @Override
                     public void run() {
                         try {
-                            inspectStreams(factory, streams, tid, numStreamsPerThreads, corruptedCandidates);
+                            inspectStreams(streams, tid, numStreamsPerThreads, corruptedCandidates);
                             println("Thread " + tid + " finished.");
                         } catch (Exception e) {
                             println("Thread " + tid + " quits with exception : " + e.getMessage());
@@ -528,16 +539,18 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        private void inspectStreams(DistributedLogManagerFactory factory, List<String> streams,
-                                    int tid, int numStreamsPerThreads,
-                                    SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates) throws Exception {
+        private void inspectStreams(List<String> streams,
+                                    int tid,
+                                    int numStreamsPerThreads,
+                                    SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
+                throws Exception {
             int startIdx = tid * numStreamsPerThreads;
             int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
             for (int i = startIdx; i < endIdx; i++) {
                 String s = streams.get(i);
-                BookKeeperClient bkc = factory.getReaderBKC();
+                BookKeeperClient bkc = getBookKeeperClient();
                 DistributedLogManager dlm =
-                        factory.createDistributedLogManagerWithSharedClients(s);
+                        getFactory().createDistributedLogManagerWithSharedClients(s);
                 try {
                     List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
                     if (segments.size() <= 1) {
@@ -1167,7 +1180,7 @@ public class DistributedLogTool extends Tool {
                                     break;
                                 }
                                 try {
-                                    getFactory().getReaderBKC().get().deleteLedger(ledger);
+                                    getBookKeeperClient().get().deleteLedger(ledger);
                                     int numLedgersDeleted = numLedgers.incrementAndGet();
                                     if (numLedgersDeleted % 1000 == 0) {
                                         println("Deleted " + numLedgersDeleted + " ledgers.");
@@ -1273,7 +1286,9 @@ public class DistributedLogTool extends Tool {
                 return 0;
             }
             getConf().setZkAclId(getZkAclId());
-            DistributedLogManagerFactory.createUnpartitionedStreams(getConf(), getUri(), streams);
+            for (String stream : streams) {
+                getFactory().getNamespace().createLog(stream);
+            }
             return 0;
         }
 
@@ -1667,7 +1682,7 @@ public class DistributedLogTool extends Tool {
         }
 
         protected int runBKCommand(BKCommandRunner runner) throws Exception {
-            return runner.run(getFactory().getSharedWriterZKCForDL(), getFactory().getReaderBKC());
+            return runner.run(getZooKeeperClient(), getBookKeeperClient());
         }
 
         abstract protected int runBKCmd(ZooKeeperClient zkc, BookKeeperClient bkc) throws Exception;
@@ -2021,7 +2036,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(
+            LedgerHandle lh = getBookKeeperClient().get().openLedgerNoRecovery(
                     getLedgerID(), BookKeeper.DigestType.CRC32, dlConf.getBKDigestPW().getBytes(UTF_8));
             final CountDownLatch doneLatch = new CountDownLatch(1);
             final AtomicInteger resultHolder = new AtomicInteger(-1234);
@@ -2059,7 +2074,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(
+            LedgerHandle lh = getBookKeeperClient().get().openLedgerNoRecovery(
                     getLedgerID(), BookKeeper.DigestType.CRC32, dlConf.getBKDigestPW().getBytes(UTF_8));
             try {
                 long lac = lh.readLastConfirmed();
@@ -2118,7 +2133,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            LedgerHandle lh = getFactory().getReaderBKC().get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
+            LedgerHandle lh = getBookKeeperClient().get().openLedgerNoRecovery(getLedgerID(), BookKeeper.DigestType.CRC32,
                     dlConf.getBKDigestPW().getBytes(UTF_8));
             try {
                 if (null == fromEntryId) {
@@ -2129,7 +2144,7 @@ public class DistributedLogTool extends Tool {
                 }
                 if (untilEntryId >= fromEntryId) {
                     if (readAllBookies) {
-                        LedgerReader lr = new LedgerReader(getFactory().getReaderBKC().get());
+                        LedgerReader lr = new LedgerReader(getBookKeeperClient().get());
                         if (readLac) {
                             readLacsFromAllBookies(lr, lh, fromEntryId, untilEntryId);
                         } else {

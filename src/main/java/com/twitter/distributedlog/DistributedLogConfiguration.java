@@ -392,7 +392,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param streamConfiguration stream configuration overrides
      * @return stream configuration
      */
-    void loadStreamConf(Optional<DistributedLogConfiguration> streamConfiguration) {
+    public void loadStreamConf(Optional<DistributedLogConfiguration> streamConfiguration) {
         if (!streamConfiguration.isPresent()) {
             return;
         }

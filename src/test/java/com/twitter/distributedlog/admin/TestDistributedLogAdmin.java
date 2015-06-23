@@ -3,12 +3,6 @@ package com.twitter.distributedlog.admin;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
-import com.twitter.distributedlog.AsyncLogReader;
-import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
-import com.twitter.util.Future;
-import com.twitter.util.TimeoutException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
@@ -17,16 +11,22 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Future;
+import com.twitter.util.TimeoutException;
 
 import static org.junit.Assert.*;
 
@@ -101,7 +101,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Dryrun
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                new DryrunZkMetadataUpdater(conf, factory.getSharedWriterZKCForDL()), streamName, false, false);
+                new DryrunZkMetadataUpdater(conf, getZooKeeperClient(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -119,7 +119,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Actual run
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                ZkMetadataUpdater.createMetadataUpdater(conf, factory.getSharedWriterZKCForDL()), streamName, false, false);
+                ZkMetadataUpdater.createMetadataUpdater(conf, getZooKeeperClient(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
