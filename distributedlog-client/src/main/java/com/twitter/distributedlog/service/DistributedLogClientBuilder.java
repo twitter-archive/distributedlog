@@ -1060,6 +1060,10 @@ public class DistributedLogClientBuilder {
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
                    .failFast(false)
                    .noFailureAccrual()
+                   // disable retries on finagle client builder, as there is only one host per finagle client
+                   // we should throw exception immediately on first failure, so DL client could quickly detect
+                   // failures and retry other proxies.
+                   .retries(1)
                    .keepAlive(true);
         }
 
