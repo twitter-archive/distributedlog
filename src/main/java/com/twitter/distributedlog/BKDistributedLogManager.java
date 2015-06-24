@@ -44,6 +44,7 @@ import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.net.URI;
@@ -421,6 +422,28 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return logSegmentRollingPermitManager;
     }
 
+    <T> Future<T> processReaderOperation(final String streamIdentifier,
+                                         final Function<BKLogPartitionReadHandler, Future<T>> func) {
+        initializeFuturePool(false);
+        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+            @Override
+            public BKLogPartitionReadHandler applyE() throws Throwable {
+                return createReadLedgerHandler(streamIdentifier);
+            }
+        }).flatMap(new ExceptionalFunction<BKLogPartitionReadHandler, Future<T>>() {
+            @Override
+            public Future<T> applyE(final BKLogPartitionReadHandler readHandler) throws Throwable {
+                return func.apply(readHandler).ensure(new ExceptionalFunction0<BoxedUnit>() {
+                    @Override
+                    public BoxedUnit applyE() throws Throwable {
+                        readHandler.close();
+                        return BoxedUnit.UNIT;
+                    }
+                });
+            }
+        });
+    }
+
     /**
      * Check if an end of stream marker was added to the stream for the partition
      * A stream with an end of stream marker cannot be appended to
@@ -771,15 +794,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private Future<LogRecordWithDLSN> getLastRecordAsyncInternal(final String streamIdentifier,
                                                                  final boolean recover,
                                                                  final boolean includeEndOfStream) {
-        initializeFuturePool(false);
-        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+        return processReaderOperation(streamIdentifier,
+                new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
             @Override
-            public BKLogPartitionReadHandler applyE() throws IOException {
-                return createReadLedgerHandler(streamIdentifier);
-            }
-        }).flatMap(new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
-            @Override
-            public Future<LogRecordWithDLSN> apply(BKLogPartitionReadHandler ledgerHandler) {
+            public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
                 return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
             }
         });
@@ -822,15 +840,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public Future<LogRecordWithDLSN> getFirstRecordAsyncInternal() {
-        initializeFuturePool(false);
-        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
+        return processReaderOperation(conf.getUnpartitionedStreamName(),
+                new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
             @Override
-            public BKLogPartitionReadHandler applyE() throws IOException {
-                return createReadLedgerHandler(conf.getUnpartitionedStreamName());
-            }
-        }).flatMap(new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
-            @Override
-            public Future<LogRecordWithDLSN> apply(BKLogPartitionReadHandler ledgerHandler) {
+            public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
                 return ledgerHandler.asyncGetFirstLogRecord();
             }
         });
@@ -909,13 +922,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN) {
-        initializeFuturePool(false);
-        return readerFuturePool.apply(new ExceptionalFunction0<BKLogPartitionReadHandler>() {
-            @Override
-            public BKLogPartitionReadHandler applyE() throws IOException {
-                return createReadLedgerHandler(conf.getUnpartitionedStreamName());
-            }
-        }).flatMap(new Function<BKLogPartitionReadHandler, Future<Long>>() {
+        return processReaderOperation(conf.getUnpartitionedStreamName(),
+                new Function<BKLogPartitionReadHandler, Future<Long>>() {
             @Override
             public Future<Long> apply(BKLogPartitionReadHandler ledgerHandler) {
                 return ledgerHandler.asyncGetLogRecordCount(beginDLSN);

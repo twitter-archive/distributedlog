@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.BoxedUnit;
 
 /**
  * Utility function for readers
@@ -429,9 +431,17 @@ public class ReadUtils {
             final long startEntryId) {
 
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
-
         // Create a ledger handle cache && open ledger handle
         final LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
+        // close the ledger handle cache once the promise is satisified
+        promise.ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCachePriv.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
+
         handleCachePriv.asyncOpenLedger(l, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
             @Override
             public void operationComplete(final int rc, final LedgerDescriptor ledgerDescriptor) {

@@ -689,8 +689,22 @@ abstract class BKLogPartitionHandler implements Watcher {
         throws IOException {
         checkLogStreamExists();
         LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
-        LedgerDataAccessor ledgerDataAccessorPriv =
-                new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger, alertStatsLogger);
+        try {
+            LedgerDataAccessor ledgerDataAccessorPriv =
+                    new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger, alertStatsLogger);
+            try {
+                return doGetTxIdNotLaterThan(thresholdTxId, handleCachePriv, ledgerDataAccessorPriv);
+            } finally {
+                ledgerDataAccessorPriv.clear();
+            }
+        } finally {
+            handleCachePriv.clear();
+        }
+    }
+
+    private long doGetTxIdNotLaterThan(long thresholdTxId,
+                                       LedgerHandleCache handleCachePriv,
+                                       LedgerDataAccessor ledgerDataAccessorPriv) throws IOException {
         List<LogSegmentLedgerMetadata> ledgerListDesc = getFullLedgerListDesc(true, false);
         for (LogSegmentLedgerMetadata l : ledgerListDesc) {
             if (LOG.isTraceEnabled()) {
