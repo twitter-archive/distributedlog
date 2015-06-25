@@ -303,7 +303,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         dlm.close();
     }
 
-    private void checkAndWaitWriterReaderPosition(BKPerStreamLogWriter writer, long expectedWriterPosition,
+    private void checkAndWaitWriterReaderPosition(BKLogSegmentWriter writer, long expectedWriterPosition,
                                                   BKAsyncLogReaderDLSN reader, long expectedReaderPosition,
                                                   LedgerHandle inspector, long expectedLac) throws Exception {
         while (writer.getLedgerHandle().getLastAddConfirmed() < expectedWriterPosition) {
@@ -359,7 +359,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             assertEquals(record.getTransactionId() - 1, record.getSequenceId());
         }
 
-        BKPerStreamLogWriter perStreamWriter = writer.perStreamWriter;
+        BKLogSegmentWriter perStreamWriter = writer.perStreamWriter;
         BookKeeperClient bkc = readDLM.getReaderBKC();
         LedgerHandle readLh = bkc.get().openLedgerNoRecovery(perStreamWriter.getLedgerHandle().getId(),
                 BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));

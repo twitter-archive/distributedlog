@@ -18,7 +18,7 @@ class SizeBasedRollingPolicy implements RollingPolicy {
     }
 
     @Override
-    public boolean shouldRollLog(BKPerStreamLogWriter writer, long lastLedgerRollingTimeMillis) {
+    public boolean shouldRollLog(BKLogSegmentWriter writer, long lastLedgerRollingTimeMillis) {
         return writer.lh.getLength() > maxLogSegmentBytes;
     }
 }

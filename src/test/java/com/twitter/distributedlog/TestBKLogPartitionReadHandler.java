@@ -35,7 +35,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, name);
         long txid = 1;
         for (int sid = 0; sid < numSegments; ++sid) {
-            BKPerStreamLogWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
+            BKLogSegmentWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(txid);
             for (int eid = 0; eid < numEntriesPerSegment; ++eid) {
                 LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
                 out.write(record);

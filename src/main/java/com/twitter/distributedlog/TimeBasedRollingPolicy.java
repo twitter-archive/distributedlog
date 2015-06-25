@@ -15,7 +15,7 @@ class TimeBasedRollingPolicy implements RollingPolicy {
     }
 
     @Override
-    public boolean shouldRollLog(BKPerStreamLogWriter writer, long lastLedgerRollingTimeMillis) {
+    public boolean shouldRollLog(BKLogSegmentWriter writer, long lastLedgerRollingTimeMillis) {
         boolean shouldSwitch = Utils.elapsedMSec(lastLedgerRollingTimeMillis) > rollingIntervalMs;
         if (shouldSwitch) {
             LOG.debug("Last Finalize Time: {} elapsed time (MSec): {}", lastLedgerRollingTimeMillis,

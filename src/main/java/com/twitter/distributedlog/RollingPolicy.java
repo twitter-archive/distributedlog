@@ -10,5 +10,5 @@ public interface RollingPolicy {
      *          last ledger rolling time in millis.
      * @return true if a rollover is required. otherwise, false.
      */
-    boolean shouldRollLog(BKPerStreamLogWriter writer, long lastLedgerRollingTimeMillis);
+    boolean shouldRollLog(BKLogSegmentWriter writer, long lastLedgerRollingTimeMillis);
 }

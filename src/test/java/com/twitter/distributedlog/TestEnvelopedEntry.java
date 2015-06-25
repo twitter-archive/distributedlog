@@ -37,7 +37,7 @@ public class TestEnvelopedEntry extends TestDistributedLogBase {
                                                   data,
                                                   data.length,
                                                   new NullStatsLogger());
-        BKPerStreamLogWriter.Buffer outBuf = new BKPerStreamLogWriter.Buffer(2 * data.length);
+        BKLogSegmentWriter.Buffer outBuf = new BKLogSegmentWriter.Buffer(2 * data.length);
         writeEntry.writeFully(new DataOutputStream(outBuf));
         EnvelopedEntry readEntry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
                                                       new NullStatsLogger());
@@ -54,7 +54,7 @@ public class TestEnvelopedEntry extends TestDistributedLogBase {
                                                        data,
                                                        data.length,
                                                        new NullStatsLogger());
-        BKPerStreamLogWriter.Buffer outBuf = new BKPerStreamLogWriter.Buffer(data.length);
+        BKLogSegmentWriter.Buffer outBuf = new BKLogSegmentWriter.Buffer(data.length);
         writeEntry.writeFully(new DataOutputStream(outBuf));
         assertTrue(data.length > outBuf.size());
         EnvelopedEntry readEntry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,

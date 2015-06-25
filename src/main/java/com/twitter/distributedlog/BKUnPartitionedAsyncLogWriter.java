@@ -179,7 +179,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return write(record);
     }
 
-    private BKPerStreamLogWriter getCachedPerStreamLogWriter() throws WriteException {
+    private BKLogSegmentWriter getCachedPerStreamLogWriter() throws WriteException {
         if (encounteredError) {
             throw new WriteException(bkDistributedLogManager.getStreamName(),
                     "writer has been closed due to error.");
@@ -187,7 +187,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return getCachedLogWriter(conf.getUnpartitionedStreamName());
     }
 
-    private BKPerStreamLogWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
+    private BKLogSegmentWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
                                                        boolean rollLog) throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
@@ -195,7 +195,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             if (encounteredError) {
                 throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
             }
-            BKPerStreamLogWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
+            BKLogSegmentWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
             if (null == writer || rollLog) {
                 writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
                                                    record.getTransactionId(), bestEffort, false);
@@ -225,7 +225,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return pendingResults;
     }
 
-    boolean shouldRollLog(BKPerStreamLogWriter w) {
+    boolean shouldRollLog(BKLogSegmentWriter w) {
         try {
             return !disableLogSegmentRollingFeature.isAvailable() &&
                     shouldStartNewSegment(w, conf.getUnpartitionedStreamName());
@@ -245,17 +245,17 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     }
 
     private Future<DLSN> asyncWrite(LogRecord record, boolean flush) throws IOException {
-        BKPerStreamLogWriter w = getPerStreamLogWriter(record, false, false);
+        BKLogSegmentWriter w = getPerStreamLogWriter(record, false, false);
         return asyncWrite(w, record, flush);
     }
 
     // for ordering guarantee, we shouldn't send requests to next log segments until
     // previous log segment is done.
-    private synchronized Future<DLSN> asyncWrite(BKPerStreamLogWriter writer, LogRecord record, boolean flush) throws IOException {
+    private synchronized Future<DLSN> asyncWrite(BKLogSegmentWriter writer, LogRecord record, boolean flush) throws IOException {
         // The passed in writer may be stale since we acquire the writer outside of sync
         // lock. If we recently rolled and the new writer is cached, use that instead.
         Future<DLSN> result = null;
-        BKPerStreamLogWriter w = getCachedPerStreamLogWriter();
+        BKLogSegmentWriter w = getCachedPerStreamLogWriter();
         if (null == w) {
             w = writer;
         }
@@ -304,7 +304,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
         try {
-            BKPerStreamLogWriter writer = getPerStreamLogWriter(record, true, true);
+            BKLogSegmentWriter writer = getPerStreamLogWriter(record, true, true);
             synchronized (this) {
                 for (PendingLogRecord pendingLogRecord : pendingRequests) {
 

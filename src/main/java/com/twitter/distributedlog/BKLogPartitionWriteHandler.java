@@ -646,7 +646,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * @return
      * @throws IOException
      */
-    public BKPerStreamLogWriter startLogSegment(long txId) throws IOException {
+    public BKLogSegmentWriter startLogSegment(long txId) throws IOException {
         return startLogSegment(txId, false, false);
     }
 
@@ -665,12 +665,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * @return
      * @throws IOException
      */
-    public BKPerStreamLogWriter startLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID)
+    public BKLogSegmentWriter startLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID)
             throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
-            BKPerStreamLogWriter writer = doStartLogSegment(txId, bestEffort, allowMaxTxID);
+            BKLogSegmentWriter writer = doStartLogSegment(txId, bestEffort, allowMaxTxID);
             success = true;
             return writer;
         } finally {
@@ -722,7 +722,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     }
 
-    protected BKPerStreamLogWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
+    protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
         checkLogExists();
 
         boolean wroteInprogressZnode = false;
@@ -837,7 +837,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
-            return new BKPerStreamLogWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
+            return new BKLogSegmentWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
                 lh, lock, txId, ledgerSeqNo, scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
                 featureProvider);
         } catch (IOException exc) {
@@ -851,7 +851,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    boolean shouldStartNewSegment(BKPerStreamLogWriter writer) {
+    boolean shouldStartNewSegment(BKLogSegmentWriter writer) {
         return rollingPolicy.shouldRollLog(writer, lastLedgerRollingTimeMillis);
     }
 
@@ -900,9 +900,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     class CompleteWriterOp extends MetadataOp {
 
-        final BKPerStreamLogWriter writer;
+        final BKLogSegmentWriter writer;
 
-        CompleteWriterOp(BKPerStreamLogWriter writer) {
+        CompleteWriterOp(BKLogSegmentWriter writer) {
             this.writer = writer;
         }
 
@@ -937,7 +937,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
+    public void completeAndCloseLogSegment(BKLogSegmentWriter writer)
         throws IOException {
         new CompleteWriterOp(writer).process();
     }

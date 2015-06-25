@@ -16,15 +16,15 @@ import org.slf4j.LoggerFactory;
 
 class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwareLogWriter {
     static final Logger LOG = LoggerFactory.getLogger(BKPartitionAwareLogWriter.class);
-    private final HashMap<String, BKPerStreamLogWriter> partitionToWriter;
-    private final HashMap<String, BKPerStreamLogWriter> partitionToAllocatedWriter;
+    private final HashMap<String, BKLogSegmentWriter> partitionToWriter;
+    private final HashMap<String, BKLogSegmentWriter> partitionToAllocatedWriter;
     private final HashMap<String, BKLogPartitionWriteHandler> partitionToLedger;
 
     public BKPartitionAwareLogWriter(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
                                      BKDistributedLogManager bkdlm) {
         super(conf, dynConf, bkdlm);
-        this.partitionToWriter = new HashMap<String, BKPerStreamLogWriter>();
-        this.partitionToAllocatedWriter = new HashMap<String, BKPerStreamLogWriter>();
+        this.partitionToWriter = new HashMap<String, BKLogSegmentWriter>();
+        this.partitionToAllocatedWriter = new HashMap<String, BKLogSegmentWriter>();
         this.partitionToLedger = new HashMap<String, BKLogPartitionWriteHandler>();
     }
 
@@ -49,42 +49,42 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
     }
 
     @Override
-    protected BKPerStreamLogWriter getCachedLogWriter(String streamIdentifier) {
+    protected BKLogSegmentWriter getCachedLogWriter(String streamIdentifier) {
         return partitionToWriter.get(streamIdentifier);
     }
 
     @Override
-    protected void cacheLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
+    protected void cacheLogWriter(String streamIdentifier, BKLogSegmentWriter logWriter) {
         partitionToWriter.put(streamIdentifier, logWriter);
     }
 
     @Override
-    protected BKPerStreamLogWriter removeCachedLogWriter(String streamIdentifier) {
+    protected BKLogSegmentWriter removeCachedLogWriter(String streamIdentifier) {
         return partitionToWriter.remove(streamIdentifier);
     }
 
     @Override
-    protected Collection<BKPerStreamLogWriter> getCachedLogWriters() {
+    protected Collection<BKLogSegmentWriter> getCachedLogWriters() {
         return partitionToWriter.values();
     }
 
     @Override
-    protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier) {
+    protected BKLogSegmentWriter getAllocatedLogWriter(String streamIdentifier) {
         return partitionToAllocatedWriter.get(streamIdentifier);
     }
 
     @Override
-    protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter) {
+    protected void cacheAllocatedLogWriter(String streamIdentifier, BKLogSegmentWriter logWriter) {
         partitionToAllocatedWriter.put(streamIdentifier, logWriter);
     }
 
     @Override
-    protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier) {
+    protected BKLogSegmentWriter removeAllocatedLogWriter(String streamIdentifier) {
         return partitionToAllocatedWriter.remove(streamIdentifier);
     }
 
     @Override
-    protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters() {
+    protected Collection<BKLogSegmentWriter> getAllocatedLogWriters() {
         return partitionToAllocatedWriter.values();
     }
 
@@ -125,7 +125,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
         try {
             LinkedList<String> deletedStreams = new LinkedList<String>();
             for(String streamIdentifier: partitionToWriter.keySet()) {
-                BKPerStreamLogWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
+                BKLogSegmentWriter perStreamWriter = partitionToWriter.get(streamIdentifier);
                 BKLogPartitionWriteHandler partitionHander = partitionToLedger.get(streamIdentifier);
                 if (null != perStreamWriter && null != partitionHander) {
                     waitForTruncation();

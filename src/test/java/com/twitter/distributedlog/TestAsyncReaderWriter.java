@@ -1533,7 +1533,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
         writer.flushAndSyncAll();
 
-        BKPerStreamLogWriter perStreamWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter perStreamWriter = writer.getPerStreamWriter();
         DistributedReentrantLock lock = perStreamWriter.getLock();
         lock.close();
 
@@ -1646,7 +1646,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKPerStreamLogWriter logWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter logWriter = writer.getPerStreamWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
@@ -1689,7 +1689,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKPerStreamLogWriter logWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter logWriter = writer.getPerStreamWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),

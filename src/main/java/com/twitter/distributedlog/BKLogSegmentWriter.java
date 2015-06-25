@@ -33,6 +33,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.logsegment.LogSegmentWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
@@ -86,8 +87,8 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
-    static final Logger LOG = LoggerFactory.getLogger(BKPerStreamLogWriter.class);
+class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable {
+    static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
 
     public static class Buffer extends ByteArrayOutputStream {
         Buffer(int initialCapacity) {
@@ -315,18 +316,18 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     /**
      * Construct an edit log output stream which writes to a ledger.
      */
-    protected BKPerStreamLogWriter(String streamName,
-                                   String logSegmentName,
-                                   DistributedLogConfiguration conf,
-                                   int logSegmentMetadataVersion,
-                                   LedgerHandle lh, DistributedReentrantLock lock,
-                                   long startTxId, long ledgerSequenceNumber,
-                                   ScheduledExecutorService executorService,
-                                   FuturePool orderedFuturePool,
-                                   StatsLogger statsLogger,
-                                   AlertStatsLogger alertStatsLogger,
-                                   PermitLimiter globalWriteLimiter,
-                                   FeatureProvider featureProvider)
+    protected BKLogSegmentWriter(String streamName,
+                                 String logSegmentName,
+                                 DistributedLogConfiguration conf,
+                                 int logSegmentMetadataVersion,
+                                 LedgerHandle lh, DistributedReentrantLock lock,
+                                 long startTxId, long ledgerSequenceNumber,
+                                 ScheduledExecutorService executorService,
+                                 FuturePool orderedFuturePool,
+                                 StatsLogger statsLogger,
+                                 AlertStatsLogger alertStatsLogger,
+                                 PermitLimiter globalWriteLimiter,
+                                 FeatureProvider featureProvider)
         throws IOException {
         super();
 
@@ -630,6 +631,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         flushIfNeeded();
     }
 
+    @Override
     synchronized public Future<DLSN> asyncWrite(LogRecord record) {
         return asyncWrite(record, true);
     }
@@ -791,12 +793,13 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     }
 
     /**
+     * (TODO: move this method to the log writer level)
+     *
      * Flushes all the data up to this point,
      * adds the end of stream marker and marks the stream
      * as read-only in the metadata. No appends to the
      * stream will be allowed after this point
      */
-    @Override
     public void markEndOfStream() throws IOException {
         synchronized (this) {
             writeEndOfStreamMarker();
@@ -806,7 +809,15 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         flushAndSync();
     }
 
-    @Override
+    /**
+     * Write bulk of records.
+     *
+     * (TODO: moved this method to log writer level)
+     *
+     * @param records list of records to write
+     * @return number of records that has been written
+     * @throws IOException when there is I/O errors during writing records.
+     */
     synchronized public int writeBulk(List<LogRecord> records) throws IOException {
         int numRecords = 0;
         for (LogRecord r : records) {

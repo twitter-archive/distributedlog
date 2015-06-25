@@ -391,7 +391,7 @@ public class DLMTestUtil {
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
-        BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
+        BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0));
@@ -433,7 +433,7 @@ public class DLMTestUtil {
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
-        BKPerStreamLogWriter writer = new BKPerStreamLogWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
+        BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0));

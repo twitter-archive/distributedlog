@@ -47,21 +47,21 @@ abstract class BKBaseLogWriter {
 
     abstract protected Collection<BKLogPartitionWriteHandler> getCachedPartitionHandlers();
 
-    abstract protected BKPerStreamLogWriter getCachedLogWriter(String streamIdentifier);
+    abstract protected BKLogSegmentWriter getCachedLogWriter(String streamIdentifier);
 
-    abstract protected void cacheLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter);
+    abstract protected void cacheLogWriter(String streamIdentifier, BKLogSegmentWriter logWriter);
 
-    abstract protected BKPerStreamLogWriter removeCachedLogWriter(String streamIdentifier);
+    abstract protected BKLogSegmentWriter removeCachedLogWriter(String streamIdentifier);
 
-    abstract protected Collection<BKPerStreamLogWriter> getCachedLogWriters();
+    abstract protected Collection<BKLogSegmentWriter> getCachedLogWriters();
 
-    abstract protected BKPerStreamLogWriter getAllocatedLogWriter(String streamIdentifier);
+    abstract protected BKLogSegmentWriter getAllocatedLogWriter(String streamIdentifier);
 
-    abstract protected void cacheAllocatedLogWriter(String streamIdentifier, BKPerStreamLogWriter logWriter);
+    abstract protected void cacheAllocatedLogWriter(String streamIdentifier, BKLogSegmentWriter logWriter);
 
-    abstract protected BKPerStreamLogWriter removeAllocatedLogWriter(String streamIdentifier);
+    abstract protected BKLogSegmentWriter removeAllocatedLogWriter(String streamIdentifier);
 
-    abstract protected Collection<BKPerStreamLogWriter> getAllocatedLogWriters();
+    abstract protected Collection<BKLogSegmentWriter> getAllocatedLogWriters();
 
     abstract protected void closeAndComplete(boolean shouldThrow) throws IOException;
 
@@ -75,14 +75,14 @@ abstract class BKBaseLogWriter {
     public void closeNoThrow() {
         closed = true;
         waitForTruncation();
-        for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
+        for (BKLogSegmentWriter writer : getCachedLogWriters()) {
             try {
                 writer.close();
             } catch (IOException ioe) {
                 LOG.error("Failed to close per stream writer : ", ioe);
             }
         }
-        for (BKPerStreamLogWriter writer : getAllocatedLogWriters()) {
+        for (BKLogSegmentWriter writer : getAllocatedLogWriters()) {
             try {
                 writer.close();
             } catch (IOException ioe) {
@@ -118,18 +118,18 @@ abstract class BKBaseLogWriter {
         return ledgerManager;
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(PartitionId partition, long startTxId, boolean allowMaxTxID) throws IOException {
+    synchronized protected BKLogSegmentWriter getLedgerWriter(PartitionId partition, long startTxId, boolean allowMaxTxID) throws IOException {
         return getLedgerWriter(partition.toString(), startTxId, allowMaxTxID);
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)
+    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)
             throws IOException {
-        BKPerStreamLogWriter ledgerWriter = getLedgerWriter(streamIdentifier);
+        BKLogSegmentWriter ledgerWriter = getLedgerWriter(streamIdentifier);
         return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */, allowMaxTxID);
     }
 
-    synchronized protected BKPerStreamLogWriter getLedgerWriter(String streamIdentifier) throws IOException {
-        BKPerStreamLogWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
+    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier) throws IOException {
+        BKLogSegmentWriter ledgerWriter = getCachedLogWriter(streamIdentifier);
 
         // Handle the case where the last call to write actually caused an error in the partition
         //
@@ -149,12 +149,12 @@ abstract class BKBaseLogWriter {
         return ledgerWriter;
     }
 
-    synchronized boolean shouldStartNewSegment(BKPerStreamLogWriter ledgerWriter, String streamIdentifier) throws IOException {
+    synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter, String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
         return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }
 
-    synchronized protected BKPerStreamLogWriter rollLogSegmentIfNecessary(BKPerStreamLogWriter ledgerWriter,
+    synchronized protected BKLogSegmentWriter rollLogSegmentIfNecessary(BKLogSegmentWriter ledgerWriter,
                                                                           String streamIdentifier, long startTxId,
                                                                           boolean bestEffort,
                                                                           boolean allowMaxTxID) throws IOException {
@@ -166,7 +166,7 @@ abstract class BKBaseLogWriter {
                 if (switchPermit.isAllowed()) {
                     try {
                         // we switch only when we could allocate a new log segment.
-                        BKPerStreamLogWriter newLedgerWriter = getAllocatedLogWriter(streamIdentifier);
+                        BKLogSegmentWriter newLedgerWriter = getAllocatedLogWriter(streamIdentifier);
                         if (null == newLedgerWriter) {
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
@@ -317,7 +317,7 @@ abstract class BKBaseLogWriter {
     public long setReadyToFlush() throws IOException {
         checkClosedOrInError("setReadyToFlush");
         long highestTransactionId = 0;
-        for (BKPerStreamLogWriter writer : getCachedLogWriters()) {
+        for (BKLogSegmentWriter writer : getCachedLogWriters()) {
             highestTransactionId = Math.max(highestTransactionId, writer.setReadyToFlush());
         }
         return highestTransactionId;
@@ -342,15 +342,15 @@ abstract class BKBaseLogWriter {
 
         long highestTransactionId = 0;
 
-        Collection<BKPerStreamLogWriter> writerSet = getCachedLogWriters();
+        Collection<BKLogSegmentWriter> writerSet = getCachedLogWriters();
 
         if (parallel || !waitForVisibility) {
-            for(BKPerStreamLogWriter writer : writerSet) {
+            for(BKLogSegmentWriter writer : writerSet) {
                 highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseOne());
             }
         }
 
-        for(BKPerStreamLogWriter writer : writerSet) {
+        for(BKLogSegmentWriter writer : writerSet) {
             if (waitForVisibility) {
                 if (parallel) {
                     highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseTwo());
