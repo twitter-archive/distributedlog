@@ -493,7 +493,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @return max logsegment size in bytes.
      */
     public long getMaxLogSegmentBytes() {
-        return this.getLong(BKDL_MAX_LOGSEGMENT_BYTES, BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT);
+        long maxBytes = this.getLong(BKDL_MAX_LOGSEGMENT_BYTES, BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT);
+        if (maxBytes <= 0) {
+            maxBytes = BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT;
+        }
+        return maxBytes;
     }
 
     /**

@@ -35,6 +35,7 @@ import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.logsegment.LogSegmentWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.Sizable;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -87,7 +88,7 @@ import static com.google.common.base.Charsets.UTF_8;
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
  */
-class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable {
+class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Sizable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
 
     public static class Buffer extends ByteArrayOutputStream {
@@ -470,6 +471,11 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable {
 
     protected final long getStartTxId() {
         return startTxId;
+    }
+
+    @Override
+    public long size() {
+        return lh.getLength();
     }
 
     private BKTransmitPacket getTransmitPacket() {

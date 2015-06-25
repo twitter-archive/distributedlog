@@ -14,6 +14,9 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.logsegment.RollingPolicy;
+import com.twitter.distributedlog.logsegment.SizeBasedRollingPolicy;
+import com.twitter.distributedlog.logsegment.TimeBasedRollingPolicy;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.util.FailpointUtils;
@@ -346,9 +349,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         // Rolling Policy
         if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
-            rollingPolicy = new TimeBasedRollingPolicy(conf);
+            rollingPolicy = new TimeBasedRollingPolicy(conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000);
         } else {
-            rollingPolicy = new SizeBasedRollingPolicy(conf);
+            rollingPolicy = new SizeBasedRollingPolicy(conf.getMaxLogSegmentBytes());
         }
 
         // Stats
@@ -852,7 +855,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     boolean shouldStartNewSegment(BKLogSegmentWriter writer) {
-        return rollingPolicy.shouldRollLog(writer, lastLedgerRollingTimeMillis);
+        return rollingPolicy.shouldRollover(writer, lastLedgerRollingTimeMillis);
     }
 
     class CompleteOp extends MetadataOp {
