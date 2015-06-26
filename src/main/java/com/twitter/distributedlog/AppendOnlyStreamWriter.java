@@ -6,21 +6,19 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 public class AppendOnlyStreamWriter implements Closeable {
     static final Logger LOG = LoggerFactory.getLogger(AppendOnlyStreamWriter.class);
 
-    // Use a 1-length array to satisfy Java's inner class reference rules. Use primitive 
+    // Use a 1-length array to satisfy Java's inner class reference rules. Use primitive
     // type because synchronized block is needed anyway.
     final long[] syncPos = new long[1];
     BKUnPartitionedAsyncLogWriter logWriter;
     long requestPos = 0;
-    
+
     public AppendOnlyStreamWriter(BKUnPartitionedAsyncLogWriter logWriter, long pos) {
         LOG.debug("initialize at position {}", pos);
         this.logWriter = logWriter;
@@ -31,8 +29,7 @@ public class AppendOnlyStreamWriter implements Closeable {
     public Future<DLSN> write(byte[] data) {
         requestPos += data.length;
         Future<DLSN> writeResult = logWriter.write(new LogRecord(requestPos, data));
-        writeResult.addEventListener(new WriteCompleteListener(requestPos));
-        return writeResult;
+        return writeResult.addEventListener(new WriteCompleteListener(requestPos));
     }
 
     public void force(boolean metadata) throws IOException {
@@ -45,7 +42,7 @@ public class AppendOnlyStreamWriter implements Closeable {
             LOG.error("unexpected exception in AppendOnlyStreamWriter.force ", ex);
             throw new UnexpectedException("unexpected exception in AppendOnlyStreamWriter.force", ex);
         }
-        synchronized (syncPos) { 
+        synchronized (syncPos) {
             syncPos[0] = pos;
         }
     }
@@ -78,5 +75,5 @@ public class AppendOnlyStreamWriter implements Closeable {
         public void onFailure(Throwable cause) {
             // Handled at the layer above
         }
-    } 
+    }
 }

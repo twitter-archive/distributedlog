@@ -26,6 +26,8 @@ import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 
+import com.twitter.util.Duration;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -47,6 +49,8 @@ import java.util.Map;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.assertNotNull;
 
@@ -475,5 +479,23 @@ public class DLMTestUtil {
             LOG.warn("loading conf failed", ex);
         }
         return conf;
+    }
+
+    public static <T> void validateFutureFailed(Future<T> future, Class exClass) {
+        try {
+            Await.result(future, Duration.fromSeconds(10));
+        } catch (Exception ex) {
+            LOG.info("Expected: {} Actual: {}", exClass.getName(), ex.getClass().getName());
+            assertTrue("exceptions types equal", exClass.isInstance(ex));
+        }
+    }
+
+    public static <T> T validateFutureSucceededAndGetResult(Future<T> future) throws Exception {
+        try {
+            return Await.result(future, Duration.fromSeconds(10));
+        } catch (Exception ex) {
+            fail("unexpected exception " + ex.getClass().getName());
+            throw ex;
+        }
     }
 }
