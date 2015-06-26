@@ -136,7 +136,6 @@ public class DistributedLogNamespaceBuilder {
         String[] schemeParts = StringUtils.split(scheme, '-');
         Preconditions.checkArgument(schemeParts.length > 0,
                 "Invalid distributedlog scheme found : " + _uri);
-        logger.info("Schme parts : {}", schemeParts[0]);
         Preconditions.checkArgument(Objects.equal(DistributedLogConstants.SCHEME_PREFIX, schemeParts[0].toLowerCase()),
                 "Unknown distributedlog scheme found : " + _uri);
 
@@ -162,9 +161,7 @@ public class DistributedLogNamespaceBuilder {
         try {
             bkUri = new URI(
                     schemeParts[0],     // remove backend info from bookkeeper backend
-                    _uri.getUserInfo(),
-                    _uri.getHost(),
-                    _uri.getPort(),
+                    _uri.getAuthority(),
                     _uri.getPath(),
                     _uri.getQuery(),
                     _uri.getFragment());
