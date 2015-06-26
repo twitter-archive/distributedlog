@@ -113,11 +113,6 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         return perStreamWriter;
     }
 
-    @VisibleForTesting
-    void closeAndComplete() throws IOException {
-        closeAndComplete(true);
-    }
-
     @Override
     protected void closeAndComplete(boolean shouldThrow) throws IOException {
         try {
@@ -142,17 +137,4 @@ abstract class BKUnPartitionedLogWriterBase extends BKBaseLogWriter {
         }
     }
 
-    /**
-     * Close the stream without necessarily flushing immediately.
-     * This may be called if the stream is in error such as after a
-     * previous write or close threw an exception.
-     */
-    public void abort() throws IOException {
-        if (null != perStreamWriter) {
-            perStreamWriter.abort();
-            perStreamWriter = null;
-        }
-
-        closeNoThrow();
-    }
 }

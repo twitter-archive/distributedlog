@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.io.Abortable;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
@@ -8,7 +10,7 @@ import java.util.List;
 * A generic interface class to support writing log records into
 * a persistent distributed log.
 */
-public interface LogWriter extends Closeable {
+public interface LogWriter extends Closeable, Abortable {
     /**
      * Write a log record to the stream.
      *
@@ -52,10 +54,4 @@ public interface LogWriter extends Closeable {
      */
     public void markEndOfStream() throws IOException;
 
-    /**
-     * Close the stream without necessarily flushing immediately.
-     * This may be called if the stream is in error such as after a
-     * previous write or close threw an exception.
-     */
-    public void abort() throws IOException;
 }

@@ -447,7 +447,7 @@ public class DLMTestUtil {
         }
         assertNotNull(wrongDLSN);
         if (recordWrongLastDLSN) {
-            writer.closeToFinalize();
+            writer.close();
             writeHandler.completeAndCloseLogSegment(
                     writeHandler.inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
                     writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), startTxID + segmentSize - 2,

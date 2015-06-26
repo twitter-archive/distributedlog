@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.io.Abortable;
+import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.FutureEventListener;
@@ -11,13 +13,14 @@ import com.twitter.util.FuturePool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-abstract class BKBaseLogWriter {
+abstract class BKBaseLogWriter implements Closeable, Abortable {
     static final Logger LOG = LoggerFactory.getLogger(BKBaseLogWriter.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
@@ -65,6 +68,12 @@ abstract class BKBaseLogWriter {
 
     abstract protected void closeAndComplete(boolean shouldThrow) throws IOException;
 
+    @VisibleForTesting
+    void closeAndComplete() throws IOException {
+        closeAndComplete(true);
+    }
+
+    @Override
     public void close() throws IOException {
         closeAndComplete(false);
     }
@@ -72,8 +81,13 @@ abstract class BKBaseLogWriter {
     /**
      * Close the writer and release all the underlying resources
      */
-    public void closeNoThrow() {
-        closed = true;
+    protected void closeNoThrow() {
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        }
         waitForTruncation();
         for (BKLogSegmentWriter writer : getCachedLogWriters()) {
             try {
@@ -91,6 +105,26 @@ abstract class BKBaseLogWriter {
         }
         for (BKLogPartitionWriteHandler partitionWriteHandler : getCachedPartitionHandlers()) {
             partitionWriteHandler.close();
+        }
+    }
+
+    @Override
+    public void abort() throws IOException {
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        }
+        waitForTruncation();
+        for (BKLogSegmentWriter writer : getCachedLogWriters()) {
+            Abortables.abortQuietly(writer);
+        }
+        for (BKLogSegmentWriter writer : getAllocatedLogWriters()) {
+            Abortables.abortQuietly(writer);
+        }
+        for (BKLogPartitionHandler writeHandler : getCachedPartitionHandlers()) {
+            writeHandler.close();
         }
     }
 
@@ -246,7 +280,7 @@ abstract class BKBaseLogWriter {
         return ledgerWriter;
     }
 
-    protected void checkClosedOrInError(String operation) throws AlreadyClosedException {
+    protected synchronized void checkClosedOrInError(String operation) throws AlreadyClosedException {
         if (closed) {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
@@ -346,14 +380,14 @@ abstract class BKBaseLogWriter {
 
         if (parallel || !waitForVisibility) {
             for(BKLogSegmentWriter writer : writerSet) {
-                highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseOne());
+                highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseOne());
             }
         }
 
         for(BKLogSegmentWriter writer : writerSet) {
             if (waitForVisibility) {
                 if (parallel) {
-                    highestTransactionId = Math.max(highestTransactionId, writer.flushAndSyncPhaseTwo());
+                    highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseTwo());
                 } else {
                     highestTransactionId = Math.max(highestTransactionId, writer.flushAndSync());
                 }

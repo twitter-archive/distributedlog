@@ -115,11 +115,6 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
         return numRecords;
     }
 
-    @VisibleForTesting
-    void closeAndComplete() throws IOException {
-        closeAndComplete(true);
-    }
-
     @Override
     protected void closeAndComplete(boolean shouldThrow) throws IOException {
         try {

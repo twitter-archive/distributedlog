@@ -8,7 +8,6 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.FailpointUtils;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
@@ -19,7 +18,6 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
-import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.util.Await;
@@ -579,48 +577,6 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         Await.result(dlServer.dlServer.getLeft().setAcceptNewStream(true));
         Await.result(dlClient.dlClient.write(name, ByteBuffer.wrap("1".getBytes(UTF_8))));
         checkStream(1, 1, 1, name, dlServer.getAddress(), true, true);
-    }
-
-    @Test(timeout = 60000)
-    public void testServiceTimeout() throws Exception {
-        String name = testName.getMethodName();
-        DistributedLogServiceImpl service = dlServer.dlServer.getLeft();
-        long initialTimeout = conf.getServiceTimeoutMs();
-        int initialDelay = conf.getEIInjectedWriteDelayMs();
-        double initialDelayPct = conf.getEIInjectedWriteDelayPercent();
-        try {
-            service.setServiceTimeoutMs(1);
-            conf.setEIInjectedWriteDelayMs(1000);
-            conf.setEIInjectedWriteDelayPercent(100);
-
-            // First write blocks close since it delays under sync lock.
-            Future<WriteResponse> futureDlsn = service.write(name, ByteBuffer.wrap("1".getBytes(UTF_8)));
-            WriteResponse response  = Await.result(futureDlsn);
-
-            // Second write sees closed stream.
-            futureDlsn = service.write(name, ByteBuffer.wrap("1".getBytes(UTF_8)));
-            response = Await.result(futureDlsn);
-            assertEquals(StatusCode.STREAM_UNAVAILABLE, response.getHeader().getCode());
-
-            DistributedLogServiceImpl.Stream stream = service.getLogWriter(name);
-            while (stream.status != DistributedLogServiceImpl.StreamStatus.INITIALIZED &&
-                    stream.status != DistributedLogServiceImpl.StreamStatus.INITIALIZING) {
-                stream = service.getLogWriter(name);
-                Thread.sleep(1000);
-            }
-
-            service.setServiceTimeoutMs(0);
-            conf.setEIInjectedWriteDelayMs(initialDelay);
-            conf.setEIInjectedWriteDelayPercent(initialDelayPct);
-            futureDlsn = service.write(name, ByteBuffer.wrap("1".getBytes(UTF_8)));
-            response = Await.result(futureDlsn);
-            assertEquals(StatusCode.SUCCESS, response.getHeader().getCode());
-        } finally {
-            service.setServiceTimeoutMs((int)initialTimeout);
-            conf.setServiceTimeoutMs(initialTimeout);
-            conf.setEIInjectedWriteDelayMs(initialDelay);
-            conf.setEIInjectedWriteDelayPercent(initialDelayPct);
-        }
     }
 
     private void checkStream(int expectedNumProxiesInClient, int expectedClientCacheSize, int expectedServerCacheSize,

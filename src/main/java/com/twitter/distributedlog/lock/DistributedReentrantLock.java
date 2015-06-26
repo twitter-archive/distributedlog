@@ -445,7 +445,7 @@ public class DistributedReentrantLock {
     }
 
     @VisibleForTesting
-    int getLockCount() {
+    public int getLockCount() {
         return lockCount.get();
     }
 

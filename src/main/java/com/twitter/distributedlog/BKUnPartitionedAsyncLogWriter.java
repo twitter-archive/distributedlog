@@ -443,11 +443,6 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         super.closeAndComplete();
     }
 
-    @Override
-    public void abort() throws IOException {
-        super.abort();
-    }
-
     /**
      * *TEMP HACK*
      * Get the name of the stream this writer writes data to

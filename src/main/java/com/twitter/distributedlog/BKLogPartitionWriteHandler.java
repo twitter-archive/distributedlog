@@ -911,7 +911,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         @Override
         void processOp() throws IOException {
-            writer.closeToFinalize();
+            writer.close();
             // in theory closeToFinalize should throw exception if a stream is in error.
             // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
             if (writer.shouldFailCompleteLogSegment()) {

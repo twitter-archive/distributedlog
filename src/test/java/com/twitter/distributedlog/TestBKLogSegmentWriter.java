@@ -1,0 +1,582 @@
+package com.twitter.distributedlog;
+
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.Await;
+import com.twitter.util.ExecutorServiceFuturePool;
+import com.twitter.util.Future;
+import com.twitter.util.FuturePool;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.SettableFeatureProvider;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooDefs;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TestName;
+import scala.runtime.AbstractFunction0;
+
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import static com.google.common.base.Charsets.UTF_8;
+import static org.junit.Assert.*;
+
+/**
+ * Test Case for BookKeeper Based Log Segment Writer
+ */
+public class TestBKLogSegmentWriter extends TestDistributedLogBase {
+
+    @Rule
+    public TestName runtime = new TestName();
+
+    private ScheduledExecutorService executorService;
+    private ScheduledExecutorService futurePoolExecutor;
+    private FuturePool futurePool;
+    private OrderedSafeExecutor lockStateExecutor;
+    private ZooKeeperClient zkc;
+    private ZooKeeperClient zkc0;
+    private BookKeeperClient bkc;
+
+    @Before
+    @Override
+    public void setup() throws Exception {
+        super.setup();
+        executorService = Executors.newSingleThreadScheduledExecutor();
+        futurePoolExecutor = Executors.newSingleThreadScheduledExecutor();
+        futurePool = new ExecutorServiceFuturePool(futurePoolExecutor);
+        lockStateExecutor = new OrderedSafeExecutor(1);
+        // build zookeeper client
+        URI uri = createDLMURI("");
+        zkc = ZooKeeperClientBuilder.newBuilder()
+                .name("test-zkc")
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .zkAclId(conf.getZkAclId())
+                .uri(uri)
+                .build();
+        zkc0 = ZooKeeperClientBuilder.newBuilder()
+                .name("test-zkc0")
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .zkAclId(conf.getZkAclId())
+                .uri(uri)
+                .build();
+        // build bookkeeper client
+        BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
+        bkc = BookKeeperClientBuilder.newBuilder()
+                .dlConfig(conf)
+                .name("test-bkc")
+                .ledgersPath(bkdlConfig.getBkLedgersPath())
+                .zkServers(DLUtils.getZKServersFromDLUri(uri))
+                .build();
+    }
+
+    @After
+    @Override
+    public void teardown() throws Exception {
+        if (null != bkc) {
+            bkc.close();
+        }
+        if (null != zkc) {
+            zkc.close();
+        }
+        if (null != lockStateExecutor) {
+            lockStateExecutor.shutdown();
+        }
+        if (null != futurePoolExecutor) {
+            futurePoolExecutor.shutdown();
+        }
+        if (null != executorService) {
+            executorService.shutdown();
+        }
+        super.teardown();
+    }
+
+    private DistributedLogConfiguration newLocalConf() {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        return confLocal;
+    }
+
+    private DistributedReentrantLock createLock(String path, ZooKeeperClient zkClient) throws Exception {
+        try {
+            Await.result(Utils.zkAsyncCreateFullPathOptimistic(zkClient, path, new byte[0],
+                    ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT));
+        } catch (KeeperException.NodeExistsException nee) {
+            // node already exists
+        }
+        return new DistributedReentrantLock(
+                lockStateExecutor,
+                zkClient,
+                path,
+                Long.MAX_VALUE,
+                "test-lock",
+                NullStatsLogger.INSTANCE,
+                0,
+                DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
+                DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
+    }
+
+    private BKLogSegmentWriter createLogSegmentWriter(DistributedLogConfiguration conf,
+                                                      long ledgerSequenceNumber,
+                                                      long startTxId,
+                                                      DistributedReentrantLock lock) throws Exception {
+        LedgerHandle lh = bkc.get().createLedger(3, 2, 2,
+                BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+        return new BKLogSegmentWriter(
+                runtime.getMethodName(),
+                runtime.getMethodName(),
+                conf,
+                LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                lh,
+                lock,
+                startTxId,
+                ledgerSequenceNumber,
+                executorService,
+                futurePool,
+                NullStatsLogger.INSTANCE,
+                new AlertStatsLogger(NullStatsLogger.INSTANCE, "test"),
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0));
+    }
+
+    private LedgerHandle openLedgerNoRecovery(LedgerHandle lh) throws Exception {
+        return bkc.get().openLedgerNoRecovery(lh.getId(),
+                BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+    }
+
+    private LedgerHandle openLedger(LedgerHandle lh) throws Exception {
+        return bkc.get().openLedger(lh.getId(),
+                BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+    }
+
+    private void fenceLedger(LedgerHandle lh) throws Exception {
+        bkc.get().openLedger(lh.getId(), BookKeeper.DigestType.CRC32,
+                conf.getBKDigestPW().getBytes(UTF_8));
+    }
+
+    /**
+     * Close a segment log writer should flush buffered data.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testCloseShouldFlush() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // Use another lock to wait for writer releasing lock
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
+        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+        // close the writer should flush buffered data and release lock
+        writer.close();
+        assertEquals("Lock should be released from the writer",
+                0, lock.getLockCount());
+        Await.result(lockFuture0);
+        lock0.checkOwnership();
+        assertEquals("Last tx id should still be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should become " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxIdAcknowledged());
+        assertEquals("Position should still be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+        List<DLSN> dlsns = Await.result(Future.collect(futureList));
+        assertEquals("All records should be written",
+                numRecords, dlsns.size());
+        for (int i = 0; i < numRecords; i++) {
+            DLSN dlsn = dlsns.get(i);
+            assertEquals("Incorrent ledger sequence number",
+                    0L, dlsn.getLedgerSequenceNo());
+            assertEquals("Incorrent entry id",
+                    0L, dlsn.getEntryId());
+            assertEquals("Inconsistent slot id",
+                    i, dlsn.getSlotId());
+        }
+        assertEquals("Last DLSN should be " + dlsns.get(dlsns.size() - 1),
+                dlsns.get(dlsns.size() - 1), writer.getLastDLSN());
+        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle readLh = openLedgerNoRecovery(lh);
+        assertTrue("Ledger " + lh.getId() + " should be closed", readLh.isClosed());
+        assertEquals("There should be two entries in ledger " + lh.getId(),
+                1L, readLh.getLastAddConfirmed());
+    }
+
+    /**
+     * Abort a segment log writer should just abort pending writes and not flush buffered data.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testAbortShouldNotFlush() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // Use another lock to wait for writer releasing lock
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
+        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+        // close the writer should flush buffered data and release lock
+        writer.abort();
+        assertEquals("Lock should be released from the writer",
+                0, lock.getLockCount());
+        Await.result(lockFuture0);
+        lock0.checkOwnership();
+        assertEquals("Last tx id should still be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should still be " + (numRecords - 1),
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should still be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should still be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+
+        for (int i = 0; i < numRecords; i++) {
+            try {
+                Await.result(futureList.get(i));
+                fail("Should be aborted record " + i + " with transmit exception");
+            } catch (BKTransmitException bkte) {
+                assertEquals("Record " + i + " should be aborted",
+                        BKException.Code.InterruptedException, bkte.getBKResultCode());
+            }
+        }
+
+        // check no entries were written
+        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle readLh = openLedgerNoRecovery(lh);
+        assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
+        assertEquals("There should be no entries in ledger " + lh.getId(),
+                LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddConfirmed());
+    }
+
+
+    /**
+     * Close a log segment writer that already detect ledger fenced, should not flush buffered data.
+     * And should throw exception on closing.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testCloseShouldNotFlushIfLedgerFenced() throws Exception {
+        testCloseShouldNotFlushIfInErrorState(BKException.Code.LedgerFencedException);
+    }
+
+    /**
+     * Close a log segment writer that is already in error state, should not flush buffered data.
+     *
+     * @throws Exception
+     */
+    void testCloseShouldNotFlushIfInErrorState(int rcToFailComplete) throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // Use another lock to wait for writer releasing lock
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
+        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+        writer.setTransmitResult(rcToFailComplete);
+        // close the writer should release lock but not flush data
+        try {
+            writer.close();
+            fail("Close a log segment writer in error state should throw exception");
+        } catch (BKTransmitException bkte) {
+            assertEquals("Inconsistent rc is thrown",
+                    rcToFailComplete, bkte.getBKResultCode());
+        }
+        assertEquals("Lock should be released from the writer",
+                0, lock.getLockCount());
+        Await.result(lockFuture0);
+        lock0.checkOwnership();
+        assertEquals("Last tx id should still be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should still be " + (numRecords - 1),
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should still be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should still be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+
+        for (int i = 0; i < numRecords; i++) {
+            try {
+                Await.result(futureList.get(i));
+                fail("Should be aborted record " + i + " with transmit exception");
+            } catch (BKTransmitException bkte) {
+                assertEquals("Record " + i + " should be aborted",
+                        BKException.Code.InterruptedException, bkte.getBKResultCode());
+            }
+        }
+
+        // check no entries were written
+        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle readLh = openLedgerNoRecovery(lh);
+        assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
+        assertEquals("There should be no entries in ledger " + lh.getId(),
+                LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddConfirmed());
+    }
+
+    /**
+     * Close the writer when ledger is fenced: it should release the lock, fail on flushing data and throw exception
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testCloseShouldFailIfLedgerFenced() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // Use another lock to wait for writer releasing lock
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
+        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+        // fence the ledger
+        fenceLedger(writer.getLedgerHandle());
+        // close the writer: it should release the lock, fail on flushing data and throw exception
+        try {
+            writer.close();
+            fail("Close a log segment writer when ledger is fenced should throw exception");
+        } catch (BKTransmitException bkte) {
+            assertEquals("Inconsistent rc is thrown",
+                    BKException.Code.LedgerFencedException, bkte.getBKResultCode());
+        }
+
+        assertEquals("Lock should be released from the writer",
+                0, lock.getLockCount());
+        Await.result(lockFuture0);
+        lock0.checkOwnership();
+
+        assertEquals("Last tx id should still be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should still be " + (numRecords - 1),
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should still be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should still be " + numRecords,
+                10, writer.getPositionWithinLogSegment());
+
+        for (int i = 0; i < numRecords; i++) {
+            try {
+                Await.result(futureList.get(i));
+                fail("Should be aborted record " + i + " with transmit exception");
+            } catch (BKTransmitException bkte) {
+                assertEquals("Record " + i + " should be aborted",
+                        BKException.Code.LedgerFencedException, bkte.getBKResultCode());
+            }
+        }
+
+        // check no entries were written
+        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle readLh = openLedgerNoRecovery(lh);
+        assertTrue("Ledger " + lh.getId() + " should be closed", readLh.isClosed());
+        assertEquals("There should be no entries in ledger " + lh.getId(),
+                LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddConfirmed());
+    }
+
+    /**
+     * Abort should wait for outstanding transmits to be completed and cancel buffered data.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testAbortShouldFailAllWrites() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // Use another lock to wait for writer releasing lock
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
+        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                numRecords, writer.getPositionWithinLogSegment());
+
+        final CountDownLatch deferLatch = new CountDownLatch(1);
+        futurePool.apply(new AbstractFunction0<Object>() {
+            @Override
+            public Object apply() {
+                try {
+                    deferLatch.await();
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on deferring completion : ", e);
+                }
+                return null;
+            }
+        });
+
+        // transmit the buffered data
+        assertEquals("Last acked tx id should still be -1",
+                -1L, writer.setReadyToFlush());
+
+        // wait until entry id advanced
+        while (writer.getLastEntryId() < 0L) {
+            TimeUnit.MILLISECONDS.sleep(200);
+        }
+
+        // add another 10 records
+        List<Future<DLSN>> anotherFutureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = numRecords; i < 2 * numRecords; i++) {
+            anotherFutureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        assertEquals("Last tx id should become " + (2 * numRecords - 1),
+                2 * numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should still be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should still be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should become " + (2 * numRecords),
+                2 * numRecords, writer.getPositionWithinLogSegment());
+
+        // abort the writer: it waits for outstanding transmits and abort buffered data
+        writer.abort();
+
+        assertEquals("Lock should be released from the writer",
+                0, lock.getLockCount());
+        Await.result(lockFuture0);
+        lock0.checkOwnership();
+
+        // release defer latch so completion would go through
+        deferLatch.countDown();
+
+        List<DLSN> dlsns = Await.result(Future.collect(futureList));
+        assertEquals("All first 10 records should be written",
+                numRecords, dlsns.size());
+        for (int i = 0; i < numRecords; i++) {
+            DLSN dlsn = dlsns.get(i);
+            assertEquals("Incorrent ledger sequence number",
+                    0L, dlsn.getLedgerSequenceNo());
+            assertEquals("Incorrent entry id",
+                    0L, dlsn.getEntryId());
+            assertEquals("Inconsistent slot id",
+                    i, dlsn.getSlotId());
+        }
+        for (int i = 0; i < numRecords; i++) {
+            try {
+                Await.result(anotherFutureList.get(i));
+                fail("Should be aborted record " + (numRecords + i) + " with transmit exception");
+            } catch (BKTransmitException bkte) {
+                assertEquals("Record " + i + " should be aborted",
+                        BKException.Code.InterruptedException, bkte.getBKResultCode());
+            }
+        }
+
+        assertEquals("Last tx id should still be " + (2 * numRecords - 1),
+                2 * numRecords - 1, writer.getLastTxId());
+        // TODO: right now the last acked txn id is only updated when flushAndSync is called
+        //       which is incorrect. it should be updated when adds completed.
+        //       this is a legacy behavior left from 0.2. we should address it with refactor later.
+        assertEquals("Last acked tx id should become " + (numRecords - 1),
+                - 1, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should become " + futureList.get(futureList.size() - 1),
+                dlsns.get(futureList.size() - 1), writer.getLastDLSN());
+        assertEquals("Position should become " + 2 * numRecords,
+                2 * numRecords, writer.getPositionWithinLogSegment());
+
+        // check only 1 entry were written
+        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle readLh = openLedgerNoRecovery(lh);
+        assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
+        assertEquals("Only one entry is written for ledger " + lh.getId(),
+                0L, lh.getLastAddPushed());
+        assertEquals("Only one entry is written for ledger " + lh.getId(),
+                LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddPushed());
+        LedgerHandle completeLh = openLedger(lh);
+        assertTrue("Ledger " + lh.getId() + " should be closed", completeLh.isClosed());
+        assertEquals("Only one entry is written for ledger " + lh.getId(),
+                0L, completeLh.getLastAddConfirmed());
+    }
+}
