@@ -22,6 +22,7 @@ import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.StreamNotReadyException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
@@ -89,7 +90,7 @@ import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
 
-class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
+class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, StreamManager {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
@@ -140,10 +141,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return new ResponseHeader(StatusCode.SUCCESS);
     }
 
-    static ResponseHeader responseHeader(StatusCode code, String errMsg) {
-        return new ResponseHeader(code);
-    }
-
     static ResponseHeader exceptionToResponseHeader(Throwable t) {
         ResponseHeader response = new ResponseHeader();
         if (t instanceof DLException) {
@@ -160,33 +157,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return response;
     }
 
-    static ConcurrentMap<String, String> ownerToHosts = new ConcurrentHashMap<String, String>();
-
-    static String getHostByOwner(String owner) {
-        String host = ownerToHosts.get(owner);
-        if (null == host) {
-            try {
-                host = DLSocketAddress.deserialize(owner).getSocketAddress().toString();
-            } catch (IOException e) {
-                host = owner;
-            }
-            String oldHost = ownerToHosts.putIfAbsent(owner, host);
-            if (null != oldHost) {
-                host = oldHost;
-            }
-        }
-        return host;
-    }
-
     // WriteResponse
-    WriteResponse writeResponse(ResponseHeader responseHeader) {
-        countStatusCode(responseHeader.getCode());
+    static WriteResponse writeResponse(ResponseHeader responseHeader) {
         return new WriteResponse(responseHeader);
     }
 
     // BullkWriteResponse
-    BulkWriteResponse bulkWriteResponse(ResponseHeader responseHeader) {
-        countStatusCode(responseHeader.getCode());
+    static BulkWriteResponse bulkWriteResponse(ResponseHeader responseHeader) {
         return new BulkWriteResponse(responseHeader);
     }
 
@@ -195,43 +172,51 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
       public long getPayloadSize();
     }
 
-    abstract class StreamOp {
-        final String stream;
-        final Stopwatch stopwatch = Stopwatch.createUnstarted();
-        final WriteContext context;
-        final OpStatsLogger opStatsLogger;
+    static interface StreamOp {
+        Future<Void> execute(AsyncLogWriter writer);
+        Future<ResponseHeader> responseHeader();
+        void fail(Throwable t);
+        String streamName();
+        Stopwatch stopwatch();
+    }
 
-        StreamOp(String stream, WriteContext context, OpStatsLogger statsLogger) {
+    static abstract class AbstractStreamOp<Response> implements StreamOp {
+        protected final String stream;
+        protected final OpStatsLogger opStatsLogger;
+        protected final Promise<Response> result = new Promise<Response>();
+        protected final Stopwatch stopwatch = Stopwatch.createUnstarted();
+
+        AbstractStreamOp(String stream, OpStatsLogger statsLogger) {
             this.stream = stream;
-            this.context = context;
             this.opStatsLogger = statsLogger;
             // start here in case the operation is failed before executing.
             stopwatch.reset().start();
         }
 
-        long nextTxId() {
-            return System.currentTimeMillis();
+        @Override
+        public String streamName() {
+            return stream;
         }
 
-        boolean hasTried(String owner) {
-            return context.isSetTriedHosts() && context.getTriedHosts().contains(getHostByOwner(owner));
+        @Override
+        public Stopwatch stopwatch() {
+            return stopwatch;
         }
 
-        Future<Void> execute(AsyncLogWriter writer) {
+        @Override
+        public Future<Void> execute(AsyncLogWriter writer) {
             stopwatch.reset().start();
-            return executeOp(writer);
+            return executeOp(writer).addEventListener(new FutureEventListener<Response>() {
+                @Override
+                public void onSuccess(Response response) {
+                    opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+                    result.setValue(response);
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                }
+            }).voided();
         }
-
-        abstract Future<Void> completionFuture();
-
-        /**
-         * Execute the operation and return its corresponding response.
-         *
-         * @param writer
-         *          writer to execute the operation.
-         * @return future representing the operation.
-         */
-        abstract Future<Void> executeOp(AsyncLogWriter writer);
 
         /**
          * Fail with current <i>owner</i> and its reason <i>t</i>
@@ -241,63 +226,53 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
          * @param t
          *          failure reason
          */
-        void fail(String owner, Throwable t) {
-            if (null != owner) {
-                redirects.inc();
-                fail(ownerToResponseHeader(owner));
+        @Override
+        public void fail(Throwable cause) {
+            if (cause instanceof OwnershipAcquireFailedException) {
+                // Ownership exception is a control exception, not an error, so we don't stat
+                // it with the other errors.
+                OwnershipAcquireFailedException oafe = (OwnershipAcquireFailedException) cause;
+                fail(ownerToResponseHeader(oafe.getCurrentOwner()));
             } else {
-                // record failure stats only when op failed
-                if (!(t instanceof OwnershipAcquireFailedException)) {
-                    opStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                } else {
-                    redirects.inc();
-                }
-                fail(exceptionToResponseHeader(t));
+                opStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+                fail(exceptionToResponseHeader(cause));
             }
         }
 
-        void fail(StatusCode code, String message) {
-            fail(responseHeader(code, message));
-        }
+        /**
+         * Execute the operation and return its corresponding response.
+         *
+         * @param writer
+         *          writer to execute the operation.
+         * @return future representing the operation.
+         */
+        protected abstract Future<Response> executeOp(AsyncLogWriter writer);
 
         // fail the result with the given response header
-        abstract void fail(ResponseHeader header);
-    }
+        protected abstract void fail(ResponseHeader header);
 
-    static class StreamOpCompletionListener<T> implements FutureEventListener<T> {
-
-        OpStatsLogger opStatsLogger;
-        Promise<T> result;
-        Stopwatch stopwatch;
-
-        public StreamOpCompletionListener(OpStatsLogger opStatsLogger, Promise<T> result, Stopwatch stopwatch) {
-            this.opStatsLogger = opStatsLogger;
-            this.result = result;
-            this.stopwatch = stopwatch;
+        protected long nextTxId() {
+            return System.currentTimeMillis();
         }
 
-        @Override
-        public void onSuccess(T response) {
-            opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-            result.setValue(response);
-        }
-
-        @Override
-        public void onFailure(Throwable cause) {
-            // nop, as failure will be handled in {@link Stream.doExecuteOp}.
+        protected static OpStatsLogger requestStat(StatsLogger statsLogger, String opName) {
+            return statsLogger.scope("request").getOpStatsLogger(opName);
         }
     }
 
-    class BulkWriteOp extends StreamOp implements WriteOpWithPayload {
+    static class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements WriteOpWithPayload {
+        private final List<ByteBuffer> buffers;
+        private final long payloadSize;
 
-        final List<ByteBuffer> buffers;
-        final long payloadSize;
-        final Promise<BulkWriteResponse> result = new Promise<BulkWriteResponse>();
+        // Record stats
+        private final Counter successRecordCounter;
+        private final Counter failureRecordCounter;
+        private final Counter redirectRecordCounter;
 
         // We need to pass these through to preserve ownership change behavior in
         // client/server. Only include failures which are guaranteed to have failed
         // all subsequent writes.
-        boolean isDefiniteFailure(Try<DLSN> result) {
+        private boolean isDefiniteFailure(Try<DLSN> result) {
             boolean def = false;
             try {
                 result.get();
@@ -311,12 +286,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return def;
         }
 
-        Future<Void> completionFuture() {
-            return result.voided();
-        }
-
-        BulkWriteOp(String stream, List<ByteBuffer> buffers, WriteContext context) {
-            super(stream, context, bulkWriteStat);
+        BulkWriteOp(String stream, List<ByteBuffer> buffers, StatsLogger statsLogger) {
+            super(stream, requestStat(statsLogger, "bulkWrite"));
             this.buffers = buffers;
             long total = 0;
             // We do this here because the bytebuffers are mutable.
@@ -324,6 +295,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
               total += bb.remaining();
             }
             this.payloadSize = total;
+
+            // Write record stats
+            StatsLogger recordsStatsLogger = statsLogger.scope("records");
+            this.successRecordCounter = recordsStatsLogger.getCounter("success");
+            this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
+            this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
         }
 
         @Override
@@ -332,7 +309,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        public Future<Void> executeOp(AsyncLogWriter writer) {
+        protected Future<BulkWriteResponse> executeOp(AsyncLogWriter writer) {
 
             // Need to convert input buffers to LogRecords.
             List<LogRecord> records = asRecordList(buffers);
@@ -387,13 +364,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 }
             );
 
-            // FlatMap to void preserves exception without passing on result
-            StreamOpCompletionListener<BulkWriteResponse> completionListener =
-                new StreamOpCompletionListener<BulkWriteResponse>(opStatsLogger, result, stopwatch);
-            return response.addEventListener(completionListener).voided();
+            return response;
         }
 
-        List<LogRecord> asRecordList(List<ByteBuffer> buffers) {
+        private List<LogRecord> asRecordList(List<ByteBuffer> buffers) {
             List<LogRecord> records = new ArrayList<LogRecord>(buffers.size());
             for (ByteBuffer buffer : buffers) {
                 byte[] payload = new byte[buffer.remaining()];
@@ -403,7 +377,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return records;
         }
 
-        Future<List<Try<DLSN>>> asTryList(Future<List<Future<DLSN>>> futureList) {
+        private Future<List<Try<DLSN>>> asTryList(Future<List<Future<DLSN>>> futureList) {
             return futureList.flatMap(new AbstractFunction1<List<Future<DLSN>>, Future<List<Try<DLSN>>>>() {
                 @Override
                 public Future<List<Try<DLSN>>> apply(List<Future<DLSN>> results) {
@@ -413,7 +387,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        void fail(ResponseHeader header) {
+        protected void fail(ResponseHeader header) {
             if (StatusCode.FOUND == header.getCode()) {
                 redirectRecordCounter.add(buffers.size());
             } else {
@@ -421,48 +395,56 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
             result.setValue(bulkWriteResponse(header));
         }
+
+        @Override
+        public Future<ResponseHeader> responseHeader() {
+            return result.map(new AbstractFunction1<BulkWriteResponse, ResponseHeader>() {
+                @Override
+                public ResponseHeader apply(BulkWriteResponse response) {
+                    return response.getHeader();
+                }
+            });
+        }
     }
 
-    abstract class AbstractWriteOp extends StreamOp {
+    abstract static class AbstractWriteOp extends AbstractStreamOp<WriteResponse> {
 
-        final Promise<WriteResponse> result = new Promise<WriteResponse>();
+        AbstractWriteOp(String stream, OpStatsLogger statsLogger) {
+            super(stream, statsLogger);
+        }
 
-        AbstractWriteOp(String stream, WriteContext context, OpStatsLogger statsLogger) {
-            super(stream, context, statsLogger);
+        @Override
+        protected void fail(ResponseHeader header) {
+            result.setValue(writeResponse(header));
         }
 
         Future<WriteResponse> getResult() {
             return result;
         }
 
-        Future<Void> completionFuture() {
-            return result.voided();
-        }
-
         @Override
-        public Future<Void> executeOp(AsyncLogWriter writer) {
-            // flatMap to void, preserves exception, discards result
-            StreamOpCompletionListener<WriteResponse> completionListener =
-                new StreamOpCompletionListener<WriteResponse>(opStatsLogger, result, stopwatch);
-            return doExecuteOp(writer).addEventListener(completionListener).voided();
-        }
-
-        abstract Future<WriteResponse> doExecuteOp(AsyncLogWriter writer);
-
-        @Override
-        void fail(ResponseHeader header) {
-            result.setValue(writeResponse(header));
+        public Future<ResponseHeader> responseHeader() {
+            return result.map(new AbstractFunction1<WriteResponse, ResponseHeader>() {
+                @Override
+                public ResponseHeader apply(WriteResponse response) {
+                    return response.getHeader();
+                }
+            });
         }
     }
 
-    static final byte[] HEARTBEAT_DATA = "heartbeat".getBytes(UTF_8);
+    static class HeartbeatOp extends AbstractWriteOp {
 
-    class HeartbeatOp extends AbstractWriteOp {
+        static final byte[] HEARTBEAT_DATA = "heartbeat".getBytes(UTF_8);
 
-        boolean writeControlRecord = false;
+        private boolean writeControlRecord = false;
+        private Object txnLock;
+        private byte dlsnVersion;
 
-        HeartbeatOp(String stream, WriteContext context) {
-            super(stream, context, heartbeatStat);
+        HeartbeatOp(String stream, StatsLogger statsLogger, Object txnLock, byte dlsnVersion) {
+            super(stream, requestStat(statsLogger, "heartbeat"));
+            this.txnLock = txnLock;
+            this.dlsnVersion = dlsnVersion;
         }
 
         HeartbeatOp setWriteControlRecord(boolean writeControlRecord) {
@@ -471,7 +453,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
+        protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
             // write a control record if heartbeat is the first request of the recovered log segment.
             if (writeControlRecord) {
                 long txnId;
@@ -496,13 +478,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
 
         final DLSN dlsn;
 
-        TruncateOp(String stream, DLSN dlsn, WriteContext context) {
-            super(stream, context, truncateStat);
+        TruncateOp(String stream, DLSN dlsn, StatsLogger statsLogger) {
+            super(stream, requestStat(statsLogger, "truncate"));
             this.dlsn = dlsn;
         }
 
         @Override
-        Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
+        protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
             if (!stream.equals(writer.getStreamName())) {
                 logger.error("Truncate: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
                 return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
@@ -516,103 +498,152 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
     }
 
-    class DeleteOp extends AbstractWriteOp implements Runnable {
-
-        final Promise<WriteResponse> deletePromise =
-                new Promise<WriteResponse>();
-
-        DeleteOp(String stream, WriteContext context) {
-            super(stream, context, deleteStat);
-        }
-
-        @Override
-        Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
-            if (null == schedule(this, 0)) {
-                return Future.exception(new ServiceUnavailableException("Couldn't schedule a delete task."));
+    public Future<Void> doDeleteAndRemoveAsync(final String stream) {
+        Stream s = streams.get(stream);
+        if (null == s) {
+            logger.warn("No stream {} to delete.", stream);
+            return Future.exception(new UnexpectedException("No stream " + stream + " to delete."));
+        } else {
+            Future<Void> result;
+            logger.info("Deleting stream {}, {}", stream, s);
+            try {
+                s.delete();
+                result = s.requestClose("Stream Deleted");
+            } catch (IOException e) {
+                logger.error("Failed on removing stream {} : ", stream, e);
+                result = Future.exception(e);
             }
-            return deletePromise;
+            return result;
+        }
+    }
+
+    /**
+     * Must be enqueued to an executor to avoid deadlocks (close and execute-op both
+     * try to acquire the same read-write lock).
+     */
+    @Override
+    public Future<Void> deleteAndRemoveAsync(final String stream) {
+        final Promise<Void> result = new Promise<Void>();
+        java.util.concurrent.Future<?> scheduleFuture = schedule(new Runnable() {
+            @Override
+            public void run() {
+                result.become(doDeleteAndRemoveAsync(stream));
+            }
+        }, 0);
+        if (null == scheduleFuture) {
+            return Future.exception(
+                    new ServiceUnavailableException("Couldn't schedule a delete task."));
+        }
+        return result;
+    }
+
+    static class DeleteOp extends AbstractWriteOp {
+        private final StreamManager streamManager;
+
+        DeleteOp(String stream, StatsLogger statsLogger, StreamManager streamManager) {
+            super(stream, requestStat(statsLogger, "delete"));
+            this.streamManager = streamManager;
         }
 
         @Override
-        public void run() {
-            Stream s = streams.get(stream);
-            if (null == s) {
-                logger.warn("No stream {} to delete.", stream);
-                deletePromise.setException(new UnexpectedException("No stream " + stream + " to delete."));
-            } else {
-                logger.info("Deleting stream {}, {}", stream, s);
-                try {
-                    s.delete();
-                    s.requestClose("Stream Deleted").addEventListener(new FutureEventListener<Void>() {
-                        @Override
-                        public void onSuccess(Void result) {
-                            deletePromise.setValue(writeResponse(successResponseHeader()));
-                        }
-
-                        @Override
-                        public void onFailure(Throwable cause) {
-                            deletePromise.setException(cause);
-                        }
-                    });
-                } catch (IOException e) {
-                    logger.error("Failed on removing stream {} : ", stream, e);
-                    deletePromise.setException(e);
+        protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+            Future<Void> result = streamManager.deleteAndRemoveAsync(streamName());
+            return result.map(new AbstractFunction1<Void, WriteResponse>() {
+                @Override
+                public WriteResponse apply(Void value) {
+                    return writeResponse(successResponseHeader());
                 }
-            }
+            });
         }
     }
 
-    class ReleaseOp extends AbstractWriteOp implements Runnable {
+    public Future<Void> doCloseAndRemoveAsync(final String stream) {
+        Stream s = streams.get(stream);
+        if (null == s) {
+            logger.info("No stream {} to release.", stream);
+            return Future.value(null);
+        } else {
+            return s.requestClose("release ownership");
+        }
+    }
 
-        final Promise<WriteResponse> releasePromise =
-                new Promise<WriteResponse>();
+    /**
+     * Must be enqueued to an executor to avoid deadlocks (close and execute-op both
+     * try to acquire the same read-write lock).
+     */
+    @Override
+    public Future<Void> closeAndRemoveAsync(final String stream) {
+        final Promise<Void> releasePromise = new Promise<Void>();
+        java.util.concurrent.Future<?> scheduleFuture = schedule(new Runnable() {
+            @Override
+            public void run() {
+                releasePromise.become(doCloseAndRemoveAsync(stream));
+            }
+        }, 0);
+        if (null == scheduleFuture) {
+            return Future.exception(
+                    new ServiceUnavailableException("Couldn't schedule a release task."));
+        }
+        return releasePromise;
+    }
 
-        ReleaseOp(String stream, WriteContext context) {
-            super(stream, context, releaseStat);
+    static class ReleaseOp extends AbstractWriteOp {
+        private final StreamManager streamManager;
+
+        ReleaseOp(String stream, StatsLogger statsLogger, StreamManager streamManager) {
+            super(stream, requestStat(statsLogger, "release"));
+            this.streamManager = streamManager;
         }
 
         @Override
-        Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
-            if (null == schedule(this, 0)) {
-                return Future.exception(
-                        new ServiceUnavailableException("Couldn't schedule a release task."));
-            }
-            return releasePromise;
+        protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+            Future<Void> result = streamManager.closeAndRemoveAsync(streamName());
+            return result.map(new AbstractFunction1<Void, WriteResponse>() {
+                @Override
+                public WriteResponse apply(Void value) {
+                    return writeResponse(successResponseHeader());
+                }
+            });
         }
-
-        @Override
-        public void run() {
-            Stream s = streams.get(stream);
-            if (null == s) {
-                logger.info("No stream {} to release.", stream);
-                releasePromise.setValue(writeResponse(successResponseHeader()));
-            } else {
-                s.requestClose("release ownership").addEventListener(new FutureEventListener<Void>() {
-                    @Override
-                    public void onSuccess(Void value) {
-                        releasePromise.setValue(writeResponse(successResponseHeader()));
-                    }
-                    @Override
-                    public void onFailure(Throwable cause) {
-                        releasePromise.setException(cause);
-                    }
-                });
-            }
-        }
-
     }
 
-    WriteOp newWriteOp(String stream, ByteBuffer data, WriteContext context) {
-        return new WriteOp(stream, data, context);
+    WriteOp newWriteOp(String stream, ByteBuffer data) {
+        return new WriteOp(stream, data, statsLogger, txnLock, serverMode, executorService,
+                dlsnVersion, delayMs);
     }
 
-    class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
+    static class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         final byte[] payload;
 
-        WriteOp(String stream, ByteBuffer data, WriteContext context) {
-            super(stream, context, writeStat);
+        // Record stats
+        private final Counter successRecordCounter;
+        private final Counter failureRecordCounter;
+        private final Counter redirectRecordCounter;
+
+        private final Object txnLock;
+        private final ServerMode serverMode;
+        private final ScheduledExecutorService executorService;
+        private final byte dlsnVersion;
+        private final long delayMs;
+
+        WriteOp(String stream, ByteBuffer data, StatsLogger statsLogger,
+                Object txnLock, ServerMode serverMode, ScheduledExecutorService executorService,
+                byte dlsnVersion, long delayMs) {
+            super(stream, requestStat(statsLogger, "write"));
             payload = new byte[data.remaining()];
             data.get(payload);
+
+            // Write record stats
+            StatsLogger recordsStatsLogger = statsLogger.scope("records");
+            this.successRecordCounter = recordsStatsLogger.getCounter("success");
+            this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
+            this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
+
+            this.txnLock = txnLock;
+            this.serverMode = serverMode;
+            this.executorService = executorService;
+            this.dlsnVersion = dlsnVersion;
+            this.delayMs = delayMs;
         }
 
         @Override
@@ -621,7 +652,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        Future<WriteResponse> doExecuteOp(AsyncLogWriter writer) {
+        protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
             if (!stream.equals(writer.getStreamName())) {
                 logger.error("Write: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
                 return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
@@ -669,7 +700,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
 
         @Override
-        void fail(ResponseHeader header) {
+        protected void fail(ResponseHeader header) {
             if (StatusCode.FOUND == header.getCode()) {
                 redirectRecordCounter.inc();
             } else {
@@ -876,7 +907,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                 }
             }, serviceTimeoutMs, TimeUnit.MILLISECONDS);
-            op.completionFuture().ensure(new Function0<BoxedUnit>() {
+            op.responseHeader().ensure(new Function0<BoxedUnit>() {
                 @Override
                 public BoxedUnit apply() {
                     timeout.cancel();
@@ -900,12 +931,25 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 scheduleTimeout(op);
             }
 
+            op.responseHeader().addEventListener(new FutureEventListener<ResponseHeader>() {
+                @Override
+                public void onSuccess(ResponseHeader header) {
+                    if (header.getLocation() != null || header.getCode() == StatusCode.FOUND) {
+                        redirects.inc();
+                    }
+                    countStatusCode(header.getCode());
+                }
+                @Override
+                public void onFailure(Throwable cause) {
+                }
+            });
+
             boolean notifyAcquireThread = false;
             boolean completeOpNow = false;
             boolean success = true;
             if (StreamStatus.isUnavailable(status)) {
                 // Stream is closed, fail the op immediately
-                op.fail(StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.");
+                op.fail(new StreamUnavailableException("Stream " + name + " is closed."));
                 return;
             } if (StreamStatus.INITIALIZED == status && writer != null) {
                 completeOpNow = true;
@@ -927,7 +971,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                         notifyAcquireThread = true;
                         completeOpNow = false;
                         success = false;
-                        op.fail(StatusCode.STREAM_NOT_READY, "Stream " + name + " is not ready; status = " + status);
+                        op.fail(new StreamNotReadyException("Stream " + name + " is not ready; status = " + status));
                     } else { // closing & initializing
                         notifyAcquireThread = true;
                         pendingOps.add(op);
@@ -966,7 +1010,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             closeLock.readLock().lock();
             try {
                 if (StreamStatus.isUnavailable(status)) {
-                    op.fail(StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.");
+                    op.fail(new StreamUnavailableException("Stream " + name + " is closed."));
                     return;
                 }
                 doExecuteOp(op, success);
@@ -1001,7 +1045,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                                 break;
                             case ALREADY_CLOSED:
                                 assert(cause instanceof AlreadyClosedException);
-                                op.fail(null, cause);
+                                op.fail(cause);
                                 handleAlreadyClosedException((AlreadyClosedException) cause);
                                 break;
                             // exceptions that mostly from client (e.g. too large record)
@@ -1014,7 +1058,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                             case TRANSACTION_OUT_OF_ORDER:
                             case INVALID_STREAM_NAME:
                             case OVER_CAPACITY:
-                                op.fail(null, cause);
+                                op.fail(cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer
                             default:
@@ -1030,12 +1074,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                     }
                 });
             } else {
-                failOp(op, owner, lastException);
+                op.fail(lastException);
             }
-        }
-
-        private void failOp(StreamOp op, String owner, Throwable t) {
-            op.fail(owner, t);
         }
 
         /**
@@ -1060,7 +1100,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 abort(oldWriter);
                 logger.error("Failed to write data into stream {} : ", name, cause);
             }
-            failOp(op, null, cause);
+            op.fail(cause);
         }
 
         /**
@@ -1085,7 +1125,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 abort(oldWriter);
                 logger.error("Failed to write data into stream {} : ", name, cause);
             }
-            failOp(op, null, cause);
+            op.fail(cause);
         }
 
         /**
@@ -1112,7 +1152,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             if (statusChanged) {
                 abort(oldWriter);
             }
-            failOp(op, oafe.getCurrentOwner(), oafe);
+            op.fail(oafe);
         }
 
         /**
@@ -1371,8 +1411,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
                 oldPendingOps = pendingOps;
                 pendingOps = new ArrayDeque<StreamOp>();
             }
+            StreamUnavailableException closingException =
+                    new StreamUnavailableException("Stream " + name + " is closed.");
             for (StreamOp op : oldPendingOps) {
-                op.fail(StatusCode.STREAM_UNAVAILABLE, "Stream " + name + " is closed.");
+                op.fail(closingException);
                 pendingOpsCounter.decrementAndGet();
             }
             logger.info("Closed stream {}.", name);
@@ -1401,20 +1443,16 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final Feature featureRegionStopAcceptNewStream;
 
     // Stats
+    private final StatsLogger statsLogger;
     // operation stats
-    private final OpStatsLogger bulkWriteStat;
     private final Counter bulkWritePendingStat;
-    private final OpStatsLogger writeStat;
     private final Counter writePendingStat;
-    private final OpStatsLogger heartbeatStat;
-    private final OpStatsLogger truncateStat;
-    private final OpStatsLogger deleteStat;
-    private final OpStatsLogger releaseStat;
     private final Counter redirects;
     private final Counter unexpectedExceptions;
     private final Counter bulkWriteBytes;
     private final Counter writeBytes;
     private final Counter serviceTimeout;
+
     // denied operations counters
     private final Counter deniedBulkWriteCounter;
     private final Counter deniedWriteCounter;
@@ -1422,11 +1460,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private final Counter deniedTruncateCounter;
     private final Counter deniedDeleteCounter;
     private final Counter deniedReleaseCounter;
-    // records stats
+
     private final Counter receivedRecordCounter;
-    private final Counter successRecordCounter;
-    private final Counter failureRecordCounter;
-    private final Counter redirectRecordCounter;
+
     // exception stats
     private final StatsLogger exceptionStatLogger;
     private final ConcurrentHashMap<String, Counter> exceptionCounters =
@@ -1532,22 +1568,21 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             }
         });
 
+        this.statsLogger = statsLogger;
+
         // Stats on requests
         StatsLogger requestsStatsLogger = statsLogger.scope("request");
-        this.bulkWriteStat = requestsStatsLogger.getOpStatsLogger("bulkWrite");
         this.bulkWritePendingStat = requestsStatsLogger.getCounter("bulkWritePending");
-        this.writeStat = requestsStatsLogger.getOpStatsLogger("write");
         this.writePendingStat = requestsStatsLogger.getCounter("writePending");
-        this.heartbeatStat = requestsStatsLogger.getOpStatsLogger("heartbeat");
-        this.truncateStat = requestsStatsLogger.getOpStatsLogger("truncate");
-        this.deleteStat = requestsStatsLogger.getOpStatsLogger("delete");
-        this.releaseStat = requestsStatsLogger.getOpStatsLogger("release");
         this.redirects = requestsStatsLogger.getCounter("redirect");
         this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
         this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
         this.bulkWriteBytes = requestsStatsLogger.scope("bulkWrite").getCounter("bytes");
         this.writeBytes = requestsStatsLogger.scope("write").getCounter("bytes");
         this.serviceTimeout = statsLogger.getCounter("serviceTimeout");
+
+        StatsLogger recordsStatsLogger = statsLogger.scope("records");
+        this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
 
         // Stats on denied requests
         StatsLogger deniedRequestsStatsLogger = requestsStatsLogger.scope("denied");
@@ -1557,13 +1592,6 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         this.deniedTruncateCounter = deniedRequestsStatsLogger.getCounter("truncate");
         this.deniedDeleteCounter = deniedRequestsStatsLogger.getCounter("delete");
         this.deniedReleaseCounter = deniedRequestsStatsLogger.getCounter("release");
-
-        // Stats on records
-        StatsLogger recordsStatsLogger = statsLogger.scope("records");
-        this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
-        this.successRecordCounter = recordsStatsLogger.getCounter("success");
-        this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
-        this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
@@ -1749,7 +1777,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
         receivedRecordCounter.inc();
-        return doWrite(stream, data, new WriteContext());
+        return doWrite(stream, data);
     }
 
     @Override
@@ -1760,7 +1788,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, ctx);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger);
         doExecuteStreamOp(op);
         return op.result.ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1776,7 +1804,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedWriteCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        return doWrite(stream, data, ctx);
+        return doWrite(stream, data);
     }
 
     @Override
@@ -1785,7 +1813,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedHeartbeatCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        HeartbeatOp op = new HeartbeatOp(stream, ctx);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, txnLock, dlsnVersion);
         doExecuteStreamOp(op);
         return op.result;
     }
@@ -1796,7 +1824,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedHeartbeatCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        HeartbeatOp op = new HeartbeatOp(stream, ctx);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, txnLock, dlsnVersion);
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }
@@ -1811,7 +1839,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedTruncateCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), ctx);
+        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger);
         doExecuteStreamOp(op);
         return op.result;
     }
@@ -1822,7 +1850,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedDeleteCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        DeleteOp op = new DeleteOp(stream, ctx);
+        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */);
         doExecuteStreamOp(op);
         return op.result;
     }
@@ -1833,7 +1861,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
             deniedReleaseCounter.inc();
             return Future.value(writeResponse(operationDeniedResponseHeader()));
         }
-        ReleaseOp op = new ReleaseOp(stream, ctx);
+        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */);
         doExecuteStreamOp(op);
         return op.result;
     }
@@ -1850,9 +1878,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
         return Future.Void();
     }
 
-    private Future<WriteResponse> doWrite(final String name, ByteBuffer data, WriteContext ctx) {
+    private Future<WriteResponse> doWrite(final String name, ByteBuffer data) {
         writePendingStat.inc();
-        WriteOp op = newWriteOp(name, data, ctx);
+        receivedRecordCounter.inc();
+        WriteOp op = newWriteOp(name, data);
         doExecuteStreamOp(op);
         return op.result.ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1865,18 +1894,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
     private void doExecuteStreamOp(final StreamOp op) {
         Stream stream;
         try {
-            stream = getLogWriter(op.stream);
+            stream = getLogWriter(op.streamName());
         } catch (RegionUnavailableException rue) {
             // redirect the requests to other region
-            op.fail(StatusCode.REGION_UNAVAILABLE, "Region " + serverRegionId + " is unavailable.");
+            op.fail(new RegionUnavailableException("Region " + serverRegionId + " is unavailable."));
             return;
         } catch (IOException e) {
-            op.fail(null, e);
+            op.fail(e);
             return;
         }
         if (null == stream) {
             // redirect the requests when stream is unavailable.
-            op.fail(StatusCode.SERVICE_UNAVAILABLE, "Server " + clientId + " is closed.");
+            op.fail(new ServiceUnavailableException("Server " + clientId + " is closed."));
             return;
         }
         if (op instanceof WriteOp) {
@@ -1886,14 +1915,14 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
           ((WriteOp) op).result.addEventListener(new FutureEventListener<WriteResponse>() {
             @Override
             public void onSuccess(WriteResponse ignoreVal) {
-              latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              latencyStat.registerSuccessfulEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
               bytes.add(size);
               writeBytes.add(size);
             }
 
             @Override
             public void onFailure(Throwable cause) {
-              latencyStat.registerFailedEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              latencyStat.registerFailedEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
             }
           });
         } else if (op instanceof BulkWriteOp) {
@@ -1903,14 +1932,14 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface {
           ((BulkWriteOp) op).result.addEventListener(new FutureEventListener<BulkWriteResponse>() {
             @Override
             public void onSuccess(BulkWriteResponse ignoreVal) {
-              latencyStat.registerSuccessfulEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              latencyStat.registerSuccessfulEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
               bytes.add(size);
               bulkWriteBytes.add(size);
             }
 
             @Override
             public void onFailure(Throwable cause) {
-              latencyStat.registerFailedEvent(op.stopwatch.elapsed(TimeUnit.MICROSECONDS));
+              latencyStat.registerFailedEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
             }
           });
         }

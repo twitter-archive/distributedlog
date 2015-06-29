@@ -102,8 +102,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                                   String streamName,
                                   long txid) {
         ByteBuffer data = createRecord(txid);
-        WriteContext ctx = new WriteContext();
-        return service.newWriteOp(streamName, data, ctx);
+        return service.newWriteOp(streamName, data);
     }
 
     @Test(timeout = 60000)
