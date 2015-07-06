@@ -65,4 +65,26 @@ public class DynamicDistributedLogConfiguration {
             defaultConfig.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
                 DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT));
     }
+
+    /**
+     * Get percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS.
+     *
+     * @return percent of writes to delay.
+     */
+    public double getEIInjectedWriteDelayPercent() {
+        return config.getDouble(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT,
+            defaultConfig.getDouble(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT,
+                DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT));
+    }
+
+    /**
+     * Get amount of time to delay writes for in writer failure injection.
+     *
+     * @return millis to delay writes for.
+     */
+    public int getEIInjectedWriteDelayMs() {
+        return config.getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
+                DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT));
+    }
 }

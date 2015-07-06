@@ -6,6 +6,7 @@ import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -86,10 +87,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        String clientId,
                                                                        int regionId,
                                                                        PermitLimiter writeLimiter,
-                                                                       FeatureProvider featureProvider) throws IOException {
+                                                                       FeatureProvider featureProvider,
+                                                                       DynamicDistributedLogConfiguration dynConf) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
                 scheduler, orderedFuturePool, lockStateExecutor, ledgerAllocator,
-                statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider);
+                statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider, dynConf);
     }
 
     private static final int LAYOUT_VERSION = -1;
@@ -118,6 +120,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     protected boolean lockHandler = false;
     protected final PermitLimiter writeLimiter;
     protected final FeatureProvider featureProvider;
+    protected final DynamicDistributedLogConfiguration dynConf;
 
     private static int bytesToInt(byte[] b) {
         assert b.length >= 4;
@@ -271,13 +274,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                String clientId,
                                int regionId,
                                PermitLimiter writeLimiter,
-                               FeatureProvider featureProvider) throws IOException {
+                               FeatureProvider featureProvider,
+                               DynamicDistributedLogConfiguration dynConf) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.orderedFuturePool = orderedFuturePool;
         this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
         this.featureProvider = featureProvider;
+        this.dynConf = dynConf;
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -842,7 +847,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
             return new BKLogSegmentWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
                 lh, lock, txId, ledgerSeqNo, scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
-                featureProvider);
+                featureProvider, dynConf);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed
             // to be best effort, we can retry this later

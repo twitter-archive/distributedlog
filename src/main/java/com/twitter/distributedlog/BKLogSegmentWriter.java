@@ -51,7 +51,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
@@ -59,6 +59,7 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.OpStatsListener;
@@ -285,28 +286,44 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
     private final AlertStatsLogger alertStatsLogger;
     private final WriteLimiter writeLimiter;
-    private final FailureInjector failureInjector;
+    private final FailureInjector writeDelayInjector;
+
+    static interface FailureInjector {
+        void inject();
+    }
+
+    static class NullFailureInjector implements FailureInjector {
+        public static NullFailureInjector INSTANCE = new NullFailureInjector();
+        @Override
+        public void inject() {
+        }
+    }
 
     // manage failure injection for the class
-    static class FailureInjector {
+    static class RandomDelayFailureInjector implements FailureInjector {
+        private final DynamicDistributedLogConfiguration dynConf;
 
-        final double injectedDelayPercent;
-        final int injectedDelayMs;
-        final boolean enabled;
-
-        public FailureInjector(DistributedLogConfiguration conf, String stream) {
-            this.injectedDelayPercent = conf.getEIInjectedWriteDelayPercent();
-            this.injectedDelayMs = conf.getEIInjectedWriteDelayMs();
-            String failureStream = conf.getEIInjectedWriteDelayStreamName();
-            this.enabled = ((null == failureStream) || failureStream.equals(stream)) &&
-                (0 != injectedDelayMs) &&
-                (0 != injectedDelayPercent);
+        public RandomDelayFailureInjector(DynamicDistributedLogConfiguration dynConf) {
+            this.dynConf = dynConf;
         }
 
-        void writeDelay() {
+        private int delayMs() {
+            return dynConf.getEIInjectedWriteDelayMs();
+        }
+
+        private double delayPct() {
+            return dynConf.getEIInjectedWriteDelayPercent();
+        }
+
+        private boolean enabled() {
+            return delayMs() > 0 && delayPct() > 0;
+        }
+
+        @Override
+        public void inject() {
             try {
-                if (enabled && Utils.randomPercent(injectedDelayPercent)) {
-                    Thread.sleep(injectedDelayMs);
+                if (enabled() && Utils.randomPercent(delayPct())) {
+                    Thread.sleep(delayMs());
                 }
             } catch (InterruptedException ex) {
                 LOG.warn("delay was interrupted ", ex);
@@ -328,7 +345,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  StatsLogger statsLogger,
                                  AlertStatsLogger alertStatsLogger,
                                  PermitLimiter globalWriteLimiter,
-                                 FeatureProvider featureProvider)
+                                 FeatureProvider featureProvider,
+                                 DynamicDistributedLogConfiguration dynConf)
         throws IOException {
         super();
 
@@ -423,7 +441,11 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
 
         // Failure injection
-        this.failureInjector = new FailureInjector(conf, streamName);
+        if (conf.getEIInjectWriteDelay()) {
+            this.writeDelayInjector = new RandomDelayFailureInjector(dynConf);
+        } else {
+            this.writeDelayInjector = NullFailureInjector.INSTANCE;
+        }
 
         // If we are transmitting immediately (threshold == 0) and if immediate
         // flush is enabled, we don't need the periodic flush task
@@ -757,7 +779,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
 
         // Inject write delay if configured to do so
-        failureInjector.writeDelay();
+        writeDelayInjector.inject();
 
         // Will check write rate limits and throw if exceeded.
         writeLimiter.acquire();

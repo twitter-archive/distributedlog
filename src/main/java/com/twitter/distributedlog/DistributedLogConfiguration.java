@@ -294,18 +294,21 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
     public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
 
+    public static final String BKDL_STREAM_PROBATION_TIMEOUT_MS = "streamProbationTimeoutMs";
+    public static final long BKDL_STREAM_PROBATION_TIMEOUT_MS_DEFAULT = 60*1000*5;
+
     public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
     public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
 
     // Settings for Error Injection
+    public static final String BKDL_EI_INJECT_WRITE_DELAY = "eiInjectWriteDelay";
+    public static final boolean BKDL_EI_INJECT_WRITE_DELAY_DEFAULT = false;
+
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
     public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
 
     public static final String BKDL_EI_INJECTED_WRITE_DELAY_MS = "eiInjectedWriteDelayMs";
     public static final int BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT = 0;
-
-    public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME = "eiInjectedWriteDelayStreamName";
-    public static final String BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT = null;
 
     public static final String BKDL_EI_INJECT_READAHEAD_STALL = "eiInjectReadAheadStall";
     public static final boolean BKDL_EI_INJECT_READAHEAD_STALL_DEFAULT = false;
@@ -2138,6 +2141,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     // Error Injection Settings
 
     /**
+     * Should we enable write delay injection? If false we won't check other write delay settings.
+     *
+     * @return true if write delay injection is enabled.
+     */
+    public boolean getEIInjectWriteDelay() {
+        return getBoolean(BKDL_EI_INJECT_WRITE_DELAY, BKDL_EI_INJECT_WRITE_DELAY_DEFAULT);
+    }
+
+    /**
      * Get percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS.
      *
      * @return percent of writes to delay.
@@ -2177,29 +2189,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setEIInjectedWriteDelayMs(int delayMs) {
         setProperty(BKDL_EI_INJECTED_WRITE_DELAY_MS, delayMs);
-        return this;
-    }
-
-
-    /**
-     * Get stream name to delay writes for in writer failure injection.
-     *
-     * @return stream name to delay writes for.
-     */
-    public String getEIInjectedWriteDelayStreamName() {
-        return getString(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME_DEFAULT);
-    }
-
-    /**
-     * Set stream name to delay writes for in writer failure injection. If null, writes will be
-     * delayed for all streams (if other conditions are met).
-     *
-     * @param name
-     *          stream to delay writes for.
-     * @return dl configuration.
-     */
-    public DistributedLogConfiguration setEIInjectedWriteDelayStreamName(String name) {
-        setProperty(BKDL_EI_INJECTED_WRITE_DELAY_STREAM_NAME, name);
         return this;
     }
 
@@ -2305,6 +2294,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setServiceTimeoutMs(long timeoutMs) {
         setProperty(BKDL_SERVICE_TIMEOUT_MS, timeoutMs);
+        return this;
+    }
+
+    /**
+     * After service timeout, how long should stream be kept in cache in probationary state in order
+     * to prevent reacquire. In millisec.
+     *
+     * @return stream probation timeout in ms.
+     */
+    public long getStreamProbationTimeoutMs() {
+        return getLong(BKDL_STREAM_PROBATION_TIMEOUT_MS, BKDL_STREAM_PROBATION_TIMEOUT_MS_DEFAULT);
+    }
+
+    /**
+     * After service timeout, how long should stream be kept in cache in probationary state in order
+     * to prevent reacquire. In millisec.
+     *
+     * @param stream probation timeout in ms.
+     */
+    public DistributedLogConfiguration setStreamProbationTimeoutMs(long timeoutMs) {
+        setProperty(BKDL_STREAM_PROBATION_TIMEOUT_MS, timeoutMs);
         return this;
     }
 

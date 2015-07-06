@@ -901,9 +901,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
                 public void run(Timeout timeout) throws Exception {
                     if (!timeout.isCancelled()) {
                         serviceTimeout.inc();
-                        // mark stream in error state
-                        setStreamInErrorStatus();
-                        requestClose("Operation " + op.getClass().getName() + " timeout");
+                        handleServiceTimeout("Operation " + op.getClass().getName() + " timeout");
                     }
                 }
             }, serviceTimeoutMs, TimeUnit.MILLISECONDS);
@@ -912,6 +910,47 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
                 public BoxedUnit apply() {
                     timeout.cancel();
                     return null;
+                }
+            });
+        }
+
+        void scheduleRemoval(final String streamName, long delayMs) {
+            logger.info("Scheduling removal of stream {} from cache after {} sec.", name, delayMs);
+            final Timeout timeout = dlTimer.newTimeout(new TimerTask() {
+                @Override
+                public void run(Timeout timeout) throws Exception {
+                    if (streams.remove(streamName, Stream.this)) {
+                        logger.info("Removed cached stream {} after probation.", name);
+                    } else {
+                        logger.info("Cached stream {} already removed.", name);
+                    }
+                }
+            }, delayMs, TimeUnit.MILLISECONDS);
+        }
+
+        /**
+         * Close the stream and schedule cache eviction at some point in the future.
+         * We delay this as a way to place the stream in a probationary state--cached
+         * in the proxy but unusable.
+         * This mechanism helps the cluster adapt to situations where a proxy has
+         * persistent connectivity/availability issues, because it keeps an affected
+         * stream off the proxy for a period of time, hopefully long enough for the
+         * issues to be resolved, or for whoop to kick in and kill the shard.
+         */
+        synchronized void handleServiceTimeout(String reason) {
+            if (StreamStatus.isUnavailable(status)) {
+                return;
+            }
+            // Mark stream in error state
+            setStreamInErrorStatus();
+
+            // Async close request, and schedule eviction when its done.
+            Future<Void> closeFuture = requestClose(reason, false /* dont remove */);
+            closeFuture.onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
+                @Override
+                public BoxedUnit apply(Void result) {
+                    scheduleRemoval(name, streamProbationTimeoutMs);
+                    return BoxedUnit.UNIT;
                 }
             });
         }
@@ -1310,6 +1349,10 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
         }
 
         Future<Void> requestClose(String reason) {
+            return requestClose(reason, true);
+        }
+
+        Future<Void> requestClose(String reason, boolean uncache) {
             final boolean abort;
             closeLock.writeLock().lock();
             try {
@@ -1341,19 +1384,18 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
                 close(abort);
                 closePromise.setValue(null);
             }
-            return closePromise.addEventListener(new FutureEventListener<Void>() {
+            if (uncache) {
+                closePromise.onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
                     @Override
-                    public void onSuccess(Void value) {
+                    public BoxedUnit apply(Void result) {
                         if (streams.remove(name, Stream.this)) {
                             logger.info("Removed cached stream {} after closed.", name);
                         }
+                        return BoxedUnit.UNIT;
                     }
-                    @Override
-                    public void onFailure(Throwable cause) {
-                        // never happen
-                    }
-                }
-            );
+                });
+            }
+            return closePromise;
         }
 
         private void delete() throws IOException {
@@ -1484,6 +1526,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
     private final boolean failFastOnStreamNotReady;
     private final HashedWheelTimer dlTimer;
     private long serviceTimeoutMs;
+    private final long streamProbationTimeoutMs;
     private final StreamConfigProvider streamConfigProvider;
 
     DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
@@ -1525,6 +1568,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
                 dlConf.getTimeoutTimerTickDurationMs(),
                 TimeUnit.MILLISECONDS);
         this.serviceTimeoutMs = dlConf.getServiceTimeoutMs();
+        this.streamProbationTimeoutMs = dlConf.getStreamProbationTimeoutMs();
         this.streamConfigProvider = streamConfigProvider;
 
         // Executor Service.

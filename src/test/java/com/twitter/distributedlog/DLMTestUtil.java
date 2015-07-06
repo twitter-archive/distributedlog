@@ -22,6 +22,7 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
@@ -179,7 +180,8 @@ public class DLMTestUtil {
             "localhost",
             DistributedLogConstants.LOCAL_REGION_ID,
             PermitLimiter.NULL_PERMIT_LIMITER,
-            new SettableFeatureProvider("", 0));
+            new SettableFeatureProvider("", 0),
+            ConfUtils.getConstDynConf(conf));
 
         return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
@@ -398,7 +400,7 @@ public class DLMTestUtil {
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
-                new SettableFeatureProvider("", 0));
+                new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         if (writeEntries) {
             long txid = startTxID;
             for (long j = 1; j <= segmentSize; j++) {
@@ -440,7 +442,7 @@ public class DLMTestUtil {
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
-                new SettableFeatureProvider("", 0));
+                new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {

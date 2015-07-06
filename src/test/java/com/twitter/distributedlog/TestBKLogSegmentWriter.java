@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
@@ -151,7 +152,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 NullStatsLogger.INSTANCE,
                 new AlertStatsLogger(NullStatsLogger.INSTANCE, "test"),
                 PermitLimiter.NULL_PERMIT_LIMITER,
-                new SettableFeatureProvider("", 0));
+                new SettableFeatureProvider("", 0),
+                ConfUtils.getConstDynConf(conf));
     }
 
     private LedgerHandle openLedgerNoRecovery(LedgerHandle lh) throws Exception {

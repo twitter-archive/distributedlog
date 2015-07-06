@@ -268,6 +268,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     public void testServiceTimeout() throws Exception {
         DistributedLogConfiguration confLocal = newLocalConf();
         confLocal.setServiceTimeoutMs(200)
+                .setStreamProbationTimeoutMs(100)
                 .setOutputBufferSize(Integer.MAX_VALUE)
                 .setImmediateFlushEnabled(false)
                 .setPeriodicFlushFrequencyMilliSeconds(0);
@@ -317,7 +318,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                     StatusCode.BK_TRANSMIT_ERROR, response.getHeader().getCode());
         }
 
-        Await.result(s.requestClose("close"));
+        while (localService.getCachedStreams().containsKey(streamName)) {
+            TimeUnit.MILLISECONDS.sleep(20);
+        }
+
         assertFalse("Stream should be removed from cache",
                 localService.getCachedStreams().containsKey(streamName));
         assertFalse("Stream should be removed from acquired cache",
