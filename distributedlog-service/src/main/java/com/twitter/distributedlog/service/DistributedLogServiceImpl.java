@@ -16,6 +16,7 @@ import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.config.DynamicConfigurationFactory;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
@@ -23,6 +24,8 @@ import com.twitter.distributedlog.exceptions.StreamNotReadyException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
+import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
+import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
@@ -34,6 +37,11 @@ import com.twitter.distributedlog.service.stream.StreamManager;
 import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.service.stream.TruncateOp;
 import com.twitter.distributedlog.service.stream.WriteOp;
+import com.twitter.distributedlog.service.stream.limiter.BpsHardLimiter;
+import com.twitter.distributedlog.service.stream.limiter.BpsSoftLimiter;
+import com.twitter.distributedlog.service.stream.limiter.DynamicRequestLimiter;
+import com.twitter.distributedlog.service.stream.limiter.RpsHardLimiter;
+import com.twitter.distributedlog.service.stream.limiter.RpsSoftLimiter;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -43,6 +51,7 @@ import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -90,8 +99,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
-class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, StreamManager {
-
+public class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, StreamManager {
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
     static enum StreamStatus {
@@ -229,6 +237,8 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
         // last acquire failure time
         final Stopwatch lastAcquireFailureWatch = Stopwatch.createUnstarted();
         final long nextAcquireWaitTimeMs;
+        final DynamicRequestLimiter limiter;
+        final DynamicDistributedLogConfiguration dynConf;
 
         // Stats
         final StatsLogger streamLogger;
@@ -237,7 +247,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
         // Since we may create and discard streams at initialization if there's a race,
         // must not do any expensive intialization here (particularly any locking or
         // significant resource allocation etc.).
-        Stream(String name) {
+        Stream(final String name) {
             super("Stream-" + name);
             this.name = name;
             this.status = StreamStatus.UNINITIALIZED;
@@ -245,15 +255,35 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
             this.exceptionStatLogger = streamLogger.scope("exceptions");
             this.lastException = new IOException("Fail to write record to stream " + name);
             this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
+            this.dynConf = getDynamicConfiguration();
+            this.limiter = new DynamicRequestLimiter<StreamOp>(dynConf, limiterStatLogger) {
+                @Override
+                public RequestLimiter<StreamOp> build() {
+                    ChainedRequestLimiter.Builder<StreamOp> builder = new ChainedRequestLimiter.Builder<StreamOp>();
+                    builder.addLimiter(new RpsSoftLimiter(dynConf.getRpsSoftWriteLimit(), streamLogger));
+                    builder.addLimiter(new RpsHardLimiter(dynConf.getRpsHardWriteLimit(), streamLogger, name));
+                    builder.addLimiter(new BpsSoftLimiter(dynConf.getBpsSoftWriteLimit(), streamLogger));
+                    builder.addLimiter(new BpsHardLimiter(dynConf.getBpsHardWriteLimit(), streamLogger, name));
+                    builder.statsLogger(limiterStatLogger);
+                    return builder.build();
+                }
+            };
+        }
+
+        private DynamicDistributedLogConfiguration getDynamicConfiguration() {
+            Optional<DynamicDistributedLogConfiguration> dynDlConf =
+                    streamConfigProvider.getDynamicStreamConfig(name);
+            if (dynDlConf.isPresent()) {
+                return dynDlConf.get();
+            } else {
+                return ConfUtils.getConstDynConf(dlConfig);
+            }
         }
 
         private DistributedLogManager openLog(String name) throws IOException {
-            Optional<DistributedLogConfiguration> streamConfig =
-                    Optional.absent();
-            Optional<DynamicDistributedLogConfiguration> dynamicStreamConfig =
-                    streamConfigProvider.getDynamicStreamConfig(name);
-
-            return dlNamespace.openLog(name, streamConfig, dynamicStreamConfig);
+            Optional<DistributedLogConfiguration> dlConf = Optional.<DistributedLogConfiguration>absent();
+            Optional<DynamicDistributedLogConfiguration> dynDlConf = Optional.of(dynConf);
+            return dlNamespace.openLog(name, dlConf, dynDlConf);
         }
 
         // Expensive initialization, only called once per stream.
@@ -457,6 +487,13 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
         void waitIfNeededAndWrite(StreamOp op) {
             // Let stream acquire thread know a write has been attempted.
             writeSinceLastAcquire = true;
+
+            try {
+                limiter.apply(op);
+            } catch (OverCapacityException ex) {
+                op.fail(ex);
+                return;
+            }
 
             // Timeout stream op if requested.
             if (serviceTimeoutMs > 0) {
@@ -952,12 +989,12 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
                 op.fail(closingException);
                 pendingOpsCounter.decrementAndGet();
             }
+            limiter.close();
             logger.info("Closed stream {}.", name);
         }
     }
 
     private final DistributedLogConfiguration dlConfig;
-    private final Optional<DynamicDistributedLogConfiguration> dlDynamicConfig;
     private final DistributedLogNamespace dlNamespace;
     private final ConcurrentHashMap<String, Stream> streams =
             new ConcurrentHashMap<String, Stream>();
@@ -1009,6 +1046,7 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
     private final OpStatsLogger streamAcquireStat;
     // per streams stats
     private final StatsLogger perStreamStatLogger;
+    private final StatsLogger limiterStatLogger;
 
     private final byte dlsnVersion;
     private final String clientId;
@@ -1158,28 +1196,9 @@ class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, S
         // Stats on per streams
         boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
         perStreamStatLogger = enablePerStreamStat ? statsLogger.scope("perstreams") : NullStatsLogger.INSTANCE;
-
-        this.dlDynamicConfig = getDlDynamicConfig();
-
+        limiterStatLogger = statsLogger.scope("request_limiter");
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
-    }
-
-    private Optional<DynamicDistributedLogConfiguration> getDlDynamicConfig() {
-        // Global dynamic stream config is a placeholder until per-stream configs are added (PUBSUB-6994).
-        DynamicConfigurationFactory dynamicConfigFactory = new DynamicConfigurationFactory(executorService,
-            dlConfig.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS,
-            new ConcurrentConstConfiguration(dlConfig));
-        Optional<DynamicDistributedLogConfiguration> dynConfig = Optional.<DynamicDistributedLogConfiguration>absent();
-        String globalDynamicConfigPath = dlConfig.getString("server_dyn_config_path", null);
-        try {
-            if (null != globalDynamicConfigPath) {
-                dynConfig = dynamicConfigFactory.getDynamicConfiguration(globalDynamicConfigPath);
-            }
-        } catch (ConfigurationException ex) {
-            logger.error("Unexpected configuration exception {}", ex);
-        }
-        return dynConfig;
     }
 
     Stream newStream(String name) {

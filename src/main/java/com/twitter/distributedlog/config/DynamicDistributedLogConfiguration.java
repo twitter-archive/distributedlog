@@ -4,21 +4,20 @@ import com.google.common.base.Preconditions;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Whitelist dynamic configuration by adding an accessor to this class.
  */
-public class DynamicDistributedLogConfiguration {
+public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DynamicDistributedLogConfiguration.class);
 
-    private final ConcurrentBaseConfiguration config;
     private final ConcurrentBaseConfiguration defaultConfig;
 
-    public DynamicDistributedLogConfiguration(ConcurrentBaseConfiguration config,
-                                              ConcurrentBaseConfiguration defaultConfig) {
-        this.config = config;
+    public DynamicDistributedLogConfiguration(ConcurrentBaseConfiguration defaultConfig) {
         this.defaultConfig = defaultConfig;
     }
 
@@ -28,42 +27,53 @@ public class DynamicDistributedLogConfiguration {
      * @return retention period in hours
      */
     public int getRetentionPeriodHours() {
-        return config.getInt(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS,
+        return getInt(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS,
             defaultConfig.getInt(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS,
                 DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT));
     }
 
     /**
-     * Get ensemble size
+     * A lower threshold bytes per second limit on writes to the distributedlog proxy.
      *
-     * @return ensemble size
+     * @return Bytes per second write limit
      */
-    public int getEnsembleSize() {
-        return config.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
-                DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT));
+    public int getBpsSoftWriteLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_BPS_SOFT_WRITE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_BPS_SOFT_WRITE_LIMIT,
+                DistributedLogConfiguration.BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT));
     }
 
     /**
-     * Get write quorum size.
+     * An upper threshold bytes per second limit on writes to the distributedlog proxy.
      *
-     * @return write quorum size
+     * @return Bytes per second write limit
      */
-    public int getWriteQuorumSize() {
-        return config.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
-                DistributedLogConfiguration.BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT));
+    public int getBpsHardWriteLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_BPS_HARD_WRITE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_BPS_HARD_WRITE_LIMIT,
+                DistributedLogConfiguration.BKDL_BPS_HARD_WRITE_LIMIT_DEFAULT));
     }
 
     /**
-     * Get ack quorum size.
+     * A lower threshold requests per second limit on writes to the distributedlog proxy.
      *
-     * @return ack quorum size
+     * @return Requests per second write limit
      */
-    public int getAckQuorumSize() {
-        return config.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
-                DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT));
+    public int getRpsSoftWriteLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_RPS_SOFT_WRITE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RPS_SOFT_WRITE_LIMIT,
+                DistributedLogConfiguration.BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT));
+    }
+
+    /**
+     * An upper threshold requests per second limit on writes to the distributedlog proxy.
+     *
+     * @return Requests per second write limit
+     */
+    public int getRpsHardWriteLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_RPS_HARD_WRITE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RPS_HARD_WRITE_LIMIT,
+                DistributedLogConfiguration.BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT));
     }
 
     /**
@@ -72,7 +82,7 @@ public class DynamicDistributedLogConfiguration {
      * @return percent of writes to delay.
      */
     public double getEIInjectedWriteDelayPercent() {
-        return config.getDouble(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT,
+        return getDouble(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT,
             defaultConfig.getDouble(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT,
                 DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT));
     }
@@ -83,7 +93,7 @@ public class DynamicDistributedLogConfiguration {
      * @return millis to delay writes for.
      */
     public int getEIInjectedWriteDelayMs() {
-        return config.getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
+        return getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
             defaultConfig.getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
                 DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT));
     }

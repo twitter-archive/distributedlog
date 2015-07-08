@@ -345,6 +345,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS = "streamConfigRouterClass";
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT = "com.twitter.distributedlog.service.config.IdentityConfigRouter";
 
+    public static final String BKDL_BPS_SOFT_WRITE_LIMIT = "bpsSoftWriteLimit";
+    public static final int BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_BPS_HARD_WRITE_LIMIT = "bpsHardWriteLimit";
+    public static final int BKDL_BPS_HARD_WRITE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_RPS_SOFT_WRITE_LIMIT = "rpsSoftWriteLimit";
+    public static final int BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_RPS_HARD_WRITE_LIMIT = "rpsHardWriteLimit";
+    public static final int BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT = -1;
+
     // Whitelisted stream-level configuration settings.
     private static final List<String> streamSettings = Arrays.asList(
         BKDL_READER_POSITION_GAP_DETECTION_ENABLED,
@@ -2464,5 +2473,41 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setStreamConfigRouterClass(String routerClass) {
         setProperty(BKDL_STREAM_CONFIG_ROUTER_CLASS, routerClass);
         return this;
+    }
+
+    /**
+     * A lower threshold bytes per second limit on writes to the distributedlog proxy.
+     *
+     * @return Bytes per second write limit
+     */
+    public int getBpsSoftWriteLimit() {
+        return getInt(BKDL_BPS_SOFT_WRITE_LIMIT, BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * An upper threshold bytes per second limit on writes to the distributedlog proxy.
+     *
+     * @return Bytes per second write limit
+     */
+    public int getBpsHardWriteLimit() {
+        return getInt(BKDL_BPS_HARD_WRITE_LIMIT, BKDL_BPS_HARD_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * A lower threshold requests per second limit on writes to the distributedlog proxy.
+     *
+     * @return Requests per second write limit
+     */
+    public int getRpsSoftWriteLimit() {
+        return getInt(BKDL_RPS_SOFT_WRITE_LIMIT, BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * An upper threshold requests per second limit on writes to the distributedlog proxy.
+     *
+     * @return Requests per second write limit
+     */
+    public int getRpsHardWriteLimit() {
+        return getInt(BKDL_RPS_HARD_WRITE_LIMIT, BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT);
     }
 }

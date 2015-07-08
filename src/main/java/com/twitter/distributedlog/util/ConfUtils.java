@@ -39,6 +39,6 @@ public class ConfUtils {
      */
     public static DynamicDistributedLogConfiguration getConstDynConf(DistributedLogConfiguration conf) {
         ConcurrentConstConfiguration constConf = new ConcurrentConstConfiguration(conf);
-        return new DynamicDistributedLogConfiguration(constConf, constConf);
+        return new DynamicDistributedLogConfiguration(constConf);
     }
 }

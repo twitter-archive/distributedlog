@@ -9,6 +9,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.net.MalformedURLException;
 import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +30,7 @@ public class DynamicConfigurationFactory {
     private static final Logger LOG = LoggerFactory.getLogger(DynamicConfigurationFactory.class);
 
     private final Map<String, DynamicDistributedLogConfiguration> dynamicConfigs;
+    private final List<ConfigurationSubscription> subscriptions;
     private final ConcurrentBaseConfiguration defaultConf;
     private final ScheduledExecutorService executorService;
     private final int reloadPeriod;
@@ -40,6 +43,7 @@ public class DynamicConfigurationFactory {
         this.reloadUnit = reloadUnit;
         this.dynamicConfigs = new HashMap<String, DynamicDistributedLogConfiguration>();
         this.defaultConf = defaultConf;
+        this.subscriptions = new LinkedList<ConfigurationSubscription>();
     }
 
     public synchronized Optional<DynamicDistributedLogConfiguration> getDynamicConfiguration(String configPath)
@@ -49,9 +53,10 @@ public class DynamicConfigurationFactory {
             if (!dynamicConfigs.containsKey(configPath)) {
                 File configFile = new File(configPath);
                 PropertiesConfigurationBuilder properties = new PropertiesConfigurationBuilder(configFile.toURI().toURL());
-                DynamicFileConfiguration concurrentConf =
-                        new DynamicFileConfiguration(properties, executorService, reloadPeriod, reloadUnit);
-                DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(concurrentConf, defaultConf);
+                DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(defaultConf);
+                ConfigurationSubscription subscription =
+                        new ConfigurationSubscription(dynConf, properties, executorService, reloadPeriod, reloadUnit);
+                subscriptions.add(subscription);
                 dynamicConfigs.put(configPath, dynConf);
                 LOG.info("Loaded dynamic configuration at {}", configPath);
             }

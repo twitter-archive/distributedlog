@@ -4,8 +4,8 @@ import com.google.common.base.Optional;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
+import com.twitter.distributedlog.config.ConfigurationSubscription;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
-import com.twitter.distributedlog.config.DynamicFileConfiguration;
 import com.twitter.distributedlog.config.PropertiesConfigurationBuilder;
 
 import java.io.File;
@@ -24,16 +24,17 @@ public class DefaultStreamConfigProvider implements StreamConfigProvider {
     static final Logger LOG = LoggerFactory.getLogger(DefaultStreamConfigProvider.class);
 
     private final Optional<DynamicDistributedLogConfiguration> dynConf;
+    private final ConfigurationSubscription confSub;
 
     public DefaultStreamConfigProvider(String configFilePath, ScheduledExecutorService executorService, int reloadPeriod,
                                        TimeUnit reloadUnit) throws ConfigurationException {
         try {
             File configFile = new File(configFilePath);
             PropertiesConfigurationBuilder properties = new PropertiesConfigurationBuilder(configFile.toURI().toURL());
-            DynamicFileConfiguration concurrentConf =
-                    new DynamicFileConfiguration(properties, executorService, reloadPeriod, reloadUnit);
             ConcurrentConstConfiguration defaultConf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
-            this.dynConf = Optional.of(new DynamicDistributedLogConfiguration(concurrentConf, defaultConf));
+            DynamicDistributedLogConfiguration conf = new DynamicDistributedLogConfiguration(defaultConf);
+            confSub = new ConfigurationSubscription(conf, properties, executorService, reloadPeriod, reloadUnit);
+            this.dynConf = Optional.of(conf);
         } catch (MalformedURLException ex) {
             throw new ConfigurationException(ex);
         }

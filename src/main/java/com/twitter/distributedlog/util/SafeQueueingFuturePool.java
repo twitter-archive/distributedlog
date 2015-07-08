@@ -38,7 +38,7 @@ public class SafeQueueingFuturePool<T> {
         this.orderedFuturePool = orderedFuturePool;
     }
 
-    public synchronized Future<T> apply(Function0<T> fn) {
+    public synchronized Future<T> apply(final Function0<T> fn) {
         Preconditions.checkNotNull(fn);
         if (closed) {
             return Future.exception(new RejectedExecutionException("Operation submitted to closed SafeQueueingFuturePool"));
@@ -46,8 +46,13 @@ public class SafeQueueingFuturePool<T> {
         ++outstanding;
         queue.add(fn);
         Future<T> result = orderedFuturePool.apply(new Function0<T>() {
+            @Override
             public T apply() {
                 return queue.poll().apply();
+            }
+            @Override
+            public String toString() {
+                return fn.toString();
             }
         }).ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {

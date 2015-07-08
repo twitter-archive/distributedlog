@@ -13,25 +13,19 @@ public class TestDynamicDistributedLogConfiguration {
 
     @Test
     public void testDefaults() throws Exception {
-        // Only retention period is set in dyncfg
-        DistributedLogConfiguration pri = new DistributedLogConfiguration();
-        pri.setRetentionPeriodHours(5);
-
         // Default config defines retention period plus two other params, but eaves ack quorum unspecified
-        DistributedLogConfiguration sec = new DistributedLogConfiguration();
-        sec.setRetentionPeriodHours(99);
-        sec.setEnsembleSize(99);
-        sec.setWriteQuorumSize(99);
+        DistributedLogConfiguration underlyingConfig = new DistributedLogConfiguration();
+        underlyingConfig.setRetentionPeriodHours(99);
+        underlyingConfig.setProperty("rpsHardWriteLimit", 99);
 
-        ConcurrentConstConfiguration dynPri = new ConcurrentConstConfiguration(pri);
-        ConcurrentConstConfiguration dynSec = new ConcurrentConstConfiguration(sec);
-        DynamicDistributedLogConfiguration config = new DynamicDistributedLogConfiguration(dynPri, dynSec);
+        ConcurrentConstConfiguration defaultConfig = new ConcurrentConstConfiguration(underlyingConfig);
+        DynamicDistributedLogConfiguration config = new DynamicDistributedLogConfiguration(defaultConfig);
+        assertEquals(99, config.getRetentionPeriodHours());
+        assertEquals(99, config.getRpsHardWriteLimit());
+        config.setProperty(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS, 5);
 
         // Config checks primary then secondary then const defaults
         assertEquals(5, config.getRetentionPeriodHours());
-        assertEquals(99, config.getEnsembleSize());
-        assertEquals(99, config.getWriteQuorumSize());
-        assertEquals(DistributedLogConfiguration.BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT,
-                     config.getAckQuorumSize());
+        assertEquals(99, config.getRpsHardWriteLimit());
     }
 }
