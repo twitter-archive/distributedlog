@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.service.stream;
 
 import com.twitter.util.Future;
 import java.io.IOException;

@@ -6,8 +6,8 @@ import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.Stream;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamStatus;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl.WriteOp;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
+import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -127,7 +127,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         // resume acquiring s0
         s0.resumeAcquiring();
-        WriteResponse wr0 = Await.result(op0.getResult());
+        WriteResponse wr0 = Await.result(op0.result());
         assertEquals("Op 0 should succeed",
                 StatusCode.SUCCESS, wr0.getHeader().getCode());
         assertEquals("Service 0 should acquire stream",
@@ -138,7 +138,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         // resume acquiring s1
         s1.resumeAcquiring();
-        WriteResponse wr1 = Await.result(op1.result);
+        WriteResponse wr1 = Await.result(op1.result());
         assertEquals("Op 1 should fail",
                 StatusCode.FOUND, wr1.getHeader().getCode());
         assertEquals("Service 1 should be in BACKOFF state",
@@ -161,7 +161,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         for (int i = 0; i < numWrites; i++) {
             WriteOp op = createWriteOp(service, streamName, i);
             s.waitIfNeededAndWrite(op);
-            futureList.add(op.getResult());
+            futureList.add(op.result());
         }
         assertEquals(numWrites, s.numPendingOps());
         Await.result(s.requestClose("close stream"));
@@ -185,7 +185,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         for (int i = 0; i < numWrites; i++) {
             WriteOp op = createWriteOp(service, streamName, i);
             s.waitIfNeededAndWrite(op);
-            futureList.add(op.getResult());
+            futureList.add(op.result());
         }
         assertEquals(numWrites, s.numPendingOps());
 
@@ -249,7 +249,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertFalse(closeFuture.isDefined());
         WriteOp op1 = createWriteOp(service, streamName, 0L);
         s.waitIfNeededAndWrite(op1);
-        WriteResponse response1 = Await.result(op1.getResult());
+        WriteResponse response1 = Await.result(op1.result());
         assertEquals("Op should fail with " + StatusCode.STREAM_UNAVAILABLE + " if it is closing",
                 StatusCode.STREAM_UNAVAILABLE, response1.getHeader().getCode());
 
@@ -259,7 +259,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 StreamStatus.CLOSED, s.getStatus());
         WriteOp op2 = createWriteOp(service, streamName, 1L);
         s.waitIfNeededAndWrite(op2);
-        WriteResponse response2 = Await.result(op2.getResult());
+        WriteResponse response2 = Await.result(op2.result());
         assertEquals("Op should fail with " + StatusCode.STREAM_UNAVAILABLE + " if it is closed",
                 StatusCode.STREAM_UNAVAILABLE, response2.getHeader().getCode());
     }
