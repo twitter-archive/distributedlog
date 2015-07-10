@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.resolver;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;

@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
+import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.finagle.thrift.ClientId$;

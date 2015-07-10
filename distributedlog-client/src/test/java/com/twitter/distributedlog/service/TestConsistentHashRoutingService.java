@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service;
 
+import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.finagle.ChannelWriteException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.junit.Test;

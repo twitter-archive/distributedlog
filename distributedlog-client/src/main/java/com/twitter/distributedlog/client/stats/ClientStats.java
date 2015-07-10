@@ -1,6 +1,6 @@
-package com.twitter.distributedlog.service.stats;
+package com.twitter.distributedlog.client.stats;
 
-import com.twitter.distributedlog.service.RegionResolver;
+import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.stats.StatsReceiver;
 

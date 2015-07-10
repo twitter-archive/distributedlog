@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Sets;
+import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.junit.Test;

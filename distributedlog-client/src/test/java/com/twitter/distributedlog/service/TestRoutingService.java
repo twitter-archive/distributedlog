@@ -9,13 +9,13 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.finagle.WeightedSocketAddress;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.twitter.finagle.WeightedSocketAddress;
 
 @RunWith(Parameterized.class)
 public class TestRoutingService {

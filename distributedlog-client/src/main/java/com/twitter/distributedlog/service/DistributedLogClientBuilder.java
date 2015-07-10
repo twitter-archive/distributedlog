@@ -6,6 +6,8 @@ import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
+import com.twitter.distributedlog.client.resolver.RegionResolver;
+import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;

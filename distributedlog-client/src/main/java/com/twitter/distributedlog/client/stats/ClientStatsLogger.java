@@ -1,6 +1,5 @@
-package com.twitter.distributedlog.service.stats;
+package com.twitter.distributedlog.client.stats;
 
-import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.Stat;

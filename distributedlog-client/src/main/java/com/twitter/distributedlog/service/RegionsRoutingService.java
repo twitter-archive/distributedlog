@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.base.Preconditions;
+import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
