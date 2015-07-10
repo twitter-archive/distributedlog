@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.routing;
 
 import java.net.SocketAddress;
 import java.util.List;

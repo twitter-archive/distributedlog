@@ -8,6 +8,10 @@ import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.routing.ConsistentHashRoutingService;
+import com.twitter.distributedlog.client.routing.RegionsRoutingService;
+import com.twitter.distributedlog.client.routing.RoutingService;
+import com.twitter.distributedlog.client.routing.RoutingUtils;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -16,8 +20,6 @@ import com.twitter.finagle.thrift.ClientId;
 import java.net.SocketAddress;
 
 public final class DistributedLogClientBuilder {
-
-    private static final int NUM_CONSISTENT_HASH_REPLICAS = 997;
 
     private String _name = null;
     private ClientId _clientId = null;
@@ -89,10 +91,7 @@ public final class DistributedLogClientBuilder {
      */
     public DistributedLogClientBuilder serverSet(ServerSet serverSet) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
-        newBuilder._routingServiceBuilder = ConsistentHashRoutingService.newBuilder()
-                .serverSet(serverSet)
-                .resolveFromName(false)
-                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
+        newBuilder._routingServiceBuilder = RoutingUtils.buildRoutingService(serverSet);
         newBuilder._enableRegionStats = false;
         return newBuilder;
     }
@@ -108,32 +107,15 @@ public final class DistributedLogClientBuilder {
     public DistributedLogClientBuilder serverSets(ServerSet local, ServerSet...remotes) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
-        builders[0] = ConsistentHashRoutingService.newBuilder()
-                .serverSet(local)
-                .resolveFromName(false)
-                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
+        builders[0] = RoutingUtils.buildRoutingService(local);
         for (int i = 1; i < builders.length; i++) {
-            builders[i] = ConsistentHashRoutingService.newBuilder()
-                    .serverSet(remotes[i-1])
-                    .resolveFromName(false)
-                    .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
+            builders[i] = RoutingUtils.buildRoutingService(remotes[i-1]);
         }
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .resolver(_regionResolver)
                 .routingServiceBuilders(builders);
         newBuilder._enableRegionStats = remotes.length > 0;
         return newBuilder;
-    }
-
-    static RoutingService.Builder buildRoutingService(String finagleNameStr) {
-        if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
-            // We only support serverset based names at the moment
-            throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
-        }
-        return ConsistentHashRoutingService.newBuilder()
-                .serverSet(new NameServerSet(finagleNameStr))
-                .resolveFromName(true)
-                .numReplicas(NUM_CONSISTENT_HASH_REPLICAS);
     }
 
     /**
@@ -145,7 +127,7 @@ public final class DistributedLogClientBuilder {
      */
     public DistributedLogClientBuilder finagleNameStr(String finagleNameStr) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
-        newBuilder._routingServiceBuilder = buildRoutingService(finagleNameStr);
+        newBuilder._routingServiceBuilder = RoutingUtils.buildRoutingService(finagleNameStr);
         newBuilder._enableRegionStats = false;
         return newBuilder;
     }
@@ -161,9 +143,9 @@ public final class DistributedLogClientBuilder {
     public DistributedLogClientBuilder finagleNameStrs(String local, String...remotes) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         RoutingService.Builder[] builders = new RoutingService.Builder[remotes.length + 1];
-        builders[0] = buildRoutingService(local);
+        builders[0] = RoutingUtils.buildRoutingService(local);
         for (int i = 1; i < builders.length; i++) {
-            builders[i] = buildRoutingService(remotes[i-1]);
+            builders[i] = RoutingUtils.buildRoutingService(remotes[i - 1]);
         }
         newBuilder._routingServiceBuilder = RegionsRoutingService.newBuilder()
                 .routingServiceBuilders(builders)
@@ -181,7 +163,7 @@ public final class DistributedLogClientBuilder {
      */
     public DistributedLogClientBuilder host(SocketAddress address) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
-        newBuilder._routingServiceBuilder = SingleHostRoutingService.newBuilder().address(address);
+        newBuilder._routingServiceBuilder = RoutingUtils.buildRoutingService(address);
         newBuilder._enableRegionStats = false;
         return newBuilder;
     }
@@ -203,7 +185,7 @@ public final class DistributedLogClientBuilder {
     @VisibleForTesting
     public DistributedLogClientBuilder routingService(RoutingService routingService) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
-        newBuilder._routingServiceBuilder = new RoutingServiceProvider(routingService);
+        newBuilder._routingServiceBuilder = RoutingUtils.buildRoutingService(routingService);
         newBuilder._enableRegionStats = false;
         return newBuilder;
     }

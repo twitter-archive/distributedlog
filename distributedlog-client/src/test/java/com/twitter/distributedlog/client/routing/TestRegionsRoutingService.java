@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.routing;
 
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
@@ -27,7 +27,7 @@ public class TestRegionsRoutingService {
         Map<SocketAddress, String> regionMap = new HashMap<SocketAddress, String>();
         for (int i = 0; i < numRoutingServices; i++) {
             String finagleNameStr = "inet!127.0.0.1:" + (3181 + i);
-            routingServiceBuilders[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
+            routingServiceBuilders[i] = RoutingUtils.buildRoutingService(finagleNameStr);
             SocketAddress address = new InetSocketAddress("127.0.0.1", 3181 + i);
             hosts.add(address);
             regionMap.put(address, "region-" + i);
@@ -70,7 +70,7 @@ public class TestRegionsRoutingService {
         Map<SocketAddress, String> regionMap = new HashMap<SocketAddress, String>();
         for (int i = 0; i < numRoutingServices; i++) {
             String finagleNameStr = "inet!127.0.0.1:" + (3181 + i);
-            routingServiceBuilders[i] = DistributedLogClientBuilder.buildRoutingService(finagleNameStr);
+            routingServiceBuilders[i] = RoutingUtils.buildRoutingService(finagleNameStr);
             SocketAddress address = new InetSocketAddress("127.0.0.1", 3181 + i);
             regionMap.put(address, "region-" + i);
         }

@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.routing;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;

@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.routing;
 
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;

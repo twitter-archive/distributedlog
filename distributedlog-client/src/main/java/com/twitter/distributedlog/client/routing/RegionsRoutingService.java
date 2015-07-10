@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.routing;
 
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
