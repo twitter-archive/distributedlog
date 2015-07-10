@@ -10,10 +10,10 @@ import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogSegmentLedgerMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
+import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.finagle.builder.ClientBuilder;
@@ -42,7 +42,6 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -68,7 +67,7 @@ public class MonitorService implements Runnable, NamespaceListener {
     private String streamRegex = null;
     private DistributedLogNamespace dlNamespace = null;
     private ZooKeeperClient[] zkClients = null;
-    private DistributedLogClientBuilder.DistributedLogClientImpl dlClient = null;
+    private MonitorServiceClient dlClient = null;
     private StatsProvider statsProvider = null;
     private boolean watchNamespaceChanges = false;
     private boolean handshakeWithClientInfo = false;
@@ -317,7 +316,7 @@ public class MonitorService implements Runnable, NamespaceListener {
                         .keepAlive(true)
                         .failFast(false))
                 .statsReceiver(monitorReceiver.scope("client"))
-                .buildClient();
+                .buildMonitorClient();
         runMonitor(dlConf, uri);
     }
 

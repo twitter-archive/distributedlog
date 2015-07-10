@@ -24,8 +24,8 @@ public class TestDistributedLogClientBuilder {
                     .hostConnectionLimit(1)
                     .connectionTimeout(Duration.fromSeconds(1))
                     .requestTimeout(Duration.fromSeconds(10)));
-        DistributedLogClient client1 = builder.buildClient();
-        DistributedLogClient client2 = builder.buildClient();
+        DistributedLogClient client1 = builder.build();
+        DistributedLogClient client2 = builder.build();
         assertFalse(client1 == client2);
     }
 }

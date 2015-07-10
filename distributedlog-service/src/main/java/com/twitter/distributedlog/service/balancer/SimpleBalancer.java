@@ -2,8 +2,8 @@ package com.twitter.distributedlog.service.balancer;
 
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.service.DistributedLogClient;
-import com.twitter.distributedlog.service.MonitorServiceClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

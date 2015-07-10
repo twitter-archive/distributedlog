@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.client.monitor;
 
 import com.twitter.util.Future;
 
@@ -41,4 +41,9 @@ public interface MonitorServiceClient {
      * @return void
      */
     Future<Void> setAcceptNewStream(boolean enabled);
+
+    /**
+     * Close the client
+     */
+    void close();
 }

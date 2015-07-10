@@ -2,6 +2,7 @@ package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.finagle.thrift.ClientId$;
@@ -35,7 +36,7 @@ public abstract class DistributedLogServerTestCase {
     protected static class DLClient {
         public final LocalRoutingService routingService;
         public final DistributedLogClientBuilder dlClientBuilder;
-        public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
+        public final DistributedLogClientImpl dlClient;
 
         protected DLClient(String name) {
             this(name, ".*");
@@ -53,7 +54,7 @@ public abstract class DistributedLogServerTestCase {
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
                             .requestTimeout(Duration.fromSeconds(60)));
-            dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
+            dlClient = (DistributedLogClientImpl) dlClientBuilder.build();
         }
 
         public void handshake() {
@@ -70,7 +71,7 @@ public abstract class DistributedLogServerTestCase {
         public final LocalRoutingService localRoutingService;
         public final LocalRoutingService remoteRoutingService;
         public final DistributedLogClientBuilder dlClientBuilder;
-        public final DistributedLogClientBuilder.DistributedLogClientImpl dlClient;
+        public final DistributedLogClientImpl dlClient;
 
         protected TwoRegionDLClient(String name, Map<SocketAddress, String> regionMap) {
             localRoutingService = new LocalRoutingService();
@@ -89,7 +90,7 @@ public abstract class DistributedLogServerTestCase {
                             .hostConnectionLimit(1)
                             .connectionTimeout(Duration.fromSeconds(1))
                             .requestTimeout(Duration.fromSeconds(10)));
-            dlClient = (DistributedLogClientBuilder.DistributedLogClientImpl) dlClientBuilder.build();
+            dlClient = (DistributedLogClientImpl) dlClientBuilder.build();
         }
 
         public void shutdown() {

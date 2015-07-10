@@ -2,11 +2,11 @@ package com.twitter.distributedlog.service.balancer;
 
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.service.ClientUtils;
 import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
-import com.twitter.distributedlog.service.MonitorServiceClient;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;

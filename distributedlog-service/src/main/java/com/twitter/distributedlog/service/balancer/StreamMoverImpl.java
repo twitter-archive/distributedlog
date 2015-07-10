@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.service.balancer;
 
+import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.service.DistributedLogClient;
-import com.twitter.distributedlog.service.MonitorServiceClient;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
