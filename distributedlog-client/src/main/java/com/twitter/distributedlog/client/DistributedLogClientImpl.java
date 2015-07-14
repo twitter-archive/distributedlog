@@ -2,15 +2,14 @@ package com.twitter.distributedlog.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
+import com.twitter.distributedlog.client.ownership.OwnershipCache;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.client.routing.RoutingService;
 import com.twitter.distributedlog.client.routing.RoutingService.RoutingContext;
 import com.twitter.distributedlog.client.stats.ClientStats;
-import com.twitter.distributedlog.client.stats.OwnershipStatsLogger;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
@@ -58,7 +57,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -93,10 +91,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     private final RegionResolver regionResolver;
 
     // Ownership maintenance
-    private final ConcurrentHashMap<String, SocketAddress> stream2Addresses =
-            new ConcurrentHashMap<String, SocketAddress>();
-    private final ConcurrentHashMap<SocketAddress, Set<String>> address2Streams =
-            new ConcurrentHashMap<SocketAddress, Set<String>>();
+    private final OwnershipCache ownershipCache;
     private final ConcurrentHashMap<SocketAddress, ProxyClient> address2Services =
             new ConcurrentHashMap<SocketAddress, ProxyClient>();
 
@@ -156,7 +151,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         void beforeComplete(ProxyClient sc, ResponseHeader responseHeader) {
-            updateOwnership(stream, sc.getAddress());
+            ownershipCache.updateOwner(stream, sc.getAddress());
         }
 
         void complete(SocketAddress address) {
@@ -381,7 +376,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
         @Override
         void beforeComplete(ProxyClient sc, ResponseHeader header) {
-            clearHostFromStream(stream, sc.getAddress(), "Stream Deleted");
+            ownershipCache.removeOwnerFromStream(stream, sc.getAddress(), "Stream Deleted");
         }
 
         Future<Void> result() {
@@ -407,7 +402,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
         @Override
         void beforeComplete(ProxyClient sc, ResponseHeader header) {
-            clearHostFromStream(stream, sc.getAddress(), "Stream Deleted");
+            ownershipCache.removeOwnerFromStream(stream, sc.getAddress(), "Stream Deleted");
         }
 
         Future<Void> result() {
@@ -446,7 +441,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     // Stats
     private final ClientStats clientStats;
-    private final OwnershipStatsLogger ownershipStatsLogger;
 
     public DistributedLogClientImpl(String name,
                                     ClientId clientId,
@@ -471,11 +465,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                 TimeUnit.MILLISECONDS);
         // register routing listener
         this.routingService.registerListener(this);
+        // build the ownership cache
+        this.ownershipCache = new OwnershipCache(statsReceiver, streamStatsReceiver);
         // Stats
         // Client Stats
         this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
-        // Ownership Stats
-        this.ownershipStatsLogger = new OwnershipStatsLogger(statsReceiver, streamStatsReceiver);
         // Cache Stats
         StatsReceiver cacheStatReceiver = statsReceiver.scope("cache");
         Seq<String> numCachedStreamsGaugeName =
@@ -483,7 +477,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         cacheStatReceiver.provideGauge(numCachedStreamsGaugeName, new Function0<Object>() {
             @Override
             public Object apply() {
-                return (float) stream2Addresses.size();
+                return (float) ownershipCache.getNumCachedStreams();
             }
         });
         Seq<String> numCachedHostsGaugeName =
@@ -555,7 +549,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         } catch (InterruptedException e) {
             logger.warn("Interrupted on handshaking with servers : ", e);
         }
-        logger.info("Handshaked with {} hosts, cached {} streams", snapshot.size(), stream2Addresses.size());
+        logger.info("Handshaked with {} hosts, cached {} streams",
+                snapshot.size(), ownershipCache.getNumCachedStreams());
     }
 
     @Override
@@ -564,7 +559,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     private void onServerLeft(SocketAddress address, ProxyClient sc) {
-        clearAllStreamsForHost(address);
+        ownershipCache.removeAllStreamsFromOwner(address);
         if (null == sc) {
             removeClient(address);
         } else {
@@ -654,7 +649,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     @Override
     public Map<SocketAddress, Set<String>> getStreamOwnershipDistribution() {
-        return ImmutableMap.copyOf(address2Streams);
+        return ownershipCache.getStreamOwnershipDistribution();
     }
 
     @Override
@@ -738,9 +733,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             op.routingContext.addTriedHost(previousAddr, StatusCode.WRITE_EXCEPTION);
         }
         // Get host first
-        SocketAddress address = stream2Addresses.get(op.stream);
+        SocketAddress address = ownershipCache.getOwner(op.stream);
         if (null == address || op.routingContext.isTriedHost(address)) {
-            ownershipStatsLogger.onMiss(op.stream);
             // pickup host by hashing
             try {
                 address = routingService.getHost(op.stream, op.routingContext);
@@ -748,8 +742,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                 op.fail(null, nbae);
                 return;
             }
-        } else {
-            ownershipStatsLogger.onHit(op.stream);
         }
         op.send(address);
     }
@@ -798,7 +790,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                         // service is unavailable, remove it out of routing service
                         routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
                         onServerLeft(addr);
-                        clearHostFromStream(op.stream, addr, addr + " is unavailable now.");
+                        ownershipCache.removeOwnerFromStream(op.stream, addr, addr + " is unavailable now.");
                         // redirect the request to other host.
                         redirect(op, null);
                         break;
@@ -816,7 +808,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     default:
                         // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                         // redirect the request.
-                        clearHostFromStream(op.stream, addr, header.getCode().name());
+                        ownershipCache.removeOwnerFromStream(op.stream, addr, header.getCode().name());
                         if (streamFailfast) {
                             logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
                             op.fail(addr, DLException.of(header));
@@ -844,7 +836,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                 if (cause instanceof ConnectionFailedException || cause instanceof java.net.ConnectException) {
                     routingService.removeHost(addr, cause);
                     onServerLeft(addr, sc);
-                    clearHostFromStream(op.stream, addr, cause.getMessage());
+                    ownershipCache.removeOwnerFromStream(op.stream, addr, cause.getMessage());
                     // redirect the request to other host.
                     doSend(op, addr);
                 } else if (cause instanceof ChannelException) {
@@ -859,7 +851,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                         routingService.removeHost(addr, cause);
                         reason = cause.getMessage();
                     }
-                    clearHostFromStream(op.stream, addr, reason);
+                    ownershipCache.removeOwnerFromStream(op.stream, addr, reason);
                     // redirect the request to other host.
                     doSend(op, addr);
                 } else if (cause instanceof ServiceTimeoutException) {
@@ -896,7 +888,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
      *          new proxy address
      */
     void redirect(StreamOp op, SocketAddress newAddr) {
-        ownershipStatsLogger.onRedirect(op.stream);
+        ownershipCache.getOwnershipStatsLogger().onRedirect(op.stream);
         if (null != newAddr) {
             logger.debug("Redirect request {} to new owner {}.", op, newAddr);
             op.send(newAddr);
@@ -953,7 +945,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     ownerAddr = null;
                 } else {
                     // update ownership when redirects.
-                    updateOwnership(op.stream, ownerAddr);
+                    ownershipCache.updateOwner(op.stream, ownerAddr);
                 }
             } catch (IOException e) {
                 ownerAddr = null;
@@ -966,119 +958,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         try {
             SocketAddress ownerAddr = DLSocketAddress.deserialize(location).getSocketAddress();
             // update ownership
-            updateOwnership(stream, ownerAddr);
+            ownershipCache.updateOwner(stream, ownerAddr);
         } catch (IOException e) {
             logger.warn("Invalid ownership {} found for stream {} : ",
                         new Object[] { location, stream, e });
         }
     }
 
-    // Ownership Operations
-
-    /**
-     * Update ownership of <i>stream</i> to <i>addr</i>.
-     *
-     * @param stream
-     *          Stream Name.
-     * @param addr
-     *          Owner Address.
-     */
-    void updateOwnership(String stream, SocketAddress addr) {
-        // update ownership
-        SocketAddress oldAddr = stream2Addresses.putIfAbsent(stream, addr);
-        if (null != oldAddr && oldAddr.equals(addr)) {
-            return;
-        }
-        if (null != oldAddr) {
-            if (stream2Addresses.replace(stream, oldAddr, addr)) {
-                // Store the relevant mappings for this topic and host combination
-                logger.info("Storing ownership for stream : {}, old host : {}, new host : {}.",
-                        new Object[] { stream, oldAddr, addr });
-                StringBuilder sb = new StringBuilder();
-                sb.append("Ownership changed '")
-                  .append(oldAddr).append("' -> '").append(addr).append("'");
-                clearHostFromStream(stream, oldAddr, sb.toString());
-
-                // update stats
-                ownershipStatsLogger.onRemove(stream);
-                ownershipStatsLogger.onAdd(stream);
-            } else {
-                logger.warn("Ownership of stream : {} has been changed from {} to {} when storing host : {}.",
-                        new Object[] { stream, oldAddr, stream2Addresses.get(stream), addr });
-                return;
-            }
-        } else {
-            logger.info("Storing ownership for stream : {}, host : {}.", stream, addr);
-            // update stats
-            ownershipStatsLogger.onAdd(stream);
-        }
-
-        Set<String> streamsForHost = address2Streams.get(addr);
-        if (null == streamsForHost) {
-            Set<String> newStreamsForHost = new HashSet<String>();
-            streamsForHost = address2Streams.putIfAbsent(addr, newStreamsForHost);
-            if (null == streamsForHost) {
-                streamsForHost = newStreamsForHost;
-            }
-        }
-        synchronized (streamsForHost) {
-            // check whether the ownership changed, since it might happend after replace succeed
-            if (addr.equals(stream2Addresses.get(stream))) {
-                streamsForHost.add(stream);
-            }
-        }
-    }
-
-    /**
-     * If a server host goes down or the channel to it gets disconnected, we need to clear out
-     * all relevant cached information.
-     *
-     * @param addr
-     *          host goes down
-     */
-    void clearAllStreamsForHost(SocketAddress addr) {
-        logger.info("Remove streams mapping for host {}", addr);
-        Set<String> streamsForHost = address2Streams.get(addr);
-        if (null != streamsForHost) {
-            synchronized (streamsForHost) {
-                for (String s : streamsForHost) {
-                    if (stream2Addresses.remove(s, addr)) {
-                        logger.info("Removing mapping for stream : {} from host : {}", s, addr);
-                        ownershipStatsLogger.onRemove(s);
-                    }
-                }
-                address2Streams.remove(addr, streamsForHost);
-            }
-        }
-    }
-
-    /**
-     * If a stream moved, we only clear out that stream for the host and not all cached information.
-     *
-     * @param stream
-     *          Stream Name.
-     * @param addr
-     *          Owner Address.
-     * @param reason
-     *          reason to remove ownership
-     */
-    void clearHostFromStream(String stream, SocketAddress addr, String reason) {
-        if (stream2Addresses.remove(stream, addr)) {
-            logger.info("Removed stream to host mapping for (stream: {} -> host: {}) : reason = '{}'.",
-                    new Object[] { stream, addr, reason });
-        }
-        Set<String> streamsForHost = address2Streams.get(addr);
-        if (null != streamsForHost) {
-            synchronized (streamsForHost) {
-                if (streamsForHost.remove(stream)) {
-                    logger.info("Removed stream ({}) from host {} : reason = '{}'.",
-                            new Object[] { stream, addr, reason });
-                    if (streamsForHost.isEmpty()) {
-                        address2Streams.remove(addr, streamsForHost);
-                    }
-                    ownershipStatsLogger.onRemove(stream);
-                }
-            }
-        }
-    }
 }
