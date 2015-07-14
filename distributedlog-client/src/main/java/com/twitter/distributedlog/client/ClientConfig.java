@@ -17,6 +17,8 @@ public class ClientConfig {
     String streamNameRegex = ".*";
     boolean handshakeWithClientInfo = false;
     long periodicHandshakeIntervalMs = TimeUnit.MINUTES.toMillis(5);
+    boolean periodicDumpOwnershipCacheEnabled = false;
+    long periodicDumpOwnershipCacheIntervalMs = TimeUnit.MINUTES.toMillis(10);
 
     public ClientConfig setMaxRedirects(int maxRedirects) {
         this.maxRedirects = maxRedirects;
@@ -100,6 +102,24 @@ public class ClientConfig {
         return this.periodicHandshakeIntervalMs;
     }
 
+    public ClientConfig setPeriodicDumpOwnershipCacheEnabled(boolean enabled) {
+        this.periodicDumpOwnershipCacheEnabled = enabled;
+        return this;
+    }
+
+    public boolean isPeriodicDumpOwnershipCacheEnabled() {
+        return this.periodicDumpOwnershipCacheEnabled;
+    }
+
+    public ClientConfig setPeriodicDumpOwnershipCacheIntervalMs(long intervalMs) {
+        this.periodicDumpOwnershipCacheIntervalMs = intervalMs;
+        return this;
+    }
+
+    public long getPeriodicDumpOwnershipCacheIntervalMs() {
+        return this.periodicDumpOwnershipCacheIntervalMs;
+    }
+
     public static ClientConfig newConfig(ClientConfig config) {
         ClientConfig newConfig = new ClientConfig();
         newConfig.setMaxRedirects(config.getMaxRedirects())
@@ -110,7 +130,9 @@ public class ClientConfig {
                  .setStreamFailfast(config.getStreamFailfast())
                  .setStreamNameRegex(config.getStreamNameRegex())
                  .setHandshakeWithClientInfo(config.getHandshakeWithClientInfo())
-                 .setPeriodicHandshakeIntervalMs(config.getPeriodicHandshakeIntervalMs());
+                 .setPeriodicHandshakeIntervalMs(config.getPeriodicHandshakeIntervalMs())
+                 .setPeriodicDumpOwnershipCacheEnabled(config.isPeriodicDumpOwnershipCacheEnabled())
+                 .setPeriodicDumpOwnershipCacheIntervalMs(config.getPeriodicDumpOwnershipCacheIntervalMs());
         return newConfig;
     }
 }

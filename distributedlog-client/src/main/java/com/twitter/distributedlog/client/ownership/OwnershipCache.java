@@ -1,8 +1,12 @@
 package com.twitter.distributedlog.client.ownership;
 
 import com.google.common.collect.ImmutableMap;
+import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.client.stats.OwnershipStatsLogger;
 import com.twitter.finagle.stats.StatsReceiver;
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,11 +15,12 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Client Side Ownership Cache
  */
-public class OwnershipCache {
+public class OwnershipCache implements TimerTask {
 
     private static final Logger logger = LoggerFactory.getLogger(OwnershipCache.class);
 
@@ -23,13 +28,39 @@ public class OwnershipCache {
             new ConcurrentHashMap<String, SocketAddress>();
     private final ConcurrentHashMap<SocketAddress, Set<String>> address2Streams =
             new ConcurrentHashMap<SocketAddress, Set<String>>();
+    private final ClientConfig clientConfig;
+    private final HashedWheelTimer timer;
 
     // Stats
     private final OwnershipStatsLogger ownershipStatsLogger;
 
-    public OwnershipCache(StatsReceiver statsReceiver,
+    public OwnershipCache(ClientConfig clientConfig,
+                          HashedWheelTimer timer,
+                          StatsReceiver statsReceiver,
                           StatsReceiver streamStatsReceiver) {
+        this.clientConfig = clientConfig;
+        this.timer = timer;
         this.ownershipStatsLogger = new OwnershipStatsLogger(statsReceiver, streamStatsReceiver);
+        scheduleDumpOwnershipCache();
+    }
+
+    private void scheduleDumpOwnershipCache() {
+        if (clientConfig.isPeriodicDumpOwnershipCacheEnabled() &&
+                clientConfig.getPeriodicDumpOwnershipCacheIntervalMs() > 0) {
+            timer.newTimeout(this, clientConfig.getPeriodicDumpOwnershipCacheIntervalMs(),
+                    TimeUnit.MILLISECONDS);
+        }
+    }
+
+    @Override
+    public void run(Timeout timeout) throws Exception {
+        if (timeout.isCancelled()) {
+            return;
+        }
+        logger.info("Ownership cache : {} streams cached, {} hosts cached",
+                stream2Addresses.size(), address2Streams.size());
+        logger.info("Cached streams : {}", stream2Addresses);
+        scheduleDumpOwnershipCache();
     }
 
     public OwnershipStatsLogger getOwnershipStatsLogger() {

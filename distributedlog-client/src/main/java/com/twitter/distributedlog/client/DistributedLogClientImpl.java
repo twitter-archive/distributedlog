@@ -467,7 +467,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         // register routing listener
         this.routingService.registerListener(this);
         // build the ownership cache
-        this.ownershipCache = new OwnershipCache(statsReceiver, streamStatsReceiver);
+        this.ownershipCache = new OwnershipCache(this.clientConfig, this.dlTimer, statsReceiver, streamStatsReceiver);
         // Client Stats
         this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
         // Client Manager
@@ -502,7 +502,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     public void onHandshakeSuccess(SocketAddress address, ServerInfo value) {
         if (null != value && value.isSetOwnerships()) {
             Map<String, String> ownerships = value.getOwnerships();
-            logger.info("Handshaked with {} : {} ownerships returned.", address, ownerships.size());
+            logger.debug("Handshaked with {} : {} ownerships returned.", address, ownerships.size());
             for (Map.Entry<String, String> entry : ownerships.entrySet()) {
                 Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
                 if (!matcher.matches()) {
@@ -511,7 +511,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                 updateOwnership(entry.getKey(), entry.getValue());
             }
         } else {
-            logger.info("Handshaked with {} : no ownerships returned", address);
+            logger.debug("Handshaked with {} : no ownerships returned", address);
         }
     }
 

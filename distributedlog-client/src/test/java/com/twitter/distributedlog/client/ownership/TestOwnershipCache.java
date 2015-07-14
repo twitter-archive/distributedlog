@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.client.ownership;
 
+import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import org.junit.Rule;
 import org.junit.Test;
@@ -21,7 +22,9 @@ public class TestOwnershipCache {
     public TestName runtime = new TestName();
 
     private static OwnershipCache createOwnershipCache() {
-        return new OwnershipCache(NullStatsReceiver.get(), NullStatsReceiver.get());
+        ClientConfig clientConfig = new ClientConfig();
+        return new OwnershipCache(clientConfig, null,
+                                  NullStatsReceiver.get(), NullStatsReceiver.get());
     }
 
     private static SocketAddress createSocketAddress(int port) {

@@ -132,7 +132,8 @@ public class WriterWorker implements Worker {
         ClientBuilder clientBuilder = ClientBuilder.get()
             .hostConnectionLimit(hostConnectionLimit)
             .hostConnectionCoresize(hostConnectionCoreSize)
-            .tcpConnectTimeout(Duration$.MODULE$.fromSeconds(1))
+            .tcpConnectTimeout(Duration$.MODULE$.fromMilliseconds(200))
+            .connectTimeout(Duration$.MODULE$.fromMilliseconds(200))
             .requestTimeout(Duration$.MODULE$.fromSeconds(2));
 
         ClientId clientId = ClientId$.MODULE$.apply("dlog_loadtest_writer");
@@ -152,6 +153,7 @@ public class WriterWorker implements Worker {
             .serverSets(local, remotes)
             .streamNameRegex("^" + streamPrefix + "_[0-9]+$")
             .handshakeWithClientInfo(handshakeWithClientInfo)
+            .periodicDumpOwnershipCache(true)
             .name("writer")
             .build();
     }
@@ -180,8 +182,11 @@ public class WriterWorker implements Worker {
     }
 
     class TimedRequestHandler implements FutureEventListener<DLSN> {
+        final String streamName;
         final long requestMillis;
-        TimedRequestHandler(long requestMillis) {
+        TimedRequestHandler(String streamName,
+                            long requestMillis) {
+            this.streamName = streamName;
             this.requestMillis = requestMillis;
         }
         @Override
@@ -190,7 +195,7 @@ public class WriterWorker implements Worker {
         }
         @Override
         public void onFailure(Throwable cause) {
-            LOG.error("Failed to publish : ", cause);
+            LOG.error("Failed to publish to {} : ", streamName, cause);
             requestStat.registerFailedEvent(System.currentTimeMillis() - requestMillis);
             exceptionsLogger.getCounter(cause.getClass().getName()).inc();
             if (cause instanceof DLException) {
@@ -221,7 +226,8 @@ public class WriterWorker implements Worker {
                 if (null == data) {
                     break;
                 }
-                dlc.write(streamName, data).addEventListener(new TimedRequestHandler(requestMillis));
+                dlc.write(streamName, data).addEventListener(
+                        new TimedRequestHandler(streamName, requestMillis));
             }
             dlc.close();
         }
@@ -250,7 +256,7 @@ public class WriterWorker implements Worker {
                 }
                 List<Future<DLSN>> results = dlc.writeBulk(streamName, data);
                 for (Future<DLSN> result : results) {
-                    result.addEventListener(new TimedRequestHandler(requestMillis));
+                    result.addEventListener(new TimedRequestHandler(streamName, requestMillis));
                 }
             }
             dlc.close();

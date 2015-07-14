@@ -348,6 +348,32 @@ public final class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Enable/Disable periodic dumping ownership cache.
+     *
+     * @param enabled
+     *          flag to enable/disable periodic dumping ownership cache
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder periodicDumpOwnershipCache(boolean enabled) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setPeriodicDumpOwnershipCacheEnabled(enabled);
+        return newBuilder;
+    }
+
+    /**
+     * Set periodic dumping ownership cache interval.
+     *
+     * @param intervalMs
+     *          interval on dumping ownership cache, in millis.
+     * @return client builder
+     */
+    public DistributedLogClientBuilder periodicDumpOwnershipCacheIntervalMs(long intervalMs) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setPeriodicDumpOwnershipCacheIntervalMs(intervalMs);
+        return newBuilder;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientConfig = ClientConfig.newConfig(clientConfig);
