@@ -18,7 +18,6 @@ import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
-import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
@@ -30,16 +29,12 @@ import com.twitter.finagle.ConnectionFailedException;
 import com.twitter.finagle.Failure;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.RequestTimeoutException;
-import com.twitter.finagle.Service;
 import com.twitter.finagle.ServiceException;
 import com.twitter.finagle.ServiceTimeoutException;
-import com.twitter.finagle.ThriftMux;
 import com.twitter.finagle.WriteException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId;
-import com.twitter.finagle.thrift.ThriftClientFramedCodec;
-import com.twitter.finagle.thrift.ThriftClientRequest;
 import com.twitter.util.Duration;
 import com.twitter.util.Function;
 import com.twitter.util.Function0;
@@ -47,14 +42,12 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.thrift.TApplicationException;
-import org.apache.thrift.protocol.TBinaryProtocol;
 import org.jboss.netty.channel.ChannelException;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 import scala.collection.Seq;
 import scala.runtime.AbstractFunction1;
 
@@ -85,25 +78,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogClientImpl.class);
 
-    private static class ServiceWithClient {
-        final SocketAddress address;
-        final Service<ThriftClientRequest, byte[]> client;
-        final DistributedLogService.ServiceIface service;
-
-        ServiceWithClient(SocketAddress address,
-                          Service<ThriftClientRequest, byte[]> client,
-                          DistributedLogService.ServiceIface service) {
-            this.address = address;
-            this.client = client;
-            this.service = service;
-        }
-    }
-
     private final String clientName;
     private final ClientId clientId;
     private final ClientConfig clientConfig;
     private final RoutingService routingService;
-    private final ClientBuilder clientBuilder;
+    private final ProxyClient.Builder clientBuilder;
     private final boolean streamFailfast;
     private final Pattern streamNameRegexPattern;
 
@@ -118,8 +97,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             new ConcurrentHashMap<String, SocketAddress>();
     private final ConcurrentHashMap<SocketAddress, Set<String>> address2Streams =
             new ConcurrentHashMap<SocketAddress, Set<String>>();
-    private final ConcurrentHashMap<SocketAddress, ServiceWithClient> address2Services =
-            new ConcurrentHashMap<SocketAddress, ServiceWithClient>();
+    private final ConcurrentHashMap<SocketAddress, ProxyClient> address2Services =
+            new ConcurrentHashMap<SocketAddress, ProxyClient>();
 
     // Close Status
     private boolean closed = false;
@@ -168,7 +147,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             }
         }
 
-        abstract Future<ResponseHeader> sendRequest(ServiceWithClient sc);
+        abstract Future<ResponseHeader> sendRequest(ProxyClient sc);
 
         void doSend(SocketAddress address) {
             ctx.addToTriedHosts(address.toString());
@@ -176,8 +155,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             sendWriteRequest(address, this);
         }
 
-        void beforeComplete(ServiceWithClient sc, ResponseHeader responseHeader) {
-            updateOwnership(stream, sc.address);
+        void beforeComplete(ProxyClient sc, ResponseHeader responseHeader) {
+            updateOwnership(stream, sc.getAddress());
         }
 
         void complete(SocketAddress address) {
@@ -220,8 +199,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<ResponseHeader> sendRequest(final ServiceWithClient sc) {
-            return sc.service.writeBulkWithContext(stream, data, ctx).addEventListener(new FutureEventListener<BulkWriteResponse>() {
+        Future<ResponseHeader> sendRequest(final ProxyClient sc) {
+            return sc.getService().writeBulkWithContext(stream, data, ctx).addEventListener(new FutureEventListener<BulkWriteResponse>() {
                 @Override
                 public void onSuccess(BulkWriteResponse response) {
                     // For non-success case, the ResponseHeader handler (the caller) will handle it.
@@ -230,7 +209,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     // errors.
                     if (response.getHeader().getCode() == StatusCode.SUCCESS) {
                         beforeComplete(sc, response.getHeader());
-                        BulkWriteOp.this.complete(sc.address, response);
+                        BulkWriteOp.this.complete(sc.getAddress(), response);
                         if (response.getWriteResponses().size() == 0 && data.size() > 0) {
                             logger.error("non-empty bulk write got back empty response without failure for stream {}", stream);
                         }
@@ -318,13 +297,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<ResponseHeader> sendRequest(final ServiceWithClient sc) {
+        Future<ResponseHeader> sendRequest(final ProxyClient sc) {
             return this.sendWriteRequest(sc).addEventListener(new FutureEventListener<WriteResponse>() {
                 @Override
                 public void onSuccess(WriteResponse response) {
                     if (response.getHeader().getCode() == StatusCode.SUCCESS) {
                         beforeComplete(sc, response.getHeader());
-                        AbstractWriteOp.this.complete(sc.address, response);
+                        AbstractWriteOp.this.complete(sc.getAddress(), response);
                     }
                 }
                 @Override
@@ -339,7 +318,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             });
         }
 
-        abstract Future<WriteResponse> sendWriteRequest(ServiceWithClient sc);
+        abstract Future<WriteResponse> sendWriteRequest(ProxyClient sc);
     }
 
     class WriteOp extends AbstractWriteOp {
@@ -352,8 +331,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-            return sc.service.writeWithContext(stream, data, ctx);
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().writeWithContext(stream, data, ctx);
         }
 
         Future<DLSN> result() {
@@ -375,8 +354,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-            return sc.service.truncate(stream, dlsn.serialize(), ctx);
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().truncate(stream, dlsn.serialize(), ctx);
         }
 
         Future<Boolean> result() {
@@ -396,13 +375,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-            return sc.service.release(stream, ctx);
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().release(stream, ctx);
         }
 
         @Override
-        void beforeComplete(ServiceWithClient sc, ResponseHeader header) {
-            clearHostFromStream(stream, sc.address, "Stream Deleted");
+        void beforeComplete(ProxyClient sc, ResponseHeader header) {
+            clearHostFromStream(stream, sc.getAddress(), "Stream Deleted");
         }
 
         Future<Void> result() {
@@ -422,13 +401,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-            return sc.service.delete(stream, ctx);
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().delete(stream, ctx);
         }
 
         @Override
-        void beforeComplete(ServiceWithClient sc, ResponseHeader header) {
-            clearHostFromStream(stream, sc.address, "Stream Deleted");
+        void beforeComplete(ProxyClient sc, ResponseHeader header) {
+            clearHostFromStream(stream, sc.getAddress(), "Stream Deleted");
         }
 
         Future<Void> result() {
@@ -451,8 +430,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
 
         @Override
-        Future<WriteResponse> sendWriteRequest(ServiceWithClient sc) {
-            return sc.service.heartbeatWithOptions(stream, ctx, options);
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().heartbeatWithOptions(stream, ctx, options);
         }
 
         Future<Void> result() {
@@ -516,12 +495,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             }
         });
 
-        // client builder
-        ClientBuilder builder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
-        if (clientConfig.getThriftMux()) {
-            builder = builder.stack(ThriftMux.client().withClientId(clientId));
-        }
-        this.clientBuilder = builder;
+        this.clientBuilder = ProxyClient.newBuilder(clientName, clientId, clientBuilder, clientConfig, clientStats);
         logger.info("Build distributedlog client : name = {}, client_id = {}, routing_service = {}, stats_receiver = {}, thriftmux = {}",
                     new Object[] { name, clientId, routingService.getClass(), statsReceiver.getClass(), clientConfig.getThriftMux() });
     }
@@ -542,27 +516,27 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
     }
 
-    private void handshake(SocketAddress address, ServiceWithClient sc,
+    private void handshake(SocketAddress address, ProxyClient sc,
                            FutureEventListener<ServerInfo> listener) {
         if (clientConfig.getHandshakeWithClientInfo()) {
             ClientInfo clientInfo = new ClientInfo();
             clientInfo.setStreamNameRegex(clientConfig.getStreamNameRegex());
             logger.info("Handshaking with {} : {}", address, clientInfo);
-            sc.service.handshakeWithClientInfo(clientInfo)
+            sc.getService().handshakeWithClientInfo(clientInfo)
                     .addEventListener(listener);
         } else {
             logger.info("Handshaking with {}", address);
-            sc.service.handshake().addEventListener(listener);
+            sc.getService().handshake().addEventListener(listener);
         }
     }
 
     @VisibleForTesting
     public void handshake() {
-        Map<SocketAddress, ServiceWithClient> snapshot =
-                new HashMap<SocketAddress, ServiceWithClient>(address2Services);
+        Map<SocketAddress, ProxyClient> snapshot =
+                new HashMap<SocketAddress, ProxyClient>(address2Services);
         logger.info("Handshaking with {} hosts.", snapshot.size());
         final CountDownLatch latch = new CountDownLatch(snapshot.size());
-        for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
+        for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
             final SocketAddress address = entry.getKey();
             handshake(entry.getKey(), entry.getValue(), new FutureEventListener<ServerInfo>() {
                 @Override
@@ -584,31 +558,12 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         logger.info("Handshaked with {} hosts, cached {} streams", snapshot.size(), stream2Addresses.size());
     }
 
-    private ClientBuilder getDefaultClientBuilder() {
-        return ClientBuilder.get()
-            .hostConnectionLimit(1)
-            .connectionTimeout(Duration.fromSeconds(1))
-            .requestTimeout(Duration.fromSeconds(1));
-    }
-
-    private ClientBuilder setDefaultSettings(ClientBuilder builder) {
-        return builder.name(clientName)
-               .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
-               .failFast(false)
-               .noFailureAccrual()
-               // disable retries on finagle client builder, as there is only one host per finagle client
-               // we should throw exception immediately on first failure, so DL client could quickly detect
-               // failures and retry other proxies.
-               .retries(1)
-               .keepAlive(true);
-    }
-
     @Override
     public void onServerLeft(SocketAddress address) {
         onServerLeft(address, null);
     }
 
-    private void onServerLeft(SocketAddress address, ServiceWithClient sc) {
+    private void onServerLeft(SocketAddress address, ProxyClient sc) {
         clearAllStreamsForHost(address);
         if (null == sc) {
             removeClient(address);
@@ -622,24 +577,16 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         buildClient(address);
     }
 
-    private ServiceWithClient buildClient(final SocketAddress address) {
-        ServiceWithClient sc = address2Services.get(address);
+    private ProxyClient buildClient(final SocketAddress address) {
+        ProxyClient sc = address2Services.get(address);
         if (null != sc) {
             return sc;
         }
         // Build factory since DL proxy is kind of stateful service.
-        Service<ThriftClientRequest, byte[]> client =
-                ClientBuilder.safeBuildFactory(
-                        clientBuilder
-                                .hosts(address)
-                                .reportTo(clientStats.getFinagleStatsReceiver(address))
-                ).toService();
-        DistributedLogService.ServiceIface service =
-                new DistributedLogService.ServiceToClient(client, new TBinaryProtocol.Factory());
-        sc = new ServiceWithClient(address, client, service);
-        ServiceWithClient oldSC = address2Services.putIfAbsent(address, sc);
+        sc = clientBuilder.build(address);
+        ProxyClient oldSC = address2Services.putIfAbsent(address, sc);
         if (null != oldSC) {
-            sc.client.close();
+            sc.close();
             return oldSC;
         } else {
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
@@ -659,17 +606,17 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     private void removeClient(SocketAddress address) {
-        ServiceWithClient sc = address2Services.remove(address);
+        ProxyClient sc = address2Services.remove(address);
         if (null != sc) {
             logger.info("Removed host {}.", address);
-            sc.client.close();
+            sc.close();
         }
     }
 
-    private void removeClient(SocketAddress address, ServiceWithClient sc) {
+    private void removeClient(SocketAddress address, ProxyClient sc) {
         if (address2Services.remove(address, sc)) {
             logger.info("Remove client {} to host {}.", sc, address);
-            sc.client.close();
+            sc.close();
         }
     }
 
@@ -683,8 +630,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         } finally {
             closeLock.writeLock().unlock();
         }
-        for (ServiceWithClient sc: address2Services.values()) {
-            sc.client.close();
+        for (ProxyClient sc: address2Services.values()) {
+            sc.close();
         }
         routingService.unregisterListener(this);
         routingService.stopService();
@@ -712,11 +659,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     @Override
     public Future<Void> setAcceptNewStream(boolean enabled) {
-        Map<SocketAddress, ServiceWithClient> snapshot =
-                new HashMap<SocketAddress, ServiceWithClient>(address2Services);
+        Map<SocketAddress, ProxyClient> snapshot =
+                new HashMap<SocketAddress, ProxyClient>(address2Services);
         List<Future<Void>> futures = new ArrayList<Future<Void>>(snapshot.size());
-        for (Map.Entry<SocketAddress, ServiceWithClient> entry : snapshot.entrySet()) {
-            futures.add(entry.getValue().service.setAcceptNewStream(enabled));
+        for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
+            futures.add(entry.getValue().getService().setAcceptNewStream(enabled));
         }
         return Future.collect(futures).map(new Function<List<Void>, Void>() {
             @Override
@@ -809,7 +756,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     private void sendWriteRequest(final SocketAddress addr, final StreamOp op) {
         // Get corresponding finagle client
-        final ServiceWithClient sc = buildClient(addr);
+        final ProxyClient sc = buildClient(addr);
         final long startTimeNanos = System.nanoTime();
         // write the request to that host.
         op.sendRequest(sc).addEventListener(new FutureEventListener<ResponseHeader>() {
@@ -982,7 +929,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         op.fail(addr, cause);
     }
 
-    void handleTApplicationException(Throwable cause, StreamOp op, SocketAddress addr, ServiceWithClient sc) {
+    void handleTApplicationException(Throwable cause, StreamOp op, SocketAddress addr, ProxyClient sc) {
         TApplicationException ex = (TApplicationException) cause;
         if (ex.getType() == TApplicationException.UNKNOWN_METHOD) {
             // remove client and redirect the request to other host
