@@ -12,15 +12,21 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.Gauge;
+import com.twitter.finagle.stats.NullStatsReceiver;
+import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
+import com.twitter.util.Function0;
 import org.apache.commons.lang3.tuple.Pair;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
+import scala.collection.Seq;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -29,12 +35,13 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     @Deprecated
     public static ConsistentHashRoutingService of(DLServerSetWatcher serverSetWatcher, int numReplicas) {
-        return new ConsistentHashRoutingService(serverSetWatcher, numReplicas, 300);
+        return new ConsistentHashRoutingService(serverSetWatcher, numReplicas, 300, NullStatsReceiver.get());
     }
 
     public static Builder newBuilder() {
@@ -47,6 +54,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         private boolean _resolveFromName = false;
         private int _numReplicas;
         private int _blackoutSeconds = 300;
+        private StatsReceiver _statsReceiver = NullStatsReceiver.get();
 
         private Builder() {}
 
@@ -70,12 +78,18 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             return this;
         }
 
+        public Builder statsReceiver(StatsReceiver statsReceiver) {
+            this._statsReceiver = statsReceiver;
+            return this;
+        }
+
         @Override
         public RoutingService build() {
             Preconditions.checkNotNull(_serverSet, "No serverset provided.");
+            Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided.");
             Preconditions.checkArgument(_numReplicas > 0, "Invalid number of replicas : " + _numReplicas);
             return new ConsistentHashRoutingService(new DLServerSetWatcher(_serverSet, _resolveFromName),
-                    _numReplicas, _blackoutSeconds);
+                    _numReplicas, _blackoutSeconds, _statsReceiver);
         }
     }
 
@@ -189,10 +203,12 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         BlackoutHost(int shardId, SocketAddress address) {
             this.shardId = shardId;
             this.address = address;
+            numBlackoutHosts.incrementAndGet();
         }
 
         @Override
         public void run(Timeout timeout) throws Exception {
+            numBlackoutHosts.decrementAndGet();
             if (!timeout.isExpired()) {
                 return;
             }
@@ -234,16 +250,44 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     // blackout period
     protected final int blackoutSeconds;
 
+    // stats
+    protected final StatsReceiver statsReceiver;
+    protected final AtomicInteger numBlackoutHosts;
+    protected final Gauge numBlackoutHostsGauge;
+    protected final Gauge numHostsGauge;
+
     private static final int UNKNOWN_SHARD_ID = -1;
 
     private ConsistentHashRoutingService(DLServerSetWatcher serverSetWatcher,
                                          int numReplicas,
-                                         int blackoutSeconds) {
+                                         int blackoutSeconds,
+                                         StatsReceiver statsReceiver) {
         super(serverSetWatcher);
         this.circle = new ConsistentHash(hashFunction, numReplicas);
         this.hashedWheelTimer = new HashedWheelTimer(new ThreadFactoryBuilder()
                 .setNameFormat("ConsistentHashRoutingService-Timer-%d").build());
         this.blackoutSeconds = blackoutSeconds;
+        // stats
+        this.statsReceiver = statsReceiver;
+        this.numBlackoutHosts = new AtomicInteger(0);
+        this.numBlackoutHostsGauge = this.statsReceiver.addGauge(gaugeName("num_blackout_hosts"),
+                new Function0<Object>() {
+            @Override
+            public Object apply() {
+                return (float) numBlackoutHosts.get();
+            }
+        });
+        this.numHostsGauge = this.statsReceiver.addGauge(gaugeName("num_hosts"),
+                new Function0<Object>() {
+            @Override
+            public Object apply() {
+                return (float) address2ShardId.size();
+            }
+        });
+    }
+
+    private static Seq<String> gaugeName(String name) {
+        return scala.collection.JavaConversions.asScalaBuffer(Arrays.asList(name)).toList();
     }
 
     @Override

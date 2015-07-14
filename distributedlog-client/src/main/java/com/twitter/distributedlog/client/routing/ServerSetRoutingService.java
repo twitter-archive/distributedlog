@@ -7,6 +7,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
 import org.slf4j.Logger;
@@ -44,6 +45,11 @@ class ServerSetRoutingService extends Thread implements RoutingService {
 
         public ServerSetRoutingServiceBuilder serverSetWatcher(DLServerSetWatcher serverSetWatcher) {
             this._serverSetWatcher = serverSetWatcher;
+            return this;
+        }
+
+        @Override
+        public Builder statsReceiver(StatsReceiver statsReceiver) {
             return this;
         }
 

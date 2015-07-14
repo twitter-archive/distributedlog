@@ -3,6 +3,8 @@ package com.twitter.distributedlog.client.routing;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.NullStatsReceiver;
+import com.twitter.finagle.stats.StatsReceiver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +31,7 @@ public class RegionsRoutingService implements RoutingService {
 
         private RegionResolver _resolver;
         private RoutingService.Builder[] _routingServiceBuilders;
+        private StatsReceiver _statsReceiver = NullStatsReceiver.get();
 
         private Builder() {}
 
@@ -43,12 +46,27 @@ public class RegionsRoutingService implements RoutingService {
         }
 
         @Override
+        public RoutingService.Builder statsReceiver(StatsReceiver statsReceiver) {
+            this._statsReceiver = statsReceiver;
+            return this;
+        }
+
+        @Override
         public RegionsRoutingService build() {
             Preconditions.checkNotNull(_routingServiceBuilders, "No routing service builder provided.");
             Preconditions.checkNotNull(_resolver, "No region resolver provided.");
+            Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided");
             RoutingService[] services = new RoutingService[_routingServiceBuilders.length];
             for (int i = 0; i < services.length; i++) {
-                services[i] = _routingServiceBuilders[i].build();
+                String statsScope;
+                if (0 == i) {
+                    statsScope = "local";
+                } else {
+                    statsScope = "remote_" + i;
+                }
+                services[i] = _routingServiceBuilders[i]
+                        .statsReceiver(_statsReceiver.scope(statsScope))
+                        .build();
             }
             return new RegionsRoutingService(_resolver, services);
         }

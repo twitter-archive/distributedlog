@@ -3,6 +3,7 @@ package com.twitter.distributedlog.client.routing;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.StatsReceiver;
 
 import java.net.SocketAddress;
 import java.util.HashMap;
@@ -16,6 +17,15 @@ import java.util.Set;
 public interface RoutingService {
 
     public static interface Builder {
+
+        /**
+         * Build routing service with stats receiver
+         *
+         * @param statsReceiver
+         *          stats receiver
+         * @return built routing service
+         */
+        Builder statsReceiver(StatsReceiver statsReceiver);
 
         /**
          * @return built routing service

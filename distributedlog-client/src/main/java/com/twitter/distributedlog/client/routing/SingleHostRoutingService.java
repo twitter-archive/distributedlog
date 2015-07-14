@@ -2,6 +2,7 @@ package com.twitter.distributedlog.client.routing;
 
 import com.google.common.base.Preconditions;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.StatsReceiver;
 
 import java.net.SocketAddress;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -25,6 +26,11 @@ class SingleHostRoutingService implements RoutingService {
 
         public Builder address(SocketAddress address) {
             this._address = address;
+            return this;
+        }
+
+        @Override
+        public RoutingService.Builder statsReceiver(StatsReceiver statsReceiver) {
             return this;
         }
 

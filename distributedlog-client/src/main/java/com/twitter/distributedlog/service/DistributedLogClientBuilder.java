@@ -368,7 +368,9 @@ public final class DistributedLogClientBuilder {
             _streamStatsReceiver = new NullStatsReceiver();
         }
 
-        RoutingService routingService = _routingServiceBuilder.build();
+        RoutingService routingService = _routingServiceBuilder
+                .statsReceiver(_statsReceiver.scope("routing"))
+                .build();
         DistributedLogClientImpl clientImpl =
                 new DistributedLogClientImpl(
                         _name, _clientId, routingService, _clientBuilder, _clientConfig,

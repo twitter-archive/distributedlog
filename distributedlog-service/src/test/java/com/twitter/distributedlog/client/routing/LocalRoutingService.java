@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.client.routing;
 
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.StatsReceiver;
 
 import java.net.SocketAddress;
 import java.util.HashMap;
@@ -17,6 +18,11 @@ public class LocalRoutingService implements RoutingService {
     public static class Builder implements RoutingService.Builder {
 
         private Builder() {}
+
+        @Override
+        public RoutingService.Builder statsReceiver(StatsReceiver statsReceiver) {
+            return this;
+        }
 
         @Override
         public LocalRoutingService build() {
