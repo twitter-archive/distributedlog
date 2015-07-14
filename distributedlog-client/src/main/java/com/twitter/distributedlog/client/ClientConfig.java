@@ -2,6 +2,8 @@ package com.twitter.distributedlog.client;
 
 import com.google.common.base.Preconditions;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Client Config
  */
@@ -14,6 +16,7 @@ public class ClientConfig {
     boolean streamFailfast = false;
     String streamNameRegex = ".*";
     boolean handshakeWithClientInfo = false;
+    long periodicHandshakeIntervalMs = TimeUnit.MINUTES.toMillis(5);
 
     public ClientConfig setMaxRedirects(int maxRedirects) {
         this.maxRedirects = maxRedirects;
@@ -88,6 +91,15 @@ public class ClientConfig {
         return this.handshakeWithClientInfo;
     }
 
+    public ClientConfig setPeriodicHandshakeIntervalMs(long intervalMs) {
+        this.periodicHandshakeIntervalMs = intervalMs;
+        return this;
+    }
+
+    public long getPeriodicHandshakeIntervalMs() {
+        return this.periodicHandshakeIntervalMs;
+    }
+
     public static ClientConfig newConfig(ClientConfig config) {
         ClientConfig newConfig = new ClientConfig();
         newConfig.setMaxRedirects(config.getMaxRedirects())
@@ -97,7 +109,8 @@ public class ClientConfig {
                  .setThriftMux(config.getThriftMux())
                  .setStreamFailfast(config.getStreamFailfast())
                  .setStreamNameRegex(config.getStreamNameRegex())
-                 .setHandshakeWithClientInfo(config.getHandshakeWithClientInfo());
+                 .setHandshakeWithClientInfo(config.getHandshakeWithClientInfo())
+                 .setPeriodicHandshakeIntervalMs(config.getPeriodicHandshakeIntervalMs());
         return newConfig;
     }
 }

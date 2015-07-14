@@ -1,11 +1,14 @@
 package com.twitter.distributedlog.client.proxy;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.client.proxy.MockDistributedLogServices.MockBasicService;
 import com.twitter.distributedlog.client.proxy.MockDistributedLogServices.MockServerInfoService;
 import com.twitter.distributedlog.client.proxy.MockProxyClientBuilder.MockProxyClient;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
+import org.apache.commons.lang3.tuple.Pair;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -15,6 +18,7 @@ import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
@@ -27,9 +31,15 @@ public class TestProxyClientManager {
     @Rule
     public TestName runtime = new TestName();
 
-    private static ProxyClientManager createProxyClientManager(ProxyClient.Builder builder) {
+    private static ProxyClientManager createProxyClientManager(ProxyClient.Builder builder,
+                                                               long periodicHandshakeIntervalMs) {
         ClientConfig clientConfig = new ClientConfig();
-        return new ProxyClientManager(clientConfig, builder);
+        clientConfig.setPeriodicHandshakeIntervalMs(periodicHandshakeIntervalMs);
+        HashedWheelTimer dlTimer = new HashedWheelTimer(
+                new ThreadFactoryBuilder().setNameFormat("TestProxyClientManager-timer-%d").build(),
+                clientConfig.getRedirectBackoffStartMs(),
+                TimeUnit.MILLISECONDS);
+        return new ProxyClientManager(clientConfig, builder, dlTimer);
     }
 
     private static SocketAddress createSocketAddress(int port) {
@@ -40,12 +50,12 @@ public class TestProxyClientManager {
         return new MockProxyClient(address, new MockBasicService());
     }
 
-    private static MockProxyClient createMockProxyClient(SocketAddress address,
-                                                         ServerInfo serverInfo) {
+    private static Pair<MockProxyClient, MockServerInfoService> createMockProxyClient(
+            SocketAddress address, ServerInfo serverInfo) {
         MockServerInfoService service = new MockServerInfoService();
         MockProxyClient proxyClient = new MockProxyClient(address, service);
         service.updateServerInfo(serverInfo);
-        return proxyClient;
+        return Pair.of(proxyClient, service);
     }
 
     @Test(timeout = 60000)
@@ -55,7 +65,7 @@ public class TestProxyClientManager {
         MockProxyClient mockProxyClient = createMockProxyClient(address);
         builder.provideProxyClient(address, mockProxyClient);
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         ProxyClient proxyClient =  clientManager.createClient(address);
@@ -72,7 +82,7 @@ public class TestProxyClientManager {
         MockProxyClient mockProxyClient = createMockProxyClient(address);
         builder.provideProxyClient(address, mockProxyClient);
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         ProxyClient proxyClient =  clientManager.getClient(address);
@@ -90,7 +100,7 @@ public class TestProxyClientManager {
         MockProxyClient anotherMockProxyClient = createMockProxyClient(address);
         builder.provideProxyClient(address, mockProxyClient);
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         clientManager.createClient(address);
@@ -111,7 +121,7 @@ public class TestProxyClientManager {
         MockProxyClient mockProxyClient = createMockProxyClient(address);
         builder.provideProxyClient(address, mockProxyClient);
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         clientManager.createClient(address);
@@ -129,20 +139,24 @@ public class TestProxyClientManager {
         ServerInfo serverInfo = new ServerInfo();
         serverInfo.putToOwnerships(runtime.getMethodName() + "_stream",
                 runtime.getMethodName() + "_owner");
-        MockProxyClient mockProxyClient = createMockProxyClient(address, serverInfo);
-        builder.provideProxyClient(address, mockProxyClient);
+        Pair<MockProxyClient, MockServerInfoService> mockProxyClient =
+                createMockProxyClient(address, serverInfo);
+        builder.provideProxyClient(address, mockProxyClient.getLeft());
 
         final AtomicReference<ServerInfo> resultHolder = new AtomicReference<ServerInfo>(null);
         final CountDownLatch doneLatch = new CountDownLatch(1);
         ProxyListener listener = new ProxyListener() {
             @Override
-            public void onServerInfoUpdated(SocketAddress address, ServerInfo serverInfo) {
+            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
                 resultHolder.set(serverInfo);
                 doneLatch.countDown();
             }
+            @Override
+            public void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause) {
+            }
         };
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         clientManager.registerProxyListener(listener);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
@@ -172,8 +186,9 @@ public class TestProxyClientManager {
                 serverInfo.putToOwnerships(runtime.getMethodName() + "_stream_" + j,
                         address.toString());
             }
-            MockProxyClient mockProxyClient = createMockProxyClient(address, serverInfo);
-            builder.provideProxyClient(address, mockProxyClient);
+            Pair<MockProxyClient, MockServerInfoService> mockProxyClient =
+                    createMockProxyClient(address, serverInfo);
+            builder.provideProxyClient(address, mockProxyClient.getLeft());
             serverInfoMap.put(address, serverInfo);
         }
 
@@ -182,15 +197,19 @@ public class TestProxyClientManager {
         final CountDownLatch doneLatch = new CountDownLatch(2 * numHosts);
         ProxyListener listener = new ProxyListener() {
             @Override
-            public void onServerInfoUpdated(SocketAddress address, ServerInfo serverInfo) {
+            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
                 synchronized (results) {
                     results.put(address, serverInfo);
                 }
                 doneLatch.countDown();
             }
+
+            @Override
+            public void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause) {
+            }
         };
 
-        ProxyClientManager clientManager = createProxyClientManager(builder);
+        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
         clientManager.registerProxyListener(listener);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
@@ -203,6 +222,96 @@ public class TestProxyClientManager {
         assertEquals("Handshake should return server info",
                 numHosts, results.size());
         assertTrue("Handshake should get all server infos",
+                Maps.difference(serverInfoMap, results).areEqual());
+    }
+
+    @Test(timeout = 60000)
+    public void testPeriodicHandshake() throws Exception {
+        final int numHosts = 3;
+        final int numStreamsPerHost = 3;
+        final int initialPort = 5000;
+
+        MockProxyClientBuilder builder = new MockProxyClientBuilder();
+        Map<SocketAddress, ServerInfo> serverInfoMap =
+                new HashMap<SocketAddress, ServerInfo>();
+        Map<SocketAddress, MockServerInfoService> mockServiceMap =
+                new HashMap<SocketAddress, MockServerInfoService>();
+        final Map<SocketAddress, CountDownLatch> hostDoneLatches =
+                new HashMap<SocketAddress, CountDownLatch>();
+        for (int i = 0; i < numHosts; i++) {
+            SocketAddress address = createSocketAddress(initialPort + i);
+            ServerInfo serverInfo = new ServerInfo();
+            for (int j = 0; j < numStreamsPerHost; j++) {
+                serverInfo.putToOwnerships(runtime.getMethodName() + "_stream_" + j,
+                        address.toString());
+            }
+            Pair<MockProxyClient, MockServerInfoService> mockProxyClient =
+                    createMockProxyClient(address, serverInfo);
+            builder.provideProxyClient(address, mockProxyClient.getLeft());
+            serverInfoMap.put(address, serverInfo);
+            mockServiceMap.put(address, mockProxyClient.getRight());
+            hostDoneLatches.put(address, new CountDownLatch(2));
+        }
+
+        final Map<SocketAddress, ServerInfo> results = new HashMap<SocketAddress, ServerInfo>();
+        final CountDownLatch doneLatch = new CountDownLatch(numHosts);
+        ProxyListener listener = new ProxyListener() {
+            @Override
+            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
+                synchronized (results) {
+                    results.put(address, serverInfo);
+                    CountDownLatch latch = hostDoneLatches.get(address);
+                    if (null != latch) {
+                        latch.countDown();
+                    }
+                }
+                doneLatch.countDown();
+            }
+
+            @Override
+            public void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause) {
+            }
+        };
+
+        ProxyClientManager clientManager = createProxyClientManager(builder, 50L);
+        clientManager.setPeriodicHandshakeEnabled(false);
+        clientManager.registerProxyListener(listener);
+
+        assertEquals("There should be no clients in the manager",
+                0, clientManager.getNumProxies());
+        for (int i = 0; i < numHosts; i++) {
+            clientManager.createClient(createSocketAddress(initialPort + i));
+        }
+
+        // make sure the first 3 handshakes going through
+        doneLatch.await();
+
+        assertEquals("Handshake should return server info",
+                numHosts, results.size());
+        assertTrue("Handshake should get all server infos",
+                Maps.difference(serverInfoMap, results).areEqual());
+
+        // update server info
+        for (int i = 0; i < numHosts; i++) {
+            SocketAddress address = createSocketAddress(initialPort + i);
+            ServerInfo serverInfo = new ServerInfo();
+            for (int j = 0; j < numStreamsPerHost; j++) {
+                serverInfo.putToOwnerships(runtime.getMethodName() + "_new_stream_" + j,
+                        address.toString());
+            }
+            MockServerInfoService service = mockServiceMap.get(address);
+            serverInfoMap.put(address, serverInfo);
+            service.updateServerInfo(serverInfo);
+        }
+
+        clientManager.setPeriodicHandshakeEnabled(true);
+        for (int i = 0; i < numHosts; i++) {
+            SocketAddress address = createSocketAddress(initialPort + i);
+            CountDownLatch latch = hostDoneLatches.get(address);
+            latch.await();
+        }
+
+        assertTrue("Periodic handshake should update all server infos",
                 Maps.difference(serverInfoMap, results).areEqual());
     }
 

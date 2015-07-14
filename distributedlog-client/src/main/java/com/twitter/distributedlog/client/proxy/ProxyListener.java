@@ -16,5 +16,17 @@ public interface ProxyListener {
      * @param serverInfo
      *          proxy's server info
      */
-    void onServerInfoUpdated(SocketAddress address, ServerInfo serverInfo);
+    void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo);
+
+    /**
+     * Failed to handshake with a proxy.
+     *
+     * @param address
+     *          proxy address
+     * @param client
+     *          proxy client
+     * @param cause
+     *          failure reason
+     */
+    void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause);
 }

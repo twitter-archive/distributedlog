@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.client;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
@@ -471,7 +472,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
         // Client Manager
         this.clientBuilder = ProxyClient.newBuilder(clientName, clientId, clientBuilder, clientConfig, clientStats);
-        this.clientManager = new ProxyClientManager(this.clientConfig, this.clientBuilder);
+        this.clientManager = new ProxyClientManager(this.clientConfig, this.clientBuilder, this.dlTimer);
         this.clientManager.registerProxyListener(this);
 
         // Cache Stats
@@ -498,7 +499,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     @Override
-    public void onServerInfoUpdated(SocketAddress address, ServerInfo value) {
+    public void onHandshakeSuccess(SocketAddress address, ServerInfo value) {
         if (null != value && value.isSetOwnerships()) {
             Map<String, String> ownerships = value.getOwnerships();
             logger.info("Handshaked with {} : {} ownerships returned.", address, ownerships.size());
@@ -512,6 +513,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         } else {
             logger.info("Handshaked with {} : no ownerships returned", address);
         }
+    }
+
+    @Override
+    public void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause) {
+        handleRequestException(address, client, Optional.<StreamOp>absent(), cause);
     }
 
     @VisibleForTesting
@@ -755,50 +761,70 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     }
                 }
                 clientStats.failProxyRequest(addr, cause, startTimeNanos);
-                if (cause instanceof ConnectionFailedException || cause instanceof java.net.ConnectException) {
-                    routingService.removeHost(addr, cause);
-                    onServerLeft(addr, sc);
-                    ownershipCache.removeOwnerFromStream(op.stream, addr, cause.getMessage());
-                    // redirect the request to other host.
-                    doSend(op, addr);
-                } else if (cause instanceof ChannelException) {
-                    // java.net.ConnectException typically means connection is refused remotely
-                    // no process listening on remote address/port.
-                    String reason;
-                    if (cause.getCause() instanceof java.net.ConnectException) {
-                        routingService.removeHost(addr, cause.getCause());
-                        onServerLeft(addr);
-                        reason = cause.getCause().getMessage();
-                    } else {
-                        routingService.removeHost(addr, cause);
-                        reason = cause.getMessage();
-                    }
-                    ownershipCache.removeOwnerFromStream(op.stream, addr, reason);
-                    // redirect the request to other host.
-                    doSend(op, addr);
-                } else if (cause instanceof ServiceTimeoutException) {
-                    // redirect the request to itself again, which will backoff for a while
-                    doSend(op, null);
-                } else if (cause instanceof WriteException) {
-                    // redirect the request to other host.
-                    doSend(op, addr);
-                } else if (cause instanceof ServiceException) {
-                    // redirect the request to other host.
-                    clientManager.removeClient(addr, sc);
-                    doSend(op, addr);
-                } else if (cause instanceof TApplicationException) {
-                    handleTApplicationException(cause, op, addr, sc);
-                } else if (cause instanceof Failure) {
-                    handleFinagleFailure((Failure) cause, op, addr);
-                } else {
-                    // Default handler
-                    handleException(cause, op, addr);
-                }
+                handleRequestException(addr, sc, Optional.of(op), cause);
             }
         });
     }
 
     // Response Handlers
+
+    void handleRequestException(SocketAddress addr,
+                                ProxyClient sc,
+                                Optional<StreamOp> op,
+                                Throwable cause) {
+        boolean resendOp = false;
+        boolean removeOwnerFromStream = false;
+        SocketAddress previousAddr = addr;
+        String reason = cause.getMessage();
+        if (cause instanceof ConnectionFailedException || cause instanceof java.net.ConnectException) {
+            routingService.removeHost(addr, cause);
+            onServerLeft(addr, sc);
+            removeOwnerFromStream = true;
+            // redirect the request to other host.
+            resendOp = true;
+        } else if (cause instanceof ChannelException) {
+            // java.net.ConnectException typically means connection is refused remotely
+            // no process listening on remote address/port.
+            if (cause.getCause() instanceof java.net.ConnectException) {
+                routingService.removeHost(addr, cause.getCause());
+                onServerLeft(addr);
+                reason = cause.getCause().getMessage();
+            } else {
+                routingService.removeHost(addr, cause);
+                reason = cause.getMessage();
+            }
+            removeOwnerFromStream = true;
+            // redirect the request to other host.
+            resendOp = true;
+        } else if (cause instanceof ServiceTimeoutException) {
+            // redirect the request to itself again, which will backoff for a while
+            resendOp = true;
+            previousAddr = null;
+        } else if (cause instanceof WriteException) {
+            // redirect the request to other host.
+            resendOp = true;
+        } else if (cause instanceof ServiceException) {
+            // redirect the request to other host.
+            clientManager.removeClient(addr, sc);
+            resendOp = true;
+        } else if (cause instanceof TApplicationException) {
+            handleTApplicationException(cause, op, addr, sc);
+        } else if (cause instanceof Failure) {
+            handleFinagleFailure((Failure) cause, op, addr);
+        } else {
+            // Default handler
+            handleException(cause, op, addr);
+        }
+
+        if (op.isPresent()) {
+            if (removeOwnerFromStream) {
+                ownershipCache.removeOwnerFromStream(op.get().stream, addr, reason);
+            }
+            if (resendOp) {
+                doSend(op.get(), previousAddr);
+            }
+        }
+    }
 
     /**
      * Redirect the request to new proxy <i>newAddr</i>. If <i>newAddr</i> is null,
@@ -819,17 +845,23 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
     }
 
-    void handleFinagleFailure(Failure failure, StreamOp op, SocketAddress addr) {
+    void handleFinagleFailure(Failure failure,
+                              Optional<StreamOp> op,
+                              SocketAddress addr) {
         if (failure.isFlagged(Failure.Restartable())) {
-            // redirect the request to other host
-            doSend(op, addr);
+            if (op.isPresent()) {
+                // redirect the request to other host
+                doSend(op.get(), addr);
+            }
         } else {
             // fail the request if it is other types of failures
             handleException(failure, op, addr);
         }
     }
 
-    void handleException(Throwable cause, StreamOp op, SocketAddress addr) {
+    void handleException(Throwable cause,
+                         Optional<StreamOp> op,
+                         SocketAddress addr) {
         // RequestTimeoutException: fail it and let client decide whether to retry or not.
 
         // FailedFastException:
@@ -838,20 +870,27 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         // handle it.
 
         // Other Exceptions: as we don't know how to handle them properly so throw them to client
-        logger.error("Failed to write request to {} @ {} : {}",
-                new Object[]{op.stream, addr, cause.toString()});
-        op.fail(addr, cause);
+        if (op.isPresent()) {
+            logger.error("Failed to write request to {} @ {} : {}",
+                    new Object[]{op.get().stream, addr, cause.toString()});
+            op.get().fail(addr, cause);
+        }
     }
 
-    void handleTApplicationException(Throwable cause, StreamOp op, SocketAddress addr, ProxyClient sc) {
+    void handleTApplicationException(Throwable cause,
+                                     Optional<StreamOp> op,
+                                     SocketAddress addr,
+                                     ProxyClient sc) {
         TApplicationException ex = (TApplicationException) cause;
         if (ex.getType() == TApplicationException.UNKNOWN_METHOD) {
             // if we encountered unknown method exception on thrift server, it means this proxy
             // has problem. we should remove it from routing service, clean up ownerships
             routingService.removeHost(addr, cause);
             onServerLeft(addr, sc);
-            ownershipCache.removeOwnerFromStream(op.stream, addr, cause.getMessage());
-            doSend(op, addr);
+            if (op.isPresent()) {
+                ownershipCache.removeOwnerFromStream(op.get().stream, addr, cause.getMessage());
+                doSend(op.get(), addr);
+            }
         } else {
             handleException(cause, op, addr);
         }

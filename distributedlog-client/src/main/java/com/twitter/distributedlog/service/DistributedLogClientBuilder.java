@@ -8,7 +8,6 @@ import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
-import com.twitter.distributedlog.client.routing.ConsistentHashRoutingService;
 import com.twitter.distributedlog.client.routing.RegionsRoutingService;
 import com.twitter.distributedlog.client.routing.RoutingService;
 import com.twitter.distributedlog.client.routing.RoutingUtils;
@@ -332,6 +331,20 @@ public final class DistributedLogClientBuilder {
     public DistributedLogClientBuilder handshakeWithClientInfo(boolean enabled) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientConfig.setHandshakeWithClientInfo(enabled);
+        return newBuilder;
+    }
+
+    /**
+     * Set the periodic handshake interval in milliseconds. Every <code>intervalMs</code>,
+     * the DL client will handshake with existing proxies again to sync up ownership cache.
+     *
+     * @param intervalMs
+     *          handshake interval
+     * @return client builder.
+     */
+    public DistributedLogClientBuilder periodicHandshakeIntervalMs(long intervalMs) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setPeriodicHandshakeIntervalMs(intervalMs);
         return newBuilder;
     }
 

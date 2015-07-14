@@ -5,6 +5,9 @@ import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.util.FutureEventListener;
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,21 +22,64 @@ import java.util.concurrent.TimeUnit;
 /**
  * Manager manages clients (channels) to proxies.
  */
-public class ProxyClientManager {
+public class ProxyClientManager implements TimerTask {
 
     private static final Logger logger = LoggerFactory.getLogger(ProxyClientManager.class);
 
     private final ClientConfig clientConfig;
     private final ProxyClient.Builder clientBuilder;
+    private final HashedWheelTimer timer;
+    private volatile Timeout periodicHandshakeTask;
     private final ConcurrentHashMap<SocketAddress, ProxyClient> address2Services =
             new ConcurrentHashMap<SocketAddress, ProxyClient>();
     private final CopyOnWriteArraySet<ProxyListener> proxyListeners =
             new CopyOnWriteArraySet<ProxyListener>();
+    private volatile boolean closed = false;
+    private volatile boolean periodicHandshakeEnabled = true;
 
     public ProxyClientManager(ClientConfig clientConfig,
-                              ProxyClient.Builder clientBuilder) {
+                              ProxyClient.Builder clientBuilder,
+                              HashedWheelTimer timer) {
         this.clientConfig = clientConfig;
         this.clientBuilder = clientBuilder;
+        this.timer = timer;
+        scheduleHandshake();
+    }
+
+    private void scheduleHandshake() {
+        if (clientConfig.getPeriodicHandshakeIntervalMs() > 0) {
+            periodicHandshakeTask = timer.newTimeout(this,
+                    clientConfig.getPeriodicHandshakeIntervalMs(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    void setPeriodicHandshakeEnabled(boolean enabled) {
+        this.periodicHandshakeEnabled = enabled;
+    }
+
+    @Override
+    public void run(Timeout timeout) throws Exception {
+        if (timeout.isCancelled() || closed) {
+            return;
+        }
+        if (periodicHandshakeEnabled) {
+            for (Map.Entry<SocketAddress, ProxyClient> entry : address2Services.entrySet()) {
+                final SocketAddress address = entry.getKey();
+                final ProxyClient client = entry.getValue();
+                handshake(address, client, new FutureEventListener<ServerInfo>() {
+                    @Override
+                    public void onSuccess(ServerInfo serverInfo) {
+                        notifyHandshakeSuccess(address, serverInfo);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        notifyHandshakeFailure(address, client, cause);
+                    }
+                });
+            }
+        }
+        scheduleHandshake();
     }
 
     /**
@@ -46,9 +92,17 @@ public class ProxyClientManager {
         proxyListeners.add(listener);
     }
 
-    private void notifyServerInfoUpdate(SocketAddress address, ServerInfo serverInfo) {
+    private void notifyHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
         for (ProxyListener listener : proxyListeners) {
-            listener.onServerInfoUpdated(address, serverInfo);
+            listener.onHandshakeSuccess(address, serverInfo);
+        }
+    }
+
+    private void notifyHandshakeFailure(SocketAddress address,
+                                        ProxyClient client,
+                                        Throwable cause) {
+        for (ProxyListener listener : proxyListeners) {
+            listener.onHandshakeFailure(address, client, cause);
         }
     }
 
@@ -104,7 +158,7 @@ public class ProxyClientManager {
      * @return proxy client
      */
     public ProxyClient createClient(final SocketAddress address) {
-        ProxyClient sc = clientBuilder.build(address);
+        final ProxyClient sc = clientBuilder.build(address);
         ProxyClient oldSC = address2Services.putIfAbsent(address, sc);
         if (null != oldSC) {
             sc.close();
@@ -113,11 +167,11 @@ public class ProxyClientManager {
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyServerInfoUpdate(address, serverInfo);
+                    notifyHandshakeSuccess(address, serverInfo);
                 }
                 @Override
                 public void onFailure(Throwable cause) {
-                    // TODO: handle the failure on handshaking
+                    notifyHandshakeFailure(address, sc, cause);
                 }
             };
             // send a ping messaging after creating connections.
@@ -162,14 +216,16 @@ public class ProxyClientManager {
         final CountDownLatch latch = new CountDownLatch(snapshot.size());
         for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
             final SocketAddress address = entry.getKey();
-            handshake(entry.getKey(), entry.getValue(), new FutureEventListener<ServerInfo>() {
+            final ProxyClient client = entry.getValue();
+            handshake(address, client, new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyServerInfoUpdate(address, serverInfo);
+                    notifyHandshakeSuccess(address, serverInfo);
                     latch.countDown();
                 }
                 @Override
                 public void onFailure(Throwable cause) {
+                    notifyHandshakeFailure(address, client, cause);
                     latch.countDown();
                 }
             });
@@ -200,6 +256,11 @@ public class ProxyClientManager {
     }
 
     public void close() {
+        closed = true;
+        Timeout task = periodicHandshakeTask;
+        if (null != task) {
+            task.cancel();
+        }
         for (ProxyClient sc : address2Services.values()) {
             sc.close();
         }
