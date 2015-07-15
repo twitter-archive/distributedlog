@@ -1,3 +1,13 @@
+0.3.32
+------
+- Dynamic Config Mechanism
+- DistributedLogManagerFactory cleanup for Federated Namespace
+- Abort & Close Fixes
+- Delay cache removal after service timeout
+- Request rate limiting in write proxy
+- Client Refactor
+- Periodic Proxy Handshake
+
 0.3.31
 ------
 - Routing context for tried host history
