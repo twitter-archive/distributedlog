@@ -268,6 +268,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     return builder.build();
                 }
             };
+            setDaemon(true);
         }
 
         private DynamicDistributedLogConfiguration getDynamicConfiguration() {

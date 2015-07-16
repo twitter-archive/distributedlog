@@ -1187,7 +1187,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             // When we are using a thread pool that was passed from the factory, we can use
             // the executor service
             writerFuturePoolExecutorService = Executors.newScheduledThreadPool(1,
-                new ThreadFactoryBuilder().setNameFormat("BKALW-" + name + "-executor-%d").build());
+                new ThreadFactoryBuilder()
+                        .setNameFormat("BKALW-" + name + "-executor-%d")
+                        .setDaemon(conf.getUseDaemonThread())
+                        .build());
             writerFuturePool = buildFuturePool(writerFuturePoolExecutorService);
         } else if (!ordered && (null == readerFuturePool)) {
             // readerFuturePool can just use the executor service that was configured with the DLM

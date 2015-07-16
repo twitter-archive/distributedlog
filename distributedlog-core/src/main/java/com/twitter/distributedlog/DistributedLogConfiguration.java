@@ -300,6 +300,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
     public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
 
+    public static final String BKDL_USE_DAEMON_THREAD = "useDaemonThread";
+    public static final boolean BKDL_USE_DAEMON_THREAD_DEFAULT = false;
+
     // Settings for Error Injection
     public static final String BKDL_EI_INJECT_WRITE_DELAY = "eiInjectWriteDelay";
     public static final boolean BKDL_EI_INJECT_WRITE_DELAY_DEFAULT = false;
@@ -2472,6 +2475,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setStreamConfigRouterClass(String routerClass) {
         setProperty(BKDL_STREAM_CONFIG_ROUTER_CLASS, routerClass);
+        return this;
+    }
+
+    /**
+     * Whether to use daemon thread for DL threads.
+     *
+     * @return true if use daemon threads, otherwise false.
+     */
+    public boolean getUseDaemonThread() {
+        return getBoolean(BKDL_USE_DAEMON_THREAD, BKDL_USE_DAEMON_THREAD_DEFAULT);
+    }
+
+    /**
+     * Set whether to use daemon thread for DL threads.
+     *
+     * @param daemon
+     *          whether to use daemon thread for DL threads.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setUseDaemonThread(boolean daemon) {
+        setProperty(BKDL_USE_DAEMON_THREAD, daemon);
         return this;
     }
 
