@@ -18,6 +18,11 @@ public interface StreamOp {
     Future<Void> execute(AsyncLogWriter writer);
 
     /**
+     * Invoked before the stream op is executed.
+     */
+    void preExecute();
+
+    /**
      * Return the response header (containing the status code etc.).
      *
      * @return A future containing the response header or the exception

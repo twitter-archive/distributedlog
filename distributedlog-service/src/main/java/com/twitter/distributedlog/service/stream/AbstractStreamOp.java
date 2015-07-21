@@ -38,6 +38,11 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
     }
 
     @Override
+    public void preExecute() {
+        // Do nothing
+    }
+
+    @Override
     public Future<Void> execute(AsyncLogWriter writer) {
         stopwatch.reset().start();
         return executeOp(writer).addEventListener(new FutureEventListener<Response>() {
@@ -100,6 +105,14 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
     }
 
     protected static OpStatsLogger requestStat(StatsLogger statsLogger, String opName) {
-        return statsLogger.scope("request").getOpStatsLogger(opName);
+        return requestLogger(statsLogger).getOpStatsLogger(opName);
+    }
+
+    protected static StatsLogger requestLogger(StatsLogger statsLogger) {
+        return statsLogger.scope("request");
+    }
+
+    protected static StatsLogger requestScope(StatsLogger statsLogger, String scope) {
+        return requestLogger(statsLogger).scope(scope);
     }
 }

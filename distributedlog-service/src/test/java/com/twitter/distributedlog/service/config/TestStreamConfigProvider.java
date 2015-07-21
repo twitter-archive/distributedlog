@@ -51,7 +51,6 @@ public class TestStreamConfigProvider {
     public void testServiceProviderWithConfigRouters() throws Exception {
         getServiceProvider(DistributedLogConfiguration.BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT);
         getServiceProvider("com.twitter.distributedlog.service.config.IdentityConfigRouter");
-        getServiceProvider("com.twitter.distributedlog.service.config.EventbusPartitionConfigRouter");
     }
 
     @Test

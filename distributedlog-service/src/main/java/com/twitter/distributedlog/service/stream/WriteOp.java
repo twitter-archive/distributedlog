@@ -1,12 +1,15 @@
 package com.twitter.distributedlog.service.stream;
 
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import com.twitter.util.Try;
 
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.service.DistributedLogServiceImpl;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
@@ -19,6 +22,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,40 +35,67 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
 
     final byte[] payload;
 
-    // Record stats
+    // Stats
     private final Counter successRecordCounter;
     private final Counter failureRecordCounter;
     private final Counter redirectRecordCounter;
+    private final OpStatsLogger latencyStat;
+    private final Counter bytes;
+    private final Counter writeBytes;
 
     private final Object txnLock;
-    private final boolean serverModeDurable;
     private final ScheduledExecutorService executorService;
     private final byte dlsnVersion;
     private final long delayMs;
+    private final boolean durableServerMode;
 
     public WriteOp(String stream, ByteBuffer data, StatsLogger statsLogger,
-            Object txnLock, boolean serverModeDurable, ScheduledExecutorService executorService,
-            byte dlsnVersion, long delayMs) {
+            Object txnLock, ScheduledExecutorService executorService,
+            DistributedLogConfiguration conf) {
         super(stream, requestStat(statsLogger, "write"));
         payload = new byte[data.remaining()];
         data.get(payload);
 
-        // Write record stats
-        StatsLogger recordsStatsLogger = statsLogger.scope("records");
-        this.successRecordCounter = recordsStatsLogger.getCounter("success");
-        this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
-        this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
+        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, conf);
+        this.successRecordCounter = streamOpStats.recordsCounter("success");
+        this.failureRecordCounter = streamOpStats.recordsCounter("failure");
+        this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");
+        this.writeBytes = streamOpStats.scopedRequestCounter("write", "bytes");
+        this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "write");
+        this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
         this.txnLock = txnLock;
-        this.serverModeDurable = serverModeDurable;
         this.executorService = executorService;
-        this.dlsnVersion = dlsnVersion;
-        this.delayMs = delayMs;
+        this.dlsnVersion = conf.getByte("server_dlsn_version", DLSN.VERSION0);
+        this.delayMs = conf.getLong("server_latency_delay", 0);
+        this.durableServerMode = durableServerMode(conf);
+    }
+
+    private boolean durableServerMode(DistributedLogConfiguration conf) {
+        String memServerModeString = DistributedLogServiceImpl.ServerMode.MEM.toString();
+        return !memServerModeString.equals(conf.getString("server_mode"));
     }
 
     @Override
     public long getPayloadSize() {
       return payload.length;
+    }
+
+    @Override
+    public void preExecute() {
+      final long size = getPayloadSize();
+      result().addEventListener(new FutureEventListener<WriteResponse>() {
+        @Override
+        public void onSuccess(WriteResponse ignoreVal) {
+          latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+          bytes.add(size);
+          writeBytes.add(size);
+        }
+        @Override
+        public void onFailure(Throwable cause) {
+          latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+        }
+      });
     }
 
     @Override
@@ -79,7 +111,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
             txnId = nextTxId();
             writeResult = writer.write(new LogRecord(txnId, payload));
         }
-        if (serverModeDurable) {
+        if (durableServerMode) {
             return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
                 @Override
                 public WriteResponse apply(DLSN value) {

@@ -34,6 +34,7 @@ import com.twitter.distributedlog.service.stream.DeleteOp;
 import com.twitter.distributedlog.service.stream.HeartbeatOp;
 import com.twitter.distributedlog.service.stream.ReleaseOp;
 import com.twitter.distributedlog.service.stream.StreamManager;
+import com.twitter.distributedlog.service.stream.StreamOpStats;
 import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.service.stream.TruncateOp;
 import com.twitter.distributedlog.service.stream.WriteOp;
@@ -207,8 +208,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, txnLock, serverMode.equals(ServerMode.DURABLE), executorService,
-                dlsnVersion, delayMs);
+        return new WriteOp(stream, data, statsLogger, txnLock, executorService, dlConfig);
     }
 
     protected class Stream extends Thread {
@@ -251,7 +251,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             super("Stream-" + name);
             this.name = name;
             this.status = StreamStatus.UNINITIALIZED;
-            this.streamLogger = perStreamStatLogger.scope(name);
+            this.streamLogger = streamOpStats.streamRequestStatsLogger(name);
             this.exceptionStatLogger = streamLogger.scope("exceptions");
             this.lastException = new IOException("Fail to write record to stream " + name);
             this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
@@ -1017,13 +1017,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     // Stats
     private final StatsLogger statsLogger;
+    private final StreamOpStats streamOpStats;
+
     // operation stats
     private final Counter bulkWritePendingStat;
     private final Counter writePendingStat;
     private final Counter redirects;
     private final Counter unexpectedExceptions;
-    private final Counter bulkWriteBytes;
-    private final Counter writeBytes;
     private final Counter serviceTimeout;
 
     // denied operations counters
@@ -1046,7 +1046,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     // streams stats
     private final OpStatsLogger streamAcquireStat;
     // per streams stats
-    private final StatsLogger perStreamStatLogger;
     private final StatsLogger limiterStatLogger;
 
     private final byte dlsnVersion;
@@ -1116,7 +1115,11 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
 
-        // status about server health
+        // Stats
+        this.statsLogger = statsLogger;
+
+        // Stats on server
+        // Gauge for server status/health
         statsLogger.registerGauge("proxy_status", new Gauge<Number>() {
             @Override
             public Number getDefaultValue() {
@@ -1128,8 +1131,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 return closed ? -1 : (featureRegionStopAcceptNewStream.isAvailable() ? 3 : (serverAcceptNewStream ? 1 : 2));
             }
         });
-
-        // Stats on server
         this.unexpectedExceptions = statsLogger.getCounter("unexpected_exceptions");
         this.pendingOpsCounter = new AtomicInteger(0);
         statsLogger.registerGauge("pending_ops", new Gauge<Number>() {
@@ -1143,31 +1144,27 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 return pendingOpsCounter.get();
             }
         });
+        this.serviceTimeout = statsLogger.getCounter("serviceTimeout");
+        this.limiterStatLogger = statsLogger.scope("request_limiter");
 
-        this.statsLogger = statsLogger;
+        // Stats pertaining to stream op execution
+        this.streamOpStats = new StreamOpStats(statsLogger, dlConfig);
 
         // Stats on requests
-        StatsLogger requestsStatsLogger = statsLogger.scope("request");
-        this.bulkWritePendingStat = requestsStatsLogger.getCounter("bulkWritePending");
-        this.writePendingStat = requestsStatsLogger.getCounter("writePending");
-        this.redirects = requestsStatsLogger.getCounter("redirect");
-        this.exceptionStatLogger = requestsStatsLogger.scope("exceptions");
-        this.statusCodeStatLogger = requestsStatsLogger.scope("statuscode");
-        this.bulkWriteBytes = requestsStatsLogger.scope("bulkWrite").getCounter("bytes");
-        this.writeBytes = requestsStatsLogger.scope("write").getCounter("bytes");
-        this.serviceTimeout = statsLogger.getCounter("serviceTimeout");
-
-        StatsLogger recordsStatsLogger = statsLogger.scope("records");
-        this.receivedRecordCounter = recordsStatsLogger.getCounter("received");
+        this.bulkWritePendingStat = streamOpStats.requestPendingCounter("bulkWritePending");
+        this.writePendingStat = streamOpStats.requestPendingCounter("writePending");
+        this.redirects = streamOpStats.requestCounter("redirect");
+        this.exceptionStatLogger = streamOpStats.requestScope("exceptions");
+        this.statusCodeStatLogger = streamOpStats.requestScope("statuscode");
+        this.receivedRecordCounter = streamOpStats.recordsCounter("received");
 
         // Stats on denied requests
-        StatsLogger deniedRequestsStatsLogger = requestsStatsLogger.scope("denied");
-        this.deniedBulkWriteCounter = deniedRequestsStatsLogger.getCounter("bulkWrite");
-        this.deniedWriteCounter = deniedRequestsStatsLogger.getCounter("write");
-        this.deniedHeartbeatCounter = deniedRequestsStatsLogger.getCounter("heartbeat");
-        this.deniedTruncateCounter = deniedRequestsStatsLogger.getCounter("truncate");
-        this.deniedDeleteCounter = deniedRequestsStatsLogger.getCounter("delete");
-        this.deniedReleaseCounter = deniedRequestsStatsLogger.getCounter("release");
+        this.deniedBulkWriteCounter = streamOpStats.requestDeniedCounter("bulkWrite");
+        this.deniedWriteCounter = streamOpStats.requestDeniedCounter("write");
+        this.deniedHeartbeatCounter = streamOpStats.requestDeniedCounter("heartbeat");
+        this.deniedTruncateCounter = streamOpStats.requestDeniedCounter("truncate");
+        this.deniedDeleteCounter = streamOpStats.requestDeniedCounter("delete");
+        this.deniedReleaseCounter = streamOpStats.requestDeniedCounter("release");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
@@ -1193,11 +1190,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 return streams.size();
             }
         });
-        streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
-        // Stats on per streams
+        this.streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
+
+        // Setup complete
         boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
-        perStreamStatLogger = enablePerStreamStat ? statsLogger.scope("perstreams") : NullStatsLogger.INSTANCE;
-        limiterStatLogger = statsLogger.scope("request_limiter");
         logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
                 new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
     }
@@ -1345,7 +1341,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, dlConfig);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1449,6 +1445,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     private void doExecuteStreamOp(final StreamOp op) {
+        op.preExecute();
+
         Stream stream;
         try {
             stream = getLogWriter(op.streamName());
@@ -1464,41 +1462,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             // redirect the requests when stream is unavailable.
             op.fail(new ServiceUnavailableException("Server " + clientId + " is closed."));
             return;
-        }
-        if (op instanceof WriteOp) {
-          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger("write");
-          final Counter bytes = stream.streamLogger.scope("write").getCounter("bytes");
-          final long size = ((WriteOp) op).getPayloadSize();
-          ((WriteOp) op).result().addEventListener(new FutureEventListener<WriteResponse>() {
-            @Override
-            public void onSuccess(WriteResponse ignoreVal) {
-              latencyStat.registerSuccessfulEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
-              bytes.add(size);
-              writeBytes.add(size);
-            }
-
-            @Override
-            public void onFailure(Throwable cause) {
-              latencyStat.registerFailedEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
-            }
-          });
-        } else if (op instanceof BulkWriteOp) {
-          final OpStatsLogger latencyStat = stream.streamLogger.getOpStatsLogger("bulkWrite");
-          final Counter bytes = stream.streamLogger.scope("bulkWrite").getCounter("bytes");
-          final long size = ((BulkWriteOp) op).getPayloadSize();
-          ((BulkWriteOp) op).result().addEventListener(new FutureEventListener<BulkWriteResponse>() {
-            @Override
-            public void onSuccess(BulkWriteResponse ignoreVal) {
-              latencyStat.registerSuccessfulEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
-              bytes.add(size);
-              bulkWriteBytes.add(size);
-            }
-
-            @Override
-            public void onFailure(Throwable cause) {
-              latencyStat.registerFailedEvent(op.stopwatch().elapsed(TimeUnit.MICROSECONDS));
-            }
-          });
         }
         stream.waitIfNeededAndWrite(op);
     }

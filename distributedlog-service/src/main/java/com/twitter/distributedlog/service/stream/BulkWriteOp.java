@@ -4,15 +4,18 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Future$;
+import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.Try;
 
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
@@ -23,6 +26,8 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import scala.runtime.AbstractFunction1;
@@ -31,10 +36,13 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     private final List<ByteBuffer> buffers;
     private final long payloadSize;
 
-    // Record stats
+    // Stats
     private final Counter successRecordCounter;
     private final Counter failureRecordCounter;
     private final Counter redirectRecordCounter;
+    private final OpStatsLogger latencyStat;
+    private final Counter bytes;
+    private final Counter bulkWriteBytes;
 
     // We need to pass these through to preserve ownership change behavior in
     // client/server. Only include failures which are guaranteed to have failed
@@ -53,7 +61,8 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         return def;
     }
 
-    public BulkWriteOp(String stream, List<ByteBuffer> buffers, StatsLogger statsLogger) {
+    public BulkWriteOp(String stream, List<ByteBuffer> buffers, StatsLogger statsLogger,
+            DistributedLogConfiguration conf) {
         super(stream, requestStat(statsLogger, "bulkWrite"));
         this.buffers = buffers;
         long total = 0;
@@ -64,10 +73,31 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         this.payloadSize = total;
 
         // Write record stats
-        StatsLogger recordsStatsLogger = statsLogger.scope("records");
-        this.successRecordCounter = recordsStatsLogger.getCounter("success");
-        this.failureRecordCounter = recordsStatsLogger.getCounter("failure");
-        this.redirectRecordCounter = recordsStatsLogger.getCounter("redirect");
+        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, conf);
+        this.successRecordCounter = streamOpStats.recordsCounter("success");
+        this.failureRecordCounter = streamOpStats.recordsCounter("failure");
+        this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");
+        this.bulkWriteBytes = streamOpStats.scopedRequestCounter("bulkWrite", "bytes");
+        this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "bulkWrite");
+        this.bytes = streamOpStats.streamRequestCounter(stream, "bulkWrite", "bytes");
+    }
+
+    @Override
+    public void preExecute() {
+        final long size = getPayloadSize();
+        result().addEventListener(new FutureEventListener<BulkWriteResponse>() {
+            @Override
+            public void onSuccess(BulkWriteResponse ignoreVal) {
+                latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+                bytes.add(size);
+                bulkWriteBytes.add(size);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+            }
+        });
     }
 
     @Override
