@@ -38,6 +38,7 @@
     <module>distributedlog-core</module>
     <module>distributedlog-client</module>
     <module>distributedlog-service</module>
+    <module>distributedlog-service-internal</module>
     <module>distributedlog-benchmark</module>
   </modules>
   <properties>

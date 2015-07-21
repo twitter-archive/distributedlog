@@ -61,33 +61,6 @@ public class TestStreamConfigProvider {
         assertFalse(config.isPresent());
     }
 
-    /**
-     * Create a few stream config files under a temp directory, and confirm that stream override takes
-     * effect when we try to retrieve each of the files.
-     */
-    @Test
-    public void testServiceProviderWithConfigLayout() throws Exception {
-        File tempDir = File.createTempFile("test", "dir");
-        tempDir.delete();
-        tempDir.mkdir();
-        PropertiesWriter writer = null;
-        writer = new PropertiesWriter(new File(tempDir, "stream1.conf"));
-        writer.setProperty("retention-size", "66");
-        writer.save();
-        writer = new PropertiesWriter(new File(tempDir, "stream2.conf"));
-        writer.setProperty("retention-size", "88");
-        writer.save();
-        StreamConfigProvider provider = getServiceProvider(EventbusPartitionConfigRouter.class.getName(), tempDir.getPath());
-        Optional<DynamicDistributedLogConfiguration> config1 = provider.getDynamicStreamConfig("stream1");
-        Optional<DynamicDistributedLogConfiguration> config2 = provider.getDynamicStreamConfig("stream2");
-        Optional<DynamicDistributedLogConfiguration> config3 = provider.getDynamicStreamConfig("stream3");
-        assertTrue(config1.isPresent());
-        assertTrue(config2.isPresent());
-        assertFalse(config3.isPresent());
-        assertEquals(66, config1.get().getRetentionPeriodHours());
-        assertEquals(88, config2.get().getRetentionPeriodHours());
-    }
-
     @Test
     public void testServiceProviderWithBadConfigRouter() throws Exception {
         try {
