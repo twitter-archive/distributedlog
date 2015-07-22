@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -109,6 +110,71 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
         BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read3, dlConf);
         assertFalse(dlConf.getEncodeRegionIDInVersion());
+
+        BKDLConfig.clearCachedDLConfigs();
+    }
+
+    @Test(timeout = 60000)
+    public void testFirstLedgerSequenceNumber() throws Exception {
+        DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
+
+        URI uri = createURI("/messaging/distributedlog-testfirstledgerseqno/dl1");
+        DLMetadata meta1 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers"));
+        meta1.create(uri);
+        BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read1, dlConf);
+        assertEquals(DistributedLogConstants.FIRST_LEDGER_SEQNO, dlConf.getFirstLedgerSequenceNumber());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta2 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
+                .setFirstLedgerSeqNo(9999L));
+        meta2.update(uri);
+        BKDLConfig read2 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read2, dlConf);
+        assertEquals(9999L, dlConf.getFirstLedgerSequenceNumber());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta3 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
+                .setFirstLedgerSeqNo(99L));
+        meta3.update(uri);
+        BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read3, dlConf);
+        assertEquals(99L, dlConf.getFirstLedgerSequenceNumber());
+
+        BKDLConfig.clearCachedDLConfigs();
+    }
+
+    @Test(timeout = 60000)
+    public void testFederatedNamespace() throws Exception {
+        DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
+
+        URI uri = createURI("/messaging/distributedlog-testfederatednamespace/dl1");
+        DLMetadata meta1 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers"));
+        meta1.create(uri);
+        BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read1, dlConf);
+        assertTrue(dlConf.getCreateStreamIfNotExists());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta2 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
+                .setFederatedNamespace(true));
+        meta2.update(uri);
+        BKDLConfig read2 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read2, dlConf);
+        assertFalse(dlConf.getCreateStreamIfNotExists());
+
+        BKDLConfig.clearCachedDLConfigs();
+
+        DLMetadata meta3 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
+                .setFederatedNamespace(false));
+        meta3.update(uri);
+        BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
+        BKDLConfig.propagateConfiguration(read3, dlConf);
+        // if it is non-federated namespace, it won't change the create stream behavior.
+        assertFalse(dlConf.getCreateStreamIfNotExists());
 
         BKDLConfig.clearCachedDLConfigs();
     }

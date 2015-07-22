@@ -469,6 +469,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
             options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
             options.addOption("seqno", "firstLedgerSeqNo", true, "The first ledger sequence number to use after upgrade");
+            options.addOption("fns", "federatedNamespace", false, "Flag to turn a namespace to federated namespace");
             options.addOption("f", "force", false, "Force binding without prompt.");
             options.addOption("c", "creation", false, "Whether is it a creation binding.");
             options.addOption("q", "query", false, "Query the bookkeeper bindings");
@@ -543,6 +544,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     newBKDLConfig = newBKDLConfig.setFirstLedgerSeqNo(Long.parseLong(cmdline.getOptionValue("seqno")));
                 }
 
+                if (cmdline.hasOption("fns")) {
+                    newBKDLConfig = newBKDLConfig.setFederatedNamespace(true);
+                }
+
                 BKDLConfig bkdlConfig;
                 try {
                     bkdlConfig = BKDLConfig.resolveDLConfig(zkc, uri);
@@ -559,6 +564,9 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     if (!isQuery) {
                         if (newBKDLConfig.equals(bkdlConfig)) {
                             println("No bookkeeper binding needs to be updated. Quit.");
+                            return 0;
+                        } else if(!newBKDLConfig.isFederatedNamespace() && bkdlConfig.isFederatedNamespace()) {
+                            println("You can't turn a federated namespace back to non-federated!!");
                             return 0;
                         } else {
                             if (!force && !IOUtils.confirmPrompt("Are you sure to bind " + uri

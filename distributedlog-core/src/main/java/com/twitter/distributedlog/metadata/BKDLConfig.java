@@ -37,8 +37,15 @@ public class BKDLConfig implements DLConfig {
         dlConf.setSanityCheckTxnID(bkdlConfig.getSanityCheckTxnID());
         dlConf.setEncodeRegionIDInVersion(bkdlConfig.getEncodeRegionID());
         dlConf.setFirstLedgerSequenceNumber(bkdlConfig.getFirstLedgerSeqNo());
-        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}. firstLedgerSequenceNumber = {}",
-                new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion(), dlConf.getFirstLedgerSequenceNumber()});
+        if (bkdlConfig.isFederatedNamespace()) {
+            dlConf.setCreateStreamIfNotExists(false);
+            LOG.info("Disabled createIfNotExists for federated namespace.");
+        }
+        LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}," +
+                        " firstLedgerSequenceNumber = {}, createStreamIfNotExists = {}, isFederated = {}.",
+                new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion(),
+                        dlConf.getFirstLedgerSequenceNumber(), dlConf.getCreateStreamIfNotExists(),
+                        bkdlConfig.isFederatedNamespace() });
     }
 
     public static BKDLConfig resolveDLConfig(ZooKeeperClient zkc, URI uri) throws IOException {
@@ -67,7 +74,8 @@ public class BKDLConfig implements DLConfig {
     private String dlZkServersForWriter;
     private String dlZkServersForReader;
     private String aclRootPath;
-    private long firstLedgerSeqNo;
+    private Long firstLedgerSeqNo;
+    private boolean isFederatedNamespace = false;
 
     /**
      * Construct a empty config with given <i>uri</i>.
@@ -217,8 +225,31 @@ public class BKDLConfig implements DLConfig {
      *
      * @return first ledger sequence number
      */
-    public long getFirstLedgerSeqNo() {
+    public Long getFirstLedgerSeqNo() {
+        if (null == firstLedgerSeqNo) {
+            return DistributedLogConstants.FIRST_LEDGER_SEQNO;
+        }
         return firstLedgerSeqNo;
+    }
+
+    /**
+     * Set the namespace to federated <i>isFederatedNamespace</i>.
+     *
+     * @param isFederatedNamespace
+     *          is the namespace federated?
+     * @return bk dl config
+     */
+    public BKDLConfig setFederatedNamespace(boolean isFederatedNamespace) {
+        this.isFederatedNamespace = isFederatedNamespace;
+        return this;
+    }
+
+    /**
+     * Whether the namespace is
+     * @return
+     */
+    public boolean isFederatedNamespace() {
+        return this.isFederatedNamespace;
     }
 
     @Override
@@ -241,7 +272,10 @@ public class BKDLConfig implements DLConfig {
                Objects.equal(bkLedgersPath, another.bkLedgersPath) &&
                sanityCheckTxnID == another.sanityCheckTxnID &&
                encodeRegionID == another.encodeRegionID &&
-               Objects.equal(aclRootPath, another.aclRootPath);
+               Objects.equal(aclRootPath, another.aclRootPath) &&
+               Objects.equal(firstLedgerSeqNo, another.firstLedgerSeqNo) &&
+               Objects.equal(isFederatedNamespace, another.isFederatedNamespace);
+
     }
 
     @Override
@@ -271,6 +305,12 @@ public class BKDLConfig implements DLConfig {
         configFormat.setEncodeRegionID(encodeRegionID);
         if (null != aclRootPath) {
             configFormat.setAclRootPath(aclRootPath);
+        }
+        if (null != firstLedgerSeqNo) {
+            configFormat.setFirstLedgerSeqNo(firstLedgerSeqNo);
+        }
+        if (isFederatedNamespace) {
+            configFormat.setFederatedNamespace(true);
         }
         return serialize(configFormat);
     }
@@ -330,13 +370,12 @@ public class BKDLConfig implements DLConfig {
 
         if (configFormat.isSetFirstLedgerSeqNo()) {
             firstLedgerSeqNo = configFormat.getFirstLedgerSeqNo();
-        } else {
-            firstLedgerSeqNo = DistributedLogConstants.FIRST_LEDGER_SEQNO;
         }
+        isFederatedNamespace = configFormat.isSetFederatedNamespace() && configFormat.isFederatedNamespace();
 
         // Validate the settings
         if (null == bkZkServersForWriter || null == bkZkServersForReader || null == bkLedgersPath ||
-            null == dlZkServersForWriter || null == dlZkServersForReader) {
+                null == dlZkServersForWriter || null == dlZkServersForReader) {
             throw new IOException("Missing zk/bk settings in BKDL Config : " + new String(data, UTF_8));
         }
     }

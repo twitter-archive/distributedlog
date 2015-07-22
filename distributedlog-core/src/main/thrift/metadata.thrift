@@ -10,6 +10,7 @@ struct BKDLConfigFormat {
     7: optional string dlZkServersForReader
     8: optional string aclRootPath
     9: optional i64 firstLedgerSeqNo
+    10: optional bool federatedNamespace
 }
 
 struct AccessControlEntry {
