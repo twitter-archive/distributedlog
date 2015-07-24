@@ -2,8 +2,7 @@ package com.twitter.distributedlog.benchmark;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.RateLimiter;
-import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
+
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.DistributedLogClient;
@@ -46,8 +45,7 @@ public class WriterWorker implements Worker {
     final int hostConnectionLimit;
     final ExecutorService executorService;
     final RateLimiter rateLimiter;
-    final ZooKeeperClient[] zkClients;
-    final ServerSet[] serverSets;
+    final List<String> finagleNames;
     final Random random;
     final List<String> streamNames;
     final int numStreams;
@@ -72,13 +70,13 @@ public class WriterWorker implements Worker {
                         int batchSize,
                         int hostConnectionCoreSize,
                         int hostConnectionLimit,
-                        List<String> serverSetPaths,
+                        List<String> finagleNames,
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger,
                         boolean thriftmux,
                         boolean handshakeWithClientInfo) {
         Preconditions.checkArgument(startStreamId <= endStreamId);
-        Preconditions.checkArgument(serverSetPaths.size() > 0);
+        Preconditions.checkArgument(!finagleNames.isEmpty());
         this.streamPrefix = streamPrefix;
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
@@ -98,17 +96,7 @@ public class WriterWorker implements Worker {
         this.hostConnectionLimit = hostConnectionLimit;
         this.thriftmux = thriftmux;
         this.handshakeWithClientInfo = handshakeWithClientInfo;
-
-        // ServerSet
-        this.serverSets = new ServerSet[serverSetPaths.size()];
-        this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
-
-        for (int i = 0; i < serverSets.length; i++) {
-            String serverSetPath = serverSetPaths.get(i);
-            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
-            this.zkClients[i] = ssPair.getLeft();
-            this.serverSets[i] = ssPair.getRight();
-        }
+        this.finagleNames = finagleNames;
 
         // Streams
         streamNames = new ArrayList<String>(endStreamId - startStreamId);
@@ -123,9 +111,6 @@ public class WriterWorker implements Worker {
     public void close() throws IOException {
         this.running = false;
         SchedulerUtils.shutdownScheduler(this.executorService, 2, TimeUnit.MINUTES);
-        for (ZooKeeperClient zkClient : zkClients) {
-            zkClient.close();
-        }
     }
 
     private DistributedLogClient buildDlogClient() {
@@ -138,9 +123,9 @@ public class WriterWorker implements Worker {
 
         ClientId clientId = ClientId$.MODULE$.apply("dlog_loadtest_writer");
 
-        ServerSet local = serverSets[0];
-        ServerSet[] remotes = new ServerSet[serverSets.length - 1];
-        System.arraycopy(serverSets, 1, remotes, 0, remotes.length);
+        String local = finagleNames.get(0);
+        String[] remotes = new String[finagleNames.size() - 1];
+        finagleNames.subList(1, finagleNames.size()).toArray(remotes);
 
         return DistributedLogClientBuilder.newBuilder()
             .clientId(clientId)
@@ -149,8 +134,8 @@ public class WriterWorker implements Worker {
             .redirectBackoffStartMs(100)
             .redirectBackoffMaxMs(500)
             .requestTimeoutMs(2000)
+            .finagleNameStrs(local, remotes)
             .statsReceiver(statsReceiver)
-            .serverSets(local, remotes)
             .streamNameRegex("^" + streamPrefix + "_[0-9]+$")
             .handshakeWithClientInfo(handshakeWithClientInfo)
             .periodicDumpOwnershipCache(true)

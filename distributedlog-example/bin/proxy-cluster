@@ -1,0 +1,13 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
+
+cd ${DISTRIBUTEDLOG_ROOT} &&\
+mvn clean install -Ptwitter-ostrich-provider -pl distributedlog-example -am -DskipTests &&\
+BUILT_JAR=`ls distributedlog-example/target/distributedlog-*.jar 2> /dev/null | egrep -v 'tests|javadoc|sources' | tail -1` &&
+java -cp .:distributedlog-example/lib/*:$BUILT_JAR \
+    -Dlog4j.configuration=distributedlog-example/conf/log4j.properties \
+    -DstatsHttpPort=9000 -DstatsExport=true \
+    com.twitter.distributedlog.example.ProxyClusterEmulator \
+    --port 8000 --provider org.apache.bookkeeper.stats.twitter.ostrich.OstrichProvider

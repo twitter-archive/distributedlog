@@ -129,9 +129,11 @@ public class DistributedLogServer implements Runnable {
             CommandLine cmdline = parser.parse(options, args);
             runCmd(cmdline);
         } catch (ParseException pe) {
+            logger.error("Argument error : {}", pe.getMessage());
             printUsage();
             Runtime.getRuntime().exit(-1);
         } catch (ConfigurationException ce) {
+            logger.error("Configuration error : {}", ce.getMessage());
             printUsage();
             Runtime.getRuntime().exit(-1);
         } catch (IOException ie) {

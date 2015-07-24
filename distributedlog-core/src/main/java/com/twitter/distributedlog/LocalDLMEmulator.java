@@ -282,27 +282,31 @@ public class LocalDLMEmulator {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            System.out.println("Usage: LocalDLEmulator <zk_port>");
-            System.exit(-1);
-        }
-        int zkPort = Integer.parseInt(args[0]);
-        final File zkDir = IOUtils.createTempDir("distrlog", "zookeeper");
-        LocalBookKeeper.runZookeeper(1000, zkPort, zkDir);
-        final LocalDLMEmulator dl = new LocalDLMEmulator(3, "127.0.0.1", zkPort);
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                try {
-                    dl.teardown();
-                    FileUtils.deleteDirectory(zkDir);
-                    System.out.println("ByeBye!");
-                } catch (Exception e) {
-                    // do nothing
-                }
+        try {
+            if (args.length < 1) {
+                System.out.println("Usage: LocalDLEmulator <zk_port>");
+                System.exit(-1);
             }
-        });
-        dl.start();
-        System.out.println("DistributedLog Sandbox is running now. You could access distributedlog://127.0.0.1:" + zkPort);
+            int zkPort = Integer.parseInt(args[0]);
+            final File zkDir = IOUtils.createTempDir("distrlog", "zookeeper");
+            LocalBookKeeper.runZookeeper(1000, zkPort, zkDir);
+            final LocalDLMEmulator dl = new LocalDLMEmulator(3, "127.0.0.1", zkPort);
+            Runtime.getRuntime().addShutdownHook(new Thread() {
+                @Override
+                public void run() {
+                    try {
+                        dl.teardown();
+                        FileUtils.deleteDirectory(zkDir);
+                        System.out.println("ByeBye!");
+                    } catch (Exception e) {
+                        // do nothing
+                    }
+                }
+            });
+            dl.start();
+            System.out.println("DistributedLog Sandbox is running now. You could access distributedlog://127.0.0.1:" + zkPort);
+        } catch (Exception ex) {
+            System.out.println("Exception occurred running emulator " + ex);
+        }
     }
 }

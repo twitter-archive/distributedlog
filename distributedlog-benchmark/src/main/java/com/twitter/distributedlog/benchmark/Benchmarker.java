@@ -19,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -36,7 +37,7 @@ public class Benchmarker {
     String streamPrefix = "dlog-loadtest-";
     int shardId = -1;
     int numStreams = 10;
-    List<String> serversetPaths = new ArrayList<String>();
+    List<String> finagleNames = new ArrayList<String>();
     int msgSize = 256;
     String mode = null;
     int durationMins = 60;
@@ -61,6 +62,7 @@ public class Benchmarker {
         this.args = args;
         // prepare options
         options.addOption("s", "serverset", true, "Proxy Server Set (separated by ',')");
+        options.addOption("fn", "finagle-name", true, "Write proxy finagle name (separated by ',')");
         options.addOption("c", "conf", true, "DistributedLog Configuration File");
         options.addOption("u", "uri", true, "DistributedLog URI");
         options.addOption("i", "shard", true, "Shard Id");
@@ -93,18 +95,16 @@ public class Benchmarker {
 
     void run() throws Exception {
         logger.info("Running benchmark.");
+
         BasicParser parser = new BasicParser();
         CommandLine cmdline = parser.parse(options, args);
         if (cmdline.hasOption("h")) {
             printUsage();
             System.exit(0);
         }
-        if (cmdline.hasOption("s")) {
-            String serversetPathStr = cmdline.getOptionValue("s");
-            String[] serversets = StringUtils.split(serversetPathStr, ',');
-            for (String ss : serversets) {
-                serversetPaths.add(ss);
-            }
+        if (cmdline.hasOption("fn")) {
+            String finagleNameStr = cmdline.getOptionValue("fn");
+            finagleNames = Arrays.asList(StringUtils.split(finagleNameStr, ','));
         }
         if (cmdline.hasOption("i")) {
             shardId = Integer.parseInt(cmdline.getOptionValue("i"));
@@ -208,11 +208,12 @@ public class Benchmarker {
         if (null != statsProvider) {
             statsProvider.stop();
         }
+
         Runtime.getRuntime().exit(0);
     }
 
     Worker runWriter() {
-        Preconditions.checkArgument(!serversetPaths.isEmpty(), "serversetPaths are required");
+        Preconditions.checkArgument(!finagleNames.isEmpty(), "finagle-name required");
         Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
         Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
@@ -226,7 +227,7 @@ public class Benchmarker {
                 batchSize,
                 hostConnectionCoreSize,
                 hostConnectionLimit,
-                serversetPaths,
+                finagleNames,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
                 thriftmux,
@@ -249,17 +250,17 @@ public class Benchmarker {
     }
 
     Worker runReader() throws IOException {
-        Preconditions.checkNotNull(serversetPaths, "serversetPaths are required");
+        Preconditions.checkArgument(!finagleNames.isEmpty(), "finagleNames are required");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
         Preconditions.checkArgument(truncationInterval > 0, "truncation interval should be greater than 0");
-        return runReaderInternal(serversetPaths, truncationInterval);
+        return runReaderInternal(finagleNames, truncationInterval);
     }
 
     Worker runDLReader() throws IOException {
         return runReaderInternal(null, 0);
     }
 
-    private Worker runReaderInternal(List<String> ssPaths, int truncationInterval) throws IOException {
+    private Worker runReaderInternal(List<String> finagleNames, int truncationInterval) throws IOException {
         Preconditions.checkNotNull(dlUri);
 
         int ssid = null == startStreamId ? shardId * numStreams : startStreamId;
@@ -274,7 +275,7 @@ public class Benchmarker {
                 ssid,
                 esid,
                 concurrency,
-                ssPaths,
+                finagleNames,
                 truncationInterval,
                 readFromHead,
                 statsReceiver,

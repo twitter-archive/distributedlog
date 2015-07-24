@@ -3,8 +3,6 @@ package com.twitter.distributedlog.benchmark;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
@@ -61,8 +59,7 @@ public class ReaderWorker implements Worker {
 
     final int truncationIntervalInSeconds;
     // DL Client Related Variables
-    final ZooKeeperClient[] zkClients;
-    final ServerSet[] serverSets;
+    final List<String> finagleNames;
     final DistributedLogClient dlc;
 
     volatile boolean running = true;
@@ -188,7 +185,7 @@ public class ReaderWorker implements Worker {
                         int startStreamId,
                         int endStreamId,
                         int readThreadPoolSize,
-                        List<String> serverSetPaths,
+                        List<String> finagleNames,
                         int truncationIntervalInSeconds,
                         boolean readFromHead, /* read from the earliest data of log */
                         StatsReceiver statsReceiver,
@@ -210,20 +207,15 @@ public class ReaderWorker implements Worker {
         this.outOfOrderSequenceIdCounter = this.statsLogger.getCounter("out_of_order_seq_id");
         this.executorService = Executors.newScheduledThreadPool(
             readThreadPoolSize, new ThreadFactoryBuilder().setNameFormat("benchmark.reader-%d").build());
+        this.finagleNames = finagleNames;
 
-        if (truncationIntervalInSeconds > 0 && !serverSetPaths.isEmpty()) {
-            zkClients = new ZooKeeperClient[serverSetPaths.size()];
-            serverSets = new ServerSet[serverSetPaths.size()];
+        if (truncationIntervalInSeconds > 0 && !finagleNames.isEmpty()) {
+            // Prepare finagle names
+            String local = finagleNames.get(0);
+            String[] remotes = new String[finagleNames.size() - 1];
+            finagleNames.subList(1, finagleNames.size()).toArray(remotes);
 
-            for (int i = 0; i < serverSets.length; i++) {
-                String serverSetPath = serverSetPaths.get(0);
-                Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
-                this.zkClients[i] = ssPair.getLeft();
-                this.serverSets[i] = ssPair.getRight();
-            }
-            ServerSet local = this.serverSets[0];
-            ServerSet[] remotes = new ServerSet[this.serverSets.length - 1];
-            System.arraycopy(this.serverSets, 1, remotes, 0, remotes.length);
+            // Construct client for truncation
             dlc = DistributedLogClientBuilder.newBuilder()
                     .clientId(ClientId$.MODULE$.apply("dlog_loadtest_reader"))
                     .clientBuilder(ClientBuilder.get()
@@ -235,13 +227,11 @@ public class ReaderWorker implements Worker {
                     .redirectBackoffMaxMs(500)
                     .requestTimeoutMs(2000)
                     .statsReceiver(statsReceiver)
-                    .serverSets(local, remotes)
+                    .finagleNameStrs(local, remotes)
                     .name("reader")
                     .build();
-            LOG.info("Initialized distributedlog client for truncation @ {}.", serverSetPaths);
+            LOG.info("Initialized distributedlog client for truncation @ {}.", finagleNames);
         } else {
-            zkClients = new ZooKeeperClient[0];
-            serverSets = new ServerSet[0];
             dlc = null;
         }
 
@@ -378,9 +368,6 @@ public class ReaderWorker implements Worker {
         SchedulerUtils.shutdownScheduler(executorService, 2, TimeUnit.MINUTES);
         if (this.dlc != null) {
             this.dlc.close();
-        }
-        for (ZooKeeperClient zkClient : zkClients) {
-            zkClient.close();
         }
     }
 
