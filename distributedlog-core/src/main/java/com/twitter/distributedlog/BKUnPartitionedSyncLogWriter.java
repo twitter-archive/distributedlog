@@ -27,6 +27,7 @@ class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implemen
      * @param records list of records
      */
     @Override
+    @Deprecated
     public int writeBulk(List<LogRecord> records) throws IOException {
         return getLedgerWriter(conf.getUnpartitionedStreamName(),
                 records.get(0).getTransactionId(), false).writeBulk(records);

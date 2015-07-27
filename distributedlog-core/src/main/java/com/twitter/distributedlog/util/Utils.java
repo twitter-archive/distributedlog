@@ -183,7 +183,6 @@ public class Utils {
                 data, acl, createMode, new AsyncCallback.StringCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, String name) {
-                Promise<BoxedUnit> result = (Promise<BoxedUnit>)ctx;
                 handleKeeperExceptionCode(rc, path, result);
             }
         }, result);
@@ -212,7 +211,6 @@ public class Utils {
             zkc.get().setData(pathToCreate, data, -1, new AsyncCallback.StatCallback() {
                 @Override
                 public void processResult(int rc, String path, Object ctx, Stat stat) {
-                    Promise<BoxedUnit> result = (Promise<BoxedUnit>)ctx;
                     if (rc != KeeperException.Code.NONODE.intValue()) {
                         handleKeeperExceptionCode(rc, path, result);
                         return;
@@ -223,7 +221,6 @@ public class Utils {
                             data, acl, createMode, new AsyncCallback.StringCallback() {
                         @Override
                         public void processResult(int rc, String path, Object ctx, String name) {
-                            Promise<BoxedUnit> result = (Promise<BoxedUnit>)ctx;
                             handleKeeperExceptionCode(rc, path, result);
                         }
                     }, result);

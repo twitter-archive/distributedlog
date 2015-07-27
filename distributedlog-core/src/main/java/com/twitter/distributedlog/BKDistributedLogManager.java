@@ -1214,6 +1214,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return Subscription state store
      */
     @Override
+    @Deprecated
     public SubscriptionStateStore getSubscriptionStateStore(String subscriberId) {
         return getSubscriptionStateStoreInternal(conf.getUnpartitionedStreamName(), subscriberId);
     }
@@ -1226,6 +1227,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return Subscription state store
      */
     @Override
+    @Deprecated
     public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId) {
         return getSubscriptionStateStoreInternal(partition.toString(), subscriberId);
     }

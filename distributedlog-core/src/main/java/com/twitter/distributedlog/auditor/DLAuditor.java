@@ -8,7 +8,6 @@ import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.Utils;
@@ -49,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * DL Auditor will audit DL namespace, e.g. find leaked ledger, report disk usage by streams.
  */
+@SuppressWarnings("deprecation")
 public class DLAuditor {
 
     private static final Logger logger = LoggerFactory.getLogger(DLAuditor.class);
@@ -59,7 +59,7 @@ public class DLAuditor {
         this.conf = conf;
     }
 
-    private ZooKeeperClient getZooKeeperClient(DistributedLogManagerFactory factory) {
+    private ZooKeeperClient getZooKeeperClient(com.twitter.distributedlog.DistributedLogManagerFactory factory) {
         DistributedLogNamespace namespace = factory.getNamespace();
         assert(namespace instanceof BKDistributedLogNamespace);
         return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
@@ -194,18 +194,19 @@ public class DLAuditor {
     private Set<Long> collectLedgersFromDL(List<URI> uris, List<List<String>> allocationPaths)
             throws IOException {
         final Set<Long> ledgers = new TreeSet<Long>();
-        List<DistributedLogManagerFactory> factories = new ArrayList<DistributedLogManagerFactory>(uris.size());
+        List<com.twitter.distributedlog.DistributedLogManagerFactory> factories =
+                new ArrayList<com.twitter.distributedlog.DistributedLogManagerFactory>(uris.size());
         try {
             for (URI uri : uris) {
-                factories.add(new DistributedLogManagerFactory(conf, uri));
+                factories.add(new com.twitter.distributedlog.DistributedLogManagerFactory(conf, uri));
             }
             final CountDownLatch doneLatch = new CountDownLatch(uris.size());
             final AtomicInteger numFailures = new AtomicInteger(0);
             ExecutorService executor = Executors.newFixedThreadPool(uris.size());
             try {
                 int i = 0;
-                for (DistributedLogManagerFactory factory : factories) {
-                    final DistributedLogManagerFactory dlFactory = factory;
+                for (com.twitter.distributedlog.DistributedLogManagerFactory factory : factories) {
+                    final com.twitter.distributedlog.DistributedLogManagerFactory dlFactory = factory;
                     final URI uri = uris.get(i);
                     final List<String> aps = allocationPaths.get(i);
                     i++;
@@ -242,7 +243,7 @@ public class DLAuditor {
                 executor.shutdown();
             }
         } finally {
-            for (DistributedLogManagerFactory factory : factories) {
+            for (com.twitter.distributedlog.DistributedLogManagerFactory factory : factories) {
                 factory.close();
             }
         }
@@ -250,7 +251,7 @@ public class DLAuditor {
     }
 
     private void collectLedgersFromAllocator(final URI uri,
-                                             final DistributedLogManagerFactory factory,
+                                             final com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                              final List<String> allocationPaths,
                                              final Set<Long> ledgers) throws IOException {
         final LinkedBlockingQueue<String> poolQueue =
@@ -335,7 +336,7 @@ public class DLAuditor {
     }
 
     private void collectLedgersFromDL(final URI uri,
-                                      final DistributedLogManagerFactory factory,
+                                      final com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                       final Set<Long> ledgers) throws IOException {
         logger.info("Enumerating {} to collect streams.", uri);
         Collection<String> streams = factory.enumerateAllLogsInNamespace();
@@ -396,11 +397,12 @@ public class DLAuditor {
         }
     }
 
-    private List<Long> collectLedgersFromStream(DistributedLogManagerFactory factory,
+    private List<Long> collectLedgersFromStream(com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                           String stream,
                                           Set<Long> ledgers)
             throws IOException {
-        DistributedLogManager dlm = factory.createDistributedLogManager(stream, DistributedLogManagerFactory.ClientSharingOption.SharedClients);
+        DistributedLogManager dlm = factory.createDistributedLogManager(stream,
+                com.twitter.distributedlog.DistributedLogManagerFactory.ClientSharingOption.SharedClients);
         try {
             List<LogSegmentMetadata> segments = dlm.getLogSegments();
             List<Long> sLedgers = new ArrayList<Long>();

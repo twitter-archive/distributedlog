@@ -446,7 +446,7 @@ public class DLMTestUtil {
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {
-            DLSN dlsn = writer.asyncWrite(DLMTestUtil.getLogRecordInstance(txid++)).get();
+            DLSN dlsn = Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(txid++)));
             if (j == (segmentSize - 1)) {
                 wrongDLSN = dlsn;
             }

@@ -78,7 +78,7 @@ public class TestTruncate extends TestDistributedLogBase {
         }
 
         // to make sure the truncation task is executed
-        DLSN lastDLSN = dlm.getLastDLSNAsync().get();
+        DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
         LOG.info("Get last dlsn of stream {} : {}", name, lastDLSN);
 
         assertEquals(6, distributedLogManager.getLogSegments().size());
@@ -101,20 +101,20 @@ public class TestTruncate extends TestDistributedLogBase {
         Thread.sleep(1000);
 
         // delete invalid dlsn
-        assertFalse(pair.getRight().truncate(DLSN.InvalidDLSN).get());
+        assertFalse(Await.result(pair.getRight().truncate(DLSN.InvalidDLSN)));
         verifyEntries(name, 1, 1, 5 * 10);
 
         for (int i = 1; i <= 4; i++) {
             int txn = (i-1) * 10 + i;
             DLSN dlsn = txid2DLSN.get((long)txn);
-            assertTrue(pair.getRight().truncate(dlsn).get());
+            assertTrue(Await.result(pair.getRight().truncate(dlsn)));
             verifyEntries(name, 1, (i - 1) * 10 + 1, (5 - i + 1) * 10);
         }
 
         // Delete higher dlsn
         int txn = 43;
         DLSN dlsn = txid2DLSN.get((long) txn);
-        assertTrue(pair.getRight().truncate(dlsn).get());
+        assertTrue(Await.result(pair.getRight().truncate(dlsn)));
         verifyEntries(name, 1, 31, 20);
 
         pair.getRight().close();
@@ -138,14 +138,14 @@ public class TestTruncate extends TestDistributedLogBase {
         for (int i = 1; i <= 4; i++) {
             int txn = (i-1) * 10 + i;
             DLSN dlsn = txid2DLSN.get((long)txn);
-            assertTrue(pair.getRight().truncate(dlsn).get());
+            assertTrue(Await.result(pair.getRight().truncate(dlsn)));
             verifyEntries(name, 1, (i - 1) * 10 + 1, (5 - i + 1) * 10);
         }
 
         // Delete higher dlsn
         int txn = 43;
         DLSN dlsn = txid2DLSN.get((long) txn);
-        assertTrue(pair.getRight().truncate(dlsn).get());
+        assertTrue(Await.result(pair.getRight().truncate(dlsn)));
         verifyEntries(name, 1, 31, 20);
 
         pair.getRight().close();

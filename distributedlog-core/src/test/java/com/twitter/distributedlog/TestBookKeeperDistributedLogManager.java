@@ -407,10 +407,10 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         assertEquals(2, dlm.getFirstTxId(new PartitionId(0)));
         assertEquals(txid - 1, dlm.getLastTxId(new PartitionId(0)));
-        assertEquals(txid - 1, dlm.getLastTxIdAsync(new PartitionId(0)).get().longValue());
+        assertEquals(txid - 1, Await.result(dlm.getLastTxIdAsync(new PartitionId(0))).longValue());
         assertEquals(1, dlm.getFirstTxId(new PartitionId(1)));
         assertEquals(txid - 2, dlm.getLastTxId(new PartitionId(1)));
-        assertEquals(txid - 2, dlm.getLastTxIdAsync(new PartitionId(1)).get().longValue());
+        assertEquals(txid - 2, Await.result(dlm.getLastTxIdAsync(new PartitionId(1))).longValue());
 
         LogReader reader = dlm.getInputStream(new PartitionId(0), 2);
         long numTrans = 0;
@@ -435,6 +435,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testPartitionedWritesBulk() throws Exception {
         String name = "distrlog-partitioned-bulk";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -514,6 +515,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testPartitionedWritesBulkSeparateReader() throws Exception {
         String name = "distrlog-partitioned-bulk-separate-reader";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -593,6 +595,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testPartitionedWritesBulkSeparateReaderWriterOpen() throws Exception {
         String name = "distrlog-partitioned-bulk-separate-reader-writer-open";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -757,14 +760,14 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
 
         AsyncLogReader asyncreader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
         long numTrans = 0;
-        LogRecordWithDLSN record = asyncreader.readNext().get();
+        LogRecordWithDLSN record = Await.result(asyncreader.readNext());
         while (null != record) {
             DLMTestUtil.verifyLogRecord(record);
             numTrans++;
             if (numTrans >= (txid - 1)) {
                 break;
             }
-            record = asyncreader.readNext().get();
+            record = Await.result(asyncreader.readNext());
         }
         assertEquals((txid - 1), numTrans);
         asyncreader.close();
@@ -879,6 +882,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testPartitionedWritesBulkOutputBufferSize() throws Exception {
         String name = "distrlog-partitioned-bulk-buffer-size";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -959,6 +963,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testNonDefaultSeparateBKSetting() throws Exception {
         String name = "distrlog-separate-bk-setting";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -1302,6 +1307,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testPartitionedWritesBulkFlush() throws Exception {
         String name = "distrlog-partitioned-bulk-flush";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -1481,6 +1487,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
     }
 
     @Test
+    @Deprecated
     public void testSubscriptionStateStore() throws Exception {
         String name = "distrlog-subscription-state";
         String subscriberId = "defaultSubscriber";
@@ -1942,7 +1949,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         for (int i = 0; i < 10; i++) {
             LogRecord record = DLMTestUtil.getLogRecordInstance(txid++);
             record.setControl();
-            writer.writeControlRecord(record).get();
+            Await.result(writer.writeControlRecord(record));
         }
 
         try {
@@ -1955,12 +1962,12 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         writer.closeAndComplete();
 
         writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
-        writer.write(DLMTestUtil.getLogRecordInstance(txid++)).get();
+        Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
 
         for (int i = 1; i < 10; i++) {
             LogRecord record = DLMTestUtil.getLogRecordInstance(txid++);
             record.setControl();
-            writer.write(record).get();
+            Await.result(writer.write(record));
         }
 
         assertEquals(new DLSN(2, 0, 0), dlm.getLastDLSN());

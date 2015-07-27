@@ -15,7 +15,6 @@ import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.TestDistributedLogBase;
@@ -54,10 +53,12 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
 
     @Test(timeout = 60000)
+    @SuppressWarnings("deprecation")
     public void testChangeSequenceNumber() throws Exception {
         URI uri = createDLMURI("/change-sequence-number");
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(conf, uri);
+        com.twitter.distributedlog.DistributedLogManagerFactory factory =
+                new com.twitter.distributedlog.DistributedLogManagerFactory(conf, uri);
 
         String streamName = "change-sequence-number";
 

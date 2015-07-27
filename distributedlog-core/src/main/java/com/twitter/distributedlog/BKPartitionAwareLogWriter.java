@@ -106,6 +106,7 @@ class BKPartitionAwareLogWriter extends BKBaseLogWriter implements PartitionAwar
      * @param records – a map with a list of log records for one or more partitions
      */
     @Override
+    @Deprecated
     public synchronized int writeBulk(Map<PartitionId, List<LogRecord>> records) throws IOException {
         checkClosedOrInError("writeBulk");
         int numRecords = 0;

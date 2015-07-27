@@ -13,7 +13,8 @@ import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.lock.LockClosedException;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
-import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;
@@ -273,7 +274,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         DistributedLogManager dlm2 = createNewDLM(conf, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         try {
-            futureReader2.cancel();
+            FutureUtils.cancel(futureReader2);
             Await.result(futureReader2);
         } catch (LockClosedException ex) {
         } catch (LockCancelledException ex) {
@@ -303,7 +304,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         // Must not throw or cancel or do anything bad, future already completed.
         Await.result(futureReader1);
-        futureReader1.cancel();
+        FutureUtils.cancel(futureReader1);
         AsyncLogReader reader1 = Await.result(futureReader1);
         Await.result(reader1.readNext());
 
@@ -442,7 +443,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         // Take a break, reader2 decides to stop waiting and cancels.
         Thread.sleep(1000);
         assertFalse(listener2.done());
-        futureReader2.cancel();
+        FutureUtils.cancel(futureReader2);
         listener2.getLatch().await();
         assertTrue(listener2.done());
         assertTrue(listener2.failed());
@@ -521,8 +522,8 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         assertEquals(txid - 1, numTxns);
         reader0.close();
 
-        SubscriptionStateStore stateStore = dlm.getSubscriptionStateStore(subscriberId);
-        Await.result(stateStore.advanceCommitPosition(readDLSN));
+        SubscriptionsStore subscriptionsStore = dlm.getSubscriptionsStore();
+        Await.result(subscriptionsStore.advanceCommitPosition(subscriberId, readDLSN));
         BKAsyncLogReaderDLSN reader1 = (BKAsyncLogReaderDLSN) Await.result(dlm.getAsyncLogReaderWithLock(subscriberId));
         assertEquals(readDLSN, reader1.getStartDLSN());
         numTxns = 0;

@@ -66,7 +66,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LedgerEntryReader;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
@@ -87,6 +86,7 @@ import com.twitter.util.Await;
 
 import static com.google.common.base.Charsets.UTF_8;
 
+@SuppressWarnings("deprecation")
 public class DistributedLogTool extends Tool {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogTool.class);
@@ -137,7 +137,7 @@ public class DistributedLogTool extends Tool {
         protected URI uri;
         protected String zkAclId = null;
         protected boolean force = false;
-        protected DistributedLogManagerFactory factory = null;
+        protected com.twitter.distributedlog.DistributedLogManagerFactory factory = null;
 
         protected PerDLCommand(String name, String description) {
             super(name, description);
@@ -229,9 +229,9 @@ public class DistributedLogTool extends Tool {
             this.force = force;
         }
 
-        protected synchronized DistributedLogManagerFactory getFactory() throws IOException {
+        protected synchronized com.twitter.distributedlog.DistributedLogManagerFactory getFactory() throws IOException {
             if (null == this.factory) {
-                this.factory = new DistributedLogManagerFactory(getConf(), getUri());
+                this.factory = new com.twitter.distributedlog.DistributedLogManagerFactory(getConf(), getUri());
                 logger.info("Construct DLM : uri = {}", getUri());
             }
             return this.factory;
@@ -399,7 +399,7 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        protected void printStreamsWithMetadata(DistributedLogManagerFactory factory)
+        protected void printStreamsWithMetadata(com.twitter.distributedlog.DistributedLogManagerFactory factory)
                 throws Exception {
             Map<String, byte[]> streams = factory.enumerateLogsWithMetadataInNamespace();
             println("Stream under " + getUri() + " : ");
@@ -419,7 +419,7 @@ public class DistributedLogTool extends Tool {
             println("--------------------------------");
         }
 
-        protected void printStreams(DistributedLogManagerFactory factory) throws Exception {
+        protected void printStreams(com.twitter.distributedlog.DistributedLogManagerFactory factory) throws Exception {
             Collection<String> streams = factory.enumerateAllLogsInNamespace();
             println("Steams under " + getUri() + " : ");
             println("--------------------------------");
@@ -674,7 +674,7 @@ public class DistributedLogTool extends Tool {
             return truncateStreams(getFactory());
         }
 
-        private int truncateStreams(final DistributedLogManagerFactory factory) throws Exception {
+        private int truncateStreams(final com.twitter.distributedlog.DistributedLogManagerFactory factory) throws Exception {
             Collection<String> streamCollection = factory.enumerateAllLogsInNamespace();
             final List<String> streams = new ArrayList<String>();
             if (null != streamPrefix) {
@@ -717,7 +717,7 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private void truncateStreams(DistributedLogManagerFactory factory, List<String> streams,
+        private void truncateStreams(com.twitter.distributedlog.DistributedLogManagerFactory factory, List<String> streams,
                                      int tid, int numStreamsPerThreads) throws IOException {
             int startIdx = tid * numStreamsPerThreads;
             int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
@@ -1389,7 +1389,7 @@ public class DistributedLogTool extends Tool {
                 LogReader reader;
                 try {
                     if (null == partitionId) {
-                        DLSN lastDLSN = dlm.getLastDLSNAsync().get();
+                        DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
                         println("Last DLSN : " + lastDLSN);
                         if (null == fromDLSN) {
                             reader = dlm.getInputStream(fromTxnId);
@@ -1397,7 +1397,7 @@ public class DistributedLogTool extends Tool {
                             reader = dlm.getInputStream(fromDLSN);
                         }
                     } else {
-                        DLSN lastDLSN = dlm.getLastDLSNAsync(partitionId).get();
+                        DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync(partitionId));
                         println("Last DLSN : " + lastDLSN);
                         if (null == fromDLSN) {
                             reader = dlm.getInputStream(partitionId, fromTxnId);

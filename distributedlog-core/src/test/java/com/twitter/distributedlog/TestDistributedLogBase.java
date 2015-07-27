@@ -134,12 +134,14 @@ public class TestDistributedLogBase {
         return DLMTestUtil.createNewBKDLM(new PartitionId(0), conf, path, zkPort);
     }
 
+    @SuppressWarnings("deprecation")
     protected ZooKeeperClient getZooKeeperClient(DistributedLogManagerFactory factory) throws Exception {
         DistributedLogNamespace namespace = factory.getNamespace();
         assert(namespace instanceof BKDistributedLogNamespace);
         return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
     }
 
+    @SuppressWarnings("deprecation")
     protected BookKeeperClient getBookKeeperClient(DistributedLogManagerFactory factory) throws Exception {
         DistributedLogNamespace namespace = factory.getNamespace();
         assert(namespace instanceof BKDistributedLogNamespace);

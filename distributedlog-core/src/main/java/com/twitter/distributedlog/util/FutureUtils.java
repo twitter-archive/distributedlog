@@ -1,10 +1,14 @@
 package com.twitter.distributedlog.util;
 
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
+import com.twitter.util.FutureCancelledException;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -79,6 +83,22 @@ public class FutureUtils {
             processor.run();
         }
         return processor.promise;
+    }
+
+    public static <T> T result(Future<T> result) throws IOException {
+        try {
+            return Await.result(result);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (InterruptedException ie) {
+            throw new DLInterruptedException("Interrupted on waiting result", ie);
+        } catch (Exception e) {
+            throw new IOException("Encountered exception on waiting result", e);
+        }
+    }
+
+    public static <T> void cancel(Future<T> future) {
+        future.raise(new FutureCancelledException());
     }
 
 }

@@ -8,12 +8,14 @@ import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Future;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
+import com.twitter.util.Futures;
 import com.twitter.util.Promise;
 import com.twitter.util.Try;
 
@@ -355,17 +357,18 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         // completes. Thus it is NOT safe to replace the single flattened future pool block below with
         // the flatMap alternative, "futurePool { getWriter } flatMap { asyncWrite }".
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        return Future$.MODULE$.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
+        return Futures.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<DLSN>>() {
             @Override
             public Future<DLSN> applyE() throws IOException {
                 writeQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 return asyncWrite(record);
             }
+
             @Override
             public String toString() {
                 return String.format("LogWrite(Stream=%s)", getStreamName());
             }
-        })).addEventListener(new OpStatsListener(writeOpStatsLogger, stopwatch));
+        })).addEventListener(new OpStatsListener<DLSN>(writeOpStatsLogger, stopwatch));
     }
 
     /**
@@ -385,11 +388,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 bulkWriteQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
                 return asyncWriteBulk(records);
             }
+
             @Override
             public String toString() {
                 return String.format("BulkLogWrite(Stream=%s)", getStreamName());
             }
-        }).addEventListener(new OpStatsListener(bulkWriteOpStatsLogger, stopwatch));
+        }).addEventListener(new OpStatsListener<List<Future<DLSN>>>(bulkWriteOpStatsLogger, stopwatch));
     }
 
     @VisibleForTesting
@@ -399,6 +403,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             public Void applyE() throws Throwable {
                 return null;
             }
+
             @Override
             public String toString() {
                 return String.format("LogNop(Stream=%s)", getStreamName());
@@ -429,6 +434,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
                 setReadyToFlush();
                 return flushAndSync();
             }
+
             @Override
             public String toString() {
                 return String.format("FlushAndSyncAll(Stream=%s)", getStreamName());
@@ -439,7 +445,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     @Override
     public void closeAndComplete() throws IOException {
         // Insert a request to future pool to wait until all writes are completed.
-        nop().get();
+        FutureUtils.result(nop());
         super.closeAndComplete();
     }
 

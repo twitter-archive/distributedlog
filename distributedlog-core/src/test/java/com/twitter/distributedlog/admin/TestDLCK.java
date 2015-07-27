@@ -5,7 +5,6 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -77,6 +76,7 @@ public class TestDLCK extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
+    @SuppressWarnings("deprecation")
     public void testCheckAndRepairDLNamespace() throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
@@ -84,7 +84,8 @@ public class TestDLCK extends TestDistributedLogBase {
         conf.setOutputBufferSize(0);
         URI uri = createDLMURI("/check-and-repair-dl-namespace");
         zkc.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        DistributedLogManagerFactory factory = new DistributedLogManagerFactory(confLocal, uri);
+        com.twitter.distributedlog.DistributedLogManagerFactory factory =
+                new com.twitter.distributedlog.DistributedLogManagerFactory(confLocal, uri);
         ExecutorService executorService = Executors.newCachedThreadPool();
 
         String streamName = "check-and-repair-dl-namespace";

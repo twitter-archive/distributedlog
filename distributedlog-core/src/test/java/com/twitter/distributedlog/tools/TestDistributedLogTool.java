@@ -1,35 +1,22 @@
 package com.twitter.distributedlog.tools;
 
 import java.net.URI;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.util.ReflectionUtils;
 
-import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException.NoAuthException;
-import org.apache.zookeeper.ZooDefs;
 import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
 
-import org.junit.After;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.DLMTestUtil;
-import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.LocalDLMEmulator;
-import com.twitter.distributedlog.LogReader;
-import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
 import com.twitter.distributedlog.tools.DistributedLogTool.*;
-import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 
 import static org.junit.Assert.*;
 
@@ -64,11 +51,11 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
     }
 
     static void bindStream(URI uri, String ledgerPath, String zkHosts) throws Exception {
-        String[] args = new String[] { ADMIN_TOOL, 
-            "bind", 
-            "-c", 
-            "-l", ledgerPath, 
-            "-s", zkHosts, 
+        String[] args = new String[] { ADMIN_TOOL,
+            "bind",
+            "-c",
+            "-l", ledgerPath,
+            "-s", zkHosts,
             "-f", uri.toString() };
         runTool(args);
     }
@@ -179,7 +166,7 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
         cmd.setUri(defaultUri);
         cmd.setLedgerId(99999999);
 
-        // Too hard to predict ledger entry id. Settle for basicaly 
+        // Too hard to predict ledger entry id. Settle for basicaly
         // correct functionality.
         try {
             cmd.runCmd();

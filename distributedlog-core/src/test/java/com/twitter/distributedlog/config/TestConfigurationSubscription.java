@@ -5,14 +5,10 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.configuration.event.ConfigurationEvent;
 import org.apache.commons.configuration.event.ConfigurationListener;
-
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +27,7 @@ public class TestConfigurationSubscription {
     public void testAddReloadBasicsConfig() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURL());
+        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
         ConfigurationSubscription confSub =
                 new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);
@@ -70,7 +66,7 @@ public class TestConfigurationSubscription {
         writer.save();
 
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURL());
+        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
         ConfigurationSubscription confSub =
                 new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);
@@ -88,7 +84,7 @@ public class TestConfigurationSubscription {
         writer.save();
 
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURL());
+        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
         ConfigurationSubscription confSub =
                 new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);

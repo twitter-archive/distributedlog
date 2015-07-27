@@ -21,9 +21,13 @@ public class ConfUtils {
      *          Section Key
      */
     public static void loadConfiguration(Configuration targetConf, Configuration srcConf, String section) {
-        Iterator<String> confKeys = srcConf.getKeys();
+        Iterator confKeys = srcConf.getKeys();
         while (confKeys.hasNext()) {
-            String key = confKeys.next();
+            Object keyObject = confKeys.next();
+            if (!(keyObject instanceof String)) {
+                continue;
+            }
+            String key = (String) keyObject;
             if (key.startsWith(section)) {
                 targetConf.setProperty(key.substring(section.length()), srcConf.getProperty(key));
             }

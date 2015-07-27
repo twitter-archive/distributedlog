@@ -788,10 +788,10 @@ class DistributedLock {
         lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                acquireFuture.updateIfEmpty(new Throw(
+                acquireFuture.updateIfEmpty(new Throw<Void>(
                     new LockClosedException(lockPath, lockId, lockState.getState())));
                 unlockInternal(promise);
-                promise.addEventListener(new OpStatsListener(unlockStats));
+                promise.addEventListener(new OpStatsListener<BoxedUnit>(unlockStats));
             }
         });
 
@@ -947,7 +947,7 @@ class DistributedLock {
 
                 // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
                 // we don't even need to clean up the lock as the znode will disappear after session expired
-                acquireFuture.updateIfEmpty(new Throw(
+                acquireFuture.updateIfEmpty(new Throw<Void>(
                         new LockSessionExpiredException(lockPath, lockId, lockState.getState())));
 
                 // session expired, ephemeral node is gone.

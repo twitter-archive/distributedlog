@@ -244,6 +244,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         testFactory(name, false);
     }
 
+    @SuppressWarnings("deprecation")
     private void testFactory(String name, boolean shareBK) throws Exception {
         int count = 3;
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()

@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.Utils;
@@ -194,7 +195,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         return readLockPath;
     }
 
-    void satisfyPromiseAsync(final Promise promise, final Try result) {
+    <T> void satisfyPromiseAsync(final Promise<T> promise, final Try<T> result) {
         scheduler.submit(new SafeRunnable() {
             @Override
             public void safeRun() {
@@ -254,7 +255,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         threadAcquirePromise.setInterruptHandler(new Function<Throwable, BoxedUnit>() {
             @Override
             public BoxedUnit apply(Throwable t) {
-                acquireFuture.cancel();
+                FutureUtils.cancel(acquireFuture);
                 return null;
             }
         });
@@ -263,14 +264,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             public void onSuccess(Void complete) {
                 readLockAcquireSuccessStat.inc();
                 LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
-                satisfyPromiseAsync(threadAcquirePromise, new Return(null));
+                satisfyPromiseAsync(threadAcquirePromise, new Return<Void>(null));
             }
             @Override
             public void onFailure(Throwable cause) {
                 readLockAcquireFailureStat.inc();
                 LOG.info("failed to acquire readlock {} at {}",
                     new Object[]{ getLockClientId(), readLockPath, cause });
-                satisfyPromiseAsync(threadAcquirePromise, new Throw(cause));
+                satisfyPromiseAsync(threadAcquirePromise, new Throw<Void>(cause));
             }
         });
         return threadAcquirePromise;
@@ -528,7 +529,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         } finally {
             synchronized (this) {
                 if (null != lockAcquireFuture && !lockAcquireFuture.isDefined()) {
-                    lockAcquireFuture.cancel();
+                    FutureUtils.cancel(lockAcquireFuture);
                 }
                 if (null != readLock) {
                     // Force close--we may or may not have

@@ -273,7 +273,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         logger.info("Took {} ms to completed all requests.", System.currentTimeMillis() - startTime);
 
         // make sure all ensure blocks were executed.
-        writer.nop().get();
+        Await.result(writer.nop());
 
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         logger.info("LogSegments : {}", segments);
@@ -286,12 +286,12 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // writer should work after rolling log segments
         // there would be (numLogSegments/2) segments based on current rolling policy
         for (int i = 1; i <= numLogSegments; i++) {
-            DLSN newDLSN = writer.write(DLMTestUtil.getLogRecordInstance(numLogSegments + i)).get();
+            DLSN newDLSN = Await.result(writer.write(DLMTestUtil.getLogRecordInstance(numLogSegments + i)));
             logger.info("Completed entry {} : {}", numLogSegments + i, newDLSN);
         }
 
         // make sure all ensure blocks were executed.
-        writer.nop().get();
+        Await.result(writer.nop());
 
         segments = dlm.getLogSegments();
         logger.info("LogSegments : {}", segments);

@@ -87,6 +87,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
     }
 
     @Test
+    @SuppressWarnings("deprecation")
     public void testClientSharingOptions() throws Exception {
         URI uri = createDLMURI("/clientSharingOptions");
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()

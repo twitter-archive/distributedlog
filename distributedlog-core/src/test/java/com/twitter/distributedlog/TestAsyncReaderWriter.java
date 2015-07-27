@@ -72,7 +72,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
             BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
-            DLSN dlsn = writer.writeControlRecord(new LogRecord(txid++, "control".getBytes(UTF_8))).get();
+            DLSN dlsn = Await.result(writer.writeControlRecord(new LogRecord(txid++, "control".getBytes(UTF_8))));
             assertEquals(currentLedgerSeqNo, dlsn.getLedgerSequenceNo());
             assertEquals(0, dlsn.getEntryId());
             assertEquals(0, dlsn.getSlotId());
@@ -415,7 +415,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             if (expectedTxID == numLogSegments * numRecordsPerLogSegment) {
                 break;
             }
-            List<LogRecordWithDLSN> records = reader.readBulk(20).get();
+            List<LogRecordWithDLSN> records = Await.result(reader.readBulk(20));
             LOG.info("Bulk read {} entries.", records.size());
 
             assertTrue(records.size() >= 1);
@@ -455,7 +455,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         for (long i = 0; i < 3; i++) {
             // since we batched 20 entries into single bookkeeper entry
             // we should be able to read 20 entries as a batch.
-            List<LogRecordWithDLSN> records = reader.readBulk(20).get();
+            List<LogRecordWithDLSN> records = Await.result(reader.readBulk(20));
             assertEquals(20, records.size());
             for (LogRecordWithDLSN record : records) {
                 assertEquals(expectedTxID, record.getTransactionId());

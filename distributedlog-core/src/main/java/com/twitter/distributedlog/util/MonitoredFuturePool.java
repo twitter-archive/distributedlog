@@ -75,7 +75,7 @@ public class MonitoredFuturePool implements FuturePool {
         if (traceTaskExecution) {
             taskPendingCounter.inc();
             Stopwatch taskEnqueueStopwatch = Stopwatch.createStarted();
-            Future<T> futureResult = futurePool.apply(new TimedFunction0(function0));
+            Future<T> futureResult = futurePool.apply(new TimedFunction0<T>(function0));
             taskEnqueueTime.registerSuccessfulEvent(taskEnqueueStopwatch.elapsed(TimeUnit.MICROSECONDS));
             futureResult.ensure(new com.twitter.util.Function0<BoxedUnit>() {
                 @Override

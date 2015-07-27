@@ -1,6 +1,5 @@
 package com.twitter.distributedlog.limiter;
 
-import java.util.List;
 import org.junit.Test;
 
 import static org.junit.Assert.*;

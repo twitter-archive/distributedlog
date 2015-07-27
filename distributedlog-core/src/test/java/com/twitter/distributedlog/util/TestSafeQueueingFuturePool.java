@@ -42,14 +42,14 @@ public class TestSafeQueueingFuturePool {
     @Rule
     public TestName runtime = new TestName();
 
-    class TestFuturePool {
-        public ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
-        public FuturePool pool = new ExecutorServiceFuturePool(executor);
-        public SafeQueueingFuturePool wrapper = new SafeQueueingFuturePool(pool);
+    class TestFuturePool<T> {
+        final ScheduledExecutorService executor;
+        final FuturePool pool;
+        final SafeQueueingFuturePool<T> wrapper;
         TestFuturePool() {
             executor = Executors.newScheduledThreadPool(1);
             pool = new ExecutorServiceFuturePool(executor);
-            wrapper = new SafeQueueingFuturePool(pool);
+            wrapper = new SafeQueueingFuturePool<T>(pool);
         }
         public void shutdown() {
             executor.shutdown();
@@ -58,7 +58,7 @@ public class TestSafeQueueingFuturePool {
 
     @Test
     public void testSimpleSuccess() throws Exception {
-        TestFuturePool pool = new TestFuturePool();
+        TestFuturePool<Void> pool = new TestFuturePool<Void>();
         final AtomicBoolean result = new AtomicBoolean(false);
         Future<Void> future = pool.wrapper.apply(new Function0<Void>() {
             public Void apply() {
@@ -73,7 +73,7 @@ public class TestSafeQueueingFuturePool {
 
     @Test
     public void testSimpleFailure() throws Exception {
-        TestFuturePool pool = new TestFuturePool();
+        TestFuturePool<Void> pool = new TestFuturePool<Void>();
         Future<Void> future = pool.wrapper.apply(new Function0<Void>() {
             public Void apply() {
                 throw new RuntimeException("failed");
@@ -89,7 +89,7 @@ public class TestSafeQueueingFuturePool {
 
     @Test
     public void testFailedDueToClosed() throws Exception {
-        TestFuturePool pool = new TestFuturePool();
+        TestFuturePool<Void> pool = new TestFuturePool<Void>();
         pool.wrapper.close();
         Future<Void> future = pool.wrapper.apply(new Function0<Void>() {
             public Void apply() {
@@ -106,7 +106,7 @@ public class TestSafeQueueingFuturePool {
 
     @Test
     public void testRejectedFailure() throws Exception {
-        TestFuturePool pool = new TestFuturePool();
+        TestFuturePool<Void> pool = new TestFuturePool<Void>();
         final AtomicBoolean result = new AtomicBoolean(false);
         pool.executor.shutdown();
         final CountDownLatch latch = new CountDownLatch(1);
@@ -131,7 +131,7 @@ public class TestSafeQueueingFuturePool {
 
     @Test
     public void testRejectedBackupFailure() throws Exception {
-        TestFuturePool pool = new TestFuturePool();
+        TestFuturePool<Void> pool = new TestFuturePool<Void>();
         final AtomicBoolean result = new AtomicBoolean(false);
         pool.executor.shutdownNow();
         final CountDownLatch latch1 = new CountDownLatch(1);

@@ -3,7 +3,6 @@ package com.twitter.distributedlog.admin;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ReadUtils;
@@ -52,6 +51,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Admin Tool for DistributedLog.
  */
+@SuppressWarnings("deprecation")
 public class DistributedLogAdmin extends DistributedLogTool {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogAdmin.class);
@@ -71,7 +71,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
      *          is confirmation needed before executing actual action.
      * @throws IOException
      */
-    public static void fixInprogressSegmentWithLowerSequenceNumber(final DistributedLogManagerFactory factory,
+    public static void fixInprogressSegmentWithLowerSequenceNumber(final com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                                                    final MetadataUpdater metadataUpdater,
                                                                    final String streamName,
                                                                    final boolean verbose,
@@ -161,7 +161,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
     }
 
     public static void checkAndRepairDLNamespace(final URI uri,
-                                                 final DistributedLogManagerFactory factory,
+                                                 final com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                                  final MetadataUpdater metadataUpdater,
                                                  final ExecutorService executorService,
                                                  final BookKeeperClient bkc,
@@ -172,7 +172,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
     }
 
     public static void checkAndRepairDLNamespace(final URI uri,
-                                                 final DistributedLogManagerFactory factory,
+                                                 final com.twitter.distributedlog.DistributedLogManagerFactory factory,
                                                  final MetadataUpdater metadataUpdater,
                                                  final ExecutorService executorService,
                                                  final BookKeeperClient bkc,
@@ -215,7 +215,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
     }
 
     private static Map<String, StreamCandidate> checkStreams(
-            final DistributedLogManagerFactory factory,
+            final com.twitter.distributedlog.DistributedLogManagerFactory factory,
             final Collection<String> streams,
             final ExecutorService executorService,
             final BookKeeperClient bkc,
@@ -283,7 +283,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
     }
 
     private static StreamCandidate checkStream(
-            final DistributedLogManagerFactory factory,
+            final com.twitter.distributedlog.DistributedLogManagerFactory factory,
             final String streamName,
             final ExecutorService executorService,
             final BookKeeperClient bkc,

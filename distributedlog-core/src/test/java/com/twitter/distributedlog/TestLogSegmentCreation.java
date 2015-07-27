@@ -5,6 +5,7 @@ import java.util.List;
 
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.util.Await;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +55,7 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         boolean isZK33 = DistributedLogConstants.ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33);
 
         try {
-            writer1.write(DLMTestUtil.getLogRecordInstance(numSegments + 1)).get();
+            Await.result(writer1.write(DLMTestUtil.getLogRecordInstance(numSegments + 1)));
             if (!isZK33) {
                 fail("Should fail on zk34 version.");
             }

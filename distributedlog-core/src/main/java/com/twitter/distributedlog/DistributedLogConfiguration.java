@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.google.common.collect.Sets;
 import com.twitter.distributedlog.feature.DeciderFeatureProvider;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.util.ReflectionUtils;
@@ -18,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -358,7 +360,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT = -1;
 
     // Whitelisted stream-level configuration settings.
-    private static final List<String> streamSettings = Arrays.asList(
+    private static final Set<String> streamSettings = Sets.newHashSet(
         BKDL_READER_POSITION_GAP_DETECTION_ENABLED,
         BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS,
         BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS,
@@ -411,11 +413,13 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         if (!streamConfiguration.isPresent()) {
             return;
         }
-        ArrayList<String> ignoredSettings = new ArrayList<String>();
-        for (Iterator<String> iterator = streamConfiguration.get().getKeys(); iterator.hasNext(); ) {
-            String setting = iterator.next();
-            if (streamSettings.contains(setting)) {
-                setProperty(setting, streamConfiguration.get().getProperty(setting));
+        ArrayList<Object> ignoredSettings = new ArrayList<Object>();
+        Iterator iterator = streamConfiguration.get().getKeys();
+        while (iterator.hasNext()) {
+            Object setting = iterator.next();
+            if (setting instanceof String && streamSettings.contains(setting)) {
+                String settingStr = (String) setting;
+                setProperty(settingStr, streamConfiguration.get().getProperty(settingStr));
             } else {
                 ignoredSettings.add(setting);
             }

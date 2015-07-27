@@ -59,18 +59,25 @@ public class ProxyClient {
             // client builder
             ClientBuilder builder = setDefaultSettings(null == clientBuilder ? getDefaultClientBuilder() : clientBuilder);
             if (clientConfig.getThriftMux()) {
-                builder = builder.stack(ThriftMux.client().withClientId(clientId));
+                builder = enableThriftMux(builder, clientId);
             }
             this.clientBuilder = builder;
+        }
+
+        @SuppressWarnings("unchecked")
+        private ClientBuilder enableThriftMux(ClientBuilder builder, ClientId clientId) {
+            return builder.stack(ThriftMux.client().withClientId(clientId));
         }
 
         private ClientBuilder getDefaultClientBuilder() {
             return ClientBuilder.get()
                 .hostConnectionLimit(1)
-                .connectionTimeout(Duration.fromSeconds(1))
+                .tcpConnectTimeout(Duration.fromMilliseconds(200))
+                .connectTimeout(Duration.fromMilliseconds(200))
                 .requestTimeout(Duration.fromSeconds(1));
         }
 
+        @SuppressWarnings("unchecked")
         private ClientBuilder setDefaultSettings(ClientBuilder builder) {
             return builder.name(clientName)
                    .codec(ThriftClientFramedCodec.apply(Option.apply(clientId)))
@@ -84,6 +91,7 @@ public class ProxyClient {
         }
 
         @Override
+        @SuppressWarnings("unchecked")
         public ProxyClient build(SocketAddress address) {
             Service<ThriftClientRequest, byte[]> client =
                 ClientBuilder.safeBuildFactory(

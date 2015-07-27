@@ -2,11 +2,8 @@ package com.twitter.distributedlog.limiter;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
-
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -28,12 +25,12 @@ public class ChainedRequestLimiter<Request> implements RequestLimiter<Request> {
             this.limitersBuilder = new ImmutableList.Builder<RequestLimiter<Request>>();
         }
 
-        public Builder addLimiter(RequestLimiter<Request> limiter) {
+        public Builder<Request> addLimiter(RequestLimiter<Request> limiter) {
             this.limitersBuilder.add(limiter);
             return this;
         }
 
-        public Builder statsLogger(StatsLogger statsLogger) {
+        public Builder<Request> statsLogger(StatsLogger statsLogger) {
             this.statsLogger = statsLogger;
             return this;
         }
@@ -52,7 +49,7 @@ public class ChainedRequestLimiter<Request> implements RequestLimiter<Request> {
     public void apply(Request request) throws OverCapacityException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         try {
-            for (RequestLimiter limiter : limiters) {
+            for (RequestLimiter<Request> limiter : limiters) {
                 limiter.apply(request);
             }
         } finally {

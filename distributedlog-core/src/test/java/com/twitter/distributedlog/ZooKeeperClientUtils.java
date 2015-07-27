@@ -68,7 +68,7 @@ public class ZooKeeperClientUtils {
                 zkc.get().exists("/", false);
                 done = true;
             } catch (KeeperException ke) {
-                done = (ke.getCode() == KeeperException.Code.SESSIONEXPIRED.intValue());
+                done = (ke.code() == KeeperException.Code.SESSIONEXPIRED);
             }
         }
 

@@ -268,6 +268,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             }
         }
 
+        @SuppressWarnings("unchecked")
         List<Future<DLSN>> result() {
             return (List) results;
         }

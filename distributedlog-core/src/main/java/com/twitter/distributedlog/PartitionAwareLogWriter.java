@@ -27,6 +27,7 @@ public interface PartitionAwareLogWriter {
      *
      * @param records – a map with a list of log records for one or more partitions
      */
+    @Deprecated
     public int writeBulk(Map<PartitionId, List<LogRecord>> records)
         throws IOException;
 

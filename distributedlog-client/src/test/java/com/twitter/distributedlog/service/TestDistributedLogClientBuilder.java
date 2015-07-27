@@ -22,7 +22,8 @@ public class TestDistributedLogClientBuilder {
                 .handshakeWithClientInfo(true)
                 .clientBuilder(ClientBuilder.get()
                     .hostConnectionLimit(1)
-                    .connectionTimeout(Duration.fromSeconds(1))
+                    .connectTimeout(Duration.fromSeconds(1))
+                    .tcpConnectTimeout(Duration.fromSeconds(1))
                     .requestTimeout(Duration.fromSeconds(10)));
         DistributedLogClient client1 = builder.build();
         DistributedLogClient client2 = builder.build();
