@@ -5,7 +5,7 @@ import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
 import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ReadUtils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -78,18 +78,18 @@ public class DistributedLogAdmin extends DistributedLogTool {
                                                                    final boolean interactive) throws IOException {
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
         try {
-            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
             if (verbose) {
                 System.out.println("LogSegments for " + streamName + " : ");
-                for (LogSegmentLedgerMetadata segment : segments) {
+                for (LogSegmentMetadata segment : segments) {
                     System.out.println(segment.getLedgerSequenceNumber() + "\t: " + segment);
                 }
             }
             LOG.info("Get log segments for {} : {}", streamName, segments);
             // validate log segments
             long maxCompletedLedgerSequenceNumber = -1L;
-            LogSegmentLedgerMetadata inprogressSegment = null;
-            for (LogSegmentLedgerMetadata segment : segments) {
+            LogSegmentMetadata inprogressSegment = null;
+            for (LogSegmentMetadata segment : segments) {
                 if (!segment.isInProgress()) {
                     maxCompletedLedgerSequenceNumber = Math.max(maxCompletedLedgerSequenceNumber, segment.getLedgerSequenceNumber());
                 } else {
@@ -111,7 +111,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 }
                 return;
             }
-            final LogSegmentLedgerMetadata newSegment =
+            final LogSegmentMetadata newSegment =
                     metadataUpdater.changeSequenceNumber(inprogressSegment, newLedgerSequenceNumber);
             LOG.info("Fixed {} : {} -> {} ",
                      new Object[] { streamName, inprogressSegment, newSegment });
@@ -128,10 +128,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
     }
 
     private static class LogSegmentCandidate {
-        final LogSegmentLedgerMetadata metadata;
+        final LogSegmentMetadata metadata;
         final LogRecordWithDLSN lastRecord;
 
-        LogSegmentCandidate(LogSegmentLedgerMetadata metadata, LogRecordWithDLSN lastRecord) {
+        LogSegmentCandidate(LogSegmentMetadata metadata, LogRecordWithDLSN lastRecord) {
             this.metadata = metadata;
             this.lastRecord = lastRecord;
         }
@@ -141,7 +141,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             new Comparator<LogSegmentCandidate>() {
                 @Override
                 public int compare(LogSegmentCandidate o1, LogSegmentCandidate o2) {
-                    return LogSegmentLedgerMetadata.COMPARATOR.compare(o1.metadata, o2.metadata);
+                    return LogSegmentMetadata.COMPARATOR.compare(o1.metadata, o2.metadata);
                 }
             };
 
@@ -290,13 +290,13 @@ public class DistributedLogAdmin extends DistributedLogTool {
             String digestpw) throws IOException {
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
         try {
-            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
             if (segments.isEmpty()) {
                 return null;
             }
             List<Future<LogSegmentCandidate>> futures =
                     new ArrayList<Future<LogSegmentCandidate>>(segments.size());
-            for (LogSegmentLedgerMetadata segment : segments) {
+            for (LogSegmentMetadata segment : segments) {
                 futures.add(checkLogSegment(streamName, segment, executorService, bkc, digestpw));
             }
             List<LogSegmentCandidate> segmentCandidates;
@@ -322,7 +322,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
     private static Future<LogSegmentCandidate> checkLogSegment(
             final String streamName,
-            final LogSegmentLedgerMetadata metadata,
+            final LogSegmentMetadata metadata,
             final ExecutorService executorService,
             final BookKeeperClient bkc,
             final String digestpw) {
@@ -374,7 +374,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             return false;
         }
         for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
-            LogSegmentLedgerMetadata newMetadata =
+            LogSegmentMetadata newMetadata =
                     metadataUpdater.updateLastRecord(segmentCandidate.metadata, segmentCandidate.lastRecord);
             if (verbose) {
                 System.out.println("  Fixed segment " + segmentCandidate.metadata.getLedgerSequenceNumber() + " : ");

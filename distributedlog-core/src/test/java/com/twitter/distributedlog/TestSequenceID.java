@@ -1,6 +1,6 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion;
+import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
 import com.twitter.util.Await;
 import com.twitter.util.FutureEventListener;
 import org.junit.Test;
@@ -21,26 +21,26 @@ public class TestSequenceID extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testCompleteV4LogSegmentAsV4() throws Exception {
-        completeSingleInprogressSegment(LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value,
-                                        LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        completeSingleInprogressSegment(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value,
+                                        LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
     }
 
     @Test(timeout = 60000)
     public void testCompleteV4LogSegmentAsV5() throws Exception {
-        completeSingleInprogressSegment(LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value,
-                                        LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
+        completeSingleInprogressSegment(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value,
+                                        LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
     }
 
     @Test(timeout = 60000)
     public void testCompleteV5LogSegmentAsV4() throws Exception {
-        completeSingleInprogressSegment(LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value,
-                                        LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        completeSingleInprogressSegment(LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value,
+                                        LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
     }
 
     @Test(timeout = 60000)
     public void testCompleteV5LogSegmentAsV5() throws Exception {
-        completeSingleInprogressSegment(LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value,
-                                        LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
+        completeSingleInprogressSegment(LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value,
+                                        LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
     }
 
     private void completeSingleInprogressSegment(int writeVersion, int completeVersion) throws Exception {
@@ -66,11 +66,11 @@ public class TestSequenceID extends TestDistributedLogBase {
         BKDistributedLogManager dlm2 = (BKDistributedLogManager) createNewDLM(confLocal2, name);
         dlm2.startAsyncLogSegmentNonPartitioned();
 
-        List<LogSegmentLedgerMetadata> segments = dlm2.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm2.getLogSegments();
         assertEquals(1, segments.size());
 
-        if (LogSegmentLedgerMetadata.supportsSequenceId(writeVersion)) {
-            if (LogSegmentLedgerMetadata.supportsSequenceId(completeVersion)) {
+        if (LogSegmentMetadata.supportsSequenceId(writeVersion)) {
+            if (LogSegmentMetadata.supportsSequenceId(completeVersion)) {
                 // the inprogress log segment is written in v5 and complete log segment in v5,
                 // then it support monotonic sequence id
                 assertEquals(0L, segments.get(0).getStartSequenceId());
@@ -93,7 +93,7 @@ public class TestSequenceID extends TestDistributedLogBase {
         confLocal.addConfiguration(conf);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setOutputBufferSize(0);
-        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
 
         String name = "distrlog-sequence-id";
 
@@ -134,7 +134,7 @@ public class TestSequenceID extends TestDistributedLogBase {
         BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(4, segments.size());
         for (int i = 0; i < 3; i++) {
             assertFalse(segments.get(i).isInProgress());
@@ -149,7 +149,7 @@ public class TestSequenceID extends TestDistributedLogBase {
 
         DistributedLogConfiguration confLocalv5 = new DistributedLogConfiguration();
         confLocalv5.addConfiguration(confLocal);
-        confLocalv5.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
+        confLocalv5.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
 
         BKDistributedLogManager dlmv5 = (BKDistributedLogManager) createNewDLM(confLocalv5, name);
         for (int i = 0; i < 3; i++) {
@@ -162,7 +162,7 @@ public class TestSequenceID extends TestDistributedLogBase {
         BKUnPartitionedAsyncLogWriter writerv5 = dlmv5.startAsyncLogSegmentNonPartitioned();
         Await.result(writerv5.write(DLMTestUtil.getLogRecordInstance(txId++)));
 
-        List<LogSegmentLedgerMetadata> segmentsv5 = dlmv5.getLogSegments();
+        List<LogSegmentMetadata> segmentsv5 = dlmv5.getLogSegments();
         assertEquals(8, segmentsv5.size());
 
         assertFalse(segmentsv5.get(3).isInProgress());
@@ -191,7 +191,7 @@ public class TestSequenceID extends TestDistributedLogBase {
             writerv4.closeAndComplete();
         }
 
-        List<LogSegmentLedgerMetadata> segmentsv4 = dlmv4.getLogSegments();
+        List<LogSegmentMetadata> segmentsv4 = dlmv4.getLogSegments();
         assertEquals(11, segmentsv4.size());
 
         for(int i = 7; i < 11; i++) {

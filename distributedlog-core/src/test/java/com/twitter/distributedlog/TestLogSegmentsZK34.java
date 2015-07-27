@@ -180,7 +180,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         }
 
         DistributedLogManager dlm2 = namespace.openLog(streamName);
-        List<LogSegmentLedgerMetadata> segments = dlm2.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm2.getLogSegments();
         try {
             assertEquals(3, segments.size());
             assertEquals(1L, segments.get(0).getLedgerSequenceNumber());

@@ -4,7 +4,7 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;
@@ -28,7 +28,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
 
     private ZooKeeperClient zkc;
     private DistributedLogConfiguration conf = new DistributedLogConfiguration()
-            .setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+            .setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
 
     @Before
     public void setup() throws Exception {
@@ -47,7 +47,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         return URI.create("distributedlog://127.0.0.1:" + zkPort + path);
     }
 
-    Map<Long, LogSegmentLedgerMetadata> readLogSegments(String ledgerPath) throws Exception {
+    Map<Long, LogSegmentMetadata> readLogSegments(String ledgerPath) throws Exception {
         return DLMTestUtil.readLogSegments(zkc, ledgerPath);
     }
 
@@ -55,21 +55,21 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
     public void testChangeSequenceNumber() throws Exception {
         String ledgerPath = "/testChangeSequenceNumber";
         zkc.get().create(ledgerPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        Map<Long, LogSegmentLedgerMetadata> completedLogSegments = new HashMap<Long, LogSegmentLedgerMetadata>();
+        Map<Long, LogSegmentMetadata> completedLogSegments = new HashMap<Long, LogSegmentMetadata>();
         // Create 5 completed log segments
         for (int i = 1; i <= 5; i++) {
-            LogSegmentLedgerMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
+            LogSegmentMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
             completedLogSegments.put(((long)i), segment);
             LOG.info("Create completed segment {} : {}", segment.getZkPath(), segment);
             segment.write(zkc);
         }
         // Create a smaller inprogress log segment
         long inprogressSeqNo = 3;
-        LogSegmentLedgerMetadata segment = DLMTestUtil.inprogressLogSegment(ledgerPath, inprogressSeqNo, 5 * 100, inprogressSeqNo);
+        LogSegmentMetadata segment = DLMTestUtil.inprogressLogSegment(ledgerPath, inprogressSeqNo, 5 * 100, inprogressSeqNo);
         LOG.info("Create inprogress segment {} : {}", segment.getZkPath(), segment);
         segment.write(zkc);
 
-        Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);
+        Map<Long, LogSegmentMetadata> segmentList = readLogSegments(ledgerPath);
         assertEquals(5, segmentList.size());
 
         // Dryrun
@@ -89,13 +89,13 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
 
         // check first 5 log segments
         for (int i = 1; i <= 5; i++) {
-            LogSegmentLedgerMetadata s = segmentList.get((long)i);
+            LogSegmentMetadata s = segmentList.get((long)i);
             assertNotNull(s);
             assertEquals(completedLogSegments.get((long)i), s);
         }
 
         // get log segment 6
-        LogSegmentLedgerMetadata segmentChanged = segmentList.get(6L);
+        LogSegmentMetadata segmentChanged = segmentList.get(6L);
         assertNotNull(segmentChanged);
         assertEquals(6L, segmentChanged.getLedgerSequenceNumber());
         assertTrue(segmentChanged.isInProgress());
@@ -108,10 +108,10 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         String ledgerPath = "/testUpdateLastDLSN";
         zkc.get().create(ledgerPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         // Create 1 completed log segment
-        LogSegmentLedgerMetadata completedLogSegment = DLMTestUtil.completedLogSegment(ledgerPath, 1L, 0L, 99L, 100, 1L, 99L, 0L);
+        LogSegmentMetadata completedLogSegment = DLMTestUtil.completedLogSegment(ledgerPath, 1L, 0L, 99L, 100, 1L, 99L, 0L);
         completedLogSegment.write(zkc);
         // Create 1 inprogress log segment
-        LogSegmentLedgerMetadata inprogressLogSegment = DLMTestUtil.inprogressLogSegment(ledgerPath, 2L, 100L, 2L);
+        LogSegmentMetadata inprogressLogSegment = DLMTestUtil.inprogressLogSegment(ledgerPath, 2L, 100L, 2L);
         inprogressLogSegment.write(zkc);
 
         DLSN badLastDLSN = new DLSN(99L, 0L, 0L);
@@ -136,20 +136,20 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         } catch (IllegalStateException ise) {
             // expected
         }
-        LogSegmentLedgerMetadata updatedCompletedLogSegment =
+        LogSegmentMetadata updatedCompletedLogSegment =
                 dryrunUpdater.updateLastRecord(completedLogSegment, goodRecord1);
         assertEquals(goodLastDLSN1, updatedCompletedLogSegment.getLastDLSN());
         assertEquals(goodRecord1.getTransactionId(), updatedCompletedLogSegment.getLastTxId());
         assertTrue(updatedCompletedLogSegment.isRecordLastPositioninThisSegment(goodRecord1));
 
-        Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);
+        Map<Long, LogSegmentMetadata> segmentList = readLogSegments(ledgerPath);
         assertEquals(2, segmentList.size());
 
-        LogSegmentLedgerMetadata readCompletedLogSegment = segmentList.get(1L);
+        LogSegmentMetadata readCompletedLogSegment = segmentList.get(1L);
         assertNotNull(readCompletedLogSegment);
         assertEquals(completedLogSegment, readCompletedLogSegment);
 
-        LogSegmentLedgerMetadata readInprogressLogSegment = segmentList.get(2L);
+        LogSegmentMetadata readInprogressLogSegment = segmentList.get(2L);
         assertNotNull(readInprogressLogSegment);
         assertEquals(inprogressLogSegment, readInprogressLogSegment);
 
@@ -198,16 +198,16 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
     public void testChangeTruncationStatus() throws Exception {
         String ledgerPath = "/ledgers2";
         zkc.get().create(ledgerPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        Map<Long, LogSegmentLedgerMetadata> completedLogSegments = new HashMap<Long, LogSegmentLedgerMetadata>();
+        Map<Long, LogSegmentMetadata> completedLogSegments = new HashMap<Long, LogSegmentMetadata>();
         // Create 5 completed log segments
         for (int i = 1; i <= 5; i++) {
-            LogSegmentLedgerMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
+            LogSegmentMetadata segment = DLMTestUtil.completedLogSegment(ledgerPath, i, (i - 1) * 100, i * 100 - 1, 100, i, 100, 0);
             completedLogSegments.put(((long)i), segment);
             LOG.info("Create completed segment {} : {}", segment.getZkPath(), segment);
             segment.write(zkc);
         }
 
-        Map<Long, LogSegmentLedgerMetadata> segmentList = readLogSegments(ledgerPath);
+        Map<Long, LogSegmentMetadata> segmentList = readLogSegments(ledgerPath);
         assertEquals(5, segmentList.size());
 
         long segmentToModify = 1L;

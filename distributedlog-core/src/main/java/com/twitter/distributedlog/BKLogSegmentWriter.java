@@ -75,7 +75,6 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
-import com.twitter.util.TimeoutException;
 
 import scala.runtime.BoxedUnit;
 
@@ -573,7 +572,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     private boolean envelopeBeforeTransmit() {
-        return LogSegmentLedgerMetadata.supportsEnvelopedEntries(logSegmentMetadataVersion);
+        return LogSegmentMetadata.supportsEnvelopedEntries(logSegmentMetadataVersion);
     }
 
     @Override

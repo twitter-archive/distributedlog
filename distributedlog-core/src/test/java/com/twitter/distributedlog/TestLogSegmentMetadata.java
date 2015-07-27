@@ -1,8 +1,8 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.TruncationStatus;
+import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataBuilder;
+import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
+import com.twitter.distributedlog.LogSegmentMetadata.TruncationStatus;
 import com.twitter.distributedlog.exceptions.UnsupportedMetadataVersionException;
 
 import org.apache.bookkeeper.client.BKException;
@@ -24,11 +24,11 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * Test {@link LogSegmentLedgerMetadata}
+ * Test {@link LogSegmentMetadata}
  */
-public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
+public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
 
-    static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentLedgerMetadata.class);
+    static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentMetadata.class);
 
     static final int TEST_REGION_ID = 0xf - 1;
 
@@ -46,28 +46,28 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadMetadata() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata1",
-            LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
+        LogSegmentMetadata metadata1 = new LogSegmentMetadataBuilder("/metadata1",
+            LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc);
         // synchronous read
-        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata1");
+        LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata1");
         assertEquals(metadata1, read1);
         assertEquals(TEST_REGION_ID, read1.getRegionId());
-        final AtomicReference<LogSegmentLedgerMetadata> resultHolder =
-                new AtomicReference<LogSegmentLedgerMetadata>(null);
+        final AtomicReference<LogSegmentMetadata> resultHolder =
+                new AtomicReference<LogSegmentMetadata>(null);
         final CountDownLatch latch = new CountDownLatch(1);
         // asynchronous read
-        LogSegmentLedgerMetadata.read(zkc, "/metadata1",
-            new BookkeeperInternalCallbacks.GenericCallback<LogSegmentLedgerMetadata>() {
-            @Override
-            public void operationComplete(int rc, LogSegmentLedgerMetadata result) {
-                if (KeeperException.Code.OK.intValue() != rc) {
-                    LOG.error("Fail to read LogSegmentLedgerMetadata : ", BKException.create(rc));
-                }
-                resultHolder.set(result);
-                latch.countDown();
-            }
-        });
+        LogSegmentMetadata.read(zkc, "/metadata1",
+                new BookkeeperInternalCallbacks.GenericCallback<LogSegmentMetadata>() {
+                    @Override
+                    public void operationComplete(int rc, LogSegmentMetadata result) {
+                        if (KeeperException.Code.OK.intValue() != rc) {
+                            LOG.error("Fail to read LogSegmentLedgerMetadata : ", BKException.create(rc));
+                        }
+                        resultHolder.set(result);
+                        latch.countDown();
+                    }
+                });
         latch.await();
         assertEquals(metadata1, resultHolder.get());
         assertEquals(TEST_REGION_ID, resultHolder.get().getRegionId());
@@ -75,11 +75,11 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadMetadataCrossVersion() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata2",
+        LogSegmentMetadata metadata1 = new LogSegmentMetadataBuilder("/metadata2",
             1, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc);
         // synchronous read
-        LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata2", true);
+        LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata2", true);
         assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
@@ -89,12 +89,12 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadMetadataCrossVersionFailure() throws Exception {
-        LogSegmentLedgerMetadata metadata1 = new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder("/metadata-failure",
+        LogSegmentMetadata metadata1 = new LogSegmentMetadataBuilder("/metadata-failure",
             1, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc);
         // synchronous read
         try {
-            LogSegmentLedgerMetadata read1 = LogSegmentLedgerMetadata.read(zkc, "/metadata-failure");
+            LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata-failure");
             fail("The previous statement should throw an exception");
         } catch (UnsupportedMetadataVersionException e) {
             // Expected
@@ -104,19 +104,19 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testMutateTruncationStatus() {
-        LogSegmentLedgerMetadata metadata =
-                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
-                        "/metadata", LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
+        LogSegmentMetadata metadata =
+                new LogSegmentMetadataBuilder(
+                        "/metadata", LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
                         .setRegionId(0).setLedgerSequenceNo(1L).build();
         metadata = metadata.completeLogSegment("/completed-metadata", 1000L, 1000, 1000L, 0L, 0L);
 
-        LogSegmentLedgerMetadata partiallyTruncatedSegment =
+        LogSegmentMetadata partiallyTruncatedSegment =
                 metadata.mutator()
                         .setTruncationStatus(TruncationStatus.PARTIALLY_TRUNCATED)
                         .setMinActiveDLSN(new DLSN(1L, 500L, 0L))
                         .build();
 
-        LogSegmentLedgerMetadata fullyTruncatedSegment =
+        LogSegmentMetadata fullyTruncatedSegment =
                 partiallyTruncatedSegment.mutator()
                         .setTruncationStatus(TruncationStatus.TRUNCATED)
                         .build();
@@ -127,7 +127,7 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testParseInvalidMetadata() throws Exception {
         try {
-            LogSegmentLedgerMetadata.parseData("/metadata1", new byte[0], false);
+            LogSegmentMetadata.parseData("/metadata1", new byte[0], false);
             fail("Should fail to parse invalid metadata");
         } catch (IOException ioe) {
             // expected
@@ -136,28 +136,28 @@ public class TestLogSegmentLedgerMetadata extends ZooKeeperClusterTestCase {
 
     @Test(timeout = 60000)
     public void testReadLogSegmentWithSequenceId() throws Exception {
-        LogSegmentLedgerMetadata metadata =
-                new LogSegmentLedgerMetadataBuilder(
-                        "/metadata", LogSegmentLedgerMetadataVersion.VERSION_V5_SEQUENCE_ID, 1L, 0L)
+        LogSegmentMetadata metadata =
+                new LogSegmentMetadataBuilder(
+                        "/metadata", LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID, 1L, 0L)
                         .setRegionId(0)
                         .setLedgerSequenceNo(1L)
                         .setStartSequenceId(999L)
                         .build();
         // write inprogress log segment with v5
         String data = metadata.getFinalisedData();
-        LogSegmentLedgerMetadata parsedMetadata = LogSegmentLedgerMetadata.parseData("/metadatav5", data.getBytes(UTF_8), false);
+        LogSegmentMetadata parsedMetadata = LogSegmentMetadata.parseData("/metadatav5", data.getBytes(UTF_8), false);
         assertEquals(999L, parsedMetadata.getStartSequenceId());
 
-        LogSegmentLedgerMetadata metadatav4 =
-                new LogSegmentLedgerMetadataBuilder(
-                        "/metadata", LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
+        LogSegmentMetadata metadatav4 =
+                new LogSegmentMetadataBuilder(
+                        "/metadata", LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
                         .setRegionId(0)
                         .setLedgerSequenceNo(1L)
                         .setStartSequenceId(999L)
                         .build();
         String datav4 = metadatav4.getFinalisedData();
-        LogSegmentLedgerMetadata parsedMetadatav4 =
-                LogSegmentLedgerMetadata.parseData("/metadatav4", datav4.getBytes(UTF_8), false);
+        LogSegmentMetadata parsedMetadatav4 =
+                LogSegmentMetadata.parseData("/metadatav4", datav4.getBytes(UTF_8), false);
         assertTrue(parsedMetadatav4.getStartSequenceId() < 0);
     }
 }

@@ -355,7 +355,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final CountDownLatch completionLatch = new CountDownLatch(1);
         final AtomicBoolean errorsFound = new AtomicBoolean(false);
 
-        boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
+        boolean monotonic = LogSegmentMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
         TestAsyncReaderWriter.readNext(
                 reader,
                 DLSN.InvalidDLSN,
@@ -537,7 +537,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final AsyncLogReader reader = dlm.getAsyncLogReader(new DLSN(2, 2, 4));
         assertEquals(name, reader.getStreamName());
 
-        boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
+        boolean monotonic = LogSegmentMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
         TestAsyncReaderWriter.readNext(
                 reader,
                 new DLSN(2, 3, 0),
@@ -586,7 +586,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testNoEnvelopeWriterEnvelopeReader() throws Exception {
         testSimpleAsyncReadWriteInternal(runtime.getMethodName(), true,
-                LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value - 1);
+                LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value - 1);
     }
 
     static class WriteFutureEventListener implements FutureEventListener<DLSN> {
@@ -643,7 +643,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush)
             throws Exception {
         testSimpleAsyncReadWriteInternal(name, immediateFlush,
-                                         LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+                                         LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
     }
 
     void testSimpleAsyncReadWriteInternal(String name, boolean immediateFlush,
@@ -679,7 +679,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
                         record, currentLedgerSeqNo, currentEntryId, writeLatch, writeErrors, true));
                 if (i == 0 && j == 0) {
-                    boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(logSegmentVersion);
+                    boolean monotonic = LogSegmentMetadata.supportsSequenceId(logSegmentVersion);
                     TestAsyncReaderWriter.readNext(
                             reader,
                             DLSN.InvalidDLSN,
@@ -959,7 +959,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
                         record, currentLedgerSeqNo, j, writeLatch, writeErrors, false));
                 if (i == 0 && j == 0) {
-                    boolean monotonic = LogSegmentLedgerMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
+                    boolean monotonic = LogSegmentMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
                     TestAsyncReaderWriter.readNext(
                             reader,
                             DLSN.InvalidDLSN,
@@ -1357,7 +1357,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             // expected
         }
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(1, segments.size());
         assertTrue(segments.get(0).isInProgress());
 
@@ -1396,7 +1396,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             LOG.error("Failed to close and complete log segment {} : ", logWriter.getFullyQualifiedLogSegment(), ioe);
         }
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(1, segments.size());
         assertTrue(segments.get(0).isInProgress());
 
@@ -1536,7 +1536,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         writer = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(1, segments.size());
         assertFalse(segments.get(0).isInProgress());
 

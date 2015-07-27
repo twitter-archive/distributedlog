@@ -10,7 +10,7 @@ import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
@@ -138,7 +138,7 @@ public class MonitorService implements Runnable, NamespaceListener {
         }
 
         @Override
-        public void onSegmentsUpdated(List<LogSegmentLedgerMetadata> segments) {
+        public void onSegmentsUpdated(List<LogSegmentMetadata> segments) {
             if (segments.size() > 0 && segments.get(0).getRegionId() == regionId) {
                 if (!checking) {
                     logger.info("Start checking stream {}.", name);

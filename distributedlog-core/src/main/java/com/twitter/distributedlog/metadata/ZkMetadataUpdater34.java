@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
@@ -20,8 +20,8 @@ public class ZkMetadataUpdater34 extends ZkMetadataUpdater {
     }
 
     @Override
-    protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
-                                                    LogSegmentLedgerMetadata oldSegment) throws IOException {
+    protected void addNewSegmentAndDeleteOldSegment(LogSegmentMetadata newSegment,
+                                                    LogSegmentMetadata oldSegment) throws IOException {
         LOG.info("old segment {} new segment {}", oldSegment, newSegment);
         try {
             Transaction txn = zkc.get().transaction();

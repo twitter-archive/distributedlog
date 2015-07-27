@@ -25,9 +25,9 @@ import static org.junit.Assert.*;
 public class TestRollLogSegments extends TestDistributedLogBase {
     static final Logger logger = LoggerFactory.getLogger(TestRollLogSegments.class);
 
-    private static void ensureOnlyOneInprogressLogSegments(List<LogSegmentLedgerMetadata> segments) throws Exception {
+    private static void ensureOnlyOneInprogressLogSegments(List<LogSegmentMetadata> segments) throws Exception {
         int numInprogress = 0;
-        for (LogSegmentLedgerMetadata segment : segments) {
+        for (LogSegmentMetadata segment : segments) {
             if (segment.isInProgress()) {
                 ++numInprogress;
             }
@@ -78,7 +78,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // make sure all ensure blocks were executed
         writer.closeAndComplete();
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(1, segments.size());
 
         dlm.close();
@@ -130,13 +130,13 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // make sure all ensure blocks were executed.
         writer.closeAndComplete();
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         logger.info("lastDLSNs after writes {} {}", lastDLSNs.size(), lastDLSNs);
         logger.info("segments after writes {} {}", segments.size(), segments);
         assertTrue(segments.size() >= 2);
         assertTrue(lastDLSNs.size() >= 2);
         assertEquals(lastDLSNs.size(), segments.size());
-        for (LogSegmentLedgerMetadata segment : segments) {
+        for (LogSegmentMetadata segment : segments) {
             DLSN dlsnInMetadata = segment.getLastDLSN();
             DLSN dlsnSeen = lastDLSNs.get(segment.getLedgerSequenceNumber());
             assertNotNull(dlsnInMetadata);
@@ -209,7 +209,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
             writer.close();
 
-            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
             logger.info("LogSegments: {}", segments);
 
             assertEquals(1, segments.size());
@@ -275,7 +275,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // make sure all ensure blocks were executed.
         writer.nop().get();
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         logger.info("LogSegments : {}", segments);
 
         assertTrue(segments.size() >= 2);

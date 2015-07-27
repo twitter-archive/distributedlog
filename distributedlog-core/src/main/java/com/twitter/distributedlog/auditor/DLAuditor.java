@@ -9,7 +9,7 @@ import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -402,9 +402,9 @@ public class DLAuditor {
             throws IOException {
         DistributedLogManager dlm = factory.createDistributedLogManager(stream, DistributedLogManagerFactory.ClientSharingOption.SharedClients);
         try {
-            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
             List<Long> sLedgers = new ArrayList<Long>();
-            for (LogSegmentLedgerMetadata segment : segments) {
+            for (LogSegmentMetadata segment : segments) {
                 synchronized (ledgers) {
                     ledgers.add(segment.getLedgerId());
                 }

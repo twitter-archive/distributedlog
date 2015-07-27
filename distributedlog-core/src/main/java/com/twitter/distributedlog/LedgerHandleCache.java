@@ -77,7 +77,7 @@ class LedgerHandleCache {
         }
     }
 
-    public void asyncOpenLedger(LogSegmentLedgerMetadata metadata, boolean fence,
+    public void asyncOpenLedger(LogSegmentMetadata metadata, boolean fence,
                                 final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
         final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
@@ -111,7 +111,7 @@ class LedgerHandleCache {
         }
     }
 
-    public LedgerDescriptor openLedger(LogSegmentLedgerMetadata metadata, boolean fence) throws IOException, BKException {
+    public LedgerDescriptor openLedger(LogSegmentMetadata metadata, boolean fence) throws IOException, BKException {
         final SyncObject<LedgerDescriptor> syncObject = new SyncObject<LedgerDescriptor>();
         syncObject.inc();
         Stopwatch stopwatch = Stopwatch.createStarted();

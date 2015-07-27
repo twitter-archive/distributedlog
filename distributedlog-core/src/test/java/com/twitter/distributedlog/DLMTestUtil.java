@@ -71,13 +71,13 @@ public class DLMTestUtil {
         return ret;
     }
 
-    public static Map<Long, LogSegmentLedgerMetadata> readLogSegments(ZooKeeperClient zkc, String ledgerPath) throws Exception {
+    public static Map<Long, LogSegmentMetadata> readLogSegments(ZooKeeperClient zkc, String ledgerPath) throws Exception {
         List<String> children = zkc.get().getChildren(ledgerPath, false);
         LOG.info("Children under {} : {}", ledgerPath, children);
-        Map<Long, LogSegmentLedgerMetadata> segments =
-            new HashMap<Long, LogSegmentLedgerMetadata>(children.size());
+        Map<Long, LogSegmentMetadata> segments =
+            new HashMap<Long, LogSegmentMetadata>(children.size());
         for (String child : children) {
-            LogSegmentLedgerMetadata segment = LogSegmentLedgerMetadata.read(zkc, ledgerPath + "/" + child);
+            LogSegmentMetadata segment = LogSegmentMetadata.read(zkc, ledgerPath + "/" + child);
             LOG.info("Read segment {} : {}", child, segment);
             segments.put(segment.getLedgerSequenceNumber(), segment);
         }
@@ -190,8 +190,8 @@ public class DLMTestUtil {
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
         try {
             BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
-            List<LogSegmentLedgerMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
-            LogSegmentLedgerMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
+            List<LogSegmentMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
+            LogSegmentMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
             BookKeeperClient bkc = dlm.getWriterBKC();
             LedgerHandle lh = bkc.get().openLedger(lastSegment.getLedgerId(),
                     BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
@@ -320,22 +320,22 @@ public class DLMTestUtil {
         return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, ledgerSeqNo);
     }
 
-    public static LogSegmentLedgerMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
-        return new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
+    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
+        return new LogSegmentMetadata.LogSegmentMetadataBuilder(
                     ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
-                    LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                    LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                     ledgerId, firstTxId)
                 .setLedgerSequenceNo(ledgerSeqNo)
                 .build();
     }
 
-    public static LogSegmentLedgerMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
+    public static LogSegmentMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
                                                                long lastTxId, int recordCount, long ledgerSeqNo,
                                                                long lastEntryId, long lastSlotId) {
-        LogSegmentLedgerMetadata metadata =
-                new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(
+        LogSegmentMetadata metadata =
+                new LogSegmentMetadata.LogSegmentMetadataBuilder(
                         ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
-                        LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                        LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                         ledgerId, firstTxId)
                     .setInprogress(false)
                     .setLedgerSequenceNo(ledgerSeqNo)
@@ -389,8 +389,8 @@ public class DLMTestUtil {
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
         String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
         String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
-        LogSegmentLedgerMetadata l =
-            new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
+        LogSegmentMetadata l =
+            new LogSegmentMetadata.LogSegmentMetadataBuilder(znodePath,
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
                 .setLedgerSequenceNo(ledgerSeqNo)
                 .build();
@@ -430,8 +430,8 @@ public class DLMTestUtil {
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
         String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
         String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
-        LogSegmentLedgerMetadata l =
-            new LogSegmentLedgerMetadata.LogSegmentLedgerMetadataBuilder(znodePath,
+        LogSegmentMetadata l =
+            new LogSegmentMetadata.LogSegmentMetadataBuilder(znodePath,
                 conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
             .setLedgerSequenceNo(ledgerSeqNo)
             .setInprogress(false)
@@ -463,7 +463,7 @@ public class DLMTestUtil {
         }
     }
 
-    public static void updateSegmentMetadata(ZooKeeperClient zkc, LogSegmentLedgerMetadata segment) throws Exception {
+    public static void updateSegmentMetadata(ZooKeeperClient zkc, LogSegmentMetadata segment) throws Exception {
         byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
         zkc.get().setData(segment.getZkPath(), finalisedData, -1);
     }

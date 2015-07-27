@@ -131,7 +131,7 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             LedgerHandleCache handleCache,
-            final LogSegmentLedgerMetadata metadata,
+            final LogSegmentMetadata metadata,
             final ExecutorService executorService,
             final ScanContext context,
             final LogRecordSelector selector) {
@@ -204,7 +204,7 @@ public class ReadUtils {
      */
     private static void visitEntryRecords(
             String streamName,
-            LogSegmentLedgerMetadata metadata,
+            LogSegmentMetadata metadata,
             long ledgerSeqNo,
             LedgerEntry entry,
             ScanContext context,
@@ -248,7 +248,7 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
-            final LogSegmentLedgerMetadata metadata,
+            final LogSegmentMetadata metadata,
             final ExecutorService executorService,
             final Promise<LogRecordWithDLSN> promise,
             final ScanContext context,
@@ -293,7 +293,7 @@ public class ReadUtils {
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
-            final LogSegmentLedgerMetadata metadata,
+            final LogSegmentMetadata metadata,
             final ExecutorService executorService,
             final int scanStartBatchSize,
             final int scanMaxBatchSize,
@@ -355,7 +355,7 @@ public class ReadUtils {
      */
     public static Future<LogRecordWithDLSN> asyncReadLastRecord(
             final String streamName,
-            final LogSegmentLedgerMetadata l,
+            final LogSegmentMetadata l,
             final boolean fence,
             final boolean includeControl,
             final boolean includeEndOfStream,
@@ -396,7 +396,7 @@ public class ReadUtils {
      */
     static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
             final String streamName,
-            final LogSegmentLedgerMetadata l,
+            final LogSegmentMetadata l,
             final int scanStartBatchSize,
             final int scanMaxBatchSize,
             final AtomicInteger numRecordsScanned,
@@ -416,7 +416,7 @@ public class ReadUtils {
 
     private static Future<LogRecordWithDLSN> asyncReadRecord(
             final String streamName,
-            final LogSegmentLedgerMetadata l,
+            final LogSegmentMetadata l,
             final boolean fence,
             final boolean includeControl,
             final boolean includeEndOfStream,

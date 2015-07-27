@@ -287,7 +287,7 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
         }
     }
 
-    static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentLedgerMetadata>> {
+    static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentMetadata>> {
         private final BKLogPartitionWriteHandler ledgerManager;
         private final long minTimestampToKeep;
         private volatile boolean done = false;
@@ -319,7 +319,7 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
         }
 
         @Override
-        public void onSuccess(List<LogSegmentLedgerMetadata> value) {
+        public void onSuccess(List<LogSegmentMetadata> value) {
             LOG.info("Purged logs older than {} for {}.",
                      minTimestampToKeep, ledgerManager.getFullyQualifiedName());
             complete();

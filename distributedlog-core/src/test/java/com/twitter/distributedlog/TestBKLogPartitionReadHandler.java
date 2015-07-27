@@ -69,9 +69,9 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         prepareLogSegments(dlName, 3, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
         BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
-        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
-        List<LogSegmentLedgerMetadata> ledgerList2 = readHandler.getFilteredLedgerList(true, false);
-        List<LogSegmentLedgerMetadata> ledgerList3 = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
+        List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
+        List<LogSegmentMetadata> ledgerList2 = readHandler.getFilteredLedgerList(true, false);
+        List<LogSegmentMetadata> ledgerList3 = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         assertEquals(3, ledgerList.size());
         assertEquals(3, ledgerList2.size());
         assertEquals(3, ledgerList3.size());
@@ -86,19 +86,19 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         prepareLogSegments(dlName, 3, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
         BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(new PartitionId(0));
-        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(true, false, LogSegmentLedgerMetadata.COMPARATOR, false);
-        final AtomicReference<List<LogSegmentLedgerMetadata>> resultHolder =
-                new AtomicReference<List<LogSegmentLedgerMetadata>>(null);
+        List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(true, false, LogSegmentMetadata.COMPARATOR, false);
+        final AtomicReference<List<LogSegmentMetadata>> resultHolder =
+                new AtomicReference<List<LogSegmentMetadata>>(null);
         final CountDownLatch latch = new CountDownLatch(1);
-        readHandler.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>>() {
+        readHandler.asyncGetLedgerList(LogSegmentMetadata.COMPARATOR, null, new BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentMetadata>>() {
             @Override
-            public void operationComplete(int rc, List<LogSegmentLedgerMetadata> result) {
+            public void operationComplete(int rc, List<LogSegmentMetadata> result) {
                 resultHolder.set(result);
                 latch.countDown();
             }
         });
         latch.await();
-        List<LogSegmentLedgerMetadata> newLedgerList = resultHolder.get();
+        List<LogSegmentMetadata> newLedgerList = resultHolder.get();
         assertNotNull(newLedgerList);
         LOG.info("Force sync get list : {}", ledgerList);
         LOG.info("Async get list : {}", newLedgerList);
@@ -117,18 +117,18 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
 
         // Get full list.
         BKLogPartitionWriteHandler writeHandler0 = ((BKDistributedLogManager) dlm).createWriteLedgerHandler(new PartitionId(0));
-        List<LogSegmentLedgerMetadata> cachedFullLedgerList =
-                writeHandler0.getCachedFullLedgerList(LogSegmentLedgerMetadata.DESC_COMPARATOR);
+        List<LogSegmentMetadata> cachedFullLedgerList =
+                writeHandler0.getCachedFullLedgerList(LogSegmentMetadata.DESC_COMPARATOR);
         assertTrue(cachedFullLedgerList.size() <= 1);
-        List<LogSegmentLedgerMetadata> fullLedgerList = writeHandler0.getFullLedgerListDesc(false, false);
+        List<LogSegmentMetadata> fullLedgerList = writeHandler0.getFullLedgerListDesc(false, false);
         assertEquals(11, fullLedgerList.size());
 
         // Get filtered list.
         BKLogPartitionWriteHandler writeHandler1 = ((BKDistributedLogManager) dlm).createWriteLedgerHandler(new PartitionId(0));
-        List<LogSegmentLedgerMetadata> filteredLedgerListDesc = writeHandler1.getFilteredLedgerListDesc(false, false);
+        List<LogSegmentMetadata> filteredLedgerListDesc = writeHandler1.getFilteredLedgerListDesc(false, false);
         assertEquals(1, filteredLedgerListDesc.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerListDesc.get(0));
-        List<LogSegmentLedgerMetadata> filteredLedgerList = writeHandler1.getFilteredLedgerList(false, false);
+        List<LogSegmentMetadata> filteredLedgerList = writeHandler1.getFilteredLedgerList(false, false);
         assertEquals(1, filteredLedgerList.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerList.get(0));
     }
@@ -338,7 +338,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
 
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
-        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
+        List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         assertEquals(1, ledgerList.size());
         assertTrue(ledgerList.get(0).isInProgress());
 
@@ -362,7 +362,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
 
         BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
-        List<LogSegmentLedgerMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentLedgerMetadata.COMPARATOR, false);
+        List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         assertEquals(2, ledgerList.size());
         assertFalse(ledgerList.get(0).isInProgress());
         assertTrue(ledgerList.get(1).isInProgress());

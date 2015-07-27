@@ -26,7 +26,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     private final OpStatsLogger resumeHitStat;
     private final OpStatsLogger resumeSetWatcherStat;
 
-    private final LogSegmentLedgerMetadata metadata;
+    private final LogSegmentMetadata metadata;
     private String zkPath;
     private final BKLogPartitionReadHandler ledgerManager;
     private final ZooKeeperClient zkc;
@@ -43,7 +43,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
-                                  LogSegmentLedgerMetadata metadata,
+                                  LogSegmentMetadata metadata,
                                   long startBkEntry,
                                   StatsLogger statsLogger) throws IOException {
         super(ledgerManager, metadata, statsLogger);
@@ -64,7 +64,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         resume(true);
     }
 
-    public LogSegmentLedgerMetadata getLogSegmentLedgerMetadata() {
+    public LogSegmentMetadata getLogSegmentMetadata() {
         return metadata;
     }
 

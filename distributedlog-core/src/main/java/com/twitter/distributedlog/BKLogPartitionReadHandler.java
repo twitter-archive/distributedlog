@@ -310,8 +310,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean fThrowOnEmpty,
                                                            boolean simulateErrors) throws IOException {
         if (doesLogExist()) {
-            List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
-            for (LogSegmentLedgerMetadata l : segments) {
+            List<LogSegmentMetadata> segments = getFilteredLedgerList(false, false);
+            for (LogSegmentMetadata l : segments) {
                 // By default we should skip truncated segments during initial positioning
                 if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
                     continue;
@@ -423,9 +423,9 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                                            boolean simulateErrors)
             throws IOException {
         if (doesLogExist()) {
-            List<LogSegmentLedgerMetadata> segments = getFilteredLedgerList(false, false);
+            List<LogSegmentMetadata> segments = getFilteredLedgerList(false, false);
             for (int i = 0; i < segments.size(); i++) {
-                LogSegmentLedgerMetadata l = segments.get(i);
+                LogSegmentMetadata l = segments.get(i);
                 // By default we should skip truncated segments during initial positioning
                 if (l.isTruncated() && !conf.getIgnoreTruncationStatus()) {
                     continue;
@@ -830,11 +830,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         // Indicates the position to which the continuous log reader has been positioned. Its not
         // an accurate position as its only updated when necessary
         private AtomicReference<LedgerReadPosition> continuousReaderPosition = new AtomicReference<LedgerReadPosition>(null);
-        private LogSegmentLedgerMetadata currentMetadata = null;
+        private LogSegmentMetadata currentMetadata = null;
         private int currentMetadataIndex;
         protected LedgerDescriptor currentLH;
         private final LedgerDataAccessor ledgerDataAccessor;
-        private volatile List<LogSegmentLedgerMetadata> ledgerList;
+        private volatile List<LogSegmentMetadata> ledgerList;
         private boolean simulateErrors;
         private boolean simulateDelays;
         private boolean injectReadAheadStall;
@@ -1160,14 +1160,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
          * Phase on checking in progress changed.
          */
         final class CheckInProgressChangedPhase extends Phase
-            implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentLedgerMetadata>> {
+            implements BookkeeperInternalCallbacks.GenericCallback<List<LogSegmentMetadata>> {
 
             CheckInProgressChangedPhase(Phase next) {
                 super(next);
             }
 
             @Override
-            public void operationComplete(final int rc, final List<LogSegmentLedgerMetadata> result) {
+            public void operationComplete(final int rc, final List<LogSegmentMetadata> result) {
                 // submit callback execution to dlg executor to avoid deadlock.
                 submit(new Runnable() {
                     @Override
@@ -1185,7 +1185,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         ledgerList = result;
                         boolean isInitialPositioning = nextReadAheadPosition.definitelyLessThanOrEqualTo(startReadPosition);
                         for (int i = 0; i < ledgerList.size(); i++) {
-                            LogSegmentLedgerMetadata l = ledgerList.get(i);
+                            LogSegmentMetadata l = ledgerList.get(i);
                             // By default we should skip truncated segments during initial positioning
                             if (l.isTruncated() &&
                                 isInitialPositioning &&
@@ -1357,7 +1357,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 TimeUnit.MILLISECONDS.toMicros(elapsedMillisSinceMetadataChanged));
                         metadataNotificationTimeMillis = -1L;
                     }
-                    bkLedgerManager.asyncGetLedgerList(LogSegmentLedgerMetadata.COMPARATOR, getLedgersWatcher, this);
+                    bkLedgerManager.asyncGetLedgerList(LogSegmentMetadata.COMPARATOR, getLedgersWatcher, this);
                 } else {
                     next.process(BKException.Code.OK);
                 }
@@ -1514,7 +1514,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         if (!closeCurrentLedgerHandle()) {
                                             return;
                                         }
-                                        LogSegmentLedgerMetadata oldMetadata = currentMetadata;
+                                        LogSegmentMetadata oldMetadata = currentMetadata;
                                         currentMetadata = null;
                                         if (currentMetadataIndex + 1 < ledgerList.size()) {
                                             currentMetadata = ledgerList.get(++currentMetadataIndex);

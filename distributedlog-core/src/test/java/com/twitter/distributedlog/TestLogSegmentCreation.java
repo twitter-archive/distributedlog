@@ -35,7 +35,7 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
             out.closeAndComplete();
         }
 
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         LOG.info("Segments : {}", segments);
         assertEquals(3, segments.size());
 
@@ -71,7 +71,7 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         boolean hasDuplicatedSegment = false;
         long nextSeqNo = segments.get(0).getLedgerSequenceNumber();
         for (int i = 1; i < segments.size(); i++) {
-            LogSegmentLedgerMetadata segment = segments.get(i);
+            LogSegmentMetadata segment = segments.get(i);
             assertTrue(segment.getLedgerSequenceNumber() >= nextSeqNo);
             if (segment.getLedgerSequenceNumber() == nextSeqNo) {
                 hasDuplicatedSegment = true;

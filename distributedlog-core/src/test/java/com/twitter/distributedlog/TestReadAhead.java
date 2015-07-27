@@ -1,6 +1,6 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion;
+import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -27,7 +27,7 @@ public class TestReadAhead extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         confLocal.setReadAheadWaitTime(500);
         confLocal.setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(2000);
-        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
         DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, confLocal, 1L, 1L, false, 0, false);

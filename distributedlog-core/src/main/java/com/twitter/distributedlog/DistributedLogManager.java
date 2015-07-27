@@ -39,7 +39,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @return log segments
      * @throws IOException
      */
-    public List<LogSegmentLedgerMetadata> getLogSegments() throws IOException;
+    public List<LogSegmentMetadata> getLogSegments() throws IOException;
 
     /**
      * Register <i>listener</i> on log segment updates of this stream.

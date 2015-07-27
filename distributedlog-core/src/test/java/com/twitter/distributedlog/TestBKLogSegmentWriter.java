@@ -142,7 +142,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 runtime.getMethodName(),
                 runtime.getMethodName(),
                 conf,
-                LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
+                LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                 lh,
                 lock,
                 startTxId,

@@ -11,7 +11,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.LogSegmentLedgerMetadata.TruncationStatus;
+import com.twitter.distributedlog.LogSegmentMetadata.TruncationStatus;
 import com.twitter.util.Await;
 
 import static org.junit.Assert.*;
@@ -24,15 +24,15 @@ public class TestTruncate extends TestDistributedLogBase {
                 .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
 
     static void updateCompletionTime(ZooKeeperClient zkc,
-                                     LogSegmentLedgerMetadata l, long completionTime) throws Exception {
-        LogSegmentLedgerMetadata newSegment = l.mutator().setCompletionTime(completionTime).build();
+                                     LogSegmentMetadata l, long completionTime) throws Exception {
+        LogSegmentMetadata newSegment = l.mutator().setCompletionTime(completionTime).build();
         DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
     }
 
     static void setTruncationStatus(ZooKeeperClient zkc,
-                                    LogSegmentLedgerMetadata l,
+                                    LogSegmentMetadata l,
                                     TruncationStatus status) throws Exception {
-        LogSegmentLedgerMetadata newSegment =
+        LogSegmentMetadata newSegment =
                 l.mutator().setTruncationStatus(status).build();
         DLMTestUtil.updateSegmentMetadata(zkc, newSegment);
     }
@@ -46,7 +46,7 @@ public class TestTruncate extends TestDistributedLogBase {
 
         DistributedLogManager distributedLogManager = createNewDLM(conf, name);
 
-        List<LogSegmentLedgerMetadata> segments = distributedLogManager.getLogSegments();
+        List<LogSegmentMetadata> segments = distributedLogManager.getLogSegments();
         LOG.info("Segments before modifying completion time : {}", segments);
 
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).uri(uri)
@@ -57,7 +57,7 @@ public class TestTruncate extends TestDistributedLogBase {
         // Update completion time of first 5 segments
         long newTimeMs = System.currentTimeMillis() - 60*60*1000*2;
         for (int i = 0; i < 5; i++) {
-            LogSegmentLedgerMetadata segment = segments.get(i);
+            LogSegmentMetadata segment = segments.get(i);
             updateCompletionTime(zkc, segment, newTimeMs + i);
         }
         zkc.close();
@@ -172,7 +172,7 @@ public class TestTruncate extends TestDistributedLogBase {
         populateData(new HashMap<Long, DLSN>(), confLocal, name, 4, 10, false);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         LOG.info("Segments before modifying segment status : {}", segments);
 
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
@@ -183,23 +183,23 @@ public class TestTruncate extends TestDistributedLogBase {
                 .build();
         setTruncationStatus(zkc, segments.get(0), TruncationStatus.PARTIALLY_TRUNCATED);
         for (int i = 1; i < 4; i++) {
-            LogSegmentLedgerMetadata segment = segments.get(i);
+            LogSegmentMetadata segment = segments.get(i);
             setTruncationStatus(zkc, segment, TruncationStatus.TRUNCATED);
         }
-        List<LogSegmentLedgerMetadata> segmentsAfterTruncated = dlm.getLogSegments();
+        List<LogSegmentMetadata> segmentsAfterTruncated = dlm.getLogSegments();
 
         dlm.purgeLogsOlderThan(999999);
-        List<LogSegmentLedgerMetadata> newSegments = dlm.getLogSegments();
+        List<LogSegmentMetadata> newSegments = dlm.getLogSegments();
         LOG.info("Segments after purge segments older than 999999 : {}", newSegments);
-        assertArrayEquals(segmentsAfterTruncated.toArray(new LogSegmentLedgerMetadata[segmentsAfterTruncated.size()]),
-                          newSegments.toArray(new LogSegmentLedgerMetadata[newSegments.size()]));
+        assertArrayEquals(segmentsAfterTruncated.toArray(new LogSegmentMetadata[segmentsAfterTruncated.size()]),
+                          newSegments.toArray(new LogSegmentMetadata[newSegments.size()]));
 
         dlm.close();
 
         // Update completion time of all 4 segments
         long newTimeMs = System.currentTimeMillis() - 60 * 60 * 1000 * 10;
         for (int i = 0; i < 4; i++) {
-            LogSegmentLedgerMetadata segment = newSegments.get(i);
+            LogSegmentMetadata segment = newSegments.get(i);
             updateCompletionTime(zkc, segment, newTimeMs + i);
         }
 
@@ -240,7 +240,7 @@ public class TestTruncate extends TestDistributedLogBase {
         populateData(dlsnMap, confLocal, name, 4, 10, false);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
         LOG.info("Segments before modifying segment status : {}", segments);
 
         ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
@@ -250,11 +250,11 @@ public class TestTruncate extends TestDistributedLogBase {
                 .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .build();
         for (int i = 0; i < 4; i++) {
-            LogSegmentLedgerMetadata segment = segments.get(i);
+            LogSegmentMetadata segment = segments.get(i);
             setTruncationStatus(zkc, segment, TruncationStatus.TRUNCATED);
         }
 
-        List<LogSegmentLedgerMetadata> newSegments = dlm.getLogSegments();
+        List<LogSegmentMetadata> newSegments = dlm.getLogSegments();
         LOG.info("Segments after changing truncation status : {}", newSegments);
 
         dlm.close();
@@ -263,9 +263,9 @@ public class TestTruncate extends TestDistributedLogBase {
         AsyncLogWriter newWriter = newDLM.startAsyncLogSegmentNonPartitioned();
         Await.result(newWriter.truncate(dlsnMap.get(15L)));
 
-        List<LogSegmentLedgerMetadata> newSegments2 = newDLM.getLogSegments();
-        assertArrayEquals(newSegments.toArray(new LogSegmentLedgerMetadata[4]),
-                          newSegments2.toArray(new LogSegmentLedgerMetadata[4]));
+        List<LogSegmentMetadata> newSegments2 = newDLM.getLogSegments();
+        assertArrayEquals(newSegments.toArray(new LogSegmentMetadata[4]),
+                          newSegments2.toArray(new LogSegmentMetadata[4]));
 
         newWriter.close();
         newDLM.close();

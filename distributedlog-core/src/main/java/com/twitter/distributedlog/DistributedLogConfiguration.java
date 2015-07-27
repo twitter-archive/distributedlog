@@ -1432,7 +1432,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setDLLedgerMetadataLayoutVersion(int layoutVersion) throws IllegalArgumentException {
         if ((layoutVersion <= 0) ||
-            (layoutVersion > LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
+            (layoutVersion > LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
             // Incorrect version specified
             throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
         }

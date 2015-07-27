@@ -1865,8 +1865,8 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         }
 
         final AtomicInteger numFailures = new AtomicInteger(0);
-        final AtomicReference<Collection<LogSegmentLedgerMetadata>> receivedStreams =
-                new AtomicReference<Collection<LogSegmentLedgerMetadata>>();
+        final AtomicReference<Collection<LogSegmentMetadata>> receivedStreams =
+                new AtomicReference<Collection<LogSegmentMetadata>>();
 
         DistributedLogManager dlm = createNewDLM(conf, name);
         ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder()
@@ -1878,10 +1878,10 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         BKDistributedLogManager.createUnpartitionedStream(conf, zkClient, ((BKDistributedLogManager) dlm).uri, name);
         dlm.registerListener(new LogSegmentListener() {
             @Override
-            public void onSegmentsUpdated(List<LogSegmentLedgerMetadata> segments) {
+            public void onSegmentsUpdated(List<LogSegmentMetadata> segments) {
                 int updates = segments.size();
                 boolean hasIncompletedLogSegments = false;
-                for (LogSegmentLedgerMetadata l : segments) {
+                for (LogSegmentMetadata l : segments) {
                     if (l.isInProgress()) {
                         hasIncompletedLogSegments = true;
                         break;
@@ -1919,7 +1919,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         assertNotNull(receivedStreams.get());
         assertEquals(numSegments, receivedStreams.get().size());
         int seqno = numSegments;
-        for (LogSegmentLedgerMetadata m : receivedStreams.get()) {
+        for (LogSegmentMetadata m : receivedStreams.get()) {
             assertEquals(seqno, m.getLedgerSequenceNumber());
             assertEquals((seqno - 1) * DEFAULT_SEGMENT_SIZE + 1, m.getFirstTxId());
             assertEquals(seqno * DEFAULT_SEGMENT_SIZE, m.getLastTxId());
@@ -2023,7 +2023,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             .sessionTimeoutMs(10000).build();
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         confLocal.setOutputBufferSize(0);
 
         BKDistributedLogManager dlm = (BKDistributedLogManager)createNewDLM(confLocal, name);
@@ -2058,7 +2058,7 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
             reader.close();
         }
 
-        Map<Long, LogSegmentLedgerMetadata> segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
+        Map<Long, LogSegmentMetadata> segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
             String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
                 name, confLocal.getUnpartitionedStreamName())));
 
@@ -2129,8 +2129,8 @@ public class TestBookKeeperDistributedLogManager extends TestDistributedLogBase 
         BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Assert.assertTrue(Await.result(writer.truncate(truncDLSN)));
         BKLogPartitionWriteHandler handler = writer.getCachedPartitionHandler(conf.getUnpartitionedStreamName());
-        List<LogSegmentLedgerMetadata> cachedSegments = handler.getFullLedgerList(false, false);
-        for (LogSegmentLedgerMetadata segment: cachedSegments) {
+        List<LogSegmentMetadata> cachedSegments = handler.getFullLedgerList(false, false);
+        for (LogSegmentMetadata segment: cachedSegments) {
             if (segment.getLastDLSN().compareTo(truncDLSN) < 0) {
                 Assert.assertTrue(segment.isTruncated());
                 Assert.assertTrue(!segment.isPartiallyTruncated());

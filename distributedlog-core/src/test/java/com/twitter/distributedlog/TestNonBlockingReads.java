@@ -483,9 +483,9 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
         BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         String completedZNode = blplm.completedLedgerZNode(txid - segmentSize, txid - 1, 3);
-        LogSegmentLedgerMetadata metadata = LogSegmentLedgerMetadata.read(zkClient, completedZNode);
+        LogSegmentMetadata metadata = LogSegmentMetadata.read(zkClient, completedZNode);
         zkClient.get().delete(completedZNode, -1);
-        LogSegmentLedgerMetadata metadataToChange =
+        LogSegmentMetadata metadataToChange =
                 metadata.mutator()
                         .setLastEntryId(metadata.getLastEntryId() + 100)
                         .setLastTxId(metadata.getLastTxId() + 100)

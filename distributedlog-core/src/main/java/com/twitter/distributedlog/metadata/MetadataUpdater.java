@@ -2,7 +2,7 @@ package com.twitter.distributedlog.metadata;
 
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 
 import java.io.IOException;
 
@@ -21,7 +21,7 @@ public interface MetadataUpdater {
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata updateLastRecord(LogSegmentLedgerMetadata segment, LogRecordWithDLSN record)
+    LogSegmentMetadata updateLastRecord(LogSegmentMetadata segment, LogRecordWithDLSN record)
             throws IOException;
 
     /**
@@ -34,7 +34,7 @@ public interface MetadataUpdater {
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata changeSequenceNumber(LogSegmentLedgerMetadata segment, long ledgerSeqNo)
+    LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment, long ledgerSeqNo)
             throws IOException;
 
     /**
@@ -45,7 +45,7 @@ public interface MetadataUpdater {
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata setLogSegmentActive(LogSegmentLedgerMetadata segment)
+    LogSegmentMetadata setLogSegmentActive(LogSegmentMetadata segment)
             throws IOException;
 
     /**
@@ -56,7 +56,7 @@ public interface MetadataUpdater {
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata setLogSegmentTruncated(LogSegmentLedgerMetadata segment)
+    LogSegmentMetadata setLogSegmentTruncated(LogSegmentMetadata segment)
         throws IOException;
 
     /**
@@ -69,7 +69,7 @@ public interface MetadataUpdater {
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentLedgerMetadata setLogSegmentPartiallyTruncated(LogSegmentLedgerMetadata segment, DLSN minActiveDLSN)
+    LogSegmentMetadata setLogSegmentPartiallyTruncated(LogSegmentMetadata segment, DLSN minActiveDLSN)
         throws IOException;
 
 }

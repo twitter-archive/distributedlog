@@ -307,7 +307,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
-    public synchronized List<LogSegmentLedgerMetadata> getLogSegments() throws IOException {
+    public synchronized List<LogSegmentMetadata> getLogSegments() throws IOException {
         BKLogPartitionReadHandler readHandler = createReadLedgerHandler(conf.getUnpartitionedStreamName());
         try {
             return readHandler.getFullLedgerList(true, false);

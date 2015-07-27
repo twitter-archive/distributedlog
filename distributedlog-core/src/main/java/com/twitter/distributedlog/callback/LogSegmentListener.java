@@ -1,6 +1,6 @@
 package com.twitter.distributedlog.callback;
 
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 
 import java.util.List;
 
@@ -16,5 +16,5 @@ public interface LogSegmentListener {
      * @param segments
      *          updated list of segments.
      */
-    void onSegmentsUpdated(List<LogSegmentLedgerMetadata> segments);
+    void onSegmentsUpdated(List<LogSegmentMetadata> segments);
 }

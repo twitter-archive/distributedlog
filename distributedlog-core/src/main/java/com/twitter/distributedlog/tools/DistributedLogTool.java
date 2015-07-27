@@ -72,7 +72,7 @@ import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -97,9 +97,9 @@ public class DistributedLogTool extends Tool {
         return time1 > time2 ? 1 : (time1 < time2 ? -1 : 0);
     }
 
-    static final Comparator<LogSegmentLedgerMetadata> LOGSEGMENT_COMPARATOR_BY_TIME = new Comparator<LogSegmentLedgerMetadata>() {
+    static final Comparator<LogSegmentMetadata> LOGSEGMENT_COMPARATOR_BY_TIME = new Comparator<LogSegmentMetadata>() {
         @Override
-        public int compare(LogSegmentLedgerMetadata o1, LogSegmentLedgerMetadata o2) {
+        public int compare(LogSegmentMetadata o1, LogSegmentMetadata o2) {
             if (o1.isInProgress() && o2.isInProgress()) {
                 return compareByCompletionTime(o1.getFirstTxId(), o2.getFirstTxId());
             } else if (!o1.isInProgress() && !o2.isInProgress()) {
@@ -469,18 +469,18 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runCmd() throws Exception {
-            SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates =
-                    new TreeMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>>();
+            SortedMap<String, List<Pair<LogSegmentMetadata, List<String>>>> corruptedCandidates =
+                    new TreeMap<String, List<Pair<LogSegmentMetadata, List<String>>>>();
             inspectStreams(corruptedCandidates);
             System.out.println("Corrupted Candidates : ");
             if (printStreamsOnly) {
                 System.out.println(corruptedCandidates.keySet());
                 return 0;
             }
-            for (Map.Entry<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
+            for (Map.Entry<String, List<Pair<LogSegmentMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
                 System.out.println(entry.getKey() + " : \n");
-                List<LogSegmentLedgerMetadata> segments = new ArrayList<LogSegmentLedgerMetadata>(entry.getValue().size());
-                for (Pair<LogSegmentLedgerMetadata, List<String>> pair : entry.getValue()) {
+                List<LogSegmentMetadata> segments = new ArrayList<LogSegmentMetadata>(entry.getValue().size());
+                for (Pair<LogSegmentMetadata, List<String>> pair : entry.getValue()) {
                     segments.add(pair.getLeft());
                     System.out.println("\t - " + pair.getLeft());
                     if (printInprogressOnly && dumpEntries) {
@@ -496,7 +496,7 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private void inspectStreams(final SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
+        private void inspectStreams(final SortedMap<String, List<Pair<LogSegmentMetadata, List<String>>>> corruptedCandidates)
                 throws Exception {
             Collection<String> streamCollection = getFactory().enumerateAllLogsInNamespace();
             final List<String> streams = new ArrayList<String>();
@@ -542,7 +542,7 @@ public class DistributedLogTool extends Tool {
         private void inspectStreams(List<String> streams,
                                     int tid,
                                     int numStreamsPerThreads,
-                                    SortedMap<String, List<Pair<LogSegmentLedgerMetadata, List<String>>>> corruptedCandidates)
+                                    SortedMap<String, List<Pair<LogSegmentMetadata, List<String>>>> corruptedCandidates)
                 throws Exception {
             int startIdx = tid * numStreamsPerThreads;
             int endIdx = Math.min(streams.size(), (tid + 1) * numStreamsPerThreads);
@@ -552,29 +552,29 @@ public class DistributedLogTool extends Tool {
                 DistributedLogManager dlm =
                         getFactory().createDistributedLogManagerWithSharedClients(s);
                 try {
-                    List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
+                    List<LogSegmentMetadata> segments = dlm.getLogSegments();
                     if (segments.size() <= 1) {
                         continue;
                     }
                     boolean isCandidate = false;
                     if (checkInprogressOnly) {
                         Set<Long> inprogressSeqNos = new HashSet<Long>();
-                        for (LogSegmentLedgerMetadata segment : segments) {
+                        for (LogSegmentMetadata segment : segments) {
                             if (segment.isInProgress()) {
                                 inprogressSeqNos.add(segment.getLedgerSequenceNumber());
                             }
                         }
-                        for (LogSegmentLedgerMetadata segment : segments) {
+                        for (LogSegmentMetadata segment : segments) {
                             if (!segment.isInProgress() && inprogressSeqNos.contains(segment.getLedgerSequenceNumber())) {
                                 isCandidate = true;
                             }
                         }
                     } else {
-                        LogSegmentLedgerMetadata firstSegment = segments.get(0);
+                        LogSegmentMetadata firstSegment = segments.get(0);
                         long lastSeqNo = firstSegment.getLedgerSequenceNumber();
 
                         for (int j = 1; j < segments.size(); j++) {
-                            LogSegmentLedgerMetadata nextSegment = segments.get(j);
+                            LogSegmentMetadata nextSegment = segments.get(j);
                             if (lastSeqNo + 1 != nextSegment.getLedgerSequenceNumber()) {
                                 isCandidate = true;
                                 break;
@@ -586,10 +586,10 @@ public class DistributedLogTool extends Tool {
                         if (orderByTime) {
                             Collections.sort(segments, LOGSEGMENT_COMPARATOR_BY_TIME);
                         }
-                        List<Pair<LogSegmentLedgerMetadata, List<String>>> ledgers =
-                                new ArrayList<Pair<LogSegmentLedgerMetadata, List<String>>>();
-                        for (LogSegmentLedgerMetadata seg : segments) {
-                            LogSegmentLedgerMetadata segment = seg;
+                        List<Pair<LogSegmentMetadata, List<String>>> ledgers =
+                                new ArrayList<Pair<LogSegmentMetadata, List<String>>>();
+                        for (LogSegmentMetadata seg : segments) {
+                            LogSegmentMetadata segment = seg;
                             List<String> dumpedEntries = new ArrayList<String>();
                             if (segment.isInProgress()) {
                                 LedgerHandle lh = bkc.get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
@@ -881,8 +881,8 @@ public class DistributedLogTool extends Tool {
             printHeader(dlm, pid);
             if (null == pid && listSegments) {
                 println("Ledgers : ");
-                List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
-                for (LogSegmentLedgerMetadata segment : segments) {
+                List<LogSegmentMetadata> segments = dlm.getLogSegments();
+                for (LogSegmentMetadata segment : segments) {
                     if (include(segment)) {
                         printLedgerRow(segment);
                     }
@@ -905,7 +905,7 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        boolean include(LogSegmentLedgerMetadata segment) {
+        boolean include(LogSegmentMetadata segment) {
             return (firstLid <= segment.getLedgerSequenceNumber() && (lastLid == -1 || lastLid >= segment.getLedgerSequenceNumber()));
         }
 
@@ -913,8 +913,8 @@ public class DistributedLogTool extends Tool {
             String label = "Ledger Placement :";
             println(label);
             Map<BookieSocketAddress, Integer> totals = new HashMap<BookieSocketAddress, Integer>();
-            List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
-            for (LogSegmentLedgerMetadata segment : segments) {
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
+            for (LogSegmentMetadata segment : segments) {
                 if (include(segment)) {
                     merge(totals, getBookieStats(segment));
                 }
@@ -937,11 +937,11 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        private void printLedgerRow(LogSegmentLedgerMetadata segment) throws Exception {
+        private void printLedgerRow(LogSegmentMetadata segment) throws Exception {
             println(segment.getLedgerSequenceNumber() + "\t: " + segment);
         }
 
-        private Map<BookieSocketAddress, Integer> getBookieStats(LogSegmentLedgerMetadata segment) throws Exception {
+        private Map<BookieSocketAddress, Integer> getBookieStats(LogSegmentMetadata segment) throws Exception {
             Map<BookieSocketAddress, Integer> stats = new HashMap<BookieSocketAddress, Integer>();
             LedgerHandle lh = bkc.client().get().openLedgerNoRecovery(segment.getLedgerId(), BookKeeper.DigestType.CRC32,
                     getConf().getBKDigestPW().getBytes(UTF_8));
@@ -1497,7 +1497,7 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        protected int inspectAndRepair(List<LogSegmentLedgerMetadata> segments) throws Exception {
+        protected int inspectAndRepair(List<LogSegmentMetadata> segments) throws Exception {
             ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
                     .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
                     .uri(getUri()).zkAclId(null).build();
@@ -1511,7 +1511,7 @@ public class DistributedLogTool extends Tool {
                         .name("dlog")
                         .build();
                 try {
-                    List<LogSegmentLedgerMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
+                    List<LogSegmentMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
                     if (segmentsToRepair.isEmpty()) {
                         System.out.println("Stream is good. No log segments to repair.");
                         return 0;
@@ -1533,10 +1533,10 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        protected List<LogSegmentLedgerMetadata> inspectLogSegments(
-                BookKeeperClient bkc, List<LogSegmentLedgerMetadata> segments) throws Exception {
-            List<LogSegmentLedgerMetadata> segmentsToRepair = new ArrayList<LogSegmentLedgerMetadata>();
-            for (LogSegmentLedgerMetadata segment : segments) {
+        protected List<LogSegmentMetadata> inspectLogSegments(
+                BookKeeperClient bkc, List<LogSegmentMetadata> segments) throws Exception {
+            List<LogSegmentMetadata> segmentsToRepair = new ArrayList<LogSegmentMetadata>();
+            for (LogSegmentMetadata segment : segments) {
                 if (!segment.isInProgress() && !inspectLogSegment(bkc, segment)) {
                     segmentsToRepair.add(segment);
                 }
@@ -1555,7 +1555,7 @@ public class DistributedLogTool extends Tool {
          * @throws Exception
          */
         protected boolean inspectLogSegment(BookKeeperClient bkc,
-                                            LogSegmentLedgerMetadata metadata) throws Exception {
+                                            LogSegmentMetadata metadata) throws Exception {
             if (metadata.isInProgress()) {
                 System.out.println("Skip inprogress log segment " + metadata);
                 return true;
@@ -1606,11 +1606,11 @@ public class DistributedLogTool extends Tool {
 
         protected void repairLogSegments(ZooKeeperClient zkc,
                                          BookKeeperClient bkc,
-                                         List<LogSegmentLedgerMetadata> segments) throws Exception {
+                                         List<LogSegmentMetadata> segments) throws Exception {
             BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
             try {
                 MetadataUpdater metadataUpdater = ZkMetadataUpdater.createMetadataUpdater(getConf(), zkc);
-                for (LogSegmentLedgerMetadata segment : segments) {
+                for (LogSegmentMetadata segment : segments) {
                     repairLogSegment(bkAdmin, metadataUpdater, segment);
                 }
             } finally {
@@ -1620,7 +1620,7 @@ public class DistributedLogTool extends Tool {
 
         protected void repairLogSegment(BookKeeperAdmin bkAdmin,
                                         MetadataUpdater metadataUpdater,
-                                        LogSegmentLedgerMetadata segment) throws Exception {
+                                        LogSegmentMetadata segment) throws Exception {
             if (segment.isInProgress()) {
                 System.out.println("Skip inprogress log segment " + segment);
                 return;
@@ -1635,7 +1635,7 @@ public class DistributedLogTool extends Tool {
             LedgerEntryReader reader = new LedgerEntryReader("dlog",
                                                              segment.getLedgerSequenceNumber(),
                                                              lastEntry,
-                                                             LogSegmentLedgerMetadata.supportsEnvelopedEntries(segment.getVersion()),
+                                                             LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()),
                                                              segment.getStartSequenceId(),
                                                              NullStatsLogger.INSTANCE);
             LogRecordWithDLSN record = reader.readOp();
@@ -2100,7 +2100,7 @@ public class DistributedLogTool extends Tool {
         boolean readAllBookies = false;
         boolean readLac = false;
 
-        int metadataVersion = LogSegmentLedgerMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
+        int metadataVersion = LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
         ReadEntriesCommand() {
             super("readentries", "read entries for a given ledger");
@@ -2190,7 +2190,7 @@ public class DistributedLogTool extends Tool {
                     System.out.println("\t-------------------------------");
                     if (BKException.Code.OK == rr.getResultCode()) {
                         LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
-                                                                         LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
+                                                                         LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
                                                                          0L, NullStatsLogger.INSTANCE);
                         printEntry(reader);
                     } else {
@@ -2245,7 +2245,7 @@ public class DistributedLogTool extends Tool {
                 LedgerEntry entry = entries.nextElement();
                 System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
                 LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry,
-                                                                 LogSegmentLedgerMetadata.supportsEnvelopedEntries(metadataVersion),
+                                                                 LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
                                                                  0L, NullStatsLogger.INSTANCE);
                 printEntry(reader);
                 ++i;

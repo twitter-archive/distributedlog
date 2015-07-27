@@ -6,7 +6,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
@@ -64,12 +64,12 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     protected final ZooKeeperClient zkc;
-    protected final LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion metadataVersion;
+    protected final LogSegmentMetadata.LogSegmentMetadataVersion metadataVersion;
 
     public ZkMetadataUpdater(DistributedLogConfiguration conf,
                              ZooKeeperClient zkc) {
         this.zkc = zkc;
-        this.metadataVersion = LogSegmentLedgerMetadata.LogSegmentLedgerMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion());
+        this.metadataVersion = LogSegmentMetadata.LogSegmentMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion());
     }
 
     private String formatLedgerSequenceNumber(long ledgerSeqNo) {
@@ -77,13 +77,13 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     }
 
     @Override
-    public LogSegmentLedgerMetadata updateLastRecord(LogSegmentLedgerMetadata segment, LogRecordWithDLSN record)
+    public LogSegmentMetadata updateLastRecord(LogSegmentMetadata segment, LogRecordWithDLSN record)
             throws IOException {
         DLSN dlsn = record.getDlsn();
         Preconditions.checkState(!segment.isInProgress(), "Updating last dlsn for an inprogress log segment isn't supported.");
         Preconditions.checkArgument(segment.isDLSNinThisSegment(dlsn),
                 "DLSN " + dlsn + " doesn't belong to segment " + segment);
-        final LogSegmentLedgerMetadata newSegment = segment.mutator()
+        final LogSegmentMetadata newSegment = segment.mutator()
                 .setLastDLSN(dlsn)
                 .setLastTxId(record.getTransactionId())
                 .setRecordCount(record)
@@ -94,9 +94,9 @@ public class ZkMetadataUpdater implements MetadataUpdater {
 
     @VisibleForTesting
     @Override
-    public LogSegmentLedgerMetadata changeSequenceNumber(LogSegmentLedgerMetadata segment,
+    public LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment,
                                                          long ledgerSeqNo) throws IOException {
-        final LogSegmentLedgerMetadata newSegment = segment.mutator()
+        final LogSegmentMetadata newSegment = segment.mutator()
                 .setLedgerSequenceNumber(ledgerSeqNo)
                 .setZkPath(segment.getZkPath().replace(formatLedgerSequenceNumber(segment.getLedgerSequenceNumber()),
                         formatLedgerSequenceNumber(ledgerSeqNo)))
@@ -112,9 +112,9 @@ public class ZkMetadataUpdater implements MetadataUpdater {
      * @return new log segment
      */
     @Override
-    public LogSegmentLedgerMetadata setLogSegmentActive(LogSegmentLedgerMetadata segment) throws IOException {
-        final LogSegmentLedgerMetadata newSegment = segment.mutator()
-            .setTruncationStatus(LogSegmentLedgerMetadata.TruncationStatus.ACTIVE)
+    public LogSegmentMetadata setLogSegmentActive(LogSegmentMetadata segment) throws IOException {
+        final LogSegmentMetadata newSegment = segment.mutator()
+            .setTruncationStatus(LogSegmentMetadata.TruncationStatus.ACTIVE)
             .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
         return newSegment;    }
@@ -126,9 +126,9 @@ public class ZkMetadataUpdater implements MetadataUpdater {
      * @return new log segment
      */
     @Override
-    public LogSegmentLedgerMetadata setLogSegmentTruncated(LogSegmentLedgerMetadata segment) throws IOException {
-        final LogSegmentLedgerMetadata newSegment = segment.mutator()
-            .setTruncationStatus(LogSegmentLedgerMetadata.TruncationStatus.TRUNCATED)
+    public LogSegmentMetadata setLogSegmentTruncated(LogSegmentMetadata segment) throws IOException {
+        final LogSegmentMetadata newSegment = segment.mutator()
+            .setTruncationStatus(LogSegmentMetadata.TruncationStatus.TRUNCATED)
             .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
         return newSegment;
@@ -142,16 +142,16 @@ public class ZkMetadataUpdater implements MetadataUpdater {
      * @return new log segment
      */
     @Override
-    public LogSegmentLedgerMetadata setLogSegmentPartiallyTruncated(LogSegmentLedgerMetadata segment, DLSN minActiveDLSN) throws IOException {
-        final LogSegmentLedgerMetadata newSegment = segment.mutator()
-            .setTruncationStatus(LogSegmentLedgerMetadata.TruncationStatus.PARTIALLY_TRUNCATED)
+    public LogSegmentMetadata setLogSegmentPartiallyTruncated(LogSegmentMetadata segment, DLSN minActiveDLSN) throws IOException {
+        final LogSegmentMetadata newSegment = segment.mutator()
+            .setTruncationStatus(LogSegmentMetadata.TruncationStatus.PARTIALLY_TRUNCATED)
             .setMinActiveDLSN(minActiveDLSN)
             .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
         return newSegment;
     }
 
-    protected void updateSegmentMetadata(LogSegmentLedgerMetadata segment) throws IOException {
+    protected void updateSegmentMetadata(LogSegmentMetadata segment) throws IOException {
         byte[] finalisedData = segment.getFinalisedData().getBytes(UTF_8);
         try {
             zkc.get().setData(segment.getZkPath(), finalisedData, -1);
@@ -164,8 +164,8 @@ public class ZkMetadataUpdater implements MetadataUpdater {
         }
     }
 
-    protected void addNewSegmentAndDeleteOldSegment(LogSegmentLedgerMetadata newSegment,
-                                                    LogSegmentLedgerMetadata oldSegment) throws IOException {
+    protected void addNewSegmentAndDeleteOldSegment(LogSegmentMetadata newSegment,
+                                                    LogSegmentMetadata oldSegment) throws IOException {
         try {
             byte[] finalisedData = newSegment.getFinalisedData().getBytes(UTF_8);
             if (newSegment.getZkPath().equalsIgnoreCase(oldSegment.getZkPath())) {

@@ -6,7 +6,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogManagerFactory;
-import com.twitter.distributedlog.LogSegmentLedgerMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -56,20 +56,20 @@ public class TestDLCK extends TestDistributedLogBase {
         zkc.close();
     }
 
-    static Map<Long, LogSegmentLedgerMetadata> getLogSegments(DistributedLogManager dlm) throws Exception {
-        Map<Long, LogSegmentLedgerMetadata> logSegmentMap =
-                new HashMap<Long, LogSegmentLedgerMetadata>();
-        List<LogSegmentLedgerMetadata> segments = dlm.getLogSegments();
-        for (LogSegmentLedgerMetadata segment : segments) {
+    static Map<Long, LogSegmentMetadata> getLogSegments(DistributedLogManager dlm) throws Exception {
+        Map<Long, LogSegmentMetadata> logSegmentMap =
+                new HashMap<Long, LogSegmentMetadata>();
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
+        for (LogSegmentMetadata segment : segments) {
             logSegmentMap.put(segment.getLedgerSequenceNumber(), segment);
         }
         return logSegmentMap;
     }
 
-    static void verifyLogSegment(Map<Long, LogSegmentLedgerMetadata> segments,
+    static void verifyLogSegment(Map<Long, LogSegmentMetadata> segments,
                                  DLSN lastDLSN, long ledgerSequenceNumber,
                                  int recordCount, long lastTxId) {
-        LogSegmentLedgerMetadata segment = segments.get(ledgerSequenceNumber);
+        LogSegmentMetadata segment = segments.get(ledgerSequenceNumber);
         assertNotNull(segment);
         assertEquals(lastDLSN, segment.getLastDLSN());
         assertEquals(recordCount, segment.getRecordCount());
@@ -102,7 +102,7 @@ public class TestDLCK extends TestDistributedLogBase {
                 new DryrunZkMetadataUpdater(conf, getZooKeeperClient(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
-        Map<Long, LogSegmentLedgerMetadata> segments = getLogSegments(dlm);
+        Map<Long, LogSegmentMetadata> segments = getLogSegments(dlm);
         LOG.info("segments after drynrun {}", segments);
         verifyLogSegment(segments, new DLSN(1L, 18L, 0L), 1L, 10, 10L);
         verifyLogSegment(segments, new DLSN(2L, 16L, 0L), 2L, 9, 19L);
