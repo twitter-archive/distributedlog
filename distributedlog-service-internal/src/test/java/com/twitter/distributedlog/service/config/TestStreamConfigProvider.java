@@ -61,8 +61,10 @@ public class TestStreamConfigProvider {
         Optional<DynamicDistributedLogConfiguration> config3 = provider.getDynamicStreamConfig("stream3");
         assertTrue(config1.isPresent());
         assertTrue(config2.isPresent());
-        assertFalse(config3.isPresent());
+        assertTrue(config3.isPresent());
         assertEquals(66, config1.get().getRetentionPeriodHours());
         assertEquals(88, config2.get().getRetentionPeriodHours());
+        assertEquals(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT,
+                config3.get().getRetentionPeriodHours());
     }
 }

@@ -57,7 +57,7 @@ public class TestStreamConfigProvider {
     public void testServiceProviderWithMissingConfig() throws Exception {
         StreamConfigProvider provider = getServiceProvider(IdentityConfigRouter.class.getName());
         Optional<DynamicDistributedLogConfiguration> config = provider.getDynamicStreamConfig("stream1");
-        assertFalse(config.isPresent());
+        assertTrue(config.isPresent());
     }
 
     @Test

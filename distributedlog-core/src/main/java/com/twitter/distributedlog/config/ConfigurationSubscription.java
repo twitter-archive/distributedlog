@@ -2,6 +2,7 @@ package com.twitter.distributedlog.config;
 
 import com.google.common.base.Preconditions;
 
+import java.io.FileNotFoundException;
 import java.lang.UnsupportedOperationException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -30,27 +31,42 @@ public class ConfigurationSubscription {
     static final Logger LOG = LoggerFactory.getLogger(ConfigurationSubscription.class);
 
     private final ConcurrentBaseConfiguration viewConfig;
-    private final FileConfiguration fileConfig;
     private final ScheduledExecutorService executorService;
     private final int reloadPeriod;
     private final TimeUnit reloadUnit;
+    private final FileConfigurationBuilder fileConfigBuilder;
 
-    public ConfigurationSubscription(ConcurrentBaseConfiguration viewConfig, FileConfigurationBuilder builder,
+    private FileConfiguration fileConfig;
+
+    public ConfigurationSubscription(ConcurrentBaseConfiguration viewConfig, FileConfigurationBuilder fileConfigBuilder,
                                      ScheduledExecutorService executorService, int reloadPeriod, TimeUnit reloadUnit)
                                      throws ConfigurationException {
-        Preconditions.checkNotNull(builder);
+        Preconditions.checkNotNull(fileConfigBuilder);
         Preconditions.checkNotNull(executorService);
         Preconditions.checkNotNull(viewConfig);
         this.viewConfig = viewConfig;
-        this.fileConfig = builder.getConfiguration();
-        FileChangedReloadingStrategy reloadingStrategy = new FileChangedReloadingStrategy();
-        reloadingStrategy.setRefreshDelay(0);
-        fileConfig.setReloadingStrategy(reloadingStrategy);
         this.executorService = executorService;
         this.reloadPeriod = reloadPeriod;
         this.reloadUnit = reloadUnit;
+        this.fileConfigBuilder = fileConfigBuilder;
         reload();
         scheduleReload();
+    }
+
+    private boolean initConfig() {
+        try {
+            if (null == fileConfig) {
+                fileConfig = fileConfigBuilder.getConfiguration();
+                FileChangedReloadingStrategy reloadingStrategy = new FileChangedReloadingStrategy();
+                reloadingStrategy.setRefreshDelay(0);
+                fileConfig.setReloadingStrategy(reloadingStrategy);
+            }
+        } catch (ConfigurationException ex) {
+            if (!fileNotFound(ex)) {
+                LOG.error("Config init failed {}", ex);
+            }
+        }
+        return null != fileConfig;
     }
 
     private void scheduleReload() {
@@ -63,19 +79,29 @@ public class ConfigurationSubscription {
     }
 
     private void reload() {
+        // No-op if already loaded.
+        if (!initConfig()) {
+            return;
+        }
+        // Reload if config exists.
         try {
-            // Note: This reloads the config view every time which will cause some
-            // contention. Could be optimized using config events.
             LOG.debug("Check and reload config, file={}, lastModified={}", fileConfig.getFile(),
                     fileConfig.getFile().lastModified());
             fileConfig.reload();
-            loadView();
+            loadView(fileConfig);
         } catch (Exception ex) {
-            LOG.error("Config reload failed for file {}", fileConfig.getFile(), ex);
+            if (!fileNotFound(ex)) {
+                LOG.error("Config reload failed for file {}", fileConfig.getFileName(), ex);
+            }
         }
     }
 
-    private void loadView() {
+    private boolean fileNotFound(Exception ex) {
+        return ex instanceof FileNotFoundException ||
+                ex.getCause() != null && ex.getCause() instanceof FileNotFoundException;
+    }
+
+    private void loadView(FileConfiguration fileConfig) {
         Iterator viewIter = viewConfig.getKeys();
         while (viewIter.hasNext()) {
             String key = (String) viewIter.next();

@@ -61,15 +61,24 @@ public class TestDynamicConfigurationFactory {
         assertEquals(conf1, conf2);
     }
 
+    /**
+     * If the file is missing, get-config should not fail, and the file should be picked up if its added.
+     * If the file is removed externally same should apply.
+     */
     @Test(timeout = 60000)
     public void testMissingConfig() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
         DynamicConfigurationFactory factory = getConfigFactory(writer.getFile());
-        try {
-            factory.getDynamicConfiguration("missing_config.blah");
-            fail("Should have thrown failing to find the missing config");
-        } catch (ConfigurationException ex) {
-            assertTrue(ex.getCause() instanceof FileNotFoundException);
-        }
+        Optional<DynamicDistributedLogConfiguration> conf = factory.getDynamicConfiguration(writer.getFile().getPath());
+        writer.setProperty(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS, "1");
+        writer.save();
+        waitForConfig(conf.get(), 1);
+        File configFile = writer.getFile();
+        configFile.delete();
+        Thread.sleep(1000);
+        PropertiesWriter writer2 = new PropertiesWriter(writer.getFile());
+        writer2.setProperty(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS, "2");
+        writer2.save();
+        waitForConfig(conf.get(), 2);
     }
 }
