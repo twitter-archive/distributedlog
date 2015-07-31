@@ -14,6 +14,7 @@ import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.distributedlog.client.routing.RoutingService;
 import com.twitter.distributedlog.client.routing.RoutingService.RoutingContext;
 import com.twitter.distributedlog.client.stats.ClientStats;
+import com.twitter.distributedlog.client.stats.OpStats;
 import com.twitter.distributedlog.exceptions.DLClientClosedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
@@ -108,11 +109,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         final RoutingContext routingContext = RoutingContext.of(regionResolver);
         final WriteContext ctx = new WriteContext();
         final Stopwatch stopwatch;
+        final OpStats opStats;
         SocketAddress nextAddressToSend;
 
-        StreamOp(final String stream) {
+        StreamOp(final String stream, final OpStats opStats) {
             this.stream = stream;
             this.stopwatch = Stopwatch.createStarted();
+            this.opStats = opStats;
         }
 
         void send(SocketAddress address) {
@@ -157,13 +160,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
         void complete(SocketAddress address) {
             stopwatch.stop();
-            clientStats.completeRequest(address,
+            opStats.completeRequest(address,
                     stopwatch.elapsed(TimeUnit.MICROSECONDS), tries.get());
         }
 
         void fail(SocketAddress address, Throwable t) {
             stopwatch.stop();
-            clientStats.failRequest(address,
+            opStats.failRequest(address,
                     stopwatch.elapsed(TimeUnit.MICROSECONDS), tries.get());
         }
 
@@ -183,7 +186,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         final ArrayList<Promise<DLSN>> results;
 
         BulkWriteOp(final String name, final List<ByteBuffer> data) {
-            super(name);
+            super(name, clientStats.getOpStats("bulk_write"));
             this.data = data;
 
             // This could take a while (relatively speaking) for very large inputs. We probably don't want
@@ -278,8 +281,8 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
         final Promise<WriteResponse> result = new Promise<WriteResponse>();
 
-        AbstractWriteOp(final String name) {
-            super(name);
+        AbstractWriteOp(final String name, final OpStats opStats) {
+            super(name, opStats);
         }
 
         void complete(SocketAddress address, WriteResponse response) {
@@ -323,7 +326,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         final ByteBuffer data;
 
         WriteOp(final String name, final ByteBuffer data) {
-            super(name);
+            super(name, clientStats.getOpStats("write"));
             this.data = data;
         }
 
@@ -346,7 +349,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         final DLSN dlsn;
 
         TruncateOp(String name, DLSN dlsn) {
-            super(name);
+            super(name, clientStats.getOpStats("truncate"));
             this.dlsn = dlsn;
         }
 
@@ -368,7 +371,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     class ReleaseOp extends AbstractWriteOp {
 
         ReleaseOp(String name) {
-            super(name);
+            super(name, clientStats.getOpStats("release"));
         }
 
         @Override
@@ -394,7 +397,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     class DeleteOp extends AbstractWriteOp {
 
         DeleteOp(String name) {
-            super(name);
+            super(name, clientStats.getOpStats("delete"));
         }
 
         @Override
@@ -421,7 +424,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         HeartbeatOptions options;
 
         HeartbeatOp(String name, boolean sendReaderHeartBeat) {
-            super(name);
+            super(name, clientStats.getOpStats("heartbeat"));
             options = new HeartbeatOptions();
             options.setSendHeartBeatToReader(sendReaderHeartBeat);
         }
@@ -473,7 +476,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
         // Client Manager
         this.clientBuilder = ProxyClient.newBuilder(clientName, clientId, clientBuilder, clientConfig, clientStats);
-        this.clientManager = new ProxyClientManager(this.clientConfig, this.clientBuilder, this.dlTimer);
+        this.clientManager = new ProxyClientManager(this.clientConfig, this.clientBuilder, this.dlTimer, clientStats);
         this.clientManager.registerProxyListener(this);
 
         // Cache Stats

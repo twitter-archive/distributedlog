@@ -15,7 +15,6 @@ public class ClientStatsLogger {
 
     // Stats
     private final StatsReceiver statsReceiver;
-    private final Stat redirectStat;
     private final StatsReceiver responseStatsReceiver;
     private final ConcurrentMap<StatusCode, Counter> responseStats =
             new ConcurrentHashMap<StatusCode, Counter>();
@@ -23,20 +22,13 @@ public class ClientStatsLogger {
     private final ConcurrentMap<Class<?>, Counter> exceptionStats =
             new ConcurrentHashMap<Class<?>, Counter>();
 
-    private final Stat successLatencyStat;
-    private final Stat failureLatencyStat;
     private final Stat proxySuccessLatencyStat;
     private final Stat proxyFailureLatencyStat;
 
     public ClientStatsLogger(StatsReceiver statsReceiver) {
         this.statsReceiver = statsReceiver;
-        StatsReceiver redirectStatReceiver = statsReceiver.scope("redirects");
-        redirectStat = redirectStatReceiver.stat0("times");
         responseStatsReceiver = statsReceiver.scope("responses");
         exceptionStatsReceiver = statsReceiver.scope("exceptions");
-        StatsReceiver latencyStatReceiver = statsReceiver.scope("latency");
-        successLatencyStat = latencyStatReceiver.stat0("success");
-        failureLatencyStat = latencyStatReceiver.stat0("failure");
         StatsReceiver proxyLatencyStatReceiver = statsReceiver.scope("proxy_request_latency");
         proxySuccessLatencyStat = proxyLatencyStatReceiver.stat0("success");
         proxyFailureLatencyStat = proxyLatencyStatReceiver.stat0("failure");
@@ -64,16 +56,6 @@ public class ClientStatsLogger {
             counter = null != oldCounter ? oldCounter : newCounter;
         }
         return counter;
-    }
-
-    public void completeRequest(long micros, int numTries) {
-        successLatencyStat.add(micros);
-        redirectStat.add(numTries);
-    }
-
-    public void failRequest(long micros, int numTries) {
-        failureLatencyStat.add(micros);
-        redirectStat.add(numTries);
     }
 
     public void completeProxyRequest(StatusCode code, long startTimeNanos) {

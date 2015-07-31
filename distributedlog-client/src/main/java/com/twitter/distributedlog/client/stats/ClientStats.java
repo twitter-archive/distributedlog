@@ -21,6 +21,7 @@ public class ClientStats {
     private final ClientStatsLogger clientStatsLogger;
     private final boolean enableRegionStats;
     private final ConcurrentMap<String, ClientStatsLogger> regionClientStatsLoggers;
+    private final ConcurrentMap<String, OpStats> opStatsMap;
 
     public ClientStats(StatsReceiver statsReceiver,
                        boolean enableRegionStats,
@@ -30,6 +31,22 @@ public class ClientStats {
         this.enableRegionStats = enableRegionStats;
         this.regionClientStatsLoggers = new ConcurrentHashMap<String, ClientStatsLogger>();
         this.regionResolver = regionResolver;
+        this.opStatsMap = new ConcurrentHashMap<String, OpStats>();
+    }
+
+    public OpStats getOpStats(String op) {
+        OpStats opStats = opStatsMap.get(op);
+        if (null != opStats) {
+            return opStats;
+        }
+        OpStats newStats = new OpStats(statsReceiver.scope("requests"),
+                enableRegionStats, regionResolver);
+        OpStats oldStats = opStatsMap.putIfAbsent(op, newStats);
+        if (null == oldStats) {
+            return newStats;
+        } else {
+            return oldStats;
+        }
     }
 
     private ClientStatsLogger getRegionClientStatsLogger(SocketAddress address) {
@@ -56,20 +73,6 @@ public class ClientStats {
             return getRegionClientStatsLogger(addr).getStatsReceiver();
         } else {
             return clientStatsLogger.getStatsReceiver();
-        }
-    }
-
-    public void completeRequest(SocketAddress addr, long micros, int numTries) {
-        clientStatsLogger.completeRequest(micros, numTries);
-        if (enableRegionStats && null != addr) {
-            getRegionClientStatsLogger(addr).completeRequest(micros, numTries);
-        }
-    }
-
-    public void failRequest(SocketAddress addr, long micros, int numTries) {
-        clientStatsLogger.failRequest(micros, numTries);
-        if (enableRegionStats && null != addr) {
-            getRegionClientStatsLogger(addr).failRequest(micros, numTries);
         }
     }
 

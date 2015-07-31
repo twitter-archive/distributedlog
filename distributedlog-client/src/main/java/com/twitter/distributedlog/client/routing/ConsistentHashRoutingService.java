@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.Gauge;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -98,10 +99,19 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         private final int numOfReplicas;
         private final SortedMap<Long, SocketAddress> circle;
 
-        ConsistentHash(HashFunction hashFunction, int numOfReplicas) {
+        // Stats
+        protected final Counter hostAddedCounter;
+        protected final Counter hostRemovedCounter;
+
+        ConsistentHash(HashFunction hashFunction,
+                       int numOfReplicas,
+                       StatsReceiver statsReceiver) {
             this.hashFunction = hashFunction;
             this.numOfReplicas = numOfReplicas;
             this.circle = new TreeMap<Long, SocketAddress>();
+
+            this.hostAddedCounter = statsReceiver.counter0("adds");
+            this.hostRemovedCounter = statsReceiver.counter0("removes");
         }
 
         private String replicaName(int shardId, int replica, String address) {
@@ -134,6 +144,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 Long hash = replicaHash(shardId, i, addressStr);
                 circle.put(hash, address);
             }
+            hostAddedCounter.incr();
         }
 
         public synchronized void remove(int shardId, SocketAddress address) {
@@ -144,6 +155,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                     circle.remove(hash);
                 }
             }
+            hostRemovedCounter.incr();
         }
 
         public SocketAddress get(String key, RoutingContext rContext) {
@@ -263,7 +275,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                                          int blackoutSeconds,
                                          StatsReceiver statsReceiver) {
         super(serverSetWatcher);
-        this.circle = new ConsistentHash(hashFunction, numReplicas);
+        this.circle = new ConsistentHash(hashFunction, numReplicas, statsReceiver.scope("ring"));
         this.hashedWheelTimer = new HashedWheelTimer(new ThreadFactoryBuilder()
                 .setNameFormat("ConsistentHashRoutingService-Timer-%d").build());
         this.blackoutSeconds = blackoutSeconds;

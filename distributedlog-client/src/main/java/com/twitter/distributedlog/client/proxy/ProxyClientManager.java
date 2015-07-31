@@ -1,7 +1,10 @@
 package com.twitter.distributedlog.client.proxy;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
 import com.twitter.distributedlog.client.ClientConfig;
+import com.twitter.distributedlog.client.stats.ClientStats;
+import com.twitter.distributedlog.client.stats.OpStats;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.util.FutureEventListener;
@@ -38,12 +41,16 @@ public class ProxyClientManager implements TimerTask {
     private volatile boolean closed = false;
     private volatile boolean periodicHandshakeEnabled = true;
 
+    private final OpStats handshakeStats;
+
     public ProxyClientManager(ClientConfig clientConfig,
                               ProxyClient.Builder clientBuilder,
-                              HashedWheelTimer timer) {
+                              HashedWheelTimer timer,
+                              ClientStats clientStats) {
         this.clientConfig = clientConfig;
         this.clientBuilder = clientBuilder;
         this.timer = timer;
+        this.handshakeStats = clientStats.getOpStats("handshake");
         scheduleHandshake();
     }
 
@@ -67,6 +74,7 @@ public class ProxyClientManager implements TimerTask {
             final Map<SocketAddress, ProxyClient> snapshot = ImmutableMap.copyOf(address2Services);
             final AtomicInteger numHosts = new AtomicInteger(snapshot.size());
             final AtomicInteger numStreams = new AtomicInteger(0);
+            final Stopwatch stopwatch = Stopwatch.createStarted();
             for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
                 final SocketAddress address = entry.getKey();
                 final ProxyClient client = entry.getValue();
@@ -74,13 +82,13 @@ public class ProxyClientManager implements TimerTask {
                     @Override
                     public void onSuccess(ServerInfo serverInfo) {
                         numStreams.addAndGet(serverInfo.getOwnershipsSize());
-                        notifyHandshakeSuccess(address, serverInfo, false);
+                        notifyHandshakeSuccess(address, serverInfo, false, stopwatch);
                         complete();
                     }
 
                     @Override
                     public void onFailure(Throwable cause) {
-                        notifyHandshakeFailure(address, client, cause);
+                        notifyHandshakeFailure(address, client, cause, stopwatch);
                         complete();
                     }
 
@@ -106,7 +114,10 @@ public class ProxyClientManager implements TimerTask {
         proxyListeners.add(listener);
     }
 
-    private void notifyHandshakeSuccess(SocketAddress address, ServerInfo serverInfo, boolean logging) {
+    private void notifyHandshakeSuccess(SocketAddress address,
+                                        ServerInfo serverInfo,
+                                        boolean logging,
+                                        Stopwatch stopwatch) {
         if (logging) {
             if (null != serverInfo && serverInfo.isSetOwnerships()) {
                 logger.info("Handshaked with {} : {} ownerships returned.",
@@ -115,6 +126,7 @@ public class ProxyClientManager implements TimerTask {
                 logger.info("Handshaked with {} : no ownerships returned", address);
             }
         }
+        handshakeStats.completeRequest(address, stopwatch.elapsed(TimeUnit.MICROSECONDS), 1);
         for (ProxyListener listener : proxyListeners) {
             listener.onHandshakeSuccess(address, serverInfo);
         }
@@ -122,7 +134,9 @@ public class ProxyClientManager implements TimerTask {
 
     private void notifyHandshakeFailure(SocketAddress address,
                                         ProxyClient client,
-                                        Throwable cause) {
+                                        Throwable cause,
+                                        Stopwatch stopwatch) {
+        handshakeStats.failRequest(address, stopwatch.elapsed(TimeUnit.MICROSECONDS), 1);
         for (ProxyListener listener : proxyListeners) {
             listener.onHandshakeFailure(address, client, cause);
         }
@@ -186,14 +200,15 @@ public class ProxyClientManager implements TimerTask {
             sc.close();
             return oldSC;
         } else {
+            final Stopwatch stopwatch = Stopwatch.createStarted();
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyHandshakeSuccess(address, serverInfo, true);
+                    notifyHandshakeSuccess(address, serverInfo, true, stopwatch);
                 }
                 @Override
                 public void onFailure(Throwable cause) {
-                    notifyHandshakeFailure(address, sc, cause);
+                    notifyHandshakeFailure(address, sc, cause, stopwatch);
                 }
             };
             // send a ping messaging after creating connections.
@@ -242,18 +257,19 @@ public class ProxyClientManager implements TimerTask {
                 new HashMap<SocketAddress, ProxyClient>(address2Services);
         logger.info("Handshaking with {} hosts.", snapshot.size());
         final CountDownLatch latch = new CountDownLatch(snapshot.size());
+        final Stopwatch stopwatch = Stopwatch.createStarted();
         for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
             final SocketAddress address = entry.getKey();
             final ProxyClient client = entry.getValue();
             handshake(address, client, new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyHandshakeSuccess(address, serverInfo, true);
+                    notifyHandshakeSuccess(address, serverInfo, true, stopwatch);
                     latch.countDown();
                 }
                 @Override
                 public void onFailure(Throwable cause) {
-                    notifyHandshakeFailure(address, client, cause);
+                    notifyHandshakeFailure(address, client, cause, stopwatch);
                     latch.countDown();
                 }
             }, true);
