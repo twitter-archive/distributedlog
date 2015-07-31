@@ -284,18 +284,18 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
         this.numBlackoutHosts = new AtomicInteger(0);
         this.numBlackoutHostsGauge = this.statsReceiver.addGauge(gaugeName("num_blackout_hosts"),
                 new Function0<Object>() {
-            @Override
-            public Object apply() {
-                return (float) numBlackoutHosts.get();
-            }
-        });
+                    @Override
+                    public Object apply() {
+                        return (float) numBlackoutHosts.get();
+                    }
+                });
         this.numHostsGauge = this.statsReceiver.addGauge(gaugeName("num_hosts"),
                 new Function0<Object>() {
-            @Override
-            public Object apply() {
-                return (float) address2ShardId.size();
-            }
-        });
+                    @Override
+                    public Object apply() {
+                        return (float) address2ShardId.size();
+                    }
+                });
     }
 
     private static Seq<String> gaugeName(String name) {
@@ -312,6 +312,13 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     public void stopService() {
         this.hashedWheelTimer.stop();
         super.stopService();
+    }
+
+    @Override
+    public Set<SocketAddress> getHosts() {
+        synchronized (shardId2Address) {
+            return ImmutableSet.copyOf(address2ShardId.keySet());
+        }
     }
 
     @Override

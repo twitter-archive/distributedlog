@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.client.routing;
 
+import com.google.common.collect.Sets;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.StatsReceiver;
 
@@ -7,6 +8,7 @@ import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class LocalRoutingService implements RoutingService {
@@ -45,6 +47,15 @@ public class LocalRoutingService implements RoutingService {
     @Override
     public void stopService() {
         // nop
+    }
+
+    @Override
+    public synchronized Set<SocketAddress> getHosts() {
+        Set<SocketAddress> hosts = Sets.newHashSet();
+        for (LinkedHashSet<SocketAddress> addresses : localAddresses.values()) {
+            hosts.addAll(addresses);
+        }
+        return hosts;
     }
 
     @Override

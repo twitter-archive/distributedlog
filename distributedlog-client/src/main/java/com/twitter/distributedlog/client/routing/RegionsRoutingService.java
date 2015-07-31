@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.client.routing;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -9,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.SocketAddress;
+import java.util.Set;
 
 /**
  * Chain multiple routing services
@@ -79,6 +81,15 @@ public class RegionsRoutingService implements RoutingService {
                                   RoutingService[] routingServices) {
         this.regionResolver = resolver;
         this.routingServices = routingServices;
+    }
+
+    @Override
+    public Set<SocketAddress> getHosts() {
+        Set<SocketAddress> hosts = Sets.newHashSet();
+        for (RoutingService rs : routingServices) {
+            hosts.addAll(rs.getHosts());
+        }
+        return hosts;
     }
 
     @Override

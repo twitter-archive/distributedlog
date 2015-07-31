@@ -5,7 +5,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.thrift.Endpoint;
@@ -88,6 +87,13 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     ServerSetRoutingService(DLServerSetWatcher serverSetWatcher) {
         super("ServerSetRoutingService");
         this.serverSetWatcher = serverSetWatcher;
+    }
+
+    @Override
+    public Set<SocketAddress> getHosts() {
+        synchronized (hostSet) {
+            return ImmutableSet.copyOf(hostSet);
+        }
     }
 
     @Override

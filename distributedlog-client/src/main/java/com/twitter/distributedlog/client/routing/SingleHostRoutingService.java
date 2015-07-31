@@ -1,10 +1,12 @@
 package com.twitter.distributedlog.client.routing;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.StatsReceiver;
 
 import java.net.SocketAddress;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 class SingleHostRoutingService implements RoutingService {
@@ -47,6 +49,11 @@ class SingleHostRoutingService implements RoutingService {
 
     SingleHostRoutingService(SocketAddress address) {
         this.address = address;
+    }
+
+    @Override
+    public Set<SocketAddress> getHosts() {
+        return Sets.newHashSet(address);
     }
 
     @Override

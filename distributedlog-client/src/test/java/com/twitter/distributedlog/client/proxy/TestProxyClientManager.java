@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.client.proxy;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.client.ClientConfig;
@@ -19,7 +20,9 @@ import org.junit.rules.TestName;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -34,7 +37,29 @@ public class TestProxyClientManager {
     @Rule
     public TestName runtime = new TestName();
 
+    static class TestHostProvider implements HostProvider {
+
+        Set<SocketAddress> hosts = new HashSet<SocketAddress>();
+
+        synchronized void addHost(SocketAddress host) {
+            hosts.add(host);
+        }
+
+        @Override
+        public synchronized Set<SocketAddress> getHosts() {
+            return ImmutableSet.copyOf(hosts);
+        }
+
+    }
+
     private static ProxyClientManager createProxyClientManager(ProxyClient.Builder builder,
+                                                               long periodicHandshakeIntervalMs) {
+        HostProvider provider = new TestHostProvider();
+        return createProxyClientManager(builder, provider, periodicHandshakeIntervalMs);
+    }
+
+    private static ProxyClientManager createProxyClientManager(ProxyClient.Builder builder,
+                                                               HostProvider hostProvider,
                                                                long periodicHandshakeIntervalMs) {
         ClientConfig clientConfig = new ClientConfig();
         clientConfig.setPeriodicHandshakeIntervalMs(periodicHandshakeIntervalMs);
@@ -42,7 +67,7 @@ public class TestProxyClientManager {
                 new ThreadFactoryBuilder().setNameFormat("TestProxyClientManager-timer-%d").build(),
                 clientConfig.getRedirectBackoffStartMs(),
                 TimeUnit.MILLISECONDS);
-        return new ProxyClientManager(clientConfig, builder, dlTimer,
+        return new ProxyClientManager(clientConfig, builder, dlTimer, hostProvider,
                 new ClientStats(NullStatsReceiver.get(), false, new TwitterRegionResolver()));
     }
 
@@ -196,7 +221,6 @@ public class TestProxyClientManager {
             serverInfoMap.put(address, serverInfo);
         }
 
-
         final Map<SocketAddress, ServerInfo> results = new HashMap<SocketAddress, ServerInfo>();
         final CountDownLatch doneLatch = new CountDownLatch(2 * numHosts);
         ProxyListener listener = new ProxyListener() {
@@ -213,12 +237,13 @@ public class TestProxyClientManager {
             }
         };
 
-        ProxyClientManager clientManager = createProxyClientManager(builder, 0L);
+        TestHostProvider rs = new TestHostProvider();
+        ProxyClientManager clientManager = createProxyClientManager(builder, rs, 0L);
         clientManager.registerProxyListener(listener);
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         for (int i = 0; i < numHosts; i++) {
-            clientManager.createClient(createSocketAddress(initialPort + i));
+            rs.addHost(createSocketAddress(initialPort + i));
         }
         // handshake would handshake with 3 hosts again
         clientManager.handshake();
@@ -277,14 +302,17 @@ public class TestProxyClientManager {
             }
         };
 
-        ProxyClientManager clientManager = createProxyClientManager(builder, 50L);
+        TestHostProvider rs = new TestHostProvider();
+        ProxyClientManager clientManager = createProxyClientManager(builder, rs, 50L);
         clientManager.setPeriodicHandshakeEnabled(false);
         clientManager.registerProxyListener(listener);
 
         assertEquals("There should be no clients in the manager",
                 0, clientManager.getNumProxies());
         for (int i = 0; i < numHosts; i++) {
-            clientManager.createClient(createSocketAddress(initialPort + i));
+            SocketAddress address = createSocketAddress(initialPort + i);
+            rs.addHost(address);
+            clientManager.createClient(address);
         }
 
         // make sure the first 3 handshakes going through

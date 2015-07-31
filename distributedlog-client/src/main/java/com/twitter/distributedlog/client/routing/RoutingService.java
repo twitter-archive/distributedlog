@@ -154,6 +154,13 @@ public interface RoutingService {
     RoutingService unregisterListener(RoutingListener listener);
 
     /**
+     * Get all the hosts that available in routing service.
+     *
+     * @return all the hosts
+     */
+    Set<SocketAddress> getHosts();
+
+    /**
      * Get the host to route the request by <i>key</i>.
      *
      * @param key

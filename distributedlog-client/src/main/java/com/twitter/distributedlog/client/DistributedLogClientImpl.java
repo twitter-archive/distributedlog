@@ -3,8 +3,10 @@ package com.twitter.distributedlog.client;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.client.proxy.HostProvider;
 import com.twitter.distributedlog.client.proxy.ProxyClient;
 import com.twitter.distributedlog.client.proxy.ProxyClientManager;
 import com.twitter.distributedlog.client.proxy.ProxyListener;
@@ -74,7 +76,7 @@ import java.util.regex.Pattern;
  * Implementation of distributedlog client
  */
 public class DistributedLogClientImpl implements DistributedLogClient, MonitorServiceClient,
-        RoutingService.RoutingListener, ProxyListener {
+        RoutingService.RoutingListener, ProxyListener, HostProvider {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogClientImpl.class);
 
@@ -476,7 +478,12 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         this.clientStats = new ClientStats(statsReceiver, enableRegionStats, regionResolver);
         // Client Manager
         this.clientBuilder = ProxyClient.newBuilder(clientName, clientId, clientBuilder, clientConfig, clientStats);
-        this.clientManager = new ProxyClientManager(this.clientConfig, this.clientBuilder, this.dlTimer, clientStats);
+        this.clientManager = new ProxyClientManager(
+                this.clientConfig,  // client config
+                this.clientBuilder, // client builder
+                this.dlTimer,       // timer
+                this,               // host provider
+                clientStats);       // client stats
         this.clientManager.registerProxyListener(this);
 
         // Cache Stats
@@ -503,6 +510,15 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     @Override
+    public Set<SocketAddress> getHosts() {
+        Set<SocketAddress> hosts = Sets.newHashSet();
+        // use both routing service and ownership cache for the handshaking source
+        hosts.addAll(this.routingService.getHosts());
+        hosts.addAll(this.ownershipCache.getStreamOwnershipDistribution().keySet());
+        return hosts;
+    }
+
+    @Override
     public void onHandshakeSuccess(SocketAddress address, ServerInfo value) {
         if (null != value && value.isSetOwnerships()) {
             Map<String, String> ownerships = value.getOwnerships();
@@ -521,6 +537,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
     @Override
     public void onHandshakeFailure(SocketAddress address, ProxyClient client, Throwable cause) {
+        cause = showRootCause(Optional.<StreamOp>absent(), cause);
         handleRequestException(address, client, Optional.<StreamOp>absent(), cause);
     }
 
@@ -753,24 +770,34 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
             @Override
             public void onFailure(Throwable cause) {
-                if (cause instanceof Failure) {
-                    Failure failure = (Failure) cause;
-                    if (failure.isFlagged(Failure.Wrapped())) {
-                        try {
-                            // if it is a wrapped failure, unwrap it first
-                            cause = failure.show();
-                        } catch (IllegalArgumentException iae) {
-                            logger.warn("Failed to unwrap finagle failure of stream {} : ", op.stream, iae);
-                        }
-                    }
-                }
+                Optional<StreamOp> opOptional = Optional.of(op);
+                cause = showRootCause(opOptional, cause);
                 clientStats.failProxyRequest(addr, cause, startTimeNanos);
-                handleRequestException(addr, sc, Optional.of(op), cause);
+                handleRequestException(addr, sc, opOptional, cause);
             }
         });
     }
 
     // Response Handlers
+
+    Throwable showRootCause(Optional<StreamOp> op, Throwable cause) {
+        if (cause instanceof Failure) {
+            Failure failure = (Failure) cause;
+            if (failure.isFlagged(Failure.Wrapped())) {
+                try {
+                    // if it is a wrapped failure, unwrap it first
+                    cause = failure.show();
+                } catch (IllegalArgumentException iae) {
+                    if (op.isPresent()) {
+                        logger.warn("Failed to unwrap finagle failure of stream {} : ", op.get().stream, iae);
+                    } else {
+                        logger.warn("Failed to unwrap finagle failure : ", iae);
+                    }
+                }
+            }
+        }
+        return cause;
+    }
 
     void handleRequestException(SocketAddress addr,
                                 ProxyClient sc,

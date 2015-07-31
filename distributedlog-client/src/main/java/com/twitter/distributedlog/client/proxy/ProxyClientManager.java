@@ -15,8 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.SocketAddress;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +33,7 @@ public class ProxyClientManager implements TimerTask {
     private final ClientConfig clientConfig;
     private final ProxyClient.Builder clientBuilder;
     private final HashedWheelTimer timer;
+    private final HostProvider hostProvider;
     private volatile Timeout periodicHandshakeTask;
     private final ConcurrentHashMap<SocketAddress, ProxyClient> address2Services =
             new ConcurrentHashMap<SocketAddress, ProxyClient>();
@@ -46,10 +47,12 @@ public class ProxyClientManager implements TimerTask {
     public ProxyClientManager(ClientConfig clientConfig,
                               ProxyClient.Builder clientBuilder,
                               HashedWheelTimer timer,
+                              HostProvider hostProvider,
                               ClientStats clientStats) {
         this.clientConfig = clientConfig;
         this.clientBuilder = clientBuilder;
         this.timer = timer;
+        this.hostProvider = hostProvider;
         this.handshakeStats = clientStats.getOpStats("handshake");
         scheduleHandshake();
     }
@@ -71,13 +74,13 @@ public class ProxyClientManager implements TimerTask {
             return;
         }
         if (periodicHandshakeEnabled) {
-            final Map<SocketAddress, ProxyClient> snapshot = ImmutableMap.copyOf(address2Services);
-            final AtomicInteger numHosts = new AtomicInteger(snapshot.size());
+            final Set<SocketAddress> hostsSnapshot = hostProvider.getHosts();
+            final AtomicInteger numHosts = new AtomicInteger(hostsSnapshot.size());
             final AtomicInteger numStreams = new AtomicInteger(0);
             final Stopwatch stopwatch = Stopwatch.createStarted();
-            for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
-                final SocketAddress address = entry.getKey();
-                final ProxyClient client = entry.getValue();
+            for (SocketAddress host : hostsSnapshot) {
+                final SocketAddress address = host;
+                final ProxyClient client = getClient(address);
                 handshake(address, client, new FutureEventListener<ServerInfo>() {
                     @Override
                     public void onSuccess(ServerInfo serverInfo) {
@@ -95,7 +98,7 @@ public class ProxyClientManager implements TimerTask {
                     private void complete() {
                         if (0 == numHosts.decrementAndGet()) {
                             logger.info("Periodic handshaked with {} hosts : {} streams",
-                                    snapshot.size(), numStreams.get());
+                                    hostsSnapshot.size(), numStreams.get());
                         }
                     }
                 }, false);
@@ -253,14 +256,13 @@ public class ProxyClientManager implements TimerTask {
      * NOTE: this is a synchronous call.
      */
     public void handshake() {
-        Map<SocketAddress, ProxyClient> snapshot =
-                new HashMap<SocketAddress, ProxyClient>(address2Services);
-        logger.info("Handshaking with {} hosts.", snapshot.size());
-        final CountDownLatch latch = new CountDownLatch(snapshot.size());
+        Set<SocketAddress> hostsSnapshot = hostProvider.getHosts();
+        logger.info("Handshaking with {} hosts.", hostsSnapshot.size());
+        final CountDownLatch latch = new CountDownLatch(hostsSnapshot.size());
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        for (Map.Entry<SocketAddress, ProxyClient> entry : snapshot.entrySet()) {
-            final SocketAddress address = entry.getKey();
-            final ProxyClient client = entry.getValue();
+        for (SocketAddress host: hostsSnapshot) {
+            final SocketAddress address = host;
+            final ProxyClient client = getClient(address);
             handshake(address, client, new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
