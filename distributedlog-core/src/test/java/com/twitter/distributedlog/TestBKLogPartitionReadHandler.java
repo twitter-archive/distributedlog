@@ -118,7 +118,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         // Get full list.
         BKLogPartitionWriteHandler writeHandler0 = ((BKDistributedLogManager) dlm).createWriteLedgerHandler(new PartitionId(0));
         List<LogSegmentMetadata> cachedFullLedgerList =
-                writeHandler0.getCachedFullLedgerList(LogSegmentMetadata.DESC_COMPARATOR);
+                writeHandler0.getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR);
         assertTrue(cachedFullLedgerList.size() <= 1);
         List<LogSegmentMetadata> fullLedgerList = writeHandler0.getFullLedgerListDesc(false, false);
         assertEquals(11, fullLedgerList.size());

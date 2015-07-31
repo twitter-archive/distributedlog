@@ -337,7 +337,14 @@ public class LogSegmentMetadata {
                 if (o1.getLedgerSequenceNumber() < o2.getLedgerSequenceNumber()) {
                     return -1;
                 } else if (o1.getLedgerSequenceNumber() == o2.getLedgerSequenceNumber()) {
-                    return 0;
+                    // make sure we won't move over inprogress log segment if it still presents in the list
+                    if (o1.isInProgress() && !o2.isInProgress()) {
+                        return -1;
+                    } else if (!o1.isInProgress() && o2.isInProgress()) {
+                        return 1;
+                    } else {
+                        return 0;
+                    }
                 } else {
                     return 1;
                 }
@@ -364,7 +371,14 @@ public class LogSegmentMetadata {
                 if (o1.getLedgerSequenceNumber() > o2.getLedgerSequenceNumber()) {
                     return -1;
                 } else if (o1.getLedgerSequenceNumber() == o2.getLedgerSequenceNumber()) {
-                    return 0;
+                    // make sure we won't move over inprogress log segment if it still presents in the list
+                    if (o1.isInProgress() && !o2.isInProgress()) {
+                        return 1;
+                    } else if (!o1.isInProgress() && o2.isInProgress()) {
+                        return -1;
+                    } else {
+                        return 0;
+                    }
                 } else {
                     return 1;
                 }

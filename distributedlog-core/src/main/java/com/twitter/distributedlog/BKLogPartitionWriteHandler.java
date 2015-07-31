@@ -665,7 +665,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             } else if (maxLedgerSequenceNo.getSequenceNumber() + 1 != ledgerSeqNo) {
                 LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
                     new Object[]{maxLedgerSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
-                        getCachedFullLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
+                        getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
                 // there is max log segment number recorded there and it isn't match. throw exception.
                 throw new DLIllegalStateException("Unexpected max log segment sequence number "
                     + maxLedgerSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()

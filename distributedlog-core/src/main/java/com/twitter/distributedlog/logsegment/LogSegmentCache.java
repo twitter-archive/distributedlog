@@ -3,12 +3,12 @@ package com.twitter.distributedlog.logsegment;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -32,59 +32,75 @@ public class LogSegmentCache {
 
     static final Logger LOG = LoggerFactory.getLogger(LogSegmentCache.class);
 
+    protected final String streamName;
     protected final Map<String, LogSegmentMetadata> logSegments =
             new HashMap<String, LogSegmentMetadata>();
     protected final ConcurrentMap<Long, LogSegmentMetadata> lid2LogSegments =
             new ConcurrentHashMap<Long, LogSegmentMetadata>();
 
+    public LogSegmentCache(String streamName) {
+        this.streamName = streamName;
+    }
+
     /**
      * Retrieve log segments from the cache.
      *
+     * - first sort the log segments in ascending order
+     * - do validation and assign corresponding sequence id
+     * - apply comparator after validation
+     *
      * @param comparator
      *          comparator to sort the returned log segments.
-     * @param segmentFilter
-     *          filter to filter out the returned log segments.
      * @return list of sorted and filtered log segments.
+     * @throws UnexpectedException if unexpected condition detected (e.g. ledger sequence number gap)
      */
-    public List<LogSegmentMetadata> getLogSegments(Comparator<LogSegmentMetadata> comparator,
-                                                   LogSegmentFilter segmentFilter) {
+    public List<LogSegmentMetadata> getLogSegments(Comparator<LogSegmentMetadata> comparator)
+        throws UnexpectedException {
         List<LogSegmentMetadata> segmentsToReturn;
         synchronized (logSegments) {
             segmentsToReturn = new ArrayList<LogSegmentMetadata>(logSegments.size());
-            Collection<String> segmentNamesFiltered = segmentFilter.filter(logSegments.keySet());
-            for (String name : segmentNamesFiltered) {
-                segmentsToReturn.add(logSegments.get(name));
-            }
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Cached log segments : {}", segmentsToReturn);
-            }
+            segmentsToReturn.addAll(logSegments.values());
         }
         Collections.sort(segmentsToReturn, LogSegmentMetadata.COMPARATOR);
         long startSequenceId = DistributedLogConstants.UNASSIGNED_SEQUENCE_ID;
-        LogSegmentMetadata prevMetadata = null;
+        LogSegmentMetadata prevSegment = null;
         for (int i = 0; i < segmentsToReturn.size(); i++) {
-            LogSegmentMetadata metadata = segmentsToReturn.get(i);
-            if (!metadata.isInProgress()) {
-                if (metadata.supportsSequenceId()) {
-                    startSequenceId = metadata.getStartSequenceId() + metadata.getRecordCount();
-                    if (null != prevMetadata && prevMetadata.supportsSequenceId()
-                            && prevMetadata.getStartSequenceId() > metadata.getStartSequenceId()) {
-                        LOG.warn("Found decreasing start sequence id in log segment {}, previous is {}",
-                                metadata, prevMetadata);
+            LogSegmentMetadata segment = segmentsToReturn.get(i);
+
+            // validation on ledger sequence number
+            // - we are ok that if there are same log segments exist. it is just same log segment in different
+            //   states (inprogress vs completed). it could happen during completing log segment without transaction
+            if (null != prevSegment
+                    && prevSegment.getLedgerSequenceNumber() != segment.getLedgerSequenceNumber()
+                    && prevSegment.getLedgerSequenceNumber() + 1 != segment.getLedgerSequenceNumber()) {
+                LOG.error("{} found ledger sequence number gap between log segment {} and {}",
+                        new Object[] { streamName, prevSegment, segment });
+                throw new UnexpectedException(streamName + " found ledger sequence number gap between log segment "
+                        + prevSegment.getLedgerSequenceNumber() + " and " + segment.getLedgerSequenceNumber());
+            }
+
+            // assign sequence id
+            if (!segment.isInProgress()) {
+                if (segment.supportsSequenceId()) {
+                    startSequenceId = segment.getStartSequenceId() + segment.getRecordCount();
+                    if (null != prevSegment && prevSegment.supportsSequenceId()
+                            && prevSegment.getStartSequenceId() > segment.getStartSequenceId()) {
+                        LOG.warn("{} found decreasing start sequence id in log segment {}, previous is {}",
+                                new Object[] { streamName, segment, prevSegment });
                     }
                 } else {
                     startSequenceId = DistributedLogConstants.UNASSIGNED_SEQUENCE_ID;
                 }
             } else {
-                if (metadata.supportsSequenceId()) {
-                    LogSegmentMetadata newMetadata = metadata.mutator()
+                if (segment.supportsSequenceId()) {
+                    LogSegmentMetadata newSegment = segment.mutator()
                             .setStartSequenceId(startSequenceId == DistributedLogConstants.UNASSIGNED_SEQUENCE_ID ? 0L : startSequenceId)
                             .build();
-                    segmentsToReturn.set(i, newMetadata);
+                    segmentsToReturn.set(i, newSegment);
                 }
                 break;
             }
-            prevMetadata = metadata;
+            prevSegment = segment;
         }
         if (comparator != LogSegmentMetadata.COMPARATOR) {
             Collections.sort(segmentsToReturn, comparator);
@@ -104,9 +120,8 @@ public class LogSegmentCache {
         synchronized (logSegments) {
             if (!logSegments.containsKey(name)) {
                 logSegments.put(name, metadata);
-                if (LOG.isTraceEnabled()) {
-                    LOG.trace("Added log segment ({} : {}) to cache.", name, metadata);
-                }
+                LOG.info("{} added log segment ({} : {}) to cache.",
+                        new Object[]{ streamName, name, metadata });
             }
             LogSegmentMetadata oldMetadata = lid2LogSegments.remove(metadata.getLedgerId());
             if (null == oldMetadata) {
@@ -135,8 +150,27 @@ public class LogSegmentCache {
     }
 
     /**
+     * Update the log segment cache with removed/added segments.
+     *
+     * @param segmentsRemoved
+     *          segments that removed
+     * @param segmentsAdded
+     *          segments that added
+     */
+    public void update(Set<String> segmentsRemoved,
+                       Map<String, LogSegmentMetadata> segmentsAdded) {
+        synchronized (logSegments) {
+            for (Map.Entry<String, LogSegmentMetadata> entry : segmentsAdded.entrySet()) {
+                add(entry.getKey(), entry.getValue());
+            }
+            for (String segment : segmentsRemoved) {
+                remove(segment);
+            }
+        }
+    }
+
+    /**
      * Diff with new received segment list <code>segmentReceived</code>.
-     * (TODO: the logic should be changed)
      *
      * @param segmentsReceived
      *          new received segment list
@@ -149,10 +183,6 @@ public class LogSegmentCache {
             Set<String> segmentsCached = logSegments.keySet();
             segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
             segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
-            for (String s : segmentsRemoved) {
-                LogSegmentMetadata segmentMetadata = remove(s);
-                LOG.debug("Removed log segment {} from cache : {}.", s, segmentMetadata);
-            }
         }
         return Pair.of(segmentsAdded, segmentsRemoved);
     }

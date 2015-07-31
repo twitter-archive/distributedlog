@@ -22,6 +22,7 @@ import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
@@ -51,9 +52,11 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
@@ -120,7 +123,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             new CopyOnWriteArraySet<LogSegmentListener>();
 
     // Maintain the list of ledgers
-    protected final LogSegmentCache logSegmentCache = new LogSegmentCache();
+    protected final LogSegmentCache logSegmentCache;
     protected volatile SyncGetLedgersCallback firstGetLedgersTask = null;
 
     protected final AsyncNotification notification;
@@ -269,6 +272,7 @@ abstract class BKLogPartitionHandler implements Watcher {
         this.notification = notification;
         this.filter = filter;
         partitionRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
+        this.logSegmentCache = new LogSegmentCache(name);
 
         ledgerPath = partitionRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
@@ -851,13 +855,9 @@ abstract class BKLogPartitionHandler implements Watcher {
     // Get ledger list should go through #getCachedLedgerList as we need to assign start sequence id for inprogress log
     // segment so the reader could generate the right sequence id.
 
-    private List<LogSegmentMetadata> getCachedLedgerList(Comparator<LogSegmentMetadata> comparator,
-                                                         LogSegmentFilter segmentFilter) {
-        return logSegmentCache.getLogSegments(comparator, segmentFilter);
-    }
-
-    protected List<LogSegmentMetadata> getCachedFullLedgerList(Comparator<LogSegmentMetadata> comparator) {
-        return getCachedLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER);
+    protected List<LogSegmentMetadata> getCachedLedgerList(Comparator<LogSegmentMetadata> comparator)
+        throws UnexpectedException {
+        return logSegmentCache.getLogSegments(comparator);
     }
 
     protected List<LogSegmentMetadata> getFullLedgerList(boolean forceFetch, boolean throwOnEmpty)
@@ -881,9 +881,9 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     protected List<LogSegmentMetadata> getLedgerList(boolean forceFetch,
-                                                           boolean fetchFullList,
-                                                           Comparator<LogSegmentMetadata> comparator,
-                                                           boolean throwOnEmpty)
+                                                     boolean fetchFullList,
+                                                     Comparator<LogSegmentMetadata> comparator,
+                                                     boolean throwOnEmpty)
             throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
@@ -903,14 +903,14 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     private List<LogSegmentMetadata> doGetLedgerList(boolean forceFetch, boolean fetchFullList,
-                                                           Comparator<LogSegmentMetadata> comparator,
-                                                           boolean throwOnEmpty)
+                                                     Comparator<LogSegmentMetadata> comparator,
+                                                     boolean throwOnEmpty)
         throws IOException {
         if (fetchFullList) {
             if (forceFetch || !isFullListFetched.get()) {
                 return forceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
-                return getCachedFullLedgerList(comparator);
+                return getCachedLedgerList(comparator);
             }
         } else {
             if (forceFetch) {
@@ -920,7 +920,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                     scheduleGetLedgersTask(true, true);
                 }
                 waitFirstGetLedgersTaskToFinish();
-                return getCachedLedgerList(comparator, filter);
+                return getCachedLedgerList(comparator);
             }
         }
     }
@@ -1010,14 +1010,18 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     private Future<List<LogSegmentMetadata>> asyncDoGetLedgerList(final boolean forceFetch,
-                                                                        final boolean fetchFullList,
-                                                                        final Comparator<LogSegmentMetadata> comparator,
-                                                                        final boolean throwOnEmpty) {
+                                                                  final boolean fetchFullList,
+                                                                  final Comparator<LogSegmentMetadata> comparator,
+                                                                  final boolean throwOnEmpty) {
         if (fetchFullList) {
             if (forceFetch || !isFullListFetched.get()) {
                 return asyncForceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
-                return Future.value(getCachedFullLedgerList(comparator));
+                try {
+                    return Future.value(getCachedLedgerList(comparator));
+                } catch (UnexpectedException ue) {
+                    return Future.exception(ue);
+                }
             }
         } else {
             if (forceFetch) {
@@ -1029,7 +1033,11 @@ abstract class BKLogPartitionHandler implements Watcher {
                 task.promise.addEventListener(new FutureEventListener<List<LogSegmentMetadata>>() {
                     @Override
                     public void onSuccess(List<LogSegmentMetadata> value) {
-                        promise.setValue(getCachedLedgerList(comparator, filter));
+                        try {
+                            promise.setValue(getCachedLedgerList(comparator));
+                        } catch (UnexpectedException e) {
+                            promise.setException(e);
+                        }
                     }
 
                     @Override
@@ -1215,20 +1223,31 @@ abstract class BKLogPartitionHandler implements Watcher {
                     Set<String> segmentsReceived = new HashSet<String>();
                     segmentsReceived.addAll(segmentFilter.filter(children));
                     Set<String> segmentsAdded;
-                    Set<String> segmentsRemoved;
+                    final Set<String> removedSegments = Collections.synchronizedSet(new HashSet<String>());
+                    final Map<String, LogSegmentMetadata> addedSegments =
+                            Collections.synchronizedMap(new HashMap<String, LogSegmentMetadata>());
                     Pair<Set<String>, Set<String>> segmentChanges = logSegmentCache.diff(segmentsReceived);
                     segmentsAdded = segmentChanges.getLeft();
-                    segmentsRemoved = segmentChanges.getRight();
+                    removedSegments.addAll(segmentChanges.getRight());
 
                     if (segmentsAdded.isEmpty()) {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("No segments added for {}.", getFullyQualifiedName());
                         }
 
-                        List<LogSegmentMetadata> segmentList = getCachedLedgerList(comparator, segmentFilter);
+                        // update the cache before fetch
+                        logSegmentCache.update(removedSegments, addedSegments);
+
+                        List<LogSegmentMetadata> segmentList;
+                        try {
+                            segmentList = getCachedLedgerList(comparator);
+                        } catch (UnexpectedException e) {
+                            callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
+                            return;
+                        }
                         callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
                         notifyUpdatedLogSegments(segmentList);
-                        if (!segmentsRemoved.isEmpty()) {
+                        if (!removedSegments.isEmpty()) {
                             notifyOnOperationComplete();
                         }
                         return;
@@ -1246,7 +1265,7 @@ abstract class BKLogPartitionHandler implements Watcher {
                                         // attempt on the znode corresponding to the segment
                                         // 2. In progress segment has been completed => inprogress ZNode does not exist
                                         if (KeeperException.Code.NONODE.intValue() == rc) {
-                                            removeLogSegmentFromCache(segment);
+                                            removedSegments.add(segment);
                                         } else if (KeeperException.Code.OK.intValue() != rc) {
                                             // fail fast
                                             if (1 == numFailures.incrementAndGet()) {
@@ -1255,11 +1274,18 @@ abstract class BKLogPartitionHandler implements Watcher {
                                                 return;
                                             }
                                         } else {
-                                            addLogSegmentToCache(segment, result);
+                                            addedSegments.put(segment, result);
                                         }
                                         if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
-                                            List<LogSegmentMetadata> segmentList =
-                                                    getCachedLedgerList(comparator, segmentFilter);
+                                            // update the cache only when fetch completed
+                                            logSegmentCache.update(removedSegments, addedSegments);
+                                            List<LogSegmentMetadata> segmentList;
+                                            try {
+                                                segmentList = getCachedLedgerList(comparator);
+                                            } catch (UnexpectedException e) {
+                                                callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
+                                                return;
+                                            }
                                             callback.operationComplete(KeeperException.Code.OK.intValue(), segmentList);
                                             notifyUpdatedLogSegments(segmentList);
                                             notifyOnOperationComplete();
