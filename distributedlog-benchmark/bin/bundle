@@ -5,10 +5,10 @@ DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
 
 cd ${DISTRIBUTEDLOG_ROOT} &&\
 rm -rf dist/distributedlog-benchmark &&\
-mkdir -p dist/distributedlog-benchmark &&\
+mkdir -p dist/distributedlog-benchmark/{conf,lib} &&\
 mvn clean install -pl distributedlog-benchmark -am -DskipTests &&\
-cp -rf distributedlog-benchmark/conf dist/distributedlog-benchmark &&\
-cp -rf distributedlog-benchmark/lib dist/distributedlog-benchmark &&\
+cp -rf distributedlog-benchmark/conf/ dist/distributedlog-benchmark/conf &&\
+cp -rf distributedlog-benchmark/lib/ dist/distributedlog-benchmark/lib &&\
 cp -rf distributedlog-benchmark/target/distributedlog-benchmark-*.jar dist/distributedlog-benchmark &&\
 cd dist &&\
 zip -r distributedlog-benchmark.zip distributedlog-benchmark >/dev/null

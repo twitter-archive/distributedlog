@@ -5,10 +5,10 @@ DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
 
 cd ${DISTRIBUTEDLOG_ROOT} &&\
 rm -rf dist/distributedlog-service &&\
-mkdir -p dist/distributedlog-service &&\
+mkdir -p dist/distributedlog-service/{conf,lib} &&\
 mvn clean install -Ptwitter-ostrich-provider -pl distributedlog-service,distributedlog-service-internal -am -DskipTests &&\
-cp -r distributedlog-service/conf dist/distributedlog-service &&\
-cp -r distributedlog-service/lib dist/distributedlog-service &&\
+cp -r distributedlog-service/conf/ dist/distributedlog-service/conf &&\
+cp -r distributedlog-service/lib/ dist/distributedlog-service/lib &&\
 cp distributedlog-service-internal/target/distributedlog-service-internal*.jar dist/distributedlog-service/lib &&\
 cp distributedlog-service/target/distributedlog-service-*.jar dist/distributedlog-service &&\
 cd dist &&\
