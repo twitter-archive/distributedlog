@@ -19,11 +19,12 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
-import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.logsegment.LogSegmentCache;
+import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
@@ -48,18 +49,13 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -98,18 +94,6 @@ import java.util.concurrent.atomic.AtomicLong;
 abstract class BKLogPartitionHandler implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
 
-    static interface LogSegmentFilter {
-
-        static final LogSegmentFilter DEFAULT_FILTER = new LogSegmentFilter() {
-            @Override
-            public Collection<String> filter(Collection<String> fullList) {
-                return fullList;
-            }
-        };
-
-        Collection<String> filter(Collection<String> fullList);
-    }
-
     private static final int LAYOUT_VERSION = -1;
 
     protected final String name;
@@ -136,10 +120,7 @@ abstract class BKLogPartitionHandler implements Watcher {
             new CopyOnWriteArraySet<LogSegmentListener>();
 
     // Maintain the list of ledgers
-    protected final Map<String, LogSegmentMetadata> logSegments =
-        new HashMap<String, LogSegmentMetadata>();
-    protected final ConcurrentMap<Long, LogSegmentMetadata> lid2LogSegments =
-        new ConcurrentHashMap<Long, LogSegmentMetadata>();
+    protected final LogSegmentCache logSegmentCache = new LogSegmentCache();
     protected volatile SyncGetLedgersCallback firstGetLedgersTask = null;
 
     protected final AsyncNotification notification;
@@ -867,60 +848,12 @@ abstract class BKLogPartitionHandler implements Watcher {
 
     // Ledgers Related Functions
     // ***Note***
-    // NOTE-1:
-    // Caching of log segment metadata assumes that the data contained in the ZNodes for individual
-    // log segments is never updated after creation i.e we never call setData. A log segment
-    // is finalized by creating a new ZNode and deleting the in progress node. This code will have
-    // to change if we change the behavior
-    //
-    // NOTE-2:
     // Get ledger list should go through #getCachedLedgerList as we need to assign start sequence id for inprogress log
     // segment so the reader could generate the right sequence id.
 
     private List<LogSegmentMetadata> getCachedLedgerList(Comparator<LogSegmentMetadata> comparator,
-                                                               LogSegmentFilter segmentFilter) {
-        List<LogSegmentMetadata> segmentsToReturn;
-        synchronized (logSegments) {
-            segmentsToReturn = new ArrayList<LogSegmentMetadata>(logSegments.size());
-            Collection<String> segmentNamesFiltered = segmentFilter.filter(logSegments.keySet());
-            for (String name : segmentNamesFiltered) {
-                segmentsToReturn.add(logSegments.get(name));
-            }
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Cached log segments : {}", segmentsToReturn);
-            }
-        }
-        Collections.sort(segmentsToReturn, LogSegmentMetadata.COMPARATOR);
-        long startSequenceId = DistributedLogConstants.UNASSIGNED_SEQUENCE_ID;
-        LogSegmentMetadata prevMetadata = null;
-        for (int i = 0; i < segmentsToReturn.size(); i++) {
-            LogSegmentMetadata metadata = segmentsToReturn.get(i);
-            if (!metadata.isInProgress()) {
-                if (metadata.supportsSequenceId()) {
-                    startSequenceId = metadata.getStartSequenceId() + metadata.getRecordCount();
-                    if (null != prevMetadata && prevMetadata.supportsSequenceId()
-                            && prevMetadata.getStartSequenceId() > metadata.getStartSequenceId()) {
-                        LOG.warn("Found decreasing start sequence id in log segment {}, previous is {}",
-                                metadata, prevMetadata);
-                    }
-                } else {
-                    startSequenceId = DistributedLogConstants.UNASSIGNED_SEQUENCE_ID;
-                }
-            } else {
-                if (metadata.supportsSequenceId()) {
-                    LogSegmentMetadata newMetadata = metadata.mutator()
-                            .setStartSequenceId(startSequenceId == DistributedLogConstants.UNASSIGNED_SEQUENCE_ID ? 0L : startSequenceId)
-                            .build();
-                    segmentsToReturn.set(i, newMetadata);
-                }
-                break;
-            }
-            prevMetadata = metadata;
-        }
-        if (comparator != LogSegmentMetadata.COMPARATOR) {
-            Collections.sort(segmentsToReturn, comparator);
-        }
-        return segmentsToReturn;
+                                                         LogSegmentFilter segmentFilter) {
+        return logSegmentCache.getLogSegments(comparator, segmentFilter);
     }
 
     protected List<LogSegmentMetadata> getCachedFullLedgerList(Comparator<LogSegmentMetadata> comparator) {
@@ -1145,24 +1078,7 @@ abstract class BKLogPartitionHandler implements Watcher {
      *          segment metadata.
      */
     protected void addLogSegmentToCache(String name, LogSegmentMetadata metadata) {
-        synchronized (logSegments) {
-            if (!logSegments.containsKey(name)) {
-                logSegments.put(name, metadata);
-                if (LOG.isTraceEnabled()) {
-                    LOG.trace("Added log segment ({} : {}) to cache.", name, metadata);
-                }
-            }
-            LogSegmentMetadata oldMetadata = lid2LogSegments.remove(metadata.getLedgerId());
-            if (null == oldMetadata) {
-                lid2LogSegments.put(metadata.getLedgerId(), metadata);
-            } else {
-                if (oldMetadata.isInProgress() && !metadata.isInProgress()) {
-                    lid2LogSegments.put(metadata.getLedgerId(), metadata);
-                } else {
-                    lid2LogSegments.put(oldMetadata.getLedgerId(), oldMetadata);
-                }
-            }
-        }
+        logSegmentCache.add(name, metadata);
         // update the last ledger rolling time
         if (!metadata.isInProgress() && (lastLedgerRollingTimeMillis < metadata.getCompletionTime())) {
             lastLedgerRollingTimeMillis = metadata.getCompletionTime();
@@ -1202,20 +1118,11 @@ abstract class BKLogPartitionHandler implements Watcher {
     }
 
     protected LogSegmentMetadata readLogSegmentFromCache(String name) {
-        synchronized (logSegments) {
-            return logSegments.get(name);
-        }
+        return logSegmentCache.get(name);
     }
 
     protected LogSegmentMetadata removeLogSegmentFromCache(String name) {
-        synchronized (logSegments) {
-            LogSegmentMetadata metadata = logSegments.remove(name);
-            if (null != metadata) {
-                lid2LogSegments.remove(metadata.getLedgerId(), metadata);
-                LOG.debug("Removed log segment ({} : {}) from cache.", name, metadata);
-            }
-            return metadata;
-        }
+        return logSegmentCache.remove(name);
     }
 
     protected void asyncGetLedgerList(final Comparator<LogSegmentMetadata> comparator,
@@ -1309,15 +1216,9 @@ abstract class BKLogPartitionHandler implements Watcher {
                     segmentsReceived.addAll(segmentFilter.filter(children));
                     Set<String> segmentsAdded;
                     Set<String> segmentsRemoved;
-                    synchronized (logSegments) {
-                        Set<String> segmentsCached = logSegments.keySet();
-                        segmentsAdded = Sets.difference(segmentsReceived, segmentsCached).immutableCopy();
-                        segmentsRemoved = Sets.difference(segmentsCached, segmentsReceived).immutableCopy();
-                        for (String s : segmentsRemoved) {
-                            LogSegmentMetadata segmentMetadata = removeLogSegmentFromCache(s);
-                            LOG.debug("Removed log segment {} from cache : {}.", s, segmentMetadata);
-                        }
-                    }
+                    Pair<Set<String>, Set<String>> segmentChanges = logSegmentCache.diff(segmentsReceived);
+                    segmentsAdded = segmentChanges.getLeft();
+                    segmentsRemoved = segmentChanges.getRight();
 
                     if (segmentsAdded.isEmpty()) {
                         if (LOG.isTraceEnabled()) {

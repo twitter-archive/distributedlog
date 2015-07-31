@@ -59,7 +59,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +67,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
+import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -190,59 +190,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
     }
-
-    /**
-     * Write handler filter should return all inprogress log segments and the last completed log segment.
-     * Because sequence id & ledger sequence number assignment rely on previous log segments.
-     */
-    static final LogSegmentFilter WRITE_HANDLE_FILTER = new LogSegmentFilter() {
-        @Override
-        public Collection<String> filter(Collection<String> fullList) {
-            List<String> result = new ArrayList<String>(fullList.size());
-            String lastCompletedLogSegmentName = null;
-            long lastLedgerSequenceNumber = -1L;
-            for (String s : fullList) {
-                if (s.startsWith(DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX)) {
-                    result.add(s);
-                } else if (s.startsWith(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX)) {
-                    String[] parts = s.split("_");
-                    try {
-                        if (2 == parts.length) {
-                            // name: logrecs_<ledger_sequence_number>
-                            long ledgerSequenceNumber = Long.parseLong(parts[1]);
-                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
-                                lastLedgerSequenceNumber = ledgerSequenceNumber;
-                                lastCompletedLogSegmentName = s;
-                            }
-                        } else if (6 == parts.length) {
-                            // name: logrecs_<start_tx_id>_<end_tx_id>_<ledger_sequence_number>_<ledger_id>_<region_id>
-                            long ledgerSequenceNumber = Long.parseLong(parts[3]);
-                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
-                                lastLedgerSequenceNumber = ledgerSequenceNumber;
-                                lastCompletedLogSegmentName = s;
-                            }
-                        } else {
-                            // name: logrecs_<start_tx_id>_<end_tx_id> or any unknown names
-                            // we don't know the ledger sequence from the name, so add it to the list
-                            result.add(s);
-                        }
-                    } catch (NumberFormatException nfe) {
-                        LOG.warn("Unexpected sequence number in log segment {} :", s, nfe);
-                        result.add(s);
-                    }
-                } else {
-                    LOG.error("Unknown log segment name : {}", s);
-                }
-            }
-            if (null != lastCompletedLogSegmentName) {
-                result.add(lastCompletedLogSegmentName);
-            }
-            if (LOG.isTraceEnabled()) {
-                LOG.trace("Filtered log segments {} from {}.", result, fullList);
-            }
-            return result;
-        }
-    };
 
     abstract class MetadataOp {
 

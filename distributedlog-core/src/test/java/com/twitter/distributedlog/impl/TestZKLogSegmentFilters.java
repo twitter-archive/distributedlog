@@ -1,6 +1,8 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.impl;
 
 import com.google.common.collect.Sets;
+import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.DistributedLogConstants;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,11 +13,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.*;
 import static org.junit.Assert.*;
 
-public class TestLogSegmentFilter {
+public class TestZKLogSegmentFilters {
 
-    static final Logger LOG = LoggerFactory.getLogger(TestLogSegmentFilter.class);
+    static final Logger LOG = LoggerFactory.getLogger(TestZKLogSegmentFilters.class);
 
     @Test
     public void testWriteFilter() {
@@ -43,7 +46,7 @@ public class TestLogSegmentFilter {
         segments.add(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX + "_1_2_3_4_5_6_7_8_9");
         expectedFilteredSegments.add(DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX + "_1_2_3_4_5_6_7_8_9");
 
-        Collection<String> filteredCollection = BKLogPartitionWriteHandler.WRITE_HANDLE_FILTER.filter(segments);
+        Collection<String> filteredCollection = WRITE_HANDLE_FILTER.filter(segments);
         LOG.info("Filter log segments {} to {}.", segments, filteredCollection);
         assertEquals(expectedFilteredSegments.size(), filteredCollection.size());
 
