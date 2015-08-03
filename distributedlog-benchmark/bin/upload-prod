@@ -1,0 +1,5 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
+$DISTRIBUTEDLOG_ROOT/distributedlog-benchmark/bin/upload-devel
