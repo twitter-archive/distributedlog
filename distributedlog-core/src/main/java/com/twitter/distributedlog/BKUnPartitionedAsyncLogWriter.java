@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import scala.Option;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
 
@@ -112,6 +114,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
     private LinkedList<PendingLogRecord> pendingRequests = null;
     private volatile boolean encounteredError = false;
     private boolean queueingRequests = false;
+    private long lastTxId = DistributedLogConstants.INVALID_TXID;
 
     private final StatsLogger statsLogger;
     private final OpStatsLogger writeOpStatsLogger;
@@ -144,6 +147,15 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         this.getWriterOpStatsLogger = statsLogger.getOpStatsLogger("get_writer");
     }
 
+    private synchronized void setLastTxId(long txId) {
+        lastTxId = Math.max(lastTxId, txId);
+    }
+
+    @Override
+    public synchronized long getLastTxId() {
+        return lastTxId;
+    }
+
     @VisibleForTesting
     FuturePool getOrderedFuturePool() {
         return orderedFuturePool;
@@ -158,7 +170,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         writeHandler.lockHandler();
         boolean success = false;
         try {
-            writeHandler.recoverIncompleteLogSegments();
+            setLastTxId(writeHandler.recoverIncompleteLogSegments());
             success = true;
             return this;
         } finally {
@@ -252,7 +264,9 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     // for ordering guarantee, we shouldn't send requests to next log segments until
     // previous log segment is done.
-    private synchronized Future<DLSN> asyncWrite(BKLogSegmentWriter writer, LogRecord record, boolean flush) throws IOException {
+    private synchronized Future<DLSN> asyncWrite(BKLogSegmentWriter writer,
+                                                 final LogRecord record,
+                                                 boolean flush) throws IOException {
         // The passed in writer may be stale since we acquire the writer outside of sync
         // lock. If we recently rolled and the new writer is cached, use that instead.
         Future<DLSN> result = null;
@@ -271,7 +285,13 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         } else {
             result = w.asyncWrite(record, flush);
         }
-        return result;
+        return result.onSuccess(new AbstractFunction1<DLSN, BoxedUnit>() {
+            @Override
+            public BoxedUnit apply(DLSN dlsn) {
+                setLastTxId(record.getTransactionId());
+                return BoxedUnit.UNIT;
+            }
+        });
     }
 
     private List<Future<DLSN>> asyncWriteBulk(List<LogRecord> records) throws IOException {

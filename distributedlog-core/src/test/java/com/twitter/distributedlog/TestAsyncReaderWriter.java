@@ -1562,30 +1562,30 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final CountDownLatch latch = new CountDownLatch(1);
         final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
         executor.schedule(
-            new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        int txid = 1;
-                        for (long i = 0; i < numSegments; i++) {
-                            long start = txid;
-                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
-                            for (long j = 1; j <= segmentSize; j++) {
-                                writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
-                                if ((i == 0) && (j == 1)) {
-                                    latch.countDown();
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            int txid = 1;
+                            for (long i = 0; i < numSegments; i++) {
+                                long start = txid;
+                                BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+                                for (long j = 1; j <= segmentSize; j++) {
+                                    writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
+                                    if ((i == 0) && (j == 1)) {
+                                        latch.countDown();
+                                    }
                                 }
+                                writer.closeAndComplete();
+                                Thread.sleep(100);
                             }
-                            writer.closeAndComplete();
-                            Thread.sleep(100);
-                        }
-                    } catch (Exception exc) {
-                        if (!executor.isShutdown()) {
-                            currentThread.interrupt();
+                        } catch (Exception exc) {
+                            if (!executor.isShutdown()) {
+                                currentThread.interrupt();
+                            }
                         }
                     }
-                }
-            }, 0, TimeUnit.MILLISECONDS);
+                }, 0, TimeUnit.MILLISECONDS);
 
         latch.await();
         BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN)dlm.getAsyncLogReader(DLSN.InitialDLSN);
@@ -1609,6 +1609,29 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         Assert.assertEquals(recordCount, segmentSize * numSegments);
         assert(!currentThread.isInterrupted());
         executor.shutdown();
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLastTxId() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+
+        int numRecords = 10;
+        for (int i = 0; i < numRecords; i++) {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(i)));
+            assertEquals("last tx id should become " + i,
+                    i, writer.getLastTxId());
+        }
+        // open a writer to recover the inprogress log segment
+        AsyncLogWriter recoverWriter = dlm.startAsyncLogSegmentNonPartitioned();
+        assertEquals("recovered last tx id should be " + (numRecords - 1),
+                numRecords - 1, recoverWriter.getLastTxId());
     }
 
 }

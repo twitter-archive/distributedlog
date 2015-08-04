@@ -7,6 +7,14 @@ import java.io.IOException;
 import java.util.List;
 
 public interface AsyncLogWriter extends Closeable {
+
+    /**
+     * Get the last committed transaction id.
+     *
+     * @return last committed transaction id.
+     */
+    public long getLastTxId();
+
     /**
      * Write a log record to the stream.
      *
