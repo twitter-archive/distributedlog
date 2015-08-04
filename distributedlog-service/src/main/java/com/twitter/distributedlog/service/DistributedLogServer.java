@@ -8,6 +8,7 @@ import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
 import com.twitter.distributedlog.service.config.DefaultStreamConfigProvider;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.ServiceStreamConfigProvider;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -48,7 +49,6 @@ import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import scala.Option;
@@ -229,8 +229,10 @@ public class DistributedLogServer implements Runnable {
         logger.info("Running server @ uri {}.", dlUri);
 
         // dl service
+        ServerConfiguration serverConf = new ServerConfiguration();
+        serverConf.loadConf(dlConf);
         DistributedLogServiceImpl dlService =
-                new DistributedLogServiceImpl(dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), keepAliveLatch);
+                new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
         DistributedLogAdminService adminService = new DistributedLogAdminService(dlService);
         ServiceTracker.register(adminService);

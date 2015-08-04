@@ -9,7 +9,6 @@ import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -26,6 +25,7 @@ import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
 import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.BulkWriteOp;
 import com.twitter.distributedlog.service.stream.DeleteOp;
@@ -204,7 +204,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, txnLock, executorService, dlConfig);
+        return new WriteOp(stream, data, statsLogger, txnLock, executorService, serverConfig);
     }
 
     protected class Stream extends Thread {
@@ -991,6 +991,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
     }
 
+    private final ServerConfiguration serverConfig;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
     private final ConcurrentHashMap<String, Stream> streams =
@@ -1053,21 +1054,21 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final long streamProbationTimeoutMs;
     private final StreamConfigProvider streamConfigProvider;
 
-    DistributedLogServiceImpl(DistributedLogConfiguration dlConf,
+    DistributedLogServiceImpl(ServerConfiguration serverConf,
+                              DistributedLogConfiguration dlConf,
                               StreamConfigProvider streamConfigProvider,
                               URI uri,
                               StatsLogger statsLogger,
                               CountDownLatch keepAliveLatch)
             throws IOException {
         // Configuration.
+        this.serverConfig = serverConf;
         this.dlConfig = dlConf;
-        // by default, we generate version0 dlsn for backward compatability. the proxy server
-        // would update to generate version1 dlsn after all clients updates to use latest version.
-        this.dlsnVersion = dlConf.getByte("server_dlsn_version", DLSN.VERSION0);
-        this.serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
-        int serverPort = dlConf.getInt("server_port", 0);
-        int shard = dlConf.getInt("server_shard", -1);
-        int numThreads = dlConf.getInt("server_threads", Runtime.getRuntime().availableProcessors());
+        this.dlsnVersion = serverConf.getDlsnVersion();
+        this.serverRegionId = serverConf.getRegionId();
+        int serverPort = serverConf.getServerPort();
+        int shard = serverConf.getServerShardId();
+        int numThreads = serverConf.getServerThreads();
         this.clientId = DLSocketAddress.toLockId(DLSocketAddress.getSocketAddress(serverPort), shard);
         String allocatorPoolName = String.format("allocator_%04d_%010d", serverRegionId, shard);
         dlConf.setLedgerAllocatorPoolName(allocatorPoolName);
@@ -1136,7 +1137,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.limiterStatLogger = statsLogger.scope("request_limiter");
 
         // Stats pertaining to stream op execution
-        this.streamOpStats = new StreamOpStats(statsLogger, dlConfig);
+        this.streamOpStats = new StreamOpStats(statsLogger, serverConf);
 
         // Stats on requests
         this.bulkWritePendingStat = streamOpStats.requestPendingCounter("bulkWritePending");
@@ -1181,9 +1182,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
 
         // Setup complete
-        boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
-        logger.info("Running distributedlog server: client id {}, allocator pool {}, perstream stat {}.",
-                new Object[] { clientId, allocatorPoolName, enablePerStreamStat });
+        logger.info("Running distributedlog server : client id {}, allocator pool {}, perstream stat {}.",
+                new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled() });
     }
 
     Stream newStream(String name) {
@@ -1340,7 +1340,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, dlConfig);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, serverConfig);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {

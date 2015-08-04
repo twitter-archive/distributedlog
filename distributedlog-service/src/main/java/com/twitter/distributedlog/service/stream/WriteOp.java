@@ -1,20 +1,16 @@
 package com.twitter.distributedlog.service.stream;
 
-import com.twitter.util.FutureEventListener;
-import com.twitter.util.Future;
-import com.twitter.util.Promise;
-import com.twitter.util.Try;
-
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
-import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.RejectedExecutionException;
@@ -22,7 +18,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -49,9 +44,12 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final long delayMs;
     private final boolean durableServerMode;
 
-    public WriteOp(String stream, ByteBuffer data, StatsLogger statsLogger,
-            Object txnLock, ScheduledExecutorService executorService,
-            DistributedLogConfiguration conf) {
+    public WriteOp(String stream,
+                   ByteBuffer data,
+                   StatsLogger statsLogger,
+                   Object txnLock,
+                   ScheduledExecutorService executorService,
+                   ServerConfiguration conf) {
         super(stream, requestStat(statsLogger, "write"));
         payload = new byte[data.remaining()];
         data.get(payload);
@@ -66,14 +64,9 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
 
         this.txnLock = txnLock;
         this.executorService = executorService;
-        this.dlsnVersion = conf.getByte("server_dlsn_version", DLSN.VERSION1);
-        this.delayMs = conf.getLong("server_latency_delay", 0);
-        this.durableServerMode = durableServerMode(conf);
-    }
-
-    private boolean durableServerMode(DistributedLogConfiguration conf) {
-        String memServerModeString = DistributedLogServiceImpl.ServerMode.MEM.toString();
-        return !memServerModeString.equals(conf.getString("server_mode"));
+        this.dlsnVersion = conf.getDlsnVersion();
+        this.delayMs = conf.getLatencyDelay();
+        this.durableServerMode = conf.isDurableMode();
     }
 
     @Override

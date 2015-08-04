@@ -7,9 +7,9 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.Stream;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamStatus;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.thrift.service.StatusCode;
-import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
@@ -42,7 +42,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Rule
     public TestName testName = new TestName();
 
-    private DistributedLogConfiguration serviceConf;
+    private ServerConfiguration serverConf;
+    private DistributedLogConfiguration dlConf;
     private URI uri;
     private final CountDownLatch latch = new CountDownLatch(1);
     private DistributedLogServiceImpl service;
@@ -51,14 +52,16 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Override
     public void setup() throws Exception {
         super.setup();
-        serviceConf = new DistributedLogConfiguration();
-        serviceConf.addConfiguration(conf);
-        serviceConf.setLockTimeout(0)
+        dlConf = new DistributedLogConfiguration();
+        dlConf.addConfiguration(conf);
+        dlConf.setLockTimeout(0)
                 .setOutputBufferSize(0)
                 .setPeriodicFlushFrequencyMilliSeconds(10);
-        serviceConf.setProperty("server_threads", 1);
+        serverConf = new ServerConfiguration();
+        serverConf.loadConf(dlConf);
+        serverConf.setServerThreads(1);
         uri = createDLMURI("/" + testName.getMethodName());
-        service = createService(serviceConf, latch);
+        service = createService(serverConf, dlConf, latch);
     }
 
     @After
@@ -72,18 +75,22 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
     private DistributedLogConfiguration newLocalConf() {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.addConfiguration(serviceConf);
+        confLocal.addConfiguration(dlConf);
         return confLocal;
     }
 
     private DistributedLogServiceImpl createService(
-            DistributedLogConfiguration conf) throws Exception {
-        return createService(conf, new CountDownLatch(1));
+            ServerConfiguration serverConf,
+            DistributedLogConfiguration dlConf) throws Exception {
+        return createService(serverConf, dlConf, new CountDownLatch(1));
     }
 
     private DistributedLogServiceImpl createService(
-            DistributedLogConfiguration conf, CountDownLatch latch) throws Exception {
-        return new DistributedLogServiceImpl(conf, new NullStreamConfigProvider(),
+            ServerConfiguration serverConf,
+            DistributedLogConfiguration dlConf,
+            CountDownLatch latch) throws Exception {
+        return new DistributedLogServiceImpl(
+                serverConf, dlConf, new NullStreamConfigProvider(),
                 uri, NullStatsLogger.INSTANCE, latch);
     }
 
@@ -109,7 +116,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     public void testAcquireStreams() throws Exception {
         String streamName = testName.getMethodName();
         Stream s0 = createStream(service, streamName);
-        DistributedLogServiceImpl service1 = createService(serviceConf);
+        DistributedLogServiceImpl service1 = createService(serverConf, dlConf);
         Stream s1 = createStream(service1, streamName);
 
         // create write ops
@@ -274,7 +281,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 .setPeriodicFlushFrequencyMilliSeconds(0);
         String streamName = testName.getMethodName();
         // create a new service with 200ms timeout
-        DistributedLogServiceImpl localService = createService(confLocal);
+        DistributedLogServiceImpl localService = createService(serverConf, confLocal);
 
         final CountDownLatch deferCloseLatch = new CountDownLatch(1);
         localService.schedule(new Runnable() {
@@ -338,7 +345,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 .setPeriodicFlushFrequencyMilliSeconds(0);
 
         String streamNamePrefix = testName.getMethodName();
-        DistributedLogServiceImpl localService = createService(confLocal);
+        DistributedLogServiceImpl localService = createService(serverConf, confLocal);
 
         int numStreams = 10;
         int numWrites = 10;
@@ -384,7 +391,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 .setPeriodicFlushFrequencyMilliSeconds(0);
 
         String streamNamePrefix = testName.getMethodName();
-        DistributedLogServiceImpl localService = createService(confLocal);
+        DistributedLogServiceImpl localService = createService(serverConf, confLocal);
 
         int numStreams = 10;
         int numWrites = 10;

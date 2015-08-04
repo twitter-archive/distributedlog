@@ -6,27 +6,25 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.AsyncLogWriter;
+import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.service.ResponseUtils;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
+import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.thrift.service.ResponseHeader;
+import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.Try;
 
-import com.twitter.distributedlog.AlreadyClosedException;
-import com.twitter.distributedlog.AsyncLogWriter;
-import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LockingException;
-import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.service.ResponseUtils;
-import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
-import com.twitter.distributedlog.thrift.service.ResponseHeader;
-import com.twitter.distributedlog.thrift.service.StatusCode;
-import com.twitter.distributedlog.thrift.service.WriteResponse;
-
 import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -61,8 +59,10 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         return def;
     }
 
-    public BulkWriteOp(String stream, List<ByteBuffer> buffers, StatsLogger statsLogger,
-            DistributedLogConfiguration conf) {
+    public BulkWriteOp(String stream,
+                       List<ByteBuffer> buffers,
+                       StatsLogger statsLogger,
+                       ServerConfiguration conf) {
         super(stream, requestStat(statsLogger, "bulkWrite"));
         this.buffers = buffers;
         long total = 0;
