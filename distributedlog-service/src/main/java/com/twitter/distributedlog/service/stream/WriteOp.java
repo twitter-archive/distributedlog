@@ -66,7 +66,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
 
         this.txnLock = txnLock;
         this.executorService = executorService;
-        this.dlsnVersion = conf.getByte("server_dlsn_version", DLSN.VERSION0);
+        this.dlsnVersion = conf.getByte("server_dlsn_version", DLSN.VERSION1);
         this.delayMs = conf.getLong("server_latency_delay", 0);
         this.durableServerMode = durableServerMode(conf);
     }
