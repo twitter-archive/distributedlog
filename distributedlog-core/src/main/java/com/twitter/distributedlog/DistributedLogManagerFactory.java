@@ -164,6 +164,19 @@ public class DistributedLogManagerFactory {
     }
 
     /**
+     * This method is to initialize the metadata for a unpartitioned stream with name <i>streamName</i>.
+     *
+     * TODO: after 0.2 is upgraded to 0.3, remove this.
+     *
+     * @param streamName
+     *          stream name.
+     * @throws IOException
+     */
+    public void createUnpartitionedStream(final String streamName) throws IOException {
+        namespace.createLog(streamName);
+    }
+
+    /**
      * Close the distributed log manager factory, freeing any resources it may hold.
      */
     public void close() {
