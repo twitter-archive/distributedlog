@@ -6,6 +6,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -19,12 +20,10 @@ public class HeartbeatOp extends AbstractWriteOp {
     static final byte[] HEARTBEAT_DATA = "heartbeat".getBytes(UTF_8);
 
     private boolean writeControlRecord = false;
-    private Object txnLock;
     private byte dlsnVersion;
 
-    public HeartbeatOp(String stream, StatsLogger statsLogger, Object txnLock, byte dlsnVersion) {
+    public HeartbeatOp(String stream, StatsLogger statsLogger, byte dlsnVersion) {
         super(stream, requestStat(statsLogger, "heartbeat"));
-        this.txnLock = txnLock;
         this.dlsnVersion = dlsnVersion;
     }
 
@@ -34,13 +33,15 @@ public class HeartbeatOp extends AbstractWriteOp {
     }
 
     @Override
-    protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+    protected Future<WriteResponse> executeOp(AsyncLogWriter writer,
+                                              Sequencer sequencer,
+                                              Object txnLock) {
         // write a control record if heartbeat is the first request of the recovered log segment.
         if (writeControlRecord) {
             long txnId;
             Future<DLSN> writeResult;
             synchronized (txnLock) {
-                txnId = System.currentTimeMillis();
+                txnId = sequencer.nextId();
                 writeResult = ((BKUnPartitionedAsyncLogWriter) writer).writeControlRecord(new LogRecord(txnId, HEARTBEAT_DATA));
             }
             return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {

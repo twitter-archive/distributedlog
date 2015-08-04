@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service.stream;
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
 /**
@@ -13,9 +14,13 @@ public interface StreamOp {
      * Execute a stream op with the supplied writer.
      *
      * @param writer active writer for applying the change
+     * @param sequencer sequencer used for generating transaction id for stream operations
+     * @param txnLock transaction lock to guarantee ordering of transaction id
      * @return a future satisfied when the operation completes execution
      */
-    Future<Void> execute(AsyncLogWriter writer);
+    Future<Void> execute(AsyncLogWriter writer,
+                         Sequencer sequencer,
+                         Object txnLock);
 
     /**
      * Invoked before the stream op is executed.

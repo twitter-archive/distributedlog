@@ -53,6 +53,8 @@ import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.distributedlog.util.Sequencer;
+import com.twitter.distributedlog.util.TimeSequencer;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
@@ -204,7 +206,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, txnLock, executorService, serverConfig);
+        return new WriteOp(stream, data, statsLogger, executorService, serverConfig);
     }
 
     protected class Stream extends Thread {
@@ -228,6 +230,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         private volatile boolean writeSinceLastAcquire = false;
 
         final Object streamLock = new Object();
+        final Object txnLock = new Object();
+        final Sequencer sequencer = new TimeSequencer();
         // last acquire time
         final Stopwatch lastAcquireWatch = Stopwatch.createUnstarted();
         // last acquire failure time
@@ -593,7 +597,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 lastException = this.lastException;
             }
             if (null != writer && success) {
-                op.execute(writer).addEventListener(new FutureEventListener<Void>() {
+                op.execute(writer, sequencer, txnLock)
+                        .addEventListener(new FutureEventListener<Void>() {
                     @Override
                     public void onSuccess(Void value) {
                         // nop
@@ -1004,7 +1009,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
-    private final Object txnLock = new Object();
     private final AtomicInteger pendingOpsCounter;
 
     // Features
@@ -1365,7 +1369,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, txnLock, dlsnVersion);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1376,7 +1380,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, txnLock, dlsnVersion);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion);
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }

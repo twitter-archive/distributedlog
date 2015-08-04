@@ -18,6 +18,7 @@ import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
@@ -106,11 +107,16 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     }
 
     @Override
-    protected Future<BulkWriteResponse> executeOp(AsyncLogWriter writer) {
-
+    protected Future<BulkWriteResponse> executeOp(AsyncLogWriter writer,
+                                                  Sequencer sequencer,
+                                                  Object txnLock) {
         // Need to convert input buffers to LogRecords.
-        List<LogRecord> records = asRecordList(buffers);
-        Future<List<Future<DLSN>>> futureList = writer.writeBulk(records);
+        List<LogRecord> records;
+        Future<List<Future<DLSN>>> futureList;
+        synchronized (txnLock) {
+            records = asRecordList(buffers, sequencer);
+            futureList = writer.writeBulk(records);
+        }
 
         // Collect into a list of tries to make it easier to extract exception or DLSN.
         Future<List<Try<DLSN>>> writes = asTryList(futureList);
@@ -164,12 +170,12 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         return response;
     }
 
-    private List<LogRecord> asRecordList(List<ByteBuffer> buffers) {
+    private List<LogRecord> asRecordList(List<ByteBuffer> buffers, Sequencer sequencer) {
         List<LogRecord> records = new ArrayList<LogRecord>(buffers.size());
         for (ByteBuffer buffer : buffers) {
             byte[] payload = new byte[buffer.remaining()];
             buffer.get(payload);
-            records.add(new LogRecord(nextTxId(), payload));
+            records.add(new LogRecord(sequencer.nextId(), payload));
         }
         return records;
     }

@@ -2,6 +2,7 @@ package com.twitter.distributedlog.service.stream;
 
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -43,9 +44,10 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
     }
 
     @Override
-    public Future<Void> execute(AsyncLogWriter writer) {
+    public Future<Void> execute(AsyncLogWriter writer, Sequencer sequencer, Object txnLock) {
         stopwatch.reset().start();
-        return executeOp(writer).addEventListener(new FutureEventListener<Response>() {
+        return executeOp(writer, sequencer, txnLock)
+                .addEventListener(new FutureEventListener<Response>() {
             @Override
             public void onSuccess(Response response) {
                 opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
@@ -60,9 +62,7 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
     /**
      * Fail with current <i>owner</i> and its reason <i>t</i>
      *
-     * @param owner
-     *          current owner
-     * @param t
+     * @param cause
      *          failure reason
      */
     @Override
@@ -93,16 +93,18 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
      *
      * @param writer
      *          writer to execute the operation.
+     * @param sequencer
+     *          sequencer used for generating transaction id for stream operations
+     * @param txnLock
+     *          transaction lock to guarantee ordering of transaction id
      * @return future representing the operation.
      */
-    protected abstract Future<Response> executeOp(AsyncLogWriter writer);
+    protected abstract Future<Response> executeOp(AsyncLogWriter writer,
+                                                  Sequencer sequencer,
+                                                  Object txnLock);
 
     // fail the result with the given response header
     protected abstract void fail(ResponseHeader header);
-
-    protected long nextTxId() {
-        return System.currentTimeMillis();
-    }
 
     protected static OpStatsLogger requestStat(StatsLogger statsLogger, String opName) {
         return requestLogger(statsLogger).getOpStatsLogger(opName);

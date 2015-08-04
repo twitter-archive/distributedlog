@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service.stream;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -18,7 +19,9 @@ public class ReleaseOp extends AbstractWriteOp {
     }
 
     @Override
-    protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+    protected Future<WriteResponse> executeOp(AsyncLogWriter writer,
+                                              Sequencer sequencer,
+                                              Object txnLock) {
         Future<Void> result = streamManager.closeAndRemoveAsync(streamName());
         return result.map(new AbstractFunction1<Void, WriteResponse>() {
             @Override

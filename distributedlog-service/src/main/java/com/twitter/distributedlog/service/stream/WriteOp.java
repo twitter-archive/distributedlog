@@ -8,6 +8,7 @@ import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
@@ -38,7 +39,6 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final Counter bytes;
     private final Counter writeBytes;
 
-    private final Object txnLock;
     private final ScheduledExecutorService executorService;
     private final byte dlsnVersion;
     private final long delayMs;
@@ -47,7 +47,6 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     public WriteOp(String stream,
                    ByteBuffer data,
                    StatsLogger statsLogger,
-                   Object txnLock,
                    ScheduledExecutorService executorService,
                    ServerConfiguration conf) {
         super(stream, requestStat(statsLogger, "write"));
@@ -62,7 +61,6 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "write");
         this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
-        this.txnLock = txnLock;
         this.executorService = executorService;
         this.dlsnVersion = conf.getDlsnVersion();
         this.delayMs = conf.getLatencyDelay();
@@ -92,7 +90,9 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     }
 
     @Override
-    protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+    protected Future<WriteResponse> executeOp(AsyncLogWriter writer,
+                                              Sequencer sequencer,
+                                              Object txnLock) {
         if (!stream.equals(writer.getStreamName())) {
             logger.error("Write: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
             return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
@@ -101,7 +101,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         long txnId;
         Future<DLSN> writeResult;
         synchronized (txnLock) {
-            txnId = nextTxId();
+            txnId = sequencer.nextId();
             writeResult = writer.write(new LogRecord(txnId, payload));
         }
         if (durableServerMode) {

@@ -4,6 +4,7 @@ import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -24,7 +25,9 @@ public class TruncateOp extends AbstractWriteOp {
     }
 
     @Override
-    protected Future<WriteResponse> executeOp(AsyncLogWriter writer) {
+    protected Future<WriteResponse> executeOp(AsyncLogWriter writer,
+                                              Sequencer sequencer,
+                                              Object txnLock) {
         if (!stream.equals(writer.getStreamName())) {
             logger.error("Truncate: Stream Name Mismatch in the Stream Map {}, {}", stream, writer.getStreamName());
             return Future.exception(new IllegalStateException("The stream mapping is incorrect, fail the request"));
