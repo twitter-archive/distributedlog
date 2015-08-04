@@ -19,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * DistributedLog Cluster is an emulator to run distributedlog components.
@@ -175,7 +176,11 @@ public class DistributedLogCluster {
             Pair<DistributedLogServiceImpl, Server> serverPair = null;
             while (!success) {
                 try {
-                    serverPair = DistributedLogServer.runServer(dlConf, uri, new NullStatsProvider(), proxyPort);
+                    com.twitter.distributedlog.service.config.ServerConfiguration serverConf =
+                            new com.twitter.distributedlog.service.config.ServerConfiguration();
+                    serverConf.loadConf(dlConf);
+                    serverPair = DistributedLogServer.runServer(
+                            serverConf, dlConf, uri, new NullStatsProvider(), proxyPort);
                     success = true;
                 } catch (BindException be) {
                     retries++;
@@ -197,7 +202,7 @@ public class DistributedLogCluster {
         }
 
         public void shutdown() {
-            DistributedLogServer.closeServer(dlServer);
+            DistributedLogServer.closeServer(dlServer, 0, TimeUnit.MILLISECONDS);
         }
     }
 

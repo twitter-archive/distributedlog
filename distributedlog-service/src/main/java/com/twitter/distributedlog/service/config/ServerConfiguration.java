@@ -45,6 +45,10 @@ public class ServerConfiguration extends CompositeConfiguration {
     protected final static String SERVER_ENABLE_PERSTREAM_STAT = "server_enable_perstream_stat";
     protected final static boolean SERVER_ENABLE_PERSTREAM_STAT_DEFAULT = true;
 
+    // Server graceful shutdown period (in millis)
+    protected final static String SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS = "server_graceful_shutdown_period_ms";
+    protected final static long SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS_DEFAULT = 0L;
+
     public ServerConfiguration() {
         super();
         addConfiguration(new SystemConfiguration());
@@ -145,6 +149,15 @@ public class ServerConfiguration extends CompositeConfiguration {
      */
     public boolean isPerStreamStatEnabled() {
         return getBoolean(SERVER_ENABLE_PERSTREAM_STAT, SERVER_ENABLE_PERSTREAM_STAT_DEFAULT);
+    }
+
+    /**
+     * Get the graceful shutdown period in millis.
+     *
+     * @return graceful shutdown period in millis.
+     */
+    public long getGracefulShutdownPeriodMs() {
+        return getLong(SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS, SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS_DEFAULT);
     }
 
 }

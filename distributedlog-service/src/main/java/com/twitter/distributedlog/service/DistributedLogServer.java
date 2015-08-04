@@ -1,7 +1,6 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
@@ -101,6 +100,7 @@ public class DistributedLogServer implements Runnable {
     private Announcer announcer = null;
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
     private ScheduledExecutorService configExecutorService;
+    private long gracefulShutdownMs = 0L;
 
     DistributedLogServer(String[] args) {
         this.args = args;
@@ -187,13 +187,19 @@ public class DistributedLogServer implements Runnable {
         boolean thriftmux = cmdline.hasOption("mx");
 
         configExecutorService = Executors.newScheduledThreadPool(1,
-                new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Dyncfg-%d").build());
-
+                new ThreadFactoryBuilder()
+                        .setNameFormat("DistributedLogService-Dyncfg-%d")
+                        .setDaemon(true)
+                        .build());
         StreamConfigProvider streamConfProvider = getStreamConfigProvider(cmdline, dlConf);
 
+
+        ServerConfiguration serverConf = new ServerConfiguration();
+        serverConf.loadConf(dlConf);
+        this.gracefulShutdownMs = serverConf.getGracefulShutdownPeriodMs();
         Pair<DistributedLogServiceImpl, Server>
-            serverPair = runServer(dlConf, uri, statsProvider, servicePort,
-                  keepAliveLatch, statsReceiver, thriftmux, streamConfProvider);
+            serverPair = runServer(serverConf, dlConf, uri, statsProvider, servicePort,
+                keepAliveLatch, statsReceiver, thriftmux, streamConfProvider);
         this.dlService = serverPair.getLeft();
         this.server = serverPair.getRight();
 
@@ -217,20 +223,28 @@ public class DistributedLogServer implements Runnable {
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
-            DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port) throws IOException {
-        return runServer(dlConf, dlUri, provider, port,
+            ServerConfiguration serverConf,
+            DistributedLogConfiguration dlConf,
+            URI dlUri,
+            StatsProvider provider,
+            int port) throws IOException {
+        return runServer(serverConf, dlConf, dlUri, provider, port,
                          new CountDownLatch(0), new NullStatsReceiver(), false, new NullStreamConfigProvider());
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
-            DistributedLogConfiguration dlConf, URI dlUri, StatsProvider provider, int port,
-            CountDownLatch keepAliveLatch, StatsReceiver statsReceiver, boolean thriftmux,
+            ServerConfiguration serverConf,
+            DistributedLogConfiguration dlConf,
+            URI dlUri,
+            StatsProvider provider,
+            int port,
+            CountDownLatch keepAliveLatch,
+            StatsReceiver statsReceiver,
+            boolean thriftmux,
             StreamConfigProvider streamConfProvider) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
 
         // dl service
-        ServerConfiguration serverConf = new ServerConfiguration();
-        serverConf.loadConf(dlConf);
         DistributedLogServiceImpl dlService =
                 new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), keepAliveLatch);
 
@@ -265,9 +279,18 @@ public class DistributedLogServer implements Runnable {
         return Pair.of(dlService, server);
     }
 
-    static void closeServer(Pair<DistributedLogServiceImpl, Server> pair) {
+    static void closeServer(Pair<DistributedLogServiceImpl, Server> pair,
+                            long gracefulShutdownPeriod,
+                            TimeUnit timeUnit) {
         if (null != pair.getLeft()) {
             pair.getLeft().shutdown();
+            if (gracefulShutdownPeriod > 0) {
+                try {
+                    timeUnit.sleep(gracefulShutdownPeriod);
+                } catch (InterruptedException e) {
+                    logger.info("Interrupted on waiting service shutting down state propagated to all clients : ", e);
+                }
+            }
         }
         if (null != pair.getRight()) {
             logger.info("Closing dl thrift server.");
@@ -288,11 +311,11 @@ public class DistributedLogServer implements Runnable {
             }
             announcer.close();
         }
-        SchedulerUtils.shutdownScheduler(configExecutorService, 60, TimeUnit.SECONDS);
-        closeServer(Pair.of(dlService, server));
+        closeServer(Pair.of(dlService, server), gracefulShutdownMs, TimeUnit.MILLISECONDS);
         if (statsProvider != null) {
             statsProvider.stop();
         }
+        SchedulerUtils.shutdownScheduler(configExecutorService, 60, TimeUnit.SECONDS);
         keepAliveLatch.countDown();
     }
 

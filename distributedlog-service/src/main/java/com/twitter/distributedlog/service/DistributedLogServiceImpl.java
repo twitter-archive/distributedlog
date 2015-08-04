@@ -1508,12 +1508,15 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             } finally {
                 closeLock.writeLock().unlock();
             }
-            Future<List<Void>> closeResult = closeStreams();
 
+            Stopwatch closeStreamsStopwatch = Stopwatch.createStarted();
+
+            Future<List<Void>> closeResult = closeStreams();
             logger.info("Waiting for closing all streams ...");
             try {
                 Await.result(closeResult, Duration.fromTimeUnit(5, TimeUnit.MINUTES));
-                logger.info("Closed all streams.");
+                logger.info("Closed all streams in {} millis.",
+                        closeStreamsStopwatch.elapsed(TimeUnit.MILLISECONDS));
             } catch (InterruptedException e) {
                 logger.warn("Interrupted on waiting for closing all streams : ", e);
                 Thread.currentThread().interrupt();
