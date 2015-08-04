@@ -41,6 +41,7 @@ public class ProxyClientManager implements TimerTask {
             new CopyOnWriteArraySet<ProxyListener>();
     private volatile boolean closed = false;
     private volatile boolean periodicHandshakeEnabled = true;
+    private final Stopwatch lastOwnershipSyncStopwatch;
 
     private final OpStats handshakeStats;
 
@@ -55,6 +56,7 @@ public class ProxyClientManager implements TimerTask {
         this.hostProvider = hostProvider;
         this.handshakeStats = clientStats.getOpStats("handshake");
         scheduleHandshake();
+        this.lastOwnershipSyncStopwatch = Stopwatch.createStarted();
     }
 
     private void scheduleHandshake() {
@@ -74,6 +76,12 @@ public class ProxyClientManager implements TimerTask {
             return;
         }
         if (periodicHandshakeEnabled) {
+            boolean syncOwnerships = true;
+            if (lastOwnershipSyncStopwatch.elapsed(TimeUnit.MILLISECONDS) <
+                            clientConfig.getPeriodicOwnershipSyncIntervalMs()) {
+                syncOwnerships = false;
+            }
+
             final Set<SocketAddress> hostsSnapshot = hostProvider.getHosts();
             final AtomicInteger numHosts = new AtomicInteger(hostsSnapshot.size());
             final AtomicInteger numStreams = new AtomicInteger(0);
@@ -85,7 +93,7 @@ public class ProxyClientManager implements TimerTask {
                     @Override
                     public void onSuccess(ServerInfo serverInfo) {
                         numStreams.addAndGet(serverInfo.getOwnershipsSize());
-                        notifyHandshakeSuccess(address, serverInfo, false, stopwatch);
+                        notifyHandshakeSuccess(address, client, serverInfo, false, stopwatch);
                         complete();
                     }
 
@@ -101,8 +109,10 @@ public class ProxyClientManager implements TimerTask {
                                     hostsSnapshot.size(), numStreams.get());
                         }
                     }
-                }, false);
+                }, false, syncOwnerships);
             }
+
+            lastOwnershipSyncStopwatch.reset();
         }
         scheduleHandshake();
     }
@@ -118,6 +128,7 @@ public class ProxyClientManager implements TimerTask {
     }
 
     private void notifyHandshakeSuccess(SocketAddress address,
+                                        ProxyClient client,
                                         ServerInfo serverInfo,
                                         boolean logging,
                                         Stopwatch stopwatch) {
@@ -131,7 +142,7 @@ public class ProxyClientManager implements TimerTask {
         }
         handshakeStats.completeRequest(address, stopwatch.elapsed(TimeUnit.MICROSECONDS), 1);
         for (ProxyListener listener : proxyListeners) {
-            listener.onHandshakeSuccess(address, serverInfo);
+            listener.onHandshakeSuccess(address, client, serverInfo);
         }
     }
 
@@ -207,7 +218,7 @@ public class ProxyClientManager implements TimerTask {
             FutureEventListener<ServerInfo> listener = new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyHandshakeSuccess(address, serverInfo, true, stopwatch);
+                    notifyHandshakeSuccess(address, sc, serverInfo, true, stopwatch);
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -215,7 +226,7 @@ public class ProxyClientManager implements TimerTask {
                 }
             };
             // send a ping messaging after creating connections.
-            handshake(address, sc, listener, true);
+            handshake(address, sc, listener, true, true);
             return sc;
         }
     }
@@ -233,9 +244,11 @@ public class ProxyClientManager implements TimerTask {
     private void handshake(SocketAddress address,
                            ProxyClient sc,
                            FutureEventListener<ServerInfo> listener,
-                           boolean logging) {
+                           boolean logging,
+                           boolean getOwnerships) {
         if (clientConfig.getHandshakeWithClientInfo()) {
             ClientInfo clientInfo = new ClientInfo();
+            clientInfo.setGetOwnerships(getOwnerships);
             clientInfo.setStreamNameRegex(clientConfig.getStreamNameRegex());
             if (logging) {
                 logger.info("Handshaking with {} : {}", address, clientInfo);
@@ -266,7 +279,7 @@ public class ProxyClientManager implements TimerTask {
             handshake(address, client, new FutureEventListener<ServerInfo>() {
                 @Override
                 public void onSuccess(ServerInfo serverInfo) {
-                    notifyHandshakeSuccess(address, serverInfo, true, stopwatch);
+                    notifyHandshakeSuccess(address, client, serverInfo, true, stopwatch);
                     latch.countDown();
                 }
                 @Override
@@ -274,7 +287,7 @@ public class ProxyClientManager implements TimerTask {
                     notifyHandshakeFailure(address, client, cause, stopwatch);
                     latch.countDown();
                 }
-            }, true);
+            }, true, true);
         }
         try {
             latch.await(1, TimeUnit.MINUTES);

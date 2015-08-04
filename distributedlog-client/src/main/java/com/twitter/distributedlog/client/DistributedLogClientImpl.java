@@ -26,6 +26,7 @@ import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
+import com.twitter.distributedlog.thrift.service.ServerStatus;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -519,9 +520,18 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     @Override
-    public void onHandshakeSuccess(SocketAddress address, ServerInfo value) {
-        if (null != value && value.isSetOwnerships()) {
-            Map<String, String> ownerships = value.getOwnerships();
+    public void onHandshakeSuccess(SocketAddress address, ProxyClient client, ServerInfo serverInfo) {
+        if (null != serverInfo &&
+                serverInfo.isSetServerStatus() &&
+                ServerStatus.DOWN == serverInfo.getServerStatus()) {
+            logger.info("{} is detected as DOWN during handshaking", address);
+            // server is shutting down
+            handleServiceUnavailable(address, client, Optional.<StreamOp>absent());
+            return;
+        }
+
+        if (null != serverInfo && serverInfo.isSetOwnerships()) {
+            Map<String, String> ownerships = serverInfo.getOwnerships();
             logger.debug("Handshaked with {} : {} ownerships returned.", address, ownerships.size());
             for (Map.Entry<String, String> entry : ownerships.entrySet()) {
                 Matcher matcher = streamNameRegexPattern.matcher(entry.getKey());
@@ -736,12 +746,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                         op.fail(addr, DLException.of(header));
                         break;
                     case SERVICE_UNAVAILABLE:
-                        // service is unavailable, remove it out of routing service
-                        routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
-                        onServerLeft(addr);
-                        ownershipCache.removeOwnerFromStream(op.stream, addr, addr + " is unavailable now.");
-                        // redirect the request to other host.
-                        redirect(op, null);
+                        handleServiceUnavailable(addr, sc, Optional.of(op));
                         break;
                     case REGION_UNAVAILABLE:
                         // region is unavailable, redirect the request to hosts in other region
@@ -797,6 +802,19 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             }
         }
         return cause;
+    }
+
+    void handleServiceUnavailable(SocketAddress addr,
+                                  ProxyClient sc,
+                                  Optional<StreamOp> op) {
+        // service is unavailable, remove it out of routing service
+        routingService.removeHost(addr, new ServiceUnavailableException(addr + " is unavailable now."));
+        onServerLeft(addr);
+        if (op.isPresent()) {
+            ownershipCache.removeOwnerFromStream(op.get().stream, addr, addr + " is unavailable now.");
+            // redirect the request to other host.
+            redirect(op.get(), null);
+        }
     }
 
     void handleRequestException(SocketAddress addr,

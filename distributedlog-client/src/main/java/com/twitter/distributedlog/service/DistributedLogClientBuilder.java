@@ -336,8 +336,10 @@ public final class DistributedLogClientBuilder {
 
     /**
      * Set the periodic handshake interval in milliseconds. Every <code>intervalMs</code>,
-     * the DL client will handshake with existing proxies again to sync up ownership cache.
+     * the DL client will handshake with existing proxies again. If the interval is less than
+     * ownership sync interval, the handshake won't sync ownerships. Otherwise, it will.
      *
+     * @see #periodicOwnershipSyncIntervalMs(long)
      * @param intervalMs
      *          handshake interval
      * @return client builder.
@@ -345,6 +347,21 @@ public final class DistributedLogClientBuilder {
     public DistributedLogClientBuilder periodicHandshakeIntervalMs(long intervalMs) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientConfig.setPeriodicHandshakeIntervalMs(intervalMs);
+        return newBuilder;
+    }
+
+    /**
+     * Set the periodic ownership sync interval in milliseconds. If periodic handshake is enabled,
+     * the handshake will sync ownership if the elapsed time is larger than sync interval.
+     *
+     * @see #periodicHandshakeIntervalMs(long)
+     * @param intervalMs
+     *          interval that handshake should sync ownerships.
+     * @return client builder
+     */
+    public DistributedLogClientBuilder periodicOwnershipSyncIntervalMs(long intervalMs) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setPeriodicOwnershipSyncIntervalMs(intervalMs);
         return newBuilder;
     }
 

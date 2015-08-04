@@ -17,7 +17,6 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,6 +137,8 @@ public class WriterWorker implements Worker {
             .statsReceiver(statsReceiver)
             .streamNameRegex("^" + streamPrefix + "_[0-9]+$")
             .handshakeWithClientInfo(handshakeWithClientInfo)
+            .periodicHandshakeIntervalMs(TimeUnit.SECONDS.toMillis(30))
+            .periodicOwnershipSyncIntervalMs(TimeUnit.MINUTES.toMillis(5))
             .periodicDumpOwnershipCache(true)
             .name("writer")
             .build();

@@ -63,6 +63,7 @@ public class TestProxyClientManager {
                                                                long periodicHandshakeIntervalMs) {
         ClientConfig clientConfig = new ClientConfig();
         clientConfig.setPeriodicHandshakeIntervalMs(periodicHandshakeIntervalMs);
+        clientConfig.setPeriodicOwnershipSyncIntervalMs(-1);
         HashedWheelTimer dlTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("TestProxyClientManager-timer-%d").build(),
                 clientConfig.getRedirectBackoffStartMs(),
@@ -176,7 +177,7 @@ public class TestProxyClientManager {
         final CountDownLatch doneLatch = new CountDownLatch(1);
         ProxyListener listener = new ProxyListener() {
             @Override
-            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
+            public void onHandshakeSuccess(SocketAddress address, ProxyClient client, ServerInfo serverInfo) {
                 resultHolder.set(serverInfo);
                 doneLatch.countDown();
             }
@@ -225,7 +226,7 @@ public class TestProxyClientManager {
         final CountDownLatch doneLatch = new CountDownLatch(2 * numHosts);
         ProxyListener listener = new ProxyListener() {
             @Override
-            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
+            public void onHandshakeSuccess(SocketAddress address, ProxyClient client, ServerInfo serverInfo) {
                 synchronized (results) {
                     results.put(address, serverInfo);
                 }
@@ -286,7 +287,7 @@ public class TestProxyClientManager {
         final CountDownLatch doneLatch = new CountDownLatch(numHosts);
         ProxyListener listener = new ProxyListener() {
             @Override
-            public void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo) {
+            public void onHandshakeSuccess(SocketAddress address, ProxyClient client, ServerInfo serverInfo) {
                 synchronized (results) {
                     results.put(address, serverInfo);
                     CountDownLatch latch = hostDoneLatches.get(address);

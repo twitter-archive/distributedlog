@@ -13,10 +13,12 @@ public interface ProxyListener {
      *
      * @param address
      *          proxy address
+     * @param client
+     *          proxy client that executes handshaking
      * @param serverInfo
      *          proxy's server info
      */
-    void onHandshakeSuccess(SocketAddress address, ServerInfo serverInfo);
+    void onHandshakeSuccess(SocketAddress address, ProxyClient client, ServerInfo serverInfo);
 
     /**
      * Failed to handshake with a proxy.

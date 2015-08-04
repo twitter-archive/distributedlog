@@ -12,8 +12,6 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.acl.AccessControlManager;
-import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
-import com.twitter.distributedlog.config.DynamicConfigurationFactory;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
@@ -49,6 +47,7 @@ import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
+import com.twitter.distributedlog.thrift.service.ServerStatus;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -60,16 +59,13 @@ import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
-import com.twitter.util.Try;
 
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.configuration.ConfigurationException;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
@@ -1003,8 +999,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             new ConcurrentHashMap<String, Stream>();
 
     private final int serverRegionId;
-    private boolean closed = false;
-    private boolean serverAcceptNewStream = true;
+    private ServerStatus serverStatus = ServerStatus.WRITE_AND_ACCEPT;
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
@@ -1050,10 +1045,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     private final byte dlsnVersion;
     private final String clientId;
-    private final ServerMode serverMode;
     private final ScheduledExecutorService executorService;
     private final AccessControlManager accessControlManager;
-    private final long delayMs;
     private final boolean failFastOnStreamNotReady;
     private final HashedWheelTimer dlTimer;
     private long serviceTimeoutMs;
@@ -1071,7 +1064,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         // by default, we generate version0 dlsn for backward compatability. the proxy server
         // would update to generate version1 dlsn after all clients updates to use latest version.
         this.dlsnVersion = dlConf.getByte("server_dlsn_version", DLSN.VERSION0);
-        this.serverMode = ServerMode.valueOf(dlConf.getString("server_mode", ServerMode.DURABLE.toString()));
         this.serverRegionId = dlConf.getInt("server_region_id", DistributedLogConstants.LOCAL_REGION_ID);
         int serverPort = dlConf.getInt("server_port", 0);
         int shard = dlConf.getInt("server_shard", -1);
@@ -1105,11 +1097,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(numThreads,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
-        if (ServerMode.MEM.equals(serverMode)) {
-            this.delayMs = dlConf.getLong("server_latency_delay", 0);
-        } else {
-            this.delayMs = 0;
-        }
 
         // service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
@@ -1128,7 +1115,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             @Override
             public Number getSample() {
-                return closed ? -1 : (featureRegionStopAcceptNewStream.isAvailable() ? 3 : (serverAcceptNewStream ? 1 : 2));
+                return ServerStatus.DOWN == serverStatus ? -1 : (featureRegionStopAcceptNewStream.isAvailable() ?
+                        3 : (ServerStatus.WRITE_AND_ACCEPT == serverStatus ? 1 : 2));
             }
         });
         this.unexpectedExceptions = statsLogger.getCounter("unexpected_exceptions");
@@ -1194,8 +1182,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
         // Setup complete
         boolean enablePerStreamStat = dlConf.getBoolean("server_enable_perstream_stat", true);
-        logger.info("Running distributedlog server in {} mode, delay ms {}, client id {}, allocator pool {}, perstream stat {}.",
-                new Object[] { serverMode, delayMs, clientId, allocatorPoolName, enablePerStreamStat });
+        logger.info("Running distributedlog server: client id {}, allocator pool {}, perstream stat {}.",
+                new Object[] { clientId, allocatorPoolName, enablePerStreamStat });
     }
 
     Stream newStream(String name) {
@@ -1225,7 +1213,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     java.util.concurrent.Future<?> schedule(Runnable r, long delayMs) {
         closeLock.readLock().lock();
         try {
-            if (closed) {
+            if (ServerStatus.DOWN == serverStatus) {
                 return null;
             }
             if (delayMs > 0) {
@@ -1276,6 +1264,17 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     @Override
     public Future<ServerInfo> handshakeWithClientInfo(ClientInfo clientInfo) {
         ServerInfo serverInfo = new ServerInfo();
+        closeLock.readLock().lock();
+        try {
+            serverInfo.setServerStatus(serverStatus);
+        } finally {
+            closeLock.readLock().unlock();
+        }
+
+        if (clientInfo.isSetGetOwnerships() && !clientInfo.isGetOwnerships()) {
+            return Future.value(serverInfo);
+        }
+
         Map<String, String> ownerships = new HashMap<String, String>();
         for (String name : acquiredStreams.keySet()) {
             if (clientInfo.isSetStreamNameRegex() && !name.matches(clientInfo.getStreamNameRegex())) {
@@ -1302,7 +1301,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 if (featureRegionStopAcceptNewStream.isAvailable()) {
                     // accept new stream is disabled in current dc
                     throw new RegionUnavailableException("Region is unavailable right now.");
-                } else if (closed || !serverAcceptNewStream) {
+                } else if (!(ServerStatus.WRITE_AND_ACCEPT == serverStatus)) {
                     // if it is closed, we would not acquire stream again.
                     return null;
                 }
@@ -1424,7 +1423,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         closeLock.writeLock().lock();
         try {
             logger.info("Set AcceptNewStream = {}", enabled);
-            serverAcceptNewStream = enabled;
+            if (ServerStatus.DOWN != serverStatus) {
+                if (enabled) {
+                    serverStatus = ServerStatus.WRITE_AND_ACCEPT;
+                } else {
+                    serverStatus = ServerStatus.WRITE_ONLY;
+                }
+            }
         } finally {
             closeLock.writeLock().unlock();
         }
@@ -1496,10 +1501,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         try {
             closeLock.writeLock().lock();
             try {
-                if (closed) {
+                if (ServerStatus.DOWN == serverStatus) {
                     return;
                 }
-                closed = true;
+                serverStatus = ServerStatus.DOWN;
             } finally {
                 closeLock.writeLock().unlock();
             }

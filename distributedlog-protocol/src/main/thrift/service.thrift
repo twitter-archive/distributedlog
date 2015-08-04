@@ -113,14 +113,26 @@ struct HeartbeatOptions {
     1: optional bool sendHeartBeatToReader;
 }
 
+// Server Status
+enum ServerStatus {
+    // service is writing and accepting new streams
+    WRITE_AND_ACCEPT    = 100,
+    // service is only writing to old streams, not accepting new streams
+    WRITE_ONLY          = 200,
+    // service is shutting down, will not write
+    DOWN                = 300,
+}
+
 // Server Info
 struct ServerInfo {
     1: optional map<string, string> ownerships;
+    2: optional ServerStatus serverStatus;
 }
 
 // Client Info
 struct ClientInfo {
     1: optional string streamNameRegex;
+    2: optional bool getOwnerships;
 }
 
 service DistributedLogService {

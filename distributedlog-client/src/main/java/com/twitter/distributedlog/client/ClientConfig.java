@@ -15,8 +15,9 @@ public class ClientConfig {
     boolean thriftmux = false;
     boolean streamFailfast = false;
     String streamNameRegex = ".*";
-    boolean handshakeWithClientInfo = false;
+    boolean handshakeWithClientInfo = true;
     long periodicHandshakeIntervalMs = TimeUnit.MINUTES.toMillis(5);
+    long periodicOwnershipSyncIntervalMs = TimeUnit.MINUTES.toMillis(5);
     boolean periodicDumpOwnershipCacheEnabled = false;
     long periodicDumpOwnershipCacheIntervalMs = TimeUnit.MINUTES.toMillis(10);
 
@@ -100,6 +101,15 @@ public class ClientConfig {
 
     public long getPeriodicHandshakeIntervalMs() {
         return this.periodicHandshakeIntervalMs;
+    }
+
+    public ClientConfig setPeriodicOwnershipSyncIntervalMs(long intervalMs) {
+        this.periodicOwnershipSyncIntervalMs = intervalMs;
+        return this;
+    }
+
+    public long getPeriodicOwnershipSyncIntervalMs() {
+        return this.periodicOwnershipSyncIntervalMs;
     }
 
     public ClientConfig setPeriodicDumpOwnershipCacheEnabled(boolean enabled) {
