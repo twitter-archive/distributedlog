@@ -115,7 +115,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     protected FuturePool orderedFuturePool;
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
-    protected boolean recoverInitiated = false;
     protected final RollingPolicy rollingPolicy;
     protected boolean lockHandler = false;
     protected final PermitLimiter writeLimiter;
@@ -191,16 +190,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    abstract class MetadataOp {
+    abstract class MetadataOp<T> {
 
-        void process() throws IOException {
+        T process() throws IOException {
             if (null != metadataException.get()) {
                 throw metadataException.get();
             }
-            processOp();
+            return processOp();
         }
 
-        abstract void processOp() throws IOException;
+        abstract T processOp() throws IOException;
     }
 
     /**
@@ -810,7 +809,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         return rollingPolicy.shouldRollover(writer, lastLedgerRollingTimeMillis);
     }
 
-    class CompleteOp extends MetadataOp {
+    class CompleteOp extends MetadataOp<Long> {
 
         final String inprogressZnodeName;
         final long ledgerSeqNo;
@@ -835,12 +834,13 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
 
         @Override
-        void processOp() throws IOException {
+        Long processOp() throws IOException {
             lock.acquire(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             try {
                 completeAndCloseLogSegment(inprogressZnodeName, ledgerSeqNo, ledgerId, firstTxId, lastTxId,
                         recordCount, lastEntryId, lastSlotId, false);
                 LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
+                return lastTxId;
             } finally {
                 lock.release(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
             }
@@ -853,7 +853,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    class CompleteWriterOp extends MetadataOp {
+    class CompleteWriterOp extends MetadataOp<Long> {
 
         final BKLogSegmentWriter writer;
 
@@ -862,7 +862,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
 
         @Override
-        void processOp() throws IOException {
+        Long processOp() throws IOException {
             writer.close();
             // in theory closeToFinalize should throw exception if a stream is in error.
             // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
@@ -873,6 +873,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
                     writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
                     writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+            return writer.getLastTxId();
         }
 
         @Override
@@ -1129,30 +1130,25 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    public void recoverIncompleteLogSegments() throws IOException {
-        if (recoverInitiated) {
-            return;
-        }
+    public synchronized long recoverIncompleteLogSegments() throws IOException {
         FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
-        new RecoverOp().process();
+        return new RecoverOp().process();
     }
 
-    class RecoverOp extends MetadataOp {
+    class RecoverOp extends MetadataOp<Long> {
 
         @Override
-        void processOp() throws IOException {
+        Long processOp() throws IOException {
             Stopwatch stopwatch = Stopwatch.createStarted();
             boolean success = false;
 
             try {
+                long lastTxId;
                 synchronized (BKLogPartitionWriteHandler.this) {
-                    if (recoverInitiated) {
-                        return;
-                    }
-                    doProcessOp();
-                    recoverInitiated = true;
+                    lastTxId = doProcessOp();
                 }
                 success = true;
+                return lastTxId;
             } finally {
                 if (success) {
                     recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -1162,7 +1158,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
 
-        void doProcessOp() throws IOException {
+        long doProcessOp() throws IOException {
             List<LogSegmentMetadata> segmentList = getFilteredLedgerList(false, false);
             LOG.info("Initiating Recovery For {} : {}", getFullyQualifiedName(), segmentList);
             // if lastLedgerRollingTimeMillis is not updated, we set it to now.
@@ -1171,12 +1167,16 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();
                 }
             }
+            long lastTxId = DistributedLogConstants.INVALID_TXID;
             for (LogSegmentMetadata l : segmentList) {
                 if (!l.isInProgress()) {
+                    lastTxId = Math.max(lastTxId, l.getLastTxId());
                     continue;
                 }
-                new RecoverLogSegmentOp(l).process();
+                long recoveredTxId = new RecoverLogSegmentOp(l).process();
+                lastTxId = Math.max(lastTxId, recoveredTxId);
             }
+            return lastTxId;
         }
 
         @Override
@@ -1185,7 +1185,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    class RecoverLogSegmentOp extends MetadataOp {
+    class RecoverLogSegmentOp extends MetadataOp<Long> {
 
         final LogSegmentMetadata l;
 
@@ -1194,7 +1194,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
 
         @Override
-        void processOp() throws IOException {
+        Long processOp() throws IOException {
             long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
             int recordCount = 0;
             long lastEntryId = -1;
@@ -1232,7 +1232,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     l.getZNodeName(), l.getLedgerSequenceNumber(),
                     l.getLedgerId(), l.getFirstTxId(), endTxId,
                     recordCount, lastEntryId, lastSlotId);
-            completeOp.process();
+            return completeOp.process();
         }
 
         @Override

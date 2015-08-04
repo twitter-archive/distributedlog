@@ -128,16 +128,13 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
         }
     }
 
-    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(PartitionId partition, boolean recover) throws IOException {
-        return getWriteLedgerHandler(partition.toString(), recover);
+    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(PartitionId partition) throws IOException {
+        return getWriteLedgerHandler(partition.toString());
     }
 
-    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier, boolean recover) throws IOException {
+    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
         ledgerManager.checkMetadataException();
-        if (recover) {
-            ledgerManager.recoverIncompleteLogSegments();
-        }
         return ledgerManager;
     }
 
@@ -184,7 +181,7 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
     }
 
     synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter, String streamIdentifier) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
+        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
         return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }
 
@@ -193,7 +190,7 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
                                                                           boolean bestEffort,
                                                                           boolean allowMaxTxID) throws IOException {
         boolean shouldCheckForTruncation = false;
-        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier, false);
+        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
         if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
             PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
             try {
@@ -244,8 +241,11 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
                 bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
             }
         } else if (null == ledgerWriter) {
+            // recover incomplete log segments if no writer
+            BKLogPartitionWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
+            writeHandler.recoverIncompleteLogSegments();
             // if exceptions thrown during initialize we should not catch it.
-            ledgerWriter = getWriteLedgerHandler(streamIdentifier, true).startLogSegment(startTxId, false, allowMaxTxID);
+            ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
             cacheLogWriter(streamIdentifier, ledgerWriter);
             shouldCheckForTruncation = true;
         }

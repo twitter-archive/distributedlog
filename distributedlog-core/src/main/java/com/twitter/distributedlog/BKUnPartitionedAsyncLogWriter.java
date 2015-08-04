@@ -12,7 +12,6 @@ import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Future;
-import com.twitter.util.Future$;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
 import com.twitter.util.Futures;
@@ -152,7 +151,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     BKUnPartitionedAsyncLogWriter recover() throws IOException {
         BKLogPartitionWriteHandler writeHandler =
-                this.getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
+                this.getWriteLedgerHandler(conf.getUnpartitionedStreamName());
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
         // to release underlying lock when rolling or completing log segments, which would reduce
         // the possibility of ownership change during rolling / completing log segments.
@@ -416,7 +415,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return orderedFuturePool.apply(new ExceptionalFunction0<BKLogPartitionWriteHandler>() {
             @Override
             public BKLogPartitionWriteHandler applyE() throws Throwable {
-                return getWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
+                return getWriteLedgerHandler(conf.getUnpartitionedStreamName());
             }
             @Override
             public String toString() {
