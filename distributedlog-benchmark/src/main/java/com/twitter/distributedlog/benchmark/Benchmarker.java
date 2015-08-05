@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.benchmark;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -37,6 +38,7 @@ public class Benchmarker {
     String streamPrefix = "dlog-loadtest-";
     int shardId = -1;
     int numStreams = 10;
+    List<String> serversetPaths = new ArrayList<String>();
     List<String> finagleNames = new ArrayList<String>();
     int msgSize = 256;
     String mode = null;
@@ -101,6 +103,10 @@ public class Benchmarker {
         if (cmdline.hasOption("h")) {
             printUsage();
             System.exit(0);
+        }
+        if (cmdline.hasOption("s")) {
+            String serversetPathStr = cmdline.getOptionValue("s");
+            serversetPaths = Arrays.asList(StringUtils.split(serversetPathStr, ','));
         }
         if (cmdline.hasOption("fn")) {
             String finagleNameStr = cmdline.getOptionValue("fn");
@@ -213,7 +219,8 @@ public class Benchmarker {
     }
 
     Worker runWriter() {
-        Preconditions.checkArgument(!finagleNames.isEmpty(), "finagle-name required");
+        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty(),
+                "either serverset paths or finagle-names required");
         Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
         Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
@@ -227,6 +234,7 @@ public class Benchmarker {
                 batchSize,
                 hostConnectionCoreSize,
                 hostConnectionLimit,
+                serversetPaths,
                 finagleNames,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
@@ -250,17 +258,20 @@ public class Benchmarker {
     }
 
     Worker runReader() throws IOException {
-        Preconditions.checkArgument(!finagleNames.isEmpty(), "finagleNames are required");
+        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty(),
+                "either serverset paths or finagle-names required");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
         Preconditions.checkArgument(truncationInterval > 0, "truncation interval should be greater than 0");
-        return runReaderInternal(finagleNames, truncationInterval);
+        return runReaderInternal(serversetPaths, finagleNames, truncationInterval);
     }
 
     Worker runDLReader() throws IOException {
-        return runReaderInternal(null, 0);
+        return runReaderInternal(new ArrayList<String>(), new ArrayList<String>(), 0);
     }
 
-    private Worker runReaderInternal(List<String> finagleNames, int truncationInterval) throws IOException {
+    private Worker runReaderInternal(List<String> serversetPaths,
+                                     List<String> finagleNames,
+                                     int truncationInterval) throws IOException {
         Preconditions.checkNotNull(dlUri);
 
         int ssid = null == startStreamId ? shardId * numStreams : startStreamId;
@@ -275,6 +286,7 @@ public class Benchmarker {
                 ssid,
                 esid,
                 concurrency,
+                serversetPaths,
                 finagleNames,
                 truncationInterval,
                 readFromHead,
