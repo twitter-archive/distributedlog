@@ -53,7 +53,6 @@ import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
-import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.distributedlog.util.TimeSequencer;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -231,7 +230,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
         final Object streamLock = new Object();
         final Object txnLock = new Object();
-        final Sequencer sequencer = new TimeSequencer();
+        final TimeSequencer sequencer = new TimeSequencer();
         // last acquire time
         final Stopwatch lastAcquireWatch = Stopwatch.createUnstarted();
         // last acquire failure time
@@ -744,6 +743,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             Stopwatch stopwatch = Stopwatch.createStarted();
             try {
                 AsyncLogWriter w = manager.startAsyncLogSegmentNonPartitioned();
+                synchronized (txnLock) {
+                    sequencer.setLastId(w.getLastTxId());
+                }
                 synchronized (this) {
                     setStreamStatus(StreamStatus.INITIALIZED,
                             StreamStatus.INITIALIZING, w, null, null);
