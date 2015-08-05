@@ -1043,8 +1043,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 LOG.warn("No max ledger sequence number found while completing log segment {} for {}.",
                          ledgerSeqNo, inprogressZnodePath);
             } else if (maxLedgerSequenceNo.getSequenceNumber() != ledgerSeqNo) {
-                LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
-                        new Object[] { maxLedgerSequenceNo.getSequenceNumber(), ledgerSeqNo, getFullyQualifiedName()  });
+                // ignore the case that a new inprogress log segment is pre-allocated
+                // before completing current inprogress one
+                if (maxLedgerSequenceNo.getSequenceNumber() != ledgerSeqNo + 1) {
+                    LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
+                            new Object[] { maxLedgerSequenceNo.getSequenceNumber(), ledgerSeqNo, getFullyQualifiedName() });
+                }
             } else {
                 LOG.info("Try storing max sequence number {} in completing {}.",
                          new Object[] { ledgerSeqNo, inprogressZnodePath });
