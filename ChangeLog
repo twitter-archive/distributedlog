@@ -1,3 +1,13 @@
+0.3.33
+------
+- Make per stream thread as daemon thread
+- DistributedLog Service Layer Refactor
+- Binding changes for federated namespace
+- Enforce ledger sequence number validation when get list of log segments
+- Graceful shutdown period for write proxies
+- Handshake should detect service status
+- Non decreasing transaction id support
+
 0.3.32
 ------
 - Dynamic Config Mechanism
