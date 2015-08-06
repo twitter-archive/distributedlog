@@ -16,9 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Set;
 
 import com.google.common.base.Optional;
@@ -40,7 +38,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_ZK_ACL_ID_DEFAULT = null;
 
     public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
-    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT = 2; //VERSION_V2_LEDGER_SEQNO
+    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT =
+            LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value;
 
     public static final String BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK = "ledgerMetadataSkipMinVersionCheck";
     public static final boolean BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT = false;

@@ -89,11 +89,11 @@ public class TestSequenceID extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testSequenceID() throws Exception {
-        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.addConfiguration(conf);
-        confLocal.setImmediateFlushEnabled(true);
-        confLocal.setOutputBufferSize(0);
-        confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        DistributedLogConfiguration confLocalv4 = new DistributedLogConfiguration();
+        confLocalv4.addConfiguration(conf);
+        confLocalv4.setImmediateFlushEnabled(true);
+        confLocalv4.setOutputBufferSize(0);
+        confLocalv4.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
 
         String name = "distrlog-sequence-id";
 
@@ -102,7 +102,7 @@ public class TestSequenceID extends TestDistributedLogBase {
         final LinkedBlockingQueue<LogRecordWithDLSN> readRecords =
                 new LinkedBlockingQueue<LogRecordWithDLSN>();
 
-        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocalv4, name);
 
         long txId = 0L;
 
@@ -148,7 +148,9 @@ public class TestSequenceID extends TestDistributedLogBase {
         // simulate upgrading from v4 -> v5
 
         DistributedLogConfiguration confLocalv5 = new DistributedLogConfiguration();
-        confLocalv5.addConfiguration(confLocal);
+        confLocalv5.addConfiguration(conf);
+        confLocalv5.setImmediateFlushEnabled(true);
+        confLocalv5.setOutputBufferSize(0);
         confLocalv5.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value);
 
         BKDistributedLogManager dlmv5 = (BKDistributedLogManager) createNewDLM(confLocalv5, name);
@@ -182,7 +184,7 @@ public class TestSequenceID extends TestDistributedLogBase {
 
         // rollback from v5 to v4
 
-        BKDistributedLogManager dlmv4 = (BKDistributedLogManager) createNewDLM(confLocal, name);
+        BKDistributedLogManager dlmv4 = (BKDistributedLogManager) createNewDLM(confLocalv4, name);
         for (int i = 0; i < 3; i++) {
             BKUnPartitionedAsyncLogWriter writerv4 = dlmv4.startAsyncLogSegmentNonPartitioned();
             for (int j = 0; j < 2; j++) {

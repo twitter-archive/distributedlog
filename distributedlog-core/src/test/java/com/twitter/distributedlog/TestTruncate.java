@@ -20,8 +20,11 @@ public class TestTruncate extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestTruncate.class);
 
     protected static DistributedLogConfiguration conf =
-            new DistributedLogConfiguration().setLockTimeout(10)
-                .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
+            new DistributedLogConfiguration()
+                    .setLockTimeout(10)
+                    .setOutputBufferSize(0)
+                    .setPeriodicFlushFrequencyMilliSeconds(10)
+                    .setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value);
 
     static void updateCompletionTime(ZooKeeperClient zkc,
                                      LogSegmentMetadata l, long completionTime) throws Exception {
