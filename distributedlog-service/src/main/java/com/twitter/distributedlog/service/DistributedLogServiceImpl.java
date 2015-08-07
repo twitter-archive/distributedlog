@@ -205,7 +205,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, executorService, serverConfig);
+        return new WriteOp(stream, data, statsLogger, serverConfig, dlsnVersion);
     }
 
     protected class Stream extends Thread {
@@ -1189,7 +1189,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
         // Setup complete
         logger.info("Running distributedlog server : client id {}, allocator pool {}, perstream stat {}, dlsn version {}.",
-                new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled(), serverConf.getDlsnVersion()});
+                new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled(), dlsnVersion });
     }
 
     Stream newStream(String name) {

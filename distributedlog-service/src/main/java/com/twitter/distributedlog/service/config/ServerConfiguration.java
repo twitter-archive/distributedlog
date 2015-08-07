@@ -1,11 +1,9 @@
 package com.twitter.distributedlog.service.config;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.SystemConfiguration;
 
@@ -17,10 +15,6 @@ public class ServerConfiguration extends CompositeConfiguration {
     // Server DLSN version
     protected final static String SERVER_DLSN_VERSION = "server_dlsn_version";
     protected final static byte SERVER_DLSN_VERSION_DEFAULT = DLSN.VERSION1;
-
-    // Server mode
-    protected final static String SERVER_MODE = "server_mode";
-    protected final static String SERVER_MODE_DEFAULT = DistributedLogServiceImpl.ServerMode.DURABLE.toString();
 
     // Server latency delay
     protected final static String SERVER_LATENCY_DELAY = "server_latency_delay";
@@ -85,27 +79,6 @@ public class ServerConfiguration extends CompositeConfiguration {
      */
     public byte getDlsnVersion() {
         return getByte(SERVER_DLSN_VERSION, SERVER_DLSN_VERSION_DEFAULT);
-    }
-
-    /**
-     * Get the server mode.
-     *
-     * @param mode
-     *          server mode
-     * @return server configuration
-     */
-    public ServerConfiguration setServerMode(String mode) {
-        setProperty(SERVER_MODE, mode);
-        return this;
-    }
-
-    /**
-     * Whether the server running in durable mode
-     *
-     * @return true if the server running in durable mode. otherwise false.
-     */
-    public boolean isDurableMode() {
-        return !Objects.equal(getString(SERVER_MODE), SERVER_MODE_DEFAULT);
     }
 
     /**
@@ -266,7 +239,7 @@ public class ServerConfiguration extends CompositeConfiguration {
                 "Unknown dlsn version " + dlsnVersion);
         Preconditions.checkArgument(getServerThreads() > 0,
                 "Invalid number of server threads : " + getServerThreads());
-        Preconditions.checkArgument(getServerShardId() > 0,
+        Preconditions.checkArgument(getServerShardId() >= 0,
                 "Invalid server shard id : " + getServerShardId());
     }
 

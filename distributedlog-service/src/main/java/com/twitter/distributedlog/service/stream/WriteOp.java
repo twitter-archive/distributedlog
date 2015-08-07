@@ -11,11 +11,8 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
-import com.twitter.util.Promise;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.stats.Counter;
@@ -39,16 +36,14 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final Counter bytes;
     private final Counter writeBytes;
 
-    private final ScheduledExecutorService executorService;
     private final byte dlsnVersion;
     private final long delayMs;
-    private final boolean durableServerMode;
 
     public WriteOp(String stream,
                    ByteBuffer data,
                    StatsLogger statsLogger,
-                   ScheduledExecutorService executorService,
-                   ServerConfiguration conf) {
+                   ServerConfiguration conf,
+                   byte dlsnVersion) {
         super(stream, requestStat(statsLogger, "write"));
         payload = new byte[data.remaining()];
         data.get(payload);
@@ -61,10 +56,8 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "write");
         this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
-        this.executorService = executorService;
-        this.dlsnVersion = conf.getDlsnVersion();
+        this.dlsnVersion = dlsnVersion;
         this.delayMs = conf.getLatencyDelay();
-        this.durableServerMode = conf.isDurableMode();
     }
 
     @Override
@@ -104,39 +97,13 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
             txnId = sequencer.nextId();
             writeResult = writer.write(new LogRecord(txnId, payload));
         }
-        if (durableServerMode) {
-            return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
-                @Override
-                public WriteResponse apply(DLSN value) {
-                    successRecordCounter.inc();
-                    return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
-                }
-            });
-        } else {
-            final Promise<WriteResponse> writePromise = new Promise<WriteResponse>();
-            if (delayMs > 0) {
-                final long txnIdToReturn = txnId;
-                try {
-                    executorService.schedule(new Runnable() {
-                        @Override
-                        public void run() {
-                            opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                            writePromise.setValue(ResponseUtils.writeSuccess().setDlsn(Long.toString(txnIdToReturn)));
-                            successRecordCounter.inc();
-                        }
-                    }, delayMs, TimeUnit.MILLISECONDS);
-                } catch (RejectedExecutionException ree) {
-                    opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                    writePromise.setValue(ResponseUtils.writeSuccess().setDlsn(Long.toString(txnIdToReturn)));
-                    successRecordCounter.inc();
-                }
-            } else {
-                opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                writePromise.setValue(ResponseUtils.writeSuccess().setDlsn(Long.toString(txnId)));
+        return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
+            @Override
+            public WriteResponse apply(DLSN value) {
                 successRecordCounter.inc();
+                return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
             }
-            return writePromise;
-        }
+        });
     }
 
     @Override

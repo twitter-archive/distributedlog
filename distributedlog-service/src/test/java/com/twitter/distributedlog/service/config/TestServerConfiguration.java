@@ -34,12 +34,4 @@ public class TestServerConfiguration {
         conf.validate();
     }
 
-    @Test(timeout = 60000)
-    public void testInvalidServerMode() {
-        ServerConfiguration conf = new ServerConfiguration();
-        conf.setServerShardId(100);
-        conf.setServerMode("unknown");
-        conf.validate();
-        assertTrue(conf.isDurableMode());
-    }
 }

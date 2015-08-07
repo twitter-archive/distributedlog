@@ -3,6 +3,8 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.codec.binary.Hex;
+
 import java.nio.ByteBuffer;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -58,7 +60,7 @@ public class DLSN implements Comparable<DLSN> {
     }
 
     public byte[] serializeBytes(byte version) {
-        Preconditions.checkArgument(version <= CUR_VERSION);
+        Preconditions.checkArgument(version <= CUR_VERSION && version >= VERSION0);
         byte[] data = new byte[CUR_VERSION == version ? VERSION1_LEN : VERSION0_LEN];
         ByteBuffer bb = ByteBuffer.wrap(data);
         bb.put(version);
@@ -86,14 +88,15 @@ public class DLSN implements Comparable<DLSN> {
         byte version = bb.get();
         if (VERSION0 == version) {
             if (VERSION0_LEN != data.length) {
-                throw new IllegalArgumentException("Invalid version zero DLSN " + new String(data, UTF_8));
+                throw new IllegalArgumentException("Invalid version zero DLSN " + Hex.encodeHexString(data));
             }
         } else if (VERSION1 == version) {
             if (VERSION1_LEN != data.length) {
-                throw new IllegalArgumentException("Invalid version one DLSN " + new String(data, UTF_8));
+                throw new IllegalArgumentException("Invalid version one DLSN " + Hex.encodeHexString(data));
             }
         } else {
-            throw new IllegalArgumentException("Invalid DLSN " + new String(data, UTF_8));
+            throw new IllegalArgumentException("Invalid DLSN : version = "
+                    + version + ", " + Hex.encodeHexString(data));
         }
         return new DLSN(bb.getLong(), bb.getLong(), bb.getLong());
     }
