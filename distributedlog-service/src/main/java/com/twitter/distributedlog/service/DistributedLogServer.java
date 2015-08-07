@@ -196,6 +196,7 @@ public class DistributedLogServer implements Runnable {
 
         ServerConfiguration serverConf = new ServerConfiguration();
         serverConf.loadConf(dlConf);
+        serverConf.validate();
         this.gracefulShutdownMs = serverConf.getGracefulShutdownPeriodMs();
         Pair<DistributedLogServiceImpl, Server>
             serverPair = runServer(serverConf, dlConf, uri, statsProvider, servicePort,

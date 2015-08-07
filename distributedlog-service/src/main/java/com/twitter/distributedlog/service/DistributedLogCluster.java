@@ -179,6 +179,7 @@ public class DistributedLogCluster {
                     com.twitter.distributedlog.service.config.ServerConfiguration serverConf =
                             new com.twitter.distributedlog.service.config.ServerConfiguration();
                     serverConf.loadConf(dlConf);
+                    serverConf.setServerShardId(proxyPort);
                     serverPair = DistributedLogServer.runServer(
                             serverConf, dlConf, uri, new NullStatsProvider(), proxyPort);
                     success = true;

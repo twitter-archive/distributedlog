@@ -1188,8 +1188,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
 
         // Setup complete
-        logger.info("Running distributedlog server : client id {}, allocator pool {}, perstream stat {}.",
-                new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled() });
+        logger.info("Running distributedlog server : client id {}, allocator pool {}, perstream stat {}, dlsn version {}.",
+                new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled(), serverConf.getDlsnVersion()});
     }
 
     Stream newStream(String name) {

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service.config;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
@@ -65,6 +66,18 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Set the version to encode dlsn.
+     *
+     * @param version
+     *          dlsn version
+     * @return server configuration
+     */
+    public ServerConfiguration setDlsnVersion(byte version) {
+        setProperty(SERVER_DLSN_VERSION, version);
+        return this;
+    }
+
+    /**
      * Get the version to encode dlsn.
      *
      * @see DLSN
@@ -72,6 +85,18 @@ public class ServerConfiguration extends CompositeConfiguration {
      */
     public byte getDlsnVersion() {
         return getByte(SERVER_DLSN_VERSION, SERVER_DLSN_VERSION_DEFAULT);
+    }
+
+    /**
+     * Get the server mode.
+     *
+     * @param mode
+     *          server mode
+     * @return server configuration
+     */
+    public ServerConfiguration setServerMode(String mode) {
+        setProperty(SERVER_MODE, mode);
+        return this;
     }
 
     /**
@@ -84,12 +109,36 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Set the latency delay for executing write operations.
+     *
+     * @param latencyDelay
+     *          latency delay for executing write operations
+     * @return server configuration
+     */
+    public ServerConfiguration setLatencyDelay(long latencyDelay) {
+        setProperty(SERVER_LATENCY_DELAY, latencyDelay);
+        return this;
+    }
+
+    /**
      * Get the latency delay for executing write operations.
      *
      * @return latency delay for executing write operations.
      */
     public long getLatencyDelay() {
         return getLong(SERVER_LATENCY_DELAY, SERVER_LATENCY_DELAY_DEFAULT);
+    }
+
+    /**
+     * Set the region id used to instantiate DistributedLogNamespace
+     *
+     * @param regionId
+     *          region id
+     * @return server configuration
+     */
+    public ServerConfiguration setRegionId(int regionId) {
+        setProperty(SERVER_REGION_ID, regionId);
+        return this;
     }
 
     /**
@@ -103,12 +152,36 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Set the server port running for this service.
+     *
+     * @param port
+     *          server port
+     * @return server configuration
+     */
+    public ServerConfiguration setServerPort(int port) {
+        setProperty(SERVER_PORT, port);
+        return this;
+    }
+
+    /**
      * Get the server port running for this service.
      *
      * @return server port
      */
     public int getServerPort() {
         return getInt(SERVER_PORT, SERVER_PORT_DEFAULT);
+    }
+
+    /**
+     * Set the shard id of this server.
+     *
+     * @param shardId
+     *          shard id
+     * @return shard id of this server
+     */
+    public ServerConfiguration setServerShardId(int shardId) {
+        setProperty(SERVER_SHARD_ID, shardId);
+        return this;
     }
 
     /**
@@ -143,6 +216,18 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Enable/Disable per stream stat.
+     *
+     * @param enabled
+     *          flag to enable/disable per stream stat
+     * @return server configuration
+     */
+    public ServerConfiguration setPerStreamStatEnabled(boolean enabled) {
+        setProperty(SERVER_ENABLE_PERSTREAM_STAT, enabled);
+        return this;
+    }
+
+    /**
      * Whether the per stream stat enabled for not in this server.
      *
      * @return true if per stream stat enable, otherwise false.
@@ -152,12 +237,37 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Set the graceful shutdown period in millis.
+     *
+     * @param periodMs
+     *          graceful shutdown period in millis.
+     * @return server configuration
+     */
+    public ServerConfiguration setGracefulShutdownPeriodMs(long periodMs) {
+        setProperty(SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS, periodMs);
+        return this;
+    }
+
+    /**
      * Get the graceful shutdown period in millis.
      *
      * @return graceful shutdown period in millis.
      */
     public long getGracefulShutdownPeriodMs() {
         return getLong(SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS, SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS_DEFAULT);
+    }
+
+    /**
+     * Validate the configuration
+     */
+    public void validate() {
+        byte dlsnVersion = getDlsnVersion();
+        Preconditions.checkArgument(dlsnVersion >= DLSN.VERSION0 && dlsnVersion <= DLSN.VERSION1,
+                "Unknown dlsn version " + dlsnVersion);
+        Preconditions.checkArgument(getServerThreads() > 0,
+                "Invalid number of server threads : " + getServerThreads());
+        Preconditions.checkArgument(getServerShardId() > 0,
+                "Invalid server shard id : " + getServerShardId());
     }
 
 }
