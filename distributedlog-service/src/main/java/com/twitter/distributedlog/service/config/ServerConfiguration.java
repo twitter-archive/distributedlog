@@ -34,7 +34,7 @@ public class ServerConfiguration extends CompositeConfiguration {
     protected final static int SERVER_PORT_DEFAULT = 0;
 
     // Server Shard Id
-    protected final static String SERVER_SHARD_ID = "server_shard_id";
+    protected final static String SERVER_SHARD_ID = "server_shard";
     protected final static int SERVER_SHARD_ID_DEFAULT = -1;
 
     // Server Threads
