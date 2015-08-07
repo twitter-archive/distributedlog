@@ -39,7 +39,7 @@ public class ClientStats {
         if (null != opStats) {
             return opStats;
         }
-        OpStats newStats = new OpStats(statsReceiver.scope("requests"),
+        OpStats newStats = new OpStats(statsReceiver.scope(op),
                 enableRegionStats, regionResolver);
         OpStats oldStats = opStatsMap.putIfAbsent(op, newStats);
         if (null == oldStats) {
