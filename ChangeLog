@@ -1,3 +1,9 @@
+0.3.34
+------
+- Add validation on server configuration
+- Remove server mode from distributedlog proxy
+- Fix wrong scope for client operation stats
+
 0.3.33
 ------
 - Make per stream thread as daemon thread
