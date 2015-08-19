@@ -70,10 +70,14 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
       final long size = getPayloadSize();
       result().addEventListener(new FutureEventListener<WriteResponse>() {
         @Override
-        public void onSuccess(WriteResponse ignoreVal) {
-          latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-          bytes.add(size);
-          writeBytes.add(size);
+        public void onSuccess(WriteResponse response) {
+          if (response.getHeader().getCode() == StatusCode.SUCCESS) {
+            latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+            bytes.add(size);
+            writeBytes.add(size);
+          } else {
+            latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+          }
         }
         @Override
         public void onFailure(Throwable cause) {
