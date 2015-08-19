@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -74,6 +75,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final OpStatsLogger futureSetLatency;
     private final OpStatsLogger scheduleLatency;
     private final OpStatsLogger backgroundReaderRunTime;
+    private final Counter idleReaderError;
 
     private class PendingReadRequest {
         private final Stopwatch enqueueTime;
@@ -136,6 +138,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         readNextExecTime = asyncReaderStatsLogger.getOpStatsLogger("read_next_exec");
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
         delayUntilPromiseSatisfied = asyncReaderStatsLogger.getOpStatsLogger("delay_until_promise_satisfied");
+        idleReaderError = asyncReaderStatsLogger.getCounter("idle_reader_error");
 
         // Lock the stream if requested. The lock will be released when the reader is closed.
         this.lockStream = false;
@@ -174,6 +177,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         return;
                     }
 
+                    idleReaderError.inc();
                     setLastException(new IdleReaderException("Reader on stream" +
                         bkLedgerManager.getFullyQualifiedName()
                         + "is idle for " + idleErrorThresholdMillis +"ms"));

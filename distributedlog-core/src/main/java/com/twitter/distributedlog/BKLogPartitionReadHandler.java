@@ -95,6 +95,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final Counter readLockAcquireSuccessStat;
     private final Counter readLockAcquireFailureStat;
     private final Counter readLockReleaseStat;
+    private final Counter idleReaderWarn;
     private final OpStatsLogger getInputStreamByTxIdStat;
     private final OpStatsLogger getInputStreamByDLSNStat;
     private final OpStatsLogger existsStat;
@@ -177,6 +178,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
         metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
         resumeReadAheadStat = readAheadStatsLogger.getOpStatsLogger("resume");
+        idleReaderWarn = readAheadStatsLogger.getCounter("idle_reader_warn");
         readAheadPerStreamStatsLogger =
                 isHandleForReading && conf.getEnablePerStreamStat() ? readAheadStatsLogger.scope("perstream") : NullStatsLogger.INSTANCE;
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
@@ -1419,6 +1421,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                 if (lastLedgerCloseDetected.isRunning()) {
                                     if (lastLedgerCloseDetected.elapsed(TimeUnit.MILLISECONDS)
                                         > conf.getReaderIdleWarnThresholdMillis()) {
+                                        idleReaderWarn.inc();
                                         LOG.info("{} Ledger {} for inprogress segment {} closed for idle reader warn threshold",
                                             new Object[] { fullyQualifiedName, currentMetadata, currentLH });
                                         reInitializeMetadata = true;
