@@ -18,6 +18,7 @@ import java.net.SocketAddress;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -76,15 +77,16 @@ public class ProxyClientManager implements TimerTask {
             return;
         }
         if (periodicHandshakeEnabled) {
-            boolean syncOwnerships = true;
-            if (lastOwnershipSyncStopwatch.elapsed(TimeUnit.MILLISECONDS) <
-                            clientConfig.getPeriodicOwnershipSyncIntervalMs()) {
-                syncOwnerships = false;
-            }
+            final boolean syncOwnerships;
+            syncOwnerships = lastOwnershipSyncStopwatch.elapsed(TimeUnit.MILLISECONDS) >= clientConfig.getPeriodicOwnershipSyncIntervalMs();
 
             final Set<SocketAddress> hostsSnapshot = hostProvider.getHosts();
             final AtomicInteger numHosts = new AtomicInteger(hostsSnapshot.size());
             final AtomicInteger numStreams = new AtomicInteger(0);
+            final AtomicInteger numSuccesses = new AtomicInteger(0);
+            final AtomicInteger numFailures = new AtomicInteger(0);
+            final ConcurrentMap<SocketAddress, Integer> streamDistributions =
+                    new ConcurrentHashMap<SocketAddress, Integer>();
             final Stopwatch stopwatch = Stopwatch.createStarted();
             for (SocketAddress host : hostsSnapshot) {
                 final SocketAddress address = host;
@@ -93,26 +95,40 @@ public class ProxyClientManager implements TimerTask {
                     @Override
                     public void onSuccess(ServerInfo serverInfo) {
                         numStreams.addAndGet(serverInfo.getOwnershipsSize());
+                        numSuccesses.incrementAndGet();
                         notifyHandshakeSuccess(address, client, serverInfo, false, stopwatch);
+                        if (clientConfig.isHandshakeTracingEnabled()) {
+                            streamDistributions.putIfAbsent(address, serverInfo.getOwnershipsSize());
+                        }
                         complete();
                     }
 
                     @Override
                     public void onFailure(Throwable cause) {
+                        numFailures.incrementAndGet();
                         notifyHandshakeFailure(address, client, cause, stopwatch);
                         complete();
                     }
 
                     private void complete() {
                         if (0 == numHosts.decrementAndGet()) {
-                            logger.info("Periodic handshaked with {} hosts : {} streams",
-                                    hostsSnapshot.size(), numStreams.get());
+                            if (syncOwnerships) {
+                                logger.info("Periodic handshaked with {} hosts : {} streams returned," +
+                                                " {} hosts succeeded, {} hosts failed",
+                                        new Object[]{hostsSnapshot.size(), numStreams.get(),
+                                                numSuccesses.get(), numFailures.get()});
+                                if (clientConfig.isHandshakeTracingEnabled()) {
+                                    logger.info("Periodic handshaked stream distribution : {}", streamDistributions);
+                                }
+                            }
                         }
                     }
                 }, false, syncOwnerships);
             }
 
-            lastOwnershipSyncStopwatch.reset();
+            if (syncOwnerships) {
+                lastOwnershipSyncStopwatch.reset().start();
+            }
         }
         scheduleHandshake();
     }

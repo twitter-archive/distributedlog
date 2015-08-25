@@ -153,6 +153,7 @@ public class WriterWorker implements Worker {
             .periodicHandshakeIntervalMs(TimeUnit.SECONDS.toMillis(30))
             .periodicOwnershipSyncIntervalMs(TimeUnit.MINUTES.toMillis(5))
             .periodicDumpOwnershipCache(true)
+            .handshakeTracing(true)
             .name("writer");
 
         if (serverSets.length == 0) {

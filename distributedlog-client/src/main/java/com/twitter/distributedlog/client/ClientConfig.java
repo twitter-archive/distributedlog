@@ -20,6 +20,7 @@ public class ClientConfig {
     long periodicOwnershipSyncIntervalMs = TimeUnit.MINUTES.toMillis(5);
     boolean periodicDumpOwnershipCacheEnabled = false;
     long periodicDumpOwnershipCacheIntervalMs = TimeUnit.MINUTES.toMillis(10);
+    boolean enableHandshakeTracing = false;
 
     public ClientConfig setMaxRedirects(int maxRedirects) {
         this.maxRedirects = maxRedirects;
@@ -130,6 +131,15 @@ public class ClientConfig {
         return this.periodicDumpOwnershipCacheIntervalMs;
     }
 
+    public ClientConfig setHandshakeTracingEnabled(boolean enabled) {
+        this.enableHandshakeTracing = enabled;
+        return this;
+    }
+
+    public boolean isHandshakeTracingEnabled() {
+        return this.enableHandshakeTracing;
+    }
+
     public static ClientConfig newConfig(ClientConfig config) {
         ClientConfig newConfig = new ClientConfig();
         newConfig.setMaxRedirects(config.getMaxRedirects())
@@ -142,7 +152,8 @@ public class ClientConfig {
                  .setHandshakeWithClientInfo(config.getHandshakeWithClientInfo())
                  .setPeriodicHandshakeIntervalMs(config.getPeriodicHandshakeIntervalMs())
                  .setPeriodicDumpOwnershipCacheEnabled(config.isPeriodicDumpOwnershipCacheEnabled())
-                 .setPeriodicDumpOwnershipCacheIntervalMs(config.getPeriodicDumpOwnershipCacheIntervalMs());
+                 .setPeriodicDumpOwnershipCacheIntervalMs(config.getPeriodicDumpOwnershipCacheIntervalMs())
+                 .setHandshakeTracingEnabled(config.isHandshakeTracingEnabled());
         return newConfig;
     }
 }

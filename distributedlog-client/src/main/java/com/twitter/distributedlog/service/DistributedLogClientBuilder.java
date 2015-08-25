@@ -391,6 +391,19 @@ public final class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Enable handshake tracing.
+     *
+     * @param enabled
+     *          flag to enable/disable handshake tracing
+     * @return client builder
+     */
+    public DistributedLogClientBuilder handshakeTracing(boolean enabled) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setHandshakeTracingEnabled(enabled);
+        return newBuilder;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientConfig = ClientConfig.newConfig(clientConfig);
