@@ -72,7 +72,6 @@ import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentMetadata;
-import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.auditor.DLAuditor;
@@ -777,7 +776,6 @@ public class DistributedLogTool extends Tool {
     protected static class ShowCommand extends PerStreamCommand {
 
         SimpleBookKeeperClient bkc = null;
-        PartitionId partitionId = null;
         boolean listSegments = true;
         boolean listEppStats = false;
         long firstLid = 0;
@@ -785,7 +783,6 @@ public class DistributedLogTool extends Tool {
 
         ShowCommand() {
             super("show", "show metadata of a given stream and list segments");
-            options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("ns", "no-log-segments", false, "Do not list log segment metadata");
             options.addOption("lp", "placement-stats", false, "Show ensemble placement stats");
             options.addOption("fl", "first-ledger", true, "First log sement no");
@@ -795,13 +792,6 @@ public class DistributedLogTool extends Tool {
         @Override
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
-            if (cmdline.hasOption("p")) {
-                try {
-                    partitionId = new PartitionId(Integer.parseInt(cmdline.getOptionValue("p")));
-                } catch (NumberFormatException nfe) {
-                    throw new ParseException("Invalid partition " + cmdline.getOptionValue("p"));
-                }
-            }
             if (cmdline.hasOption("fl")) {
                 try {
                     firstLid = Long.parseLong(cmdline.getOptionValue("fl"));
@@ -844,42 +834,8 @@ public class DistributedLogTool extends Tool {
         }
 
         private void printMetadata(DistributedLogManager dlm) throws Exception {
-            if (partitionId == null) {
-                boolean hasStreams = false;
-                // first tries to print metadata on unpartitioned streams
-                try {
-                    printMetadata(dlm, null);
-                    hasStreams = true;
-                } catch (LogNotFoundException lee) {
-                    // nop
-                }
-                // tries all potential partitions
-                int pid = 0;
-                while (true) {
-                    try {
-                        printMetadata(dlm, new PartitionId(pid));
-                        hasStreams = true;
-                    } catch (LogNotFoundException lee) {
-                        break;
-                    }
-                    ++pid;
-                }
-                if (!hasStreams) {
-                    println("No streams found for " + getStreamName() + ".");
-                }
-                println("---------------------------------------------");
-            } else {
-                try {
-                    printMetadata(dlm, partitionId);
-                } catch (LogNotFoundException lee) {
-                    println("No partition " + partitionId + " found.");
-                }
-            }
-        }
-
-        private void printMetadata(DistributedLogManager dlm, PartitionId pid) throws Exception {
-            printHeader(dlm, pid);
-            if (null == pid && listSegments) {
+            printHeader(dlm);
+            if (listSegments) {
                 println("Ledgers : ");
                 List<LogSegmentMetadata> segments = dlm.getLogSegments();
                 for (LogSegmentMetadata segment : segments) {
@@ -890,15 +846,15 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        private void printHeader(DistributedLogManager dlm, PartitionId pid) throws Exception {
-            DLSN firstDlsn = null == pid ? Await.result(dlm.getFirstDLSNAsync()) : DLSN.InvalidDLSN;
-            boolean endOfStreamMarked = null == pid && dlm.isEndOfStreamMarked();
-            DLSN lastDlsn = null == pid ? dlm.getLastDLSN() : dlm.getLastDLSN(pid);
-            long firstTxnId = null == pid ? dlm.getFirstTxId() : dlm.getFirstTxId(pid);
-            long lastTxnId = null == pid ? dlm.getLastTxId() : dlm.getLastTxId(pid);
-            long recordCount = null == pid ? dlm.getLogRecordCount() : dlm.getLogRecordCount(pid);
-            String result = String.format("Stream %s : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b, recordCount=%d)",
-                getStreamName(pid), firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked, recordCount);
+        private void printHeader(DistributedLogManager dlm) throws Exception {
+            DLSN firstDlsn = Await.result(dlm.getFirstDLSNAsync());
+            boolean endOfStreamMarked = dlm.isEndOfStreamMarked();
+            DLSN lastDlsn = dlm.getLastDLSN();
+            long firstTxnId = dlm.getFirstTxId();
+            long lastTxnId = dlm.getLastTxId();
+            long recordCount = dlm.getLogRecordCount();
+            String result = String.format("Stream : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b, recordCount=%d)",
+                firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked, recordCount);
             println(result);
             if (listEppStats) {
                 printEppStatsHeader(dlm);
@@ -969,10 +925,6 @@ public class DistributedLogTool extends Tool {
             for (Map.Entry<BookieSocketAddress, Integer> entry : m2.entrySet()) {
                 merge(m1, entry.getKey(), entry.getValue());
             }
-        }
-
-        String getStreamName(PartitionId pid) {
-            return (null == pid ? "<default>" : "partition " + pid);
         }
 
         String getDlsnName(DLSN dlsn) {
@@ -1308,7 +1260,6 @@ public class DistributedLogTool extends Tool {
 
     protected static class DumpCommand extends PerStreamCommand {
 
-        PartitionId partitionId = null;
         boolean printHex = false;
         boolean skipPayload = false;
         Long fromTxnId = null;
@@ -1317,7 +1268,6 @@ public class DistributedLogTool extends Tool {
 
         DumpCommand() {
             super("dump", "dump records of a given stream");
-            options.addOption("p", "partition", true, "Partition of given stream");
             options.addOption("x", "hex", false, "Print record in hex format");
             options.addOption("sp", "skip-payload", false, "Skip printing the payload of the record");
             options.addOption("o", "offset", true, "Txn ID to start dumping.");
@@ -1332,13 +1282,6 @@ public class DistributedLogTool extends Tool {
             super.parseCommandLine(cmdline);
             printHex = cmdline.hasOption("x");
             skipPayload = cmdline.hasOption("sp");
-            if (cmdline.hasOption("p")) {
-                try {
-                    partitionId = new PartitionId(Integer.parseInt(cmdline.getOptionValue("p")));
-                } catch (NumberFormatException nfe) {
-                    throw new ParseException("Invalid partition " + cmdline.getOptionValue("p"));
-                }
-            }
             if (cmdline.hasOption("o")) {
                 try {
                     fromTxnId = Long.parseLong(cmdline.getOptionValue("o"));
@@ -1388,22 +1331,12 @@ public class DistributedLogTool extends Tool {
             try {
                 LogReader reader;
                 try {
-                    if (null == partitionId) {
-                        DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
-                        println("Last DLSN : " + lastDLSN);
-                        if (null == fromDLSN) {
-                            reader = dlm.getInputStream(fromTxnId);
-                        } else {
-                            reader = dlm.getInputStream(fromDLSN);
-                        }
+                    DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
+                    println("Last DLSN : " + lastDLSN);
+                    if (null == fromDLSN) {
+                        reader = dlm.getInputStream(fromTxnId);
                     } else {
-                        DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync(partitionId));
-                        println("Last DLSN : " + lastDLSN);
-                        if (null == fromDLSN) {
-                            reader = dlm.getInputStream(partitionId, fromTxnId);
-                        } else {
-                            reader = dlm.getInputStream(partitionId, fromDLSN);
-                        }
+                        reader = dlm.getInputStream(fromDLSN);
                     }
                 } catch (LogNotFoundException lee) {
                     println("No stream found to dump records.");
@@ -1411,7 +1344,7 @@ public class DistributedLogTool extends Tool {
                 }
                 try {
                     println("Dump records for " + getStreamName() + " (from = " + fromTxnId
-                            + ", count = " + count + ", partition = " + partitionId + ")");
+                            + ", count = " + count + ")");
                     dumpRecords(reader);
                 } finally {
                     reader.close();

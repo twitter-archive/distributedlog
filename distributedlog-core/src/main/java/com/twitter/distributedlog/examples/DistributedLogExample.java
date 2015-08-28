@@ -5,8 +5,6 @@ import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogWriter;
-import com.twitter.distributedlog.PartitionAwareLogWriter;
-import com.twitter.distributedlog.PartitionId;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 
@@ -72,34 +70,5 @@ public class DistributedLogExample {
         System.out.println("Read unpartitioned stream done.");
         unpartitionedDLM.delete();
         unpartitionedDLM.close();
-
-        // Create partitioned dlm
-        DistributedLogManager partitionedDLM =
-                namespace.openLog("partitioned-example");
-        PartitionAwareLogWriter partitionedWriter = partitionedDLM.startLogSegment();
-        int numPartitions = 4;
-        for (long i = 0; i < 20; i++) {
-            partitionedWriter.write(
-                new LogRecord(i, generatePayload("partitioned-example", i)),
-                new PartitionId((int)(i % numPartitions))
-            );
-        }
-        partitionedWriter.close();
-        System.out.println("Write 20 records to partitioned stream.");
-        for (int i=0; i<numPartitions; i++) {
-            PartitionId partition = new PartitionId(i);
-            LogReader partitionedReader = partitionedDLM.getInputStream(partition, 0);
-            System.out.println("Read partitioned stream : partitioned-example, partition : " + i);
-            LogRecord record = partitionedReader.readNext(false);
-            while (null != record) {
-                System.out.println(String.format("partition %d, txn %d : %s",
-                        i, record.getTransactionId(), new String(record.getPayload(), "UTF-8")));
-                record = partitionedReader.readNext(false);
-            }
-            partitionedReader.close();
-            System.out.println("Read partitioned stream : partitioned-example, partition (" + i + ") done.");
-        }
-        partitionedDLM.delete();
-        partitionedDLM.close();
     }
 }

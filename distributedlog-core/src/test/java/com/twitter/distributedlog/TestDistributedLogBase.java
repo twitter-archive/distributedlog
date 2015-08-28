@@ -88,7 +88,7 @@ public class TestDistributedLogBase {
         return DLMTestUtil.createDLMURI(zkPort, path);
     }
 
-    public DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
+    public BKDistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name) throws Exception {
         URI uri = createDLMURI("/" + name);
         return new BKDistributedLogManager(
@@ -107,7 +107,7 @@ public class TestDistributedLogBase {
         );
     }
 
-    public DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
+    public BKDistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name,
                                               PermitLimiter writeLimiter)
             throws Exception {
@@ -131,7 +131,7 @@ public class TestDistributedLogBase {
     public DLMTestUtil.BKLogPartitionWriteHandlerAndClients createNewBKDLM(
             DistributedLogConfiguration conf,
             String path) throws Exception {
-        return DLMTestUtil.createNewBKDLM(new PartitionId(0), conf, path, zkPort);
+        return DLMTestUtil.createNewBKDLM(conf.getUnpartitionedStreamName(), conf, path, zkPort);
     }
 
     @SuppressWarnings("deprecation")

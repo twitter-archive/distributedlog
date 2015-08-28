@@ -33,203 +33,254 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
     @Test
     public void testInterleavedReaders() throws Exception {
         String name = "distrlog-interleaved";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
+        BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         long txid = 1;
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        LogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        LogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             for (int k = 1; k <= 10; k++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
             numTrans += drainStreams(reader0, reader1);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
+        dlmreader0.close();
+        dlmwrite0.close();
+        dlmreader1.close();
+        dlmwrite1.close();
     }
 
     @Test
     public void testInterleavedReadersWithRollingEdge() throws Exception {
         String name = "distrlog-interleaved-rolling-edge";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
+        BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         long txid = 1;
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
-                ((BKPartitionAwareLogWriter) writer).setForceRolling(true);
+                writer0.setForceRolling(true);
+                writer1.setForceRolling(true);
             }
             for (int k = 1; k <= 2; k++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
-                ((BKPartitionAwareLogWriter) writer).setForceRolling(false);
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.setForceRolling(false);
+                writer1.setForceRolling(false);
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
             numTrans += drainStreams(reader0, reader1);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
+        dlmreader0.close();
+        dlmwrite0.close();
+        dlmreader1.close();
+        dlmwrite1.close();
     }
 
     @Test
     public void testInterleavedReadersWithRolling() throws Exception {
         String name = "distrlog-interleaved-rolling";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
+        BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         long txid = 1;
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
-                    ((BKPartitionAwareLogWriter) writer).setForceRolling(true);
+                    writer0.setForceRolling(true);
+                    writer1.setForceRolling(true);
                 }
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
-                ((BKPartitionAwareLogWriter) writer).setForceRolling(false);
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.setForceRolling(false);
+                writer1.setForceRolling(false);
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
             numTrans += drainStreams(reader0, reader1);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
+        dlmreader0.close();
+        dlmwrite0.close();
+        dlmreader1.close();
+        dlmwrite1.close();
     }
 
     @Test
     public void testInterleavedReadersWithCleanup() throws Exception {
         String name = "distrlog-interleaved-cleanup";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         long txid = 1;
         Long retentionPeriodOverride = null;
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             for (int k = 1; k <= 10; k++) {
                 if (k == 5) {
-                    ((BKPartitionAwareLogWriter) writer).setForceRolling(true);
-                    ((BKPartitionAwareLogWriter) writer).overRideMinTimeStampToKeep(retentionPeriodOverride);
+                    writer0.setForceRolling(true);
+                    writer0.overRideMinTimeStampToKeep(retentionPeriodOverride);
+                    writer1.setForceRolling(true);
+                    writer1.overRideMinTimeStampToKeep(retentionPeriodOverride);
                 }
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
                 if (k == 5) {
-                    ((BKPartitionAwareLogWriter) writer).setForceRolling(false);
+                    writer0.setForceRolling(false);
+                    writer1.setForceRolling(false);
                     retentionPeriodOverride = System.currentTimeMillis();
                 }
                 Thread.sleep(5);
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
         }
-        writer.close();
+        writer0.close();
+        writer1.close();
 
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        DistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        DistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         int numTrans = drainStreams(reader0, reader1);
         assertEquals(32, numTrans);
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
+        dlmreader0.close();
+        dlmwrite0.close();
+        dlmreader1.close();
+        dlmwrite1.close();
     }
 
     @Test
     public void testInterleavedReadersWithRecovery() throws Exception {
         String name = "distrlog-interleaved-recovery";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
+        BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         long txid = 1;
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
-                    ((BKPartitionAwareLogWriter) writer).setForceRecovery(true);
+                    writer0.setForceRecovery(true);
+                    writer1.setForceRecovery(true);
                 }
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
-                ((BKPartitionAwareLogWriter) writer).setForceRecovery(false);
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.setForceRecovery(false);
+                writer1.setForceRecovery(false);
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
             numTrans += drainStreams(reader0, reader1);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
         reader1.close();
         assertEquals(txid - 1,
-            dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
-        dlmreader.close();
-        dlmwrite.close();
+            dlmreader0.getLogRecordCount() + dlmreader1.getLogRecordCount());
+        dlmreader0.close();
+        dlmwrite0.close();
+        dlmreader1.close();
+        dlmwrite1.close();
     }
 
     @Test
     public void testInterleavedReadersWithRollingEdgeUnPartitioned() throws Exception {
         String name = "distrlog-interleaved-rolling-edge-unpartitioned";
-        DistributedLogManager dlmwrite = createNewDLM(conf, name);
-        DistributedLogManager dlmreader = createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmreader0 = createNewDLM(conf, name + "-0");
+        BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
+        BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
-        LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
+        LogReader reader0 = dlmreader0.getInputStream(1);
+        LogReader reader1 = dlmreader1.getInputStream(1);
         long txid = 1;
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
+        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
-                ((BKPartitionAwareLogWriter) writer).setForceRolling(true);
+                writer0.setForceRolling(true);
+                writer1.setForceRolling(true);
             }
             for (int k = 1; k <= 2; k++) {
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(1));
-                writer.write(DLMTestUtil.getLogRecordInstance(txid++), new PartitionId(0));
-                ((BKPartitionAwareLogWriter) writer).setForceRolling(false);
+                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                writer0.setForceRolling(false);
+                writer1.setForceRolling(false);
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            writer0.setReadyToFlush();
+            writer0.flushAndSync();
+            writer1.setReadyToFlush();
+            writer1.flushAndSync();
             numTrans += drainStreams(reader0, reader1);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
         reader1.close();
-        dlmreader.close();
+        dlmreader0.close();
+        dlmreader1.close();
     }
 
     @Test

@@ -347,14 +347,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
-    synchronized public BKLogPartitionReadHandler createReadLedgerHandler(PartitionId partition) throws IOException {
-        return createReadLedgerHandler(partition.toString());
-    }
-
-    synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(PartitionId partition) throws IOException {
-        return createWriteLedgerHandler(partition.toString());
-    }
-
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
         Optional<String> subscriberId = Optional.absent();
         return createReadLedgerHandler(streamIdentifier, subscriberId, false);
@@ -445,17 +437,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
-     * Check if an end of stream marker was added to the stream for the partition
-     * A stream with an end of stream marker cannot be appended to
-     *
-     * @return true if the marker was added to the stream, false otherwise
-     */
-    @Override
-    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException {
-        throw new NotYetImplementedException("isEndOfStreamMarked for partitioned streams");
-    }
-
-    /**
      * Check if an end of stream marker was added to the stream
      * A stream with an end of stream marker cannot be appended to
      *
@@ -502,17 +483,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public PartitionAwareLogWriter startLogSegment() throws IOException {
-        checkClosedOrInError("startLogSegment");
-        return new BKPartitionAwareLogWriter(conf, dynConf, this);
-    }
-
-    /**
-     * Begin writing to the log stream identified by the name
-     *
-     * @return the writer interface to generate log records
-     */
-    @Override
     public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         return new BKUnPartitionedSyncLogWriter(conf, dynConf, this);
@@ -540,20 +510,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     /**
      * Get the input stream starting with fromTxnId for the specified log
      *
-     * @param partition – the partition (stream) within the log to read from
-     * @param fromTxnId - the first transaction id we want to read
-     * @return the stream starting with transaction fromTxnId
-     * @throws IOException if a stream cannot be found.
-     */
-    @Override
-    public LogReader getInputStream(PartitionId partition, long fromTxnId)
-        throws IOException {
-        return getInputStreamInternal(partition.toString(), fromTxnId);
-    }
-
-    /**
-     * Get the input stream starting with fromTxnId for the specified log
-     *
      * @param fromTxnId - the first transaction id we want to read
      * @return the stream starting with transaction fromTxnId
      * @throws IOException if a stream cannot be found.
@@ -562,11 +518,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStream(long fromTxnId)
         throws IOException {
         return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromTxnId);
-    }
-
-    @Override
-    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException {
-        return getInputStreamInternal(partition.toString(), fromDLSN);
     }
 
     @Override
@@ -672,19 +623,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return new BKContinuousLogReaderDLSN(this, streamIdentifier, dlsn, conf, statsLogger);
     }
 
-    /**
-     * Get the last log record no later than the specified transactionId
-     *
-     * @param partition – the partition within the log stream to read from
-     * @param thresholdTxId - the threshold transaction id
-     * @return the last log record before a given transactionId
-     * @throws IOException if a stream cannot be found.
-     */
-    @Override
-    public long getTxIdNotLaterThan(PartitionId partition, long thresholdTxId) throws IOException {
-        return getTxIdNotLaterThanInternal(partition.toString(), thresholdTxId);
-    }
-
     @Override
     public long getTxIdNotLaterThan(long thresholdTxId) throws IOException {
         return getTxIdNotLaterThanInternal(conf.getUnpartitionedStreamName(), thresholdTxId);
@@ -696,18 +634,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         long returnValue = ledgerHandler.getTxIdNotLaterThan(thresholdTxId);
         ledgerHandler.close();
         return returnValue;
-    }
-
-    /**
-     * Get the last log record in the stream
-     *
-     * @param partition – the partition within the log stream to read from
-     * @return the last log record in the stream
-     * @throws java.io.IOException if a stream cannot be found.
-     */
-    @Override
-    public LogRecordWithDLSN getLastLogRecord(PartitionId partition) throws IOException {
-        return getLastLogRecordInternal(partition.toString());
     }
 
     /**
@@ -732,11 +658,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
-    public long getFirstTxId(PartitionId partition) throws IOException {
-        return getFirstTxIdInternal(partition.toString());
-    }
-
-    @Override
     public long getFirstTxId() throws IOException {
         return getFirstTxIdInternal(conf.getUnpartitionedStreamName());
     }
@@ -752,11 +673,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
-    public long getLastTxId(PartitionId partition) throws IOException {
-        return getLastTxIdInternal(partition.toString(), false, false);
-    }
-
-    @Override
     public long getLastTxId() throws IOException {
         return getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, false);
     }
@@ -769,11 +685,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } finally {
             ledgerHandler.close();
         }
-    }
-
-    @Override
-    public DLSN getLastDLSN(PartitionId partition) throws IOException {
-        return getLastDLSNInternal(partition.toString(), false, false);
     }
 
     @Override
@@ -801,17 +712,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
             }
         });
-    }
-
-    /**
-     * Get Latest Transaction Id in the specified partition of the log
-     *
-     * @param partition - the partition within the log
-     * @return latest transaction id
-     */
-    @Override
-    public Future<Long> getLastTxIdAsync(PartitionId partition) {
-        return getLastTxIdAsyncInternal(partition.toString());
     }
 
     /**
@@ -850,17 +750,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
-     * Get Latest DLSN in the specified partition of the log
-     *
-     * @param partition - the partition within the log
-     * @return latest transaction id
-     */
-    @Override
-    public Future<DLSN> getLastDLSNAsync(PartitionId partition) {
-        return getLastDLSNAsyncInternal(partition.toString());
-    }
-
-    /**
      * Get Latest DLSN in the non partitioned stream
      *
      * @return latest transaction id
@@ -873,20 +762,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
         return getLastRecordAsyncInternal(streamIdentifier, false, false)
                 .map(RECORD_2_DLSN_FUNCTION);
-    }
-
-    /**
-     * Get the number of log records in the active portion of the stream for the
-     * given partition
-     * Any log segments that have already been truncated will not be included
-     *
-     * @param partition the partition within the log
-     * @return number of log records
-     * @throws IOException
-     */
-    @Override
-    public long getLogRecordCount(PartitionId partition) throws IOException {
-        return getLogRecordCountInternal(partition.toString());
     }
 
     /**
@@ -932,17 +807,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
-     * Recover a specified partition within the log container
-     *
-     * @param partition – the partition within the log stream to delete
-     * @throws IOException if the recovery fails
-     */
-    @Override
-    public void recover(PartitionId partition) throws IOException {
-        recoverInternal(partition.toString());
-    }
-
-    /**
      * Recover the default stream within the log container (for
      * un partitioned log containers)
      *
@@ -970,17 +834,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         } finally {
             ledgerHandler.close();
         }
-    }
-
-    /**
-     * Delete the specified partition
-     *
-     * @param partition – the partition within the log stream to delete
-     * @throws IOException if the deletion fails
-     */
-    @Override
-    public void deletePartition(PartitionId partition) throws IOException {
-        deletePartition(partition.toString());
     }
 
     /**
@@ -1222,19 +1075,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     /**
      * Get the subscription state storage provided by the distributed log manager
      *
-     * @param partition - the partition within the log stream
-     * @param subscriberId - Application specific Id associated with the subscriber
-     * @return Subscription state store
-     */
-    @Override
-    @Deprecated
-    public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId) {
-        return getSubscriptionStateStoreInternal(partition.toString(), subscriberId);
-    }
-
-    /**
-     * Get the subscription state storage provided by the distributed log manager
-     *
      * @param streamIdentifier - Identifier associated with the stream
      * @param subscriberId - Application specific Id associated with the subscriber
      * @return Subscription state store
@@ -1248,11 +1088,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public SubscriptionsStore getSubscriptionsStore() {
         return getSubscriptionsStoreInternal(conf.getUnpartitionedStreamName());
-    }
-
-    @Override
-    public SubscriptionsStore getSubscriptionsStore(PartitionId partitionId) {
-        return getSubscriptionsStoreInternal(partitionId.toString());
     }
 
     /**

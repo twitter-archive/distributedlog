@@ -128,10 +128,6 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
         }
     }
 
-    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(PartitionId partition) throws IOException {
-        return getWriteLedgerHandler(partition.toString());
-    }
-
     synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier) throws IOException {
         BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
         ledgerManager.checkMetadataException();
@@ -147,10 +143,6 @@ abstract class BKBaseLogWriter implements Closeable, Abortable {
             cachePartitionHandler(streamIdentifier, ledgerManager);
         }
         return ledgerManager;
-    }
-
-    synchronized protected BKLogSegmentWriter getLedgerWriter(PartitionId partition, long startTxId, boolean allowMaxTxID) throws IOException {
-        return getLedgerWriter(partition.toString(), startTxId, allowMaxTxID);
     }
 
     synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)

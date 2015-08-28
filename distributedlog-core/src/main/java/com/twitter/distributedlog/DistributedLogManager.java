@@ -58,13 +58,6 @@ public interface DistributedLogManager extends MetadataAccessor {
     public void unregisterListener(LogSegmentListener listener);
 
     /**
-     * Begin writing to multiple partitions of the log stream identified by the name
-     *
-     * @return the writer interface to generate log records
-     */
-    public PartitionAwareLogWriter startLogSegment() throws IOException;
-
-    /**
      * Begin writing to the log stream identified by the name
      *
      * @return the writer interface to generate log records
@@ -95,25 +88,12 @@ public interface DistributedLogManager extends MetadataAccessor {
     /**
      * Get the input stream starting with fromTxnId for the specified log
      *
-     * @param partition – the partition within the log stream to read from
-     * @param fromTxnId - the first transaction id we want to read
-     * @return the stream starting with transaction fromTxnId
-     * @throws IOException if a stream cannot be found.
-     */
-    public LogReader getInputStream(PartitionId partition, long fromTxnId)
-        throws IOException;
-
-    /**
-     * Get the input stream starting with fromTxnId for the specified log
-     *
      * @param fromTxnId - the first transaction id we want to read
      * @return the stream starting with transaction fromTxnId
      * @throws IOException if a stream cannot be found.
      */
     public LogReader getInputStream(long fromTxnId)
         throws IOException;
-
-    public LogReader getInputStream(PartitionId partition, DLSN fromDLSN) throws IOException;
 
     public LogReader getInputStream(DLSN fromDLSN) throws IOException;
 
@@ -150,28 +130,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      */
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(String subscriberId);
 
-    /**
-     * Get the last log record before the specified transactionId
-     *
-     * @param partition – the partition within the log stream to read from
-     * @param fromTxnId - the first transaction id we want to read
-     * @return the last log record before a given transactionId
-     * @throws IOException if a stream cannot be found.
-     */
-    public long getTxIdNotLaterThan(PartitionId partition, long fromTxnId)
-        throws IOException;
-
     public long getTxIdNotLaterThan(long fromTxnId)
-        throws IOException;
-
-    /**
-     * Get the last log record in the stream
-     *
-     * @param partition – the partition within the log stream to read from
-     * @return the last log record in the stream
-     * @throws IOException if a stream cannot be found.
-     */
-    public LogRecordWithDLSN getLastLogRecord(PartitionId partition)
         throws IOException;
 
     /**
@@ -183,16 +142,6 @@ public interface DistributedLogManager extends MetadataAccessor {
     public LogRecordWithDLSN getLastLogRecord()
         throws IOException;
 
-
-    /**
-     * Get the earliest Transaction Id available in the specified partition of the log
-     *
-     * @param partition - the partition within the log
-     * @return earliest transaction id
-     * @throws IOException
-     */
-    public long getFirstTxId(PartitionId partition) throws IOException;
-
     /**
      * Get the earliest Transaction Id available in the non partitioned stream
      *
@@ -200,15 +149,6 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @throws IOException
      */
     public long getFirstTxId() throws IOException;
-
-    /**
-     * Get Latest Transaction Id in the specified partition of the log
-     *
-     * @param partition - the partition within the log
-     * @return latest transaction id
-     * @throws IOException
-     */
-    public long getLastTxId(PartitionId partition) throws IOException;
 
     /**
      * Get Latest Transaction Id in the non partitioned stream
@@ -219,15 +159,6 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getLastTxId() throws IOException;
 
     /**
-     * Get Latest DLSN in the specified partition of the log
-     *
-     * @param partition - the partition within the log
-     * @return last dlsn
-     * @throws IOException
-     */
-    public DLSN getLastDLSN(PartitionId partition) throws IOException;
-
-    /**
      * Get Latest DLSN in the non partitioned stream
      *
      * @return last dlsn
@@ -236,20 +167,11 @@ public interface DistributedLogManager extends MetadataAccessor {
     public DLSN getLastDLSN() throws IOException;
 
     /**
-     * Get Latest Transaction Id in the specified partition of the log - async
-     *
-     * @param partition - the partition within the log
-     * @return latest transaction id
-     */
-    public Future<Long> getLastTxIdAsync(PartitionId partition);
-
-    /**
      * Get Latest Transaction Id in the non partitioned stream - async
      *
      * @return latest transaction id
      */
     public Future<Long> getLastTxIdAsync();
-
 
     /**
      * Get first DLSN in the unpartitioned stream.
@@ -259,31 +181,11 @@ public interface DistributedLogManager extends MetadataAccessor {
     public Future<DLSN> getFirstDLSNAsync();
 
     /**
-     * Get Latest DLSN in the specified partition of the log - async
-     *
-     * @param partition - the partition within the log
-     * @return latest transaction id
-     */
-    public Future<DLSN> getLastDLSNAsync(PartitionId partition);
-
-    /**
      * Get Latest DLSN in the non partitioned stream - async
      *
      * @return latest transaction id
      */
     public Future<DLSN> getLastDLSNAsync();
-
-
-    /**
-     * Get the number of log records in the active portion of the stream for the
-     * given partition
-     * Any log segments that have already been truncated will not be included
-     *
-     * @param partition the partition within the log
-     * @return number of log records
-     * @throws IOException
-     */
-    public long getLogRecordCount(PartitionId partition) throws IOException;
 
     /**
      * Get the number of log records in the active portion of the non-partitioned
@@ -306,29 +208,11 @@ public interface DistributedLogManager extends MetadataAccessor {
     public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN);
 
     /**
-     * Run recovery on the specified partition of the log
-     *
-     * @param partition the partition within the log to recover
-     * @throws IOException
-     */
-    public void recover(PartitionId partition) throws IOException;
-
-    /**
      * Run recovery on the non partitioned log
      *
      * @throws IOException
      */
     public void recover() throws IOException;
-
-    /**
-     * Check if an end of stream marker was added to the stream for the partition
-     * A stream with an end of stream marker cannot be appended to
-     *
-     * @param partition - the partition within the log
-     * @return true if the end of stream has been marked
-     * @throws IOException
-     */
-    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException;
 
     /**
      * Check if an end of stream marker was added to the stream
@@ -345,14 +229,6 @@ public interface DistributedLogManager extends MetadataAccessor {
      * @throws IOException if the deletion fails
      */
     public void delete() throws IOException;
-
-    /**
-     * Delete the specified partition
-     *
-     * @param partition – the partition within the log stream to delete
-     * @throws IOException if the deletion fails
-     */
-    public void deletePartition(PartitionId partition) throws IOException;
 
     /**
      * The DistributedLogManager may archive/purge any logs for transactionId
@@ -376,27 +252,10 @@ public interface DistributedLogManager extends MetadataAccessor {
     public SubscriptionStateStore getSubscriptionStateStore(String subscriberId);
 
     /**
-     * Get the subscription state storage provided by the distributed log manager
-     *
-     * @param partition - the partition within the log stream
-     * @param subscriberId - Application specific Id associated with the subscriber
-     * @return Subscription state store
-     */
-    @Deprecated
-    public SubscriptionStateStore getSubscriptionStateStore(PartitionId partition, String subscriberId);
-
-    /**
      * Get the subscriptions store provided by the distributedlog manager.
      *
      * @return subscriptions store manages subscriptions for current stream.
      */
     public SubscriptionsStore getSubscriptionsStore();
 
-    /**
-     * Get the subscriptions store provided by the distributedlog manager.
-     *
-     * @param partitionId partition id.
-     * @return subscriptions store manages subscriptions for given partition.
-     */
-    public SubscriptionsStore getSubscriptionsStore(PartitionId partitionId);
 }

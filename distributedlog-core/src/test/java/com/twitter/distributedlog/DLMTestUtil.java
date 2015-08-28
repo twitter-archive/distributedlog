@@ -26,14 +26,13 @@ import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
-
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
-import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.slf4j.Logger;
@@ -93,11 +92,6 @@ public class DLMTestUtil {
         return LocalDLMEmulator.createDLMURI("127.0.0.1:" + port, path);
     }
 
-    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(DistributedLogConfiguration conf,
-                                                               String path, int port) throws Exception {
-        return createNewBKDLM(new PartitionId(0), conf, path, port);
-    }
-
     public static DistributedLogManager createNewDLM(String name,
                                                      DistributedLogConfiguration conf,
                                                      URI uri) throws Exception {
@@ -138,7 +132,7 @@ public class DLMTestUtil {
         }
     }
 
-    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(PartitionId p,
+    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(String streamName,
                                                                DistributedLogConfiguration conf,
                                                                String path,
                                                                int zkPort) throws Exception {
@@ -166,12 +160,12 @@ public class DLMTestUtil {
             .statsLogger(NullStatsLogger.INSTANCE);
 
         BKLogPartitionWriteHandler writeHandler = BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name,
-            p.toString(),
+            streamName,
             conf,
             uri,
             zkcBuilder,
             bkcBuilder,
-            OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + p.toString()).build(),
+            OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + streamName).build(),
             null,
             OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
             null,
@@ -199,19 +193,6 @@ public class DLMTestUtil {
         } finally {
             dlm.close();
         }
-    }
-
-    static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {
-        long numLogRecs = 0;
-        LogReader reader = bkdlm.getInputStream(partition, startTxId);
-        LogRecord record = reader.readNext(false);
-        while (null != record) {
-            numLogRecs++;
-            verifyLogRecord(record);
-            record = reader.readNext(false);
-        }
-        reader.close();
-        return numLogRecs;
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, long startTxId) throws IOException {
