@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.examples;
+package com.twitter.distributedlog.example;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;

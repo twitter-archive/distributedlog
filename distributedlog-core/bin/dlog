@@ -44,7 +44,7 @@ fi
 
 # exclude tests jar
 BUILT_JAR=`ls $DLOG_HOME/target/distributedlog-*.jar 2> /dev/null | egrep -v 'tests|javadoc|sources' | tail -1`
-if [ $? != 0 ] && [ ! -e "$DLOG_JAR" ]; then 
+if [ $? != 0 ] && [ ! -e "$DLOG_JAR" ]; then
     echo "\nCouldn't find dlog jar.";
     echo "Make sure you've run 'mvn package'\n";
     exit 1;
@@ -80,7 +80,7 @@ add_maven_deps_to_classpath() {
     if [ "$MAVEN_HOME" != "" ]; then
 	MVN=${MAVEN_HOME}/bin/mvn
     fi
-    
+
     # Need to generate classpath from maven pom. This is costly so generate it
     # and cache it. Save the file into our target dir so a mvn clean will get
     # clean it up and force us create a new one.
@@ -140,8 +140,6 @@ OPTS="$OPTS -Ddlog.log.file=$DLOG_LOG_FILE"
 cd "$DLOG_HOME"
 if [ $COMMAND == "local" ]; then
     exec java $OPTS $JMX_ARGS com.twitter.distributedlog.LocalDLMEmulator $@
-elif [ $COMMAND == "example" ]; then
-    exec java $OPTS com.twitter.distributedlog.examples.DistributedLogExample $@
 elif [ $COMMAND == "tool" ]; then
     exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.tools.DistributedLogTool $@
 elif [ $COMMAND == "proxy_tool" ]; then
