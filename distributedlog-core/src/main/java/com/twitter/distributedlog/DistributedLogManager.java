@@ -167,6 +167,13 @@ public interface DistributedLogManager extends MetadataAccessor {
     public DLSN getLastDLSN() throws IOException;
 
     /**
+     * Get Latest log record with DLSN in the non partitioned stream - async
+     *
+     * @return latest log record with DLSN
+     */
+    public Future<LogRecordWithDLSN> getLastLogRecordAsync();
+
+    /**
      * Get Latest Transaction Id in the non partitioned stream - async
      *
      * @return latest transaction id

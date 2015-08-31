@@ -702,16 +702,30 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    /**
+     * Get Latest log record with DLSN in the non partitioned stream
+     *
+     * @return latest log record with DLSN
+     */
+    @Override
+    public Future<LogRecordWithDLSN> getLastLogRecordAsync() {
+        return getLastLogRecordAsyncInternal(conf.getUnpartitionedStreamName());
+    }
+
+    private Future<LogRecordWithDLSN> getLastLogRecordAsyncInternal(final String streamIdentifier) {
+        return getLastRecordAsyncInternal(streamIdentifier, false, false);
+    }
+
     private Future<LogRecordWithDLSN> getLastRecordAsyncInternal(final String streamIdentifier,
                                                                  final boolean recover,
                                                                  final boolean includeEndOfStream) {
         return processReaderOperation(streamIdentifier,
                 new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
-            @Override
-            public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
-                return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
-            }
-        });
+                    @Override
+                    public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
+                        return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
+                    }
+                });
     }
 
     /**
@@ -742,11 +756,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public Future<LogRecordWithDLSN> getFirstRecordAsyncInternal() {
         return processReaderOperation(conf.getUnpartitionedStreamName(),
                 new Function<BKLogPartitionReadHandler, Future<LogRecordWithDLSN>>() {
-            @Override
-            public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
-                return ledgerHandler.asyncGetFirstLogRecord();
-            }
-        });
+                    @Override
+                    public Future<LogRecordWithDLSN> apply(final BKLogPartitionReadHandler ledgerHandler) {
+                        return ledgerHandler.asyncGetFirstLogRecord();
+                    }
+                });
     }
 
     /**
