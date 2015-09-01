@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.service.stream;
 
 import com.twitter.distributedlog.AsyncLogWriter;
-import com.twitter.distributedlog.BKUnPartitionedAsyncLogWriter;
+import com.twitter.distributedlog.BKAsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.service.ResponseUtils;
@@ -42,7 +42,7 @@ public class HeartbeatOp extends AbstractWriteOp {
             Future<DLSN> writeResult;
             synchronized (txnLock) {
                 txnId = sequencer.nextId();
-                writeResult = ((BKUnPartitionedAsyncLogWriter) writer).writeControlRecord(new LogRecord(txnId, HEARTBEAT_DATA));
+                writeResult = ((BKAsyncLogWriter) writer).writeControlRecord(new LogRecord(txnId, HEARTBEAT_DATA));
             }
             return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
                 @Override

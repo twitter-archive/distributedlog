@@ -47,7 +47,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         int numEntries = 100;
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
 
         SettableFeature disableLogSegmentRolling =
                 (SettableFeature) dlm.getFeatureProvider()
@@ -98,7 +98,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         int numEntries = 100;
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch latch = new CountDownLatch(numEntries);
 
@@ -162,7 +162,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         confLocal.setMaxLogSegmentBytes(1);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         long txId = 1L;
 
@@ -249,7 +249,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         int numLogSegments = 10;
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch latch = new CountDownLatch(numLogSegments);
         long startTime = System.currentTimeMillis();
@@ -338,7 +338,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         confLocal.setReadLACLongPollTimeout(99999999);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
 
         // 1) writer added 5 entries.
         final int numEntries = 5;
@@ -385,7 +385,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         logger.info("Waiting for long poll getting interrupted with metadata changed");
 
         // simulate a recovery without closing ledger causing recording wrong last dlsn
-        BKLogPartitionWriteHandler writeHandler = writer.getCachedPartitionHandler(conf.getUnpartitionedStreamName());
+        BKLogPartitionWriteHandler writeHandler = writer.getCachedPartitionHandler();
         writeHandler.completeAndCloseLogSegment(
                 writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLedgerSequenceNumber()),
                 perStreamWriter.getLedgerSequenceNumber(),
@@ -396,7 +396,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                 0,
                 true);
 
-        BKUnPartitionedSyncLogWriter anotherWriter = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter anotherWriter = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         anotherWriter.write(DLMTestUtil.getLogRecordInstance(numEntries + 3));
         anotherWriter.setReadyToFlush();
         anotherWriter.flushAndSync();

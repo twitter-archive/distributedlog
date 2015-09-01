@@ -229,7 +229,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
     @Test
     public void testRecoveryAPI() throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, "distrlog-recovery-api");
-        BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         long txid = 1;
         for (long i = 1; i <= 100; i++) {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
@@ -240,7 +240,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             }
 
         }
-        BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter(conf.getUnpartitionedStreamName());
+        BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter();
         out.setReadyToFlush();
         out.flushAndSync();
 

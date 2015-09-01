@@ -49,7 +49,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockIfLockPathDoesntExist() throws Exception {
         final String name = runtime.getMethodName();
         DistributedLogManager dlm = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
 
@@ -77,7 +77,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockCloseInAcquireCallback() throws Exception {
         final String name = runtime.getMethodName();
         DistributedLogManager dlm = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
 
@@ -101,7 +101,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockBackgroundReaderLockAcquire() throws Exception {
         final String name = runtime.getMethodName();
         DistributedLogManager dlm = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
 
@@ -158,7 +158,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockManyLocks() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -202,7 +202,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockDlmClosed() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm0 = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -230,7 +230,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockSessionExpires() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm0 = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -262,7 +262,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockFutureCancelledWhileWaiting() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm0 = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -294,7 +294,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockFutureCancelledWhileLocked() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm0 = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -316,7 +316,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockSharedDlmDoesNotConflict() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogManager dlm0 = createNewDLM(conf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm0.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.write(DLMTestUtil.getLogRecordInstance(2L));
         writer.closeAndComplete();
@@ -494,7 +494,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+            BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
             for (long j = 1; j <= 10; j++) {
                 DLSN dlsn = Await.result(writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++)));
                 if (i == 1 && j == 1L) {

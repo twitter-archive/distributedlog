@@ -5,10 +5,11 @@ import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import java.io.IOException;
 import java.util.List;
 
-class BKUnPartitionedSyncLogWriter extends BKUnPartitionedLogWriterBase implements LogWriter {
+class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
 
-    public BKUnPartitionedSyncLogWriter(DistributedLogConfiguration conf, DynamicDistributedLogConfiguration dynConf,
-                                        BKDistributedLogManager bkdlm) {
+    public BKSyncLogWriter(DistributedLogConfiguration conf,
+                           DynamicDistributedLogConfiguration dynConf,
+                           BKDistributedLogManager bkdlm) {
         super(conf, dynConf, bkdlm);
     }
     /**

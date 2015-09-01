@@ -75,7 +75,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
     void writeRecordsForNonBlockingReads(DistributedLogManager dlm, boolean recover, long segmentSize) throws Exception {
         long txId = 1;
         for (long i = 0; i < 3; i++) {
-            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter writer = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j < segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txId++));
             }
@@ -276,7 +276,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReaderIdleErrorThresholdMillis(500);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
 
-        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(1));
         writer.setReadyToFlush();
         writer.flushAndSync();
@@ -315,7 +315,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setEnableForceRead(false);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
 
-        BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(1));
         writer.setReadyToFlush();
         writer.flushAndSync();
@@ -472,7 +472,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         long numRecordsWritten = 0;
         int segmentSize = 10;
         for (long i = 0; i < 3; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= segmentSize; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
@@ -496,7 +496,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
 
         for (long i = 0; i < 3; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= segmentSize; j++) {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);

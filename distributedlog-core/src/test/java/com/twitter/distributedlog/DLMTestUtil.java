@@ -330,7 +330,7 @@ public class DLMTestUtil {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
         long txid = 1L;
         for (long i = 0; i < numCompletedSegments; i++) {
-            BKUnPartitionedSyncLogWriter writer = dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter writer = dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }

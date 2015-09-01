@@ -54,7 +54,7 @@ public class TestSequenceID extends TestDistributedLogBase {
                 + writeVersion + "-complete-" + completeVersion;
 
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(0L)));
 
         dlm.close();
@@ -107,7 +107,7 @@ public class TestSequenceID extends TestDistributedLogBase {
         long txId = 0L;
 
         for (int i = 0; i < 3; i++) {
-            BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+            BKAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
             for (int j = 0; j < 2; j++) {
                 Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
 
@@ -131,7 +131,7 @@ public class TestSequenceID extends TestDistributedLogBase {
             writer.closeAndComplete();
         }
 
-        BKUnPartitionedAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
 
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
@@ -155,13 +155,13 @@ public class TestSequenceID extends TestDistributedLogBase {
 
         BKDistributedLogManager dlmv5 = (BKDistributedLogManager) createNewDLM(confLocalv5, name);
         for (int i = 0; i < 3; i++) {
-            BKUnPartitionedAsyncLogWriter writerv5 = dlmv5.startAsyncLogSegmentNonPartitioned();
+            BKAsyncLogWriter writerv5 = dlmv5.startAsyncLogSegmentNonPartitioned();
             for (int j = 0; j < 2; j++) {
                 Await.result(writerv5.write(DLMTestUtil.getLogRecordInstance(txId++)));
             }
             writerv5.closeAndComplete();
         }
-        BKUnPartitionedAsyncLogWriter writerv5 = dlmv5.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writerv5 = dlmv5.startAsyncLogSegmentNonPartitioned();
         Await.result(writerv5.write(DLMTestUtil.getLogRecordInstance(txId++)));
 
         List<LogSegmentMetadata> segmentsv5 = dlmv5.getLogSegments();
@@ -186,7 +186,7 @@ public class TestSequenceID extends TestDistributedLogBase {
 
         BKDistributedLogManager dlmv4 = (BKDistributedLogManager) createNewDLM(confLocalv4, name);
         for (int i = 0; i < 3; i++) {
-            BKUnPartitionedAsyncLogWriter writerv4 = dlmv4.startAsyncLogSegmentNonPartitioned();
+            BKAsyncLogWriter writerv4 = dlmv4.startAsyncLogSegmentNonPartitioned();
             for (int j = 0; j < 2; j++) {
                 Await.result(writerv4.write(DLMTestUtil.getLogRecordInstance(txId++)));
             }

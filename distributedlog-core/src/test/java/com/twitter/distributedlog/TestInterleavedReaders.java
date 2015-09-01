@@ -80,8 +80,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
                 writer0.setForceRolling(true);
@@ -122,8 +122,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
@@ -158,8 +158,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         long txid = 1;
         Long retentionPeriodOverride = null;
 
-        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             for (int k = 1; k <= 10; k++) {
                 if (k == 5) {
@@ -213,8 +213,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
@@ -257,8 +257,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         int numTrans = drainStreams(reader0, reader1);
         assertEquals((txid - 1), numTrans);
 
-        BKUnPartitionedSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKUnPartitionedSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
                 writer0.setForceRolling(true);
@@ -313,9 +313,9 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            BKUnPartitionedSyncLogWriter[] writers = new BKUnPartitionedSyncLogWriter[count];
+            BKSyncLogWriter[] writers = new BKSyncLogWriter[count];
             for (int s = 0; s < count; s++) {
-                writers[s] = (BKUnPartitionedSyncLogWriter)(dlms[s].startLogSegmentNonPartitioned());
+                writers[s] = (BKSyncLogWriter)(dlms[s].startLogSegmentNonPartitioned());
             }
 
             for (long j = 0; j < 1; j++) {

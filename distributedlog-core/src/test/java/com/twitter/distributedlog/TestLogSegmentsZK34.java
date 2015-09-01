@@ -68,7 +68,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
@@ -99,7 +99,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
@@ -110,7 +110,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
-            BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
             out1.write(DLMTestUtil.getLogRecordInstance(numSegments));
             out1.closeAndComplete();
             MaxLedgerSequenceNo max3 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
@@ -123,7 +123,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
         DistributedLogManager dlm2 = namespace.openLog(streamName);
         try {
-            BKUnPartitionedSyncLogWriter out2 = (BKUnPartitionedSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out2 = (BKSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
             out2.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
             out2.closeAndComplete();
             MaxLedgerSequenceNo max4 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
@@ -157,7 +157,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
@@ -169,7 +169,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
 
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
-            BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
             out1.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
             out1.closeAndComplete();
             fail("Should fail creating new log segment when encountered unmatch max ledger sequence number");
@@ -211,10 +211,10 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         DistributedLogManager dlm2 = namespace.openLog(streamName);
 
         // dlm1 is writing
-        BKUnPartitionedSyncLogWriter out1 = (BKUnPartitionedSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
+        BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
         out1.write(DLMTestUtil.getLogRecordInstance(1));
         // before out1 complete, out2 is in on recovery
-        BKUnPartitionedAsyncLogWriter out2 = (BKUnPartitionedAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter out2 = (BKAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
         // it completed the log segments which bump the version of /ledgers znode
         out2.recover();
 

@@ -36,9 +36,9 @@ import scala.Option;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
-public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase implements AsyncLogWriter {
+public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWriter {
 
-    static final Logger LOG = LoggerFactory.getLogger(BKUnPartitionedAsyncLogWriter.class);
+    static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogWriter.class);
 
     static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>> {
 
@@ -125,12 +125,12 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
 
     private final Feature disableLogSegmentRollingFeature;
 
-    public BKUnPartitionedAsyncLogWriter(DistributedLogConfiguration conf,
-                                         DynamicDistributedLogConfiguration dynConf,
-                                         BKDistributedLogManager bkdlm,
-                                         FuturePool orderedFuturePool,
-                                         FeatureProvider featureProvider,
-                                         StatsLogger dlmStatsLogger) throws IOException {
+    public BKAsyncLogWriter(DistributedLogConfiguration conf,
+                            DynamicDistributedLogConfiguration dynConf,
+                            BKDistributedLogManager bkdlm,
+                            FuturePool orderedFuturePool,
+                            FeatureProvider featureProvider,
+                            StatsLogger dlmStatsLogger) throws IOException {
         super(conf, dynConf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
@@ -161,7 +161,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
         return orderedFuturePool;
     }
 
-    BKUnPartitionedAsyncLogWriter recover() throws IOException {
+    BKAsyncLogWriter recover() throws IOException {
         BKLogPartitionWriteHandler writeHandler =
                 this.getWriteLedgerHandler(conf.getUnpartitionedStreamName());
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
@@ -197,7 +197,7 @@ public class BKUnPartitionedAsyncLogWriter extends BKUnPartitionedLogWriterBase 
             throw new WriteException(bkDistributedLogManager.getStreamName(),
                     "writer has been closed due to error.");
         }
-        return getCachedLogWriter(conf.getUnpartitionedStreamName());
+        return getCachedLogWriter();
     }
 
     private BKLogSegmentWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,

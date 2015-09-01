@@ -71,7 +71,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             DLSN dlsn = Await.result(writer.writeControlRecord(new LogRecord(txid++, "control".getBytes(UTF_8))));
             assertEquals(currentLedgerSeqNo, dlsn.getLedgerSequenceNo());
             assertEquals(0, dlsn.getEntryId());
@@ -116,7 +116,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setMaxLogSegmentBytes(1024);
         confLocal.setLogSegmentRollingIntervalMinutes(0);
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // Write one record larger than max seg size. Ledger doesn't roll until next write.
         int txid = 1;
@@ -163,7 +163,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
@@ -231,7 +231,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                                      boolean emptyRecord) throws IOException {
         long txid = startTxId;
         for (long i = 0; i < numLogSegments; i++) {
-            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter writer = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= numRecordsPerLogSegment; j++) {
                 if (emptyRecord) {
                     writer.write(DLMTestUtil.getEmptyLogRecordInstance(txid++));
@@ -671,7 +671,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < 10; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
@@ -749,7 +749,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < 10; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
@@ -813,9 +813,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < 3; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter[] writers = new BKUnPartitionedAsyncLogWriter[count];
+            BKAsyncLogWriter[] writers = new BKAsyncLogWriter[count];
             for (int s = 0; s < count; s++) {
-                writers[s] = (BKUnPartitionedAsyncLogWriter)(dlms[s].startAsyncLogSegmentNonPartitioned());
+                writers[s] = (BKAsyncLogWriter)(dlms[s].startAsyncLogSegmentNonPartitioned());
             }
             for (long j = 0; j < 1; j++) {
                 final long currentEntryId = j;
@@ -882,7 +882,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
@@ -951,7 +951,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
             final long currentLedgerSeqNo = i + 1;
-            BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+            BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 Thread.sleep(50);
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
@@ -1001,7 +1001,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        final BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        final BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
 
         final CountDownLatch startLatch = new CountDownLatch(1);
         writer.getOrderedFuturePool().apply(new Function0<Object>() {
@@ -1091,7 +1091,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final String name = "distrlog-cancel-read-requests-on-reader-closed";
 
         DistributedLogManager dlm = createNewDLM(testConf, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         writer.write(DLMTestUtil.getLogRecordInstance(1L));
         writer.closeAndComplete();
 
@@ -1151,7 +1151,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final int COUNT = 5000;
         final CountDownLatch syncLatch = new CountDownLatch(COUNT);
         int txid = 1;
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         Stopwatch executionTime = Stopwatch.createStarted();
         for (long i = 0; i < COUNT; i++) {
             Thread.sleep(1);
@@ -1218,18 +1218,18 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DistributedLogManager dlm1 = namespace1.openLog(name);
 
         int txid = 1;
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         // First write succeeds since lock isnt checked until transmit, which is scheduled
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
         writer.flushAndSyncAll();
 
-        BKLogSegmentWriter perStreamWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter perStreamWriter = writer.getCachedLogWriter();
         DistributedReentrantLock lock = perStreamWriter.getLock();
         lock.close();
 
         // Get second writer, steal lock
-        BKUnPartitionedAsyncLogWriter writer2 = (BKUnPartitionedAsyncLogWriter)(dlm1.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer2 = (BKAsyncLogWriter)(dlm1.startAsyncLogSegmentNonPartitioned());
 
         try {
             // Succeeds, kicks off scheduked flush
@@ -1261,7 +1261,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         } else {
             dlm = createNewDLM(confLocal, runtime.getMethodName());
         }
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
         for (int i = 0; i < 1000; i++) {
             results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
@@ -1309,7 +1309,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setPerWriterOutstandingWriteLimit(0);
         confLocal.setOutstandingWriteLimitDarkmode(true);
         DistributedLogManager dlm = createNewDLM(confLocal, runtime.getMethodName());
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
         ArrayList<Future<DLSN>> results = new ArrayList<Future<DLSN>>(1000);
         for (int i = 0; i < 1000; i++) {
             results.add(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
@@ -1330,14 +1330,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
 
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         long txId = 1L;
         for (int i = 0; i < 5; i++) {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKLogSegmentWriter logWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter logWriter = writer.getCachedLogWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
@@ -1373,14 +1373,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(true);
 
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer = (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         long txId = 1L;
         for (int i = 0; i < 5; i++) {
             Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));
         }
 
-        BKLogSegmentWriter logWriter = writer.getPerStreamWriter();
+        BKLogSegmentWriter logWriter = writer.getCachedLogWriter();
 
         // fence the ledger
         dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
@@ -1426,7 +1426,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                         int txid = 1;
                         for (long i = 0; i < numSegments; i++) {
                             long start = txid;
-                            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+                            BKSyncLogWriter writer = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
                             for (long j = 1; j <= segmentSize; j++) {
                                 writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
                                 if ((i == 0) && (j == 1)) {
@@ -1513,8 +1513,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        BKUnPartitionedAsyncLogWriter writer =
-                (BKUnPartitionedAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
+        BKAsyncLogWriter writer =
+                (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
 
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
         writer.abort();
@@ -1534,7 +1534,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             }
         }
 
-        writer = (BKUnPartitionedAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
+        writer = (BKAsyncLogWriter) (dlm.startAsyncLogSegmentNonPartitioned());
 
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         assertEquals(1, segments.size());
@@ -1569,7 +1569,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                             int txid = 1;
                             for (long i = 0; i < numSegments; i++) {
                                 long start = txid;
-                                BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+                                BKSyncLogWriter writer = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
                                 for (long j = 1; j <= segmentSize; j++) {
                                     writer.write(DLMTestUtil.getLargeLogRecordInstance(txid++));
                                     if ((i == 0) && (j == 1)) {

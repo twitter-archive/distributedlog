@@ -128,8 +128,8 @@ public class TestReadAhead extends TestDistributedLogBase {
         } while (null == notification2 || notification1 == notification2);
 
         // write another record
-        BKUnPartitionedSyncLogWriter writer =
-                    (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer =
+                    (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         writer.write(DLMTestUtil.getLogRecordInstance(31L));
         writer.closeAndComplete();
 

@@ -483,9 +483,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized BKSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        return new BKUnPartitionedSyncLogWriter(conf, dynConf, this);
+        return new BKSyncLogWriter(conf, dynConf, this);
     }
 
     /**
@@ -494,14 +494,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public BKUnPartitionedAsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+    public BKAsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
-        BKUnPartitionedAsyncLogWriter writer;
+        BKAsyncLogWriter writer;
         synchronized (this) {
             initializeFuturePool(true);
 
             // proactively recover incomplete logsegments for async log writer
-            writer = new BKUnPartitionedAsyncLogWriter(
+            writer = new BKAsyncLogWriter(
                     conf, dynConf, this, writerFuturePool, featureProvider, statsLogger);
         }
         return writer.recover();

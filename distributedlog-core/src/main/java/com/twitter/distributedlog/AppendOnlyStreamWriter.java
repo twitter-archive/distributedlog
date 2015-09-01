@@ -16,10 +16,10 @@ public class AppendOnlyStreamWriter implements Closeable {
     // Use a 1-length array to satisfy Java's inner class reference rules. Use primitive
     // type because synchronized block is needed anyway.
     final long[] syncPos = new long[1];
-    BKUnPartitionedAsyncLogWriter logWriter;
+    BKAsyncLogWriter logWriter;
     long requestPos = 0;
 
-    public AppendOnlyStreamWriter(BKUnPartitionedAsyncLogWriter logWriter, long pos) {
+    public AppendOnlyStreamWriter(BKAsyncLogWriter logWriter, long pos) {
         LOG.debug("initialize at position {}", pos);
         this.logWriter = logWriter;
         this.syncPos[0] = pos;

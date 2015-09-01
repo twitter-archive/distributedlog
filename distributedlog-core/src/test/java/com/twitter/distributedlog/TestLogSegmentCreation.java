@@ -31,7 +31,7 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         DistributedLogManager dlm = namespace.openLog(name);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
-            BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
+            BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
@@ -43,9 +43,9 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         final DistributedLogManager dlm1 = namespace.openLog(name);
         final DistributedLogManager dlm2 = namespace.openLog(name);
 
-        BKUnPartitionedAsyncLogWriter writer1 = (BKUnPartitionedAsyncLogWriter) dlm1.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = (BKAsyncLogWriter) dlm1.startAsyncLogSegmentNonPartitioned();
         LOG.info("Created writer 1.");
-        BKUnPartitionedSyncLogWriter writer2 = (BKUnPartitionedSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
+        BKSyncLogWriter writer2 = (BKSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
         LOG.info("Created writer 2.");
         writer2.write(DLMTestUtil.getLogRecordInstance(numSegments));
         writer2.closeAndComplete();
