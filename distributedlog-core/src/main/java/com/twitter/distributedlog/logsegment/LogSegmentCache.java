@@ -71,6 +71,8 @@ public class LogSegmentCache {
             // - we are ok that if there are same log segments exist. it is just same log segment in different
             //   states (inprogress vs completed). it could happen during completing log segment without transaction
             if (null != prevSegment
+                    && prevSegment.getVersion() >= LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value
+                    && segment.getVersion() >= LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value
                     && prevSegment.getLedgerSequenceNumber() != segment.getLedgerSequenceNumber()
                     && prevSegment.getLedgerSequenceNumber() + 1 != segment.getLedgerSequenceNumber()) {
                 LOG.error("{} found ledger sequence number gap between log segment {} and {}",

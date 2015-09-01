@@ -261,6 +261,12 @@ public class LogSegmentMetadata {
             this.envelopeEntries = original.getEnvelopeEntries();
         }
 
+        @VisibleForTesting
+        public Mutator setVersion(LogSegmentMetadataVersion version) {
+            this.version = version;
+            return this;
+        }
+
         public Mutator setLedgerSequenceNumber(long seqNo) {
             this.ledgerSequenceNo = seqNo;
             return this;

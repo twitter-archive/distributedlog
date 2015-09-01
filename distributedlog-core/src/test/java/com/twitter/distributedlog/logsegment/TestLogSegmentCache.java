@@ -136,6 +136,22 @@ public class TestLogSegmentCache {
     }
 
     @Test(timeout = 60000)
+    public void testGapDetectionOnLogSegmentsWithoutLedgerSequenceNumber() throws Exception {
+        LogSegmentCache cache = new LogSegmentCache("test-gap-detection");
+        LogSegmentMetadata segment1 =
+                DLMTestUtil.completedLogSegment("/segment-1", 1L, 1L, 100L, 100, 1L, 99L, 0L)
+                        .mutator().setVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V1_ORIGINAL).build();
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(1L), segment1);
+        LogSegmentMetadata segment3 =
+                DLMTestUtil.completedLogSegment("/segment-3", 3L, 3L, 300L, 100, 3L, 99L, 0L)
+                        .mutator().setVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO).build();
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(3L), segment3);
+        List<LogSegmentMetadata> expectedList = Lists.asList(segment1, new LogSegmentMetadata[] { segment3 });
+        List<LogSegmentMetadata> resultList = cache.getLogSegments(LogSegmentMetadata.COMPARATOR);
+        assertEquals(expectedList, resultList);
+    }
+
+    @Test(timeout = 60000)
     public void testSameLogSegment() throws Exception {
         LogSegmentCache cache = new LogSegmentCache("test-same-log-segment");
         List<LogSegmentMetadata> expectedList = Lists.newArrayListWithExpectedSize(2);
