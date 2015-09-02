@@ -1,3 +1,10 @@
+0.3.36
+------
+- Remove partitions from DL
+- Add getLastLogRecordAsync to log manager
+- Remove Unpartitioned from log writers
+- Skip ledger number validation if the ledger metadata doesn't contain ledger sequence number
+
 0.3.35
 ------
 - Fix syncownership elapsed time issue
