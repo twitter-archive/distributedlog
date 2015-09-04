@@ -2,6 +2,7 @@ package com.twitter.distributedlog.auditor;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.SettableFuture;
 import com.twitter.distributedlog.BKDistributedLogNamespace;
 import com.twitter.distributedlog.BookKeeperClient;
@@ -18,7 +19,9 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAccessor;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -36,14 +39,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * DL Auditor will audit DL namespace, e.g. find leaked ledger, report disk usage by streams.
@@ -63,6 +71,12 @@ public class DLAuditor {
         DistributedLogNamespace namespace = factory.getNamespace();
         assert(namespace instanceof BKDistributedLogNamespace);
         return ((BKDistributedLogNamespace) namespace).getSharedWriterZKCForDL();
+    }
+
+    private BookKeeperClient getBookKeeperClient(com.twitter.distributedlog.DistributedLogManagerFactory factory) {
+        DistributedLogNamespace namespace = factory.getNamespace();
+        assert(namespace instanceof BKDistributedLogNamespace);
+        return ((BKDistributedLogNamespace) namespace).getReaderBKC();
     }
 
     private String validateAndGetZKServers(List<URI> uris) {
@@ -108,7 +122,7 @@ public class DLAuditor {
         ExecutorService executorService = Executors.newCachedThreadPool();
         try {
             BKDLConfig bkdlConfig = resolveBKDLConfig(zkc, uris);
-            logger.info("Resolved bookkeeper config : ", bkdlConfig);
+            logger.info("Resolved bookkeeper config : {}", bkdlConfig);
 
             BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
                     .name("DLAuditor-BK")
@@ -270,69 +284,44 @@ public class DLAuditor {
                 throw new DLInterruptedException("Interrupted on getting list of pools from " + rootPath, e);
             }
         }
+
+
         logger.info("Collecting ledgers from allocators for {} : {}", uri, poolQueue);
-        final int numThreads = 10;
 
-        final CountDownLatch failureLatch = new CountDownLatch(1);
-        final CountDownLatch doneLatch = new CountDownLatch(numThreads);
-        final AtomicInteger numFailures = new AtomicInteger(0);
-
-        final ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
-        try {
-            for (int i = 0; i < numThreads; i++) {
-                executorService.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        while (true) {
-                            final String poolPath = poolQueue.poll();
-                            if (null == poolPath) {
-                                break;
-                            }
-                            List<String> allocators;
-                            try {
-                                allocators = getZooKeeperClient(factory).get()
-                                        .getChildren(poolPath, false);
-                                for (String allocator : allocators) {
-                                    String allocatorPath = poolPath + "/" + allocator;
-                                    byte[] data = getZooKeeperClient(factory).get().getData(allocatorPath, false, new Stat());
-                                    if (null != data && data.length > 0) {
-                                        try {
-                                            long ledgerId = Utils.bytes2LedgerId(data);
-                                            synchronized (ledgers) {
-                                                ledgers.add(ledgerId);
-                                            }
-                                        } catch (NumberFormatException nfe) {
-                                            logger.warn("Invalid ledger found in allocator path {} : ", allocatorPath, nfe);
-                                        }
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.error("Encountered exception on collecting ledgers from allocator for {}", uri, e);
-                                numFailures.incrementAndGet();
-                                break;
-                            }
-                            doneLatch.countDown();
-                        }
-                        failureLatch.countDown();
-                    }
-                });
-            }
-            try {
-                failureLatch.await();
-                if (numFailures.get() > 0) {
-                    throw new IOException("Encountered " + numFailures.get()
-                            + " failures on collecting ledgers from DL Allocators");
+        executeAction(poolQueue, 10, new Action<String>() {
+            @Override
+            public void execute(String poolPath) throws IOException {
+                try {
+                    collectLedgersFromPool(poolPath);
+                } catch (InterruptedException e) {
+                    throw new DLInterruptedException("Interrupted on collecting ledgers from allocation pool " + poolPath, e);
+                } catch (KeeperException e) {
+                    throw new ZKException("Failed to collect ledgers from allocation pool " + poolPath, e.code());
                 }
-                doneLatch.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted on collecting ledgers from DL Allocators: ", e);
-                throw new DLInterruptedException("Interrupted on collecting ledgers from DL Allocators : ", e);
             }
-            logger.info("Collected ledgers from allocators for {}.", uri);
-        } finally {
-            executorService.shutdown();
-        }
+
+            private void collectLedgersFromPool(String poolPath)
+                    throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException, KeeperException {
+                List<String> allocators = getZooKeeperClient(factory).get()
+                                        .getChildren(poolPath, false);
+                for (String allocator : allocators) {
+                    String allocatorPath = poolPath + "/" + allocator;
+                    byte[] data = getZooKeeperClient(factory).get().getData(allocatorPath, false, new Stat());
+                    if (null != data && data.length > 0) {
+                        try {
+                            long ledgerId = Utils.bytes2LedgerId(data);
+                            synchronized (ledgers) {
+                                ledgers.add(ledgerId);
+                            }
+                        } catch (NumberFormatException nfe) {
+                            logger.warn("Invalid ledger found in allocator path {} : ", allocatorPath, nfe);
+                        }
+                    }
+                }
+            }
+        });
+
+        logger.info("Collected ledgers from allocators for {}.", uri);
     }
 
     private void collectLedgersFromDL(final URI uri,
@@ -346,60 +335,17 @@ public class DLAuditor {
         logger.info("Collected {} streams from uri {} : {}",
                     new Object[] { streams.size(), uri, streams });
 
-        final CountDownLatch failureLatch = new CountDownLatch(1);
-        final CountDownLatch doneLatch = new CountDownLatch(streams.size());
-        final AtomicInteger numFailures = new AtomicInteger(0);
-
-        int numThreads = 10;
-        ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
-        try {
-            for (int i = 0; i < numThreads; i++) {
-                executorService.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        int i = 0;
-                        while (true) {
-                            String stream = streamQueue.poll();
-                            if (null == stream) {
-                                break;
-                            }
-                            try {
-                                collectLedgersFromStream(factory, stream, ledgers);
-                                i++;
-                                if (i % 1000 == 0) {
-                                    logger.info("Collected {} streams from uri {}.", i, uri);
-                                }
-                            } catch (IOException e) {
-                                logger.error("Failed to collect ledgers from stream {} : ", stream, e);
-                                numFailures.incrementAndGet();
-                                break;
-                            }
-                            doneLatch.countDown();
-                        }
-                        failureLatch.countDown();
-                    }
-                });
+        executeAction(streamQueue, 10, new Action<String>() {
+            @Override
+            public void execute(String stream) throws IOException {
+                collectLedgersFromStream(factory, stream, ledgers);
             }
-            try {
-                failureLatch.await();
-                if (numFailures.get() > 0) {
-                    throw new IOException("Encountered " + numFailures.get()
-                            + " failures on collecting ledgers from DL");
-                }
-                doneLatch.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted on collecting ledgers : ", e);
-                throw new DLInterruptedException("Interrupted on collecting ledgers : ", e);
-            }
-        } finally {
-            executorService.shutdown();
-        }
+        });
     }
 
     private List<Long> collectLedgersFromStream(com.twitter.distributedlog.DistributedLogManagerFactory factory,
-                                          String stream,
-                                          Set<Long> ledgers)
+                                                String stream,
+                                                Set<Long> ledgers)
             throws IOException {
         DistributedLogManager dlm = factory.createDistributedLogManager(stream,
                 com.twitter.distributedlog.DistributedLogManagerFactory.ClientSharingOption.SharedClients);
@@ -418,7 +364,242 @@ public class DLAuditor {
         }
     }
 
+    /**
+     * Calculating stream space usage from given <i>uri</i>.
+     *
+     * @param uri dl uri
+     * @throws IOException
+     */
+    public Map<String, Long> calculateStreamSpaceUsage(final URI uri) throws IOException {
+        logger.info("Collecting stream space usage for {}.", uri);
+        com.twitter.distributedlog.DistributedLogManagerFactory factory =
+                new com.twitter.distributedlog.DistributedLogManagerFactory(conf, uri);
+        try {
+            return calculateStreamSpaceUsage(uri, factory);
+        } finally {
+            factory.close();
+        }
+    }
+
+    private Map<String, Long> calculateStreamSpaceUsage(
+            final URI uri, final com.twitter.distributedlog.DistributedLogManagerFactory factory)
+        throws IOException {
+        Collection<String> streams = factory.enumerateAllLogsInNamespace();
+        final LinkedBlockingQueue<String> streamQueue = new LinkedBlockingQueue<String>();
+        streamQueue.addAll(streams);
+
+        final Map<String, Long> streamSpaceUsageMap =
+                new ConcurrentSkipListMap<String, Long>();
+        final AtomicInteger numStreamsCollected = new AtomicInteger(0);
+
+        executeAction(streamQueue, 10, new Action<String>() {
+            @Override
+            public void execute(String stream) throws IOException {
+                streamSpaceUsageMap.put(stream,
+                        calculateStreamSpaceUsage(factory, stream));
+                if (numStreamsCollected.incrementAndGet() % 1000 == 0) {
+                    logger.info("Calculated {} streams from uri {}.", numStreamsCollected.get(), uri);
+                }
+            }
+        });
+
+        return streamSpaceUsageMap;
+    }
+
+    private long calculateStreamSpaceUsage(final com.twitter.distributedlog.DistributedLogManagerFactory factory,
+                                           final String stream) throws IOException {
+        DistributedLogManager dlm = factory.createDistributedLogManager(stream,
+                com.twitter.distributedlog.DistributedLogManagerFactory.ClientSharingOption.SharedClients);
+        long totalBytes = 0;
+        try {
+            List<LogSegmentMetadata> segments = dlm.getLogSegments();
+            for (LogSegmentMetadata segment : segments) {
+                try {
+                    LedgerHandle lh = getBookKeeperClient(factory).get().openLedgerNoRecovery(segment.getLedgerId(),
+                            BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+                    totalBytes += lh.getLength();
+                    lh.close();
+                } catch (BKException e) {
+                    logger.error("Failed to open ledger {} : ", segment.getLedgerId(), e);
+                    throw new IOException("Failed to open ledger " + segment.getLedgerId(), e);
+                } catch (InterruptedException e) {
+                    logger.warn("Interrupted on opening ledger {} : ", segment.getLedgerId(), e);
+                    Thread.currentThread().interrupt();
+                    throw new DLInterruptedException("Interrupted on opening ledger " + segment.getLedgerId(), e);
+                }
+            }
+        } finally {
+            dlm.close();
+        }
+        return totalBytes;
+    }
+
+    public long calculateLedgerSpaceUsage(URI uri) throws IOException {
+        List<URI> uris = Lists.newArrayList(uri);
+        String zkServers = validateAndGetZKServers(uris);
+        RetryPolicy retryPolicy = new BoundExponentialBackoffRetryPolicy(
+                conf.getZKRetryBackoffStartMillis(),
+                conf.getZKRetryBackoffMaxMillis(),
+                Integer.MAX_VALUE);
+        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+                .name("DLAuditor-ZK")
+                .zkServers(zkServers)
+                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+                .retryPolicy(retryPolicy)
+                .zkAclId(conf.getZkAclId())
+                .build();
+        ExecutorService executorService = Executors.newCachedThreadPool();
+        try {
+            BKDLConfig bkdlConfig = resolveBKDLConfig(zkc, uris);
+            logger.info("Resolved bookkeeper config : {}", bkdlConfig);
+
+            BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                    .name("DLAuditor-BK")
+                    .dlConfig(conf)
+                    .zkServers(bkdlConfig.getBkZkServersForWriter())
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .build();
+            try {
+                return calculateLedgerSpaceUsage(bkc, executorService);
+            } finally {
+                bkc.close();
+            }
+        } finally {
+            zkc.close();
+            executorService.shutdown();
+        }
+    }
+
+    private long calculateLedgerSpaceUsage(BookKeeperClient bkc,
+                                           final ExecutorService executorService)
+        throws IOException {
+        final AtomicLong totalBytes = new AtomicLong(0);
+        final AtomicLong totalEntries = new AtomicLong(0);
+        final AtomicLong numLedgers = new AtomicLong(0);
+
+        LedgerManager lm = BookKeeperAccessor.getLedgerManager(bkc.get());
+
+        final SettableFuture<Void> doneFuture = SettableFuture.create();
+        final BookKeeper bk = bkc.get();
+
+        BookkeeperInternalCallbacks.Processor<Long> collector =
+                new BookkeeperInternalCallbacks.Processor<Long>() {
+            @Override
+            public void process(final Long lid,
+                                final AsyncCallback.VoidCallback cb) {
+                numLedgers.incrementAndGet();
+                executorService.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        bk.asyncOpenLedgerNoRecovery(lid, BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8),
+                                new org.apache.bookkeeper.client.AsyncCallback.OpenCallback() {
+                            @Override
+                            public void openComplete(int rc, LedgerHandle lh, Object ctx) {
+                                final int cbRc;
+                                if (BKException.Code.OK == rc) {
+                                    totalBytes.addAndGet(lh.getLength());
+                                    totalEntries.addAndGet(lh.getLastAddConfirmed() + 1);
+                                    cbRc = rc;
+                                } else {
+                                    cbRc = BKException.Code.ZKException;
+                                }
+                                executorService.submit(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        cb.processResult(cbRc, null, null);
+                                    }
+                                });
+                            }
+                        }, null);
+                    }
+                });
+            }
+        };
+        AsyncCallback.VoidCallback finalCb = new AsyncCallback.VoidCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx) {
+                if (BKException.Code.OK == rc) {
+                    doneFuture.set(null);
+                } else {
+                    doneFuture.setException(BKException.create(rc));
+                }
+            }
+        };
+        lm.asyncProcessLedgers(collector, finalCb, null, BKException.Code.OK, BKException.Code.ZKException);
+        try {
+            doneFuture.get();
+            logger.info("calculated {} ledgers\n\ttotal bytes = {}\n\ttotal entries = {}",
+                    new Object[] { numLedgers.get(), totalBytes.get(), totalEntries.get() });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DLInterruptedException("Interrupted on calculating ledger space : ", e);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException) {
+                throw (IOException)(e.getCause());
+            } else {
+                throw new IOException("Failed to calculate ledger space : ", e.getCause());
+            }
+        }
+        return totalBytes.get();
+    }
+
     public void close() {
         // no-op
     }
+
+    static interface Action<T> {
+        void execute(T item) throws IOException ;
+    }
+
+    static <T> void executeAction(final LinkedBlockingQueue<T> queue,
+                                  final int numThreads,
+                                  final Action<T> action) throws IOException {
+        final CountDownLatch failureLatch = new CountDownLatch(1);
+        final CountDownLatch doneLatch = new CountDownLatch(queue.size());
+        final AtomicInteger numFailures = new AtomicInteger(0);
+        final AtomicInteger completedThreads = new AtomicInteger(0);
+
+        ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
+        try {
+            for (int i = 0 ; i < numThreads; i++) {
+                executorService.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        while (true) {
+                            T item = queue.poll();
+                            if (null == item) {
+                                break;
+                            }
+                            try {
+                                action.execute(item);
+                            } catch (IOException ioe) {
+                                logger.error("Failed to execute action on item '{}'", item, ioe);
+                                numFailures.incrementAndGet();
+                                failureLatch.countDown();
+                                break;
+                            }
+                            doneLatch.countDown();
+                        }
+                        if (numFailures.get() == 0 && completedThreads.incrementAndGet() == numThreads) {
+                            failureLatch.countDown();
+                        }
+                    }
+                });
+            }
+            try {
+                failureLatch.await();
+                if (numFailures.get() > 0) {
+                    throw new IOException("Encountered " + numFailures.get() + " failures on executing action.");
+                }
+                doneLatch.await();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted on executing action", ie);
+                throw new DLInterruptedException("Interrupted on executing action", ie);
+            }
+        } finally {
+            executorService.shutdown();
+        }
+    }
+
 }

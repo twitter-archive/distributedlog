@@ -2360,9 +2360,61 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    public static class AuditDLSpaceCommand extends PerDLCommand {
+
+        AuditDLSpaceCommand() {
+            super("audit_dl_space", "Audit stream space usage for a given dl uri");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            DLAuditor dlAuditor = new DLAuditor(getConf());
+            try {
+                Map<String, Long> streamSpaceMap = dlAuditor.calculateStreamSpaceUsage(getUri());
+                for (Map.Entry<String, Long> entry : streamSpaceMap.entrySet()) {
+                    System.out.println(entry.getKey() + " " + entry.getValue());
+                }
+            } finally {
+                dlAuditor.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "audit_dl_space [options]";
+        }
+    }
+
+    public static class AuditBKSpaceCommand extends PerDLCommand {
+
+        AuditBKSpaceCommand() {
+            super("audit_bk_space", "Audit bk space usage for a given dl uri");
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            DLAuditor dlAuditor = new DLAuditor(getConf());
+            try {
+                long spaceUsage = dlAuditor.calculateLedgerSpaceUsage(uri);
+                System.out.println("bookkeeper ledgers space usage \t " + spaceUsage);
+            } finally {
+                dlAuditor.close();
+            }
+            return 0;
+        }
+
+        @Override
+        protected String getUsage() {
+            return "audit_bk_space [options]";
+        }
+    }
+
     public DistributedLogTool() {
         super();
+        addCommand(new AuditBKSpaceCommand());
         addCommand(new AuditLedgersCommand());
+        addCommand(new AuditDLSpaceCommand());
         addCommand(new CreateCommand());
         addCommand(new CountCommand());
         addCommand(new DeleteCommand());
