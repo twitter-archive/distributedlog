@@ -180,7 +180,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         resumeReadAheadStat = readAheadStatsLogger.getOpStatsLogger("resume");
         idleReaderWarn = readAheadStatsLogger.getCounter("idle_reader_warn");
         readAheadPerStreamStatsLogger =
-                isHandleForReading && conf.getEnablePerStreamStat() ? readAheadStatsLogger.scope("perstream") : NullStatsLogger.INSTANCE;
+                isHandleForReading && conf.getEnablePerStreamStat() ? readAheadStatsLogger.scope("stream") : NullStatsLogger.INSTANCE;
         StatsLogger readerStatsLogger = statsLogger.scope("reader");
         getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
         getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");

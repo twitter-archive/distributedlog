@@ -205,7 +205,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, serverConfig, dlsnVersion);
+        return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion);
     }
 
     protected class Stream extends Thread {
@@ -1019,6 +1019,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     // Stats
     private final StatsLogger statsLogger;
+    private final StatsLogger perStreamStatsLogger;
     private final StreamOpStats streamOpStats;
 
     // operation stats
@@ -1065,11 +1066,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                               StreamConfigProvider streamConfigProvider,
                               URI uri,
                               StatsLogger statsLogger,
+                              StatsLogger perStreamStatsLogger,
                               CountDownLatch keepAliveLatch)
             throws IOException {
         // Configuration.
         this.serverConfig = serverConf;
         this.dlConfig = dlConf;
+        this.perStreamStatsLogger = perStreamStatsLogger;
         this.dlsnVersion = serverConf.getDlsnVersion();
         this.serverRegionId = serverConf.getRegionId();
         int serverPort = serverConf.getServerPort();
@@ -1143,7 +1146,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.limiterStatLogger = statsLogger.scope("request_limiter");
 
         // Stats pertaining to stream op execution
-        this.streamOpStats = new StreamOpStats(statsLogger, serverConf);
+        this.streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
 
         // Stats on requests
         this.bulkWritePendingStat = streamOpStats.requestPendingCounter("bulkWritePending");
@@ -1346,7 +1349,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, serverConfig);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {

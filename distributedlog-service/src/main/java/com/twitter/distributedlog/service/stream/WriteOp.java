@@ -42,13 +42,14 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     public WriteOp(String stream,
                    ByteBuffer data,
                    StatsLogger statsLogger,
+                   StatsLogger perStreamStatsLogger,
                    ServerConfiguration conf,
                    byte dlsnVersion) {
         super(stream, requestStat(statsLogger, "write"));
         payload = new byte[data.remaining()];
         data.get(payload);
 
-        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, conf);
+        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
         this.successRecordCounter = streamOpStats.recordsCounter("success");
         this.failureRecordCounter = streamOpStats.recordsCounter("failure");
         this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");

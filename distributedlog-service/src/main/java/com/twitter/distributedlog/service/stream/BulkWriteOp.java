@@ -63,7 +63,7 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     public BulkWriteOp(String stream,
                        List<ByteBuffer> buffers,
                        StatsLogger statsLogger,
-                       ServerConfiguration conf) {
+                       StatsLogger perStreamStatsLogger) {
         super(stream, requestStat(statsLogger, "bulkWrite"));
         this.buffers = buffers;
         long total = 0;
@@ -74,7 +74,7 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         this.payloadSize = total;
 
         // Write record stats
-        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, conf);
+        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
         this.successRecordCounter = streamOpStats.recordsCounter("success");
         this.failureRecordCounter = streamOpStats.recordsCounter("failure");
         this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");

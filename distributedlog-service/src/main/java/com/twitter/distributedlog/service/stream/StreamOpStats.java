@@ -1,8 +1,6 @@
 package com.twitter.distributedlog.service.stream;
 
-import com.twitter.distributedlog.service.config.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -17,16 +15,11 @@ public class StreamOpStats {
     private final StatsLogger streamStatsLogger;
 
     public StreamOpStats(StatsLogger statsLogger,
-                         ServerConfiguration conf) {
+                         StatsLogger perStreamStatsLogger) {
         this.requestStatsLogger = statsLogger.scope("request");
         this.recordsStatsLogger = statsLogger.scope("records");
         this.requestDeniedStatsLogger = statsLogger.scope("denied");
-        boolean perStreamStatsEnabled = conf.isPerStreamStatEnabled();
-        if (perStreamStatsEnabled) {
-            this.streamStatsLogger = statsLogger.scope("perstreams");
-        } else {
-            this.streamStatsLogger = NullStatsLogger.INSTANCE;
-        }
+        this.streamStatsLogger = perStreamStatsLogger;
     }
 
     public OpStatsLogger requestLatencyStat(String opName) {

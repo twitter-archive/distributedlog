@@ -91,7 +91,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             CountDownLatch latch) throws Exception {
         return new DistributedLogServiceImpl(
                 serverConf, dlConf, new NullStreamConfigProvider(),
-                uri, NullStatsLogger.INSTANCE, latch);
+                uri, NullStatsLogger.INSTANCE, NullStatsLogger.INSTANCE, latch);
     }
 
     private Stream createStream(DistributedLogServiceImpl service,

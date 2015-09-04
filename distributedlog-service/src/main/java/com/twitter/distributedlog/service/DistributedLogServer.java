@@ -25,6 +25,7 @@ import com.twitter.finagle.transport.Transport;
 import com.twitter.ostrich.admin.Service;
 import com.twitter.ostrich.admin.ServiceTracker;
 import com.twitter.util.Duration;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -245,9 +246,17 @@ public class DistributedLogServer implements Runnable {
             StreamConfigProvider streamConfProvider) throws IOException {
         logger.info("Running server @ uri {}.", dlUri);
 
+        boolean perStreamStatsEnabled = serverConf.isPerStreamStatEnabled();
+        StatsLogger perStreamStatsLogger;
+        if (perStreamStatsEnabled) {
+            perStreamStatsLogger = provider.getStatsLogger("stream");
+        } else {
+            perStreamStatsLogger = NullStatsLogger.INSTANCE;
+        }
+
         // dl service
         DistributedLogServiceImpl dlService =
-                new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), keepAliveLatch);
+                new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), perStreamStatsLogger, keepAliveLatch);
 
         DistributedLogAdminService adminService = new DistributedLogAdminService(dlService);
         ServiceTracker.register(adminService);
