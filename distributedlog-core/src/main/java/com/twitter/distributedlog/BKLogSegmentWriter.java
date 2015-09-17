@@ -645,7 +645,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
 
         // If it is a normal close and the stream isn't in an error state, we attempt to flush any buffered data
-        if (!abort && !isStreamInError()) {
+        if (!abort && !isLogSegmentInError()) {
             try {
                 // BookKeeper fencing will disallow multiple writers, so if we have
                 // already lost the lock, this operation will fail, we don't need enforce locking here.
@@ -695,8 +695,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             abortPacket(packetCurrentSaved);
         }
 
-        // if we are going to abort the log segment writer, we shouldn't close the ledger.
-        if (!abort && null == throwExc && !isStreamInError()) {
+        // close the log segment if it isn't in error state, so all the outstanding addEntry(s) will callback.
+        if (null == throwExc && !isLogSegmentInError()) {
             // Synchronous closing the ledger handle, if we couldn't close a ledger handle successfully.
             // we should throw the exception to #closeToFinalize, so it would fail completing a log segment.
             try {
@@ -704,9 +704,13 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             } catch (BKException.BKLedgerClosedException lce) {
                 // if a ledger is already closed, we don't need to throw exception
             } catch (BKException bke) {
-                throwExc = new IOException("Failed to close ledger for " + fullyQualifiedLogSegment, bke);
+                if (!abort) {
+                    throwExc = new IOException("Failed to close ledger for " + fullyQualifiedLogSegment, bke);
+                }
             } catch (InterruptedException ie) {
-                throwExc = new DLInterruptedException("Interrupted on closing ledger for " + fullyQualifiedLogSegment, ie);
+                if (!abort) {
+                    throwExc = new DLInterruptedException("Interrupted on closing ledger for " + fullyQualifiedLogSegment, ie);
+                }
             }
         }
 
@@ -811,11 +815,11 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         });
     }
 
-    public boolean isStreamInError() {
+    boolean isLogSegmentInError() {
         return (transmitResult.get() != BKException.Code.OK);
     }
 
-    public boolean shouldFailCompleteLogSegment() {
+    boolean shouldFailCompleteLogSegment() {
         return (transmitResult.get() != BKException.Code.OK) &&
                 (transmitResult.get() != BKException.Code.LedgerClosedException);
     }

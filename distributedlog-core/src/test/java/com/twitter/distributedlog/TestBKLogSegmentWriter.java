@@ -294,7 +294,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         // check no entries were written
         LedgerHandle lh = writer.getLedgerHandle();
         LedgerHandle readLh = openLedgerNoRecovery(lh);
-        assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
+        assertTrue("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
         assertEquals("There should be no entries in ledger " + lh.getId(),
                 LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddConfirmed());
     }
@@ -571,14 +571,10 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         // check only 1 entry were written
         LedgerHandle lh = writer.getLedgerHandle();
         LedgerHandle readLh = openLedgerNoRecovery(lh);
-        assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
+        assertTrue("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
         assertEquals("Only one entry is written for ledger " + lh.getId(),
                 0L, lh.getLastAddPushed());
         assertEquals("Only one entry is written for ledger " + lh.getId(),
-                LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddPushed());
-        LedgerHandle completeLh = openLedger(lh);
-        assertTrue("Ledger " + lh.getId() + " should be closed", completeLh.isClosed());
-        assertEquals("Only one entry is written for ledger " + lh.getId(),
-                0L, completeLh.getLastAddConfirmed());
+                0L, readLh.getLastAddConfirmed());
     }
 }

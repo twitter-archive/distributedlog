@@ -206,7 +206,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
 
         // Handle the case where the last call to write actually caused an error in the log
         //
-        if ((null != ledgerWriter) && (ledgerWriter.isStreamInError() || forceRecovery)) {
+        if ((null != ledgerWriter) && (ledgerWriter.isLogSegmentInError() || forceRecovery)) {
             // Close the ledger writer so that we will recover and start a new log segment
             ledgerWriter.close();
             ledgerWriter = null;
