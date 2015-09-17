@@ -46,7 +46,7 @@ class LedgerDataAccessor {
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
-    private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
+    private BKLogReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
     private final boolean traceDeliveryLatencyEnabled;
     private volatile boolean suppressDeliveryLatency = true;
@@ -89,7 +89,7 @@ class LedgerDataAccessor {
         }
     }
 
-    public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
+    public synchronized void setReadAheadCallback(BKLogReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
         this.readAheadCallback = readAheadCallback;
         if (getNumCacheEntries() < maxEntries) {
             invokeReadAheadCallback();

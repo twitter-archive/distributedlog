@@ -94,8 +94,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Password to use when creating ledgers. </li>
  * </ul>
  */
-abstract class BKLogPartitionHandler implements Watcher {
-    static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionHandler.class);
+abstract class BKLogHandler implements Watcher {
+    static final Logger LOG = LoggerFactory.getLogger(BKLogHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
 
@@ -104,7 +104,7 @@ abstract class BKLogPartitionHandler implements Watcher {
     protected final DistributedLogConfiguration conf;
     protected final ZooKeeperClient zooKeeperClient;
     protected final BookKeeperClient bookKeeperClient;
-    protected final String partitionRootPath;
+    protected final String logRootPath;
     protected final String ledgerPath;
     protected final String digestpw;
     protected final int firstNumEntriesPerReadLastRecordScan;
@@ -249,18 +249,18 @@ abstract class BKLogPartitionHandler implements Watcher {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    BKLogPartitionHandler(String name,
-                          String streamIdentifier,
-                          DistributedLogConfiguration conf,
-                          URI uri,
-                          ZooKeeperClientBuilder zkcBuilder,
-                          BookKeeperClientBuilder bkcBuilder,
-                          OrderedScheduler scheduler,
-                          StatsLogger statsLogger,
-                          AlertStatsLogger alertStatsLogger,
-                          AsyncNotification notification,
-                          LogSegmentFilter filter,
-                          String lockClientId) {
+    BKLogHandler(String name,
+                 String streamIdentifier,
+                 DistributedLogConfiguration conf,
+                 URI uri,
+                 ZooKeeperClientBuilder zkcBuilder,
+                 BookKeeperClientBuilder bkcBuilder,
+                 OrderedScheduler scheduler,
+                 StatsLogger statsLogger,
+                 AlertStatsLogger alertStatsLogger,
+                 AsyncNotification notification,
+                 LogSegmentFilter filter,
+                 String lockClientId) {
         Preconditions.checkNotNull(zkcBuilder);
         Preconditions.checkNotNull(bkcBuilder);
         this.name = name;
@@ -271,15 +271,15 @@ abstract class BKLogPartitionHandler implements Watcher {
         this.alertStatsLogger = alertStatsLogger;
         this.notification = notification;
         this.filter = filter;
-        partitionRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
+        logRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
         this.logSegmentCache = new LogSegmentCache(name);
 
-        ledgerPath = partitionRootPath + "/ledgers";
+        ledgerPath = logRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
         firstNumEntriesPerReadLastRecordScan = conf.getFirstNumEntriesPerReadLastRecordScan();
         maxNumEntriesPerReadLastRecordScan = conf.getMaxNumEntriesPerReadLastRecordScan();
         this.zooKeeperClient = zkcBuilder.build();
-        LOG.debug("Using ZK Path {}", partitionRootPath);
+        LOG.debug("Using ZK Path {}", logRootPath);
         this.bookKeeperClient = bkcBuilder.build();
 
         if (lockClientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)) {

@@ -111,11 +111,11 @@ public class DLMTestUtil {
     }
 
     public static class BKLogPartitionWriteHandlerAndClients {
-        private BKLogPartitionWriteHandler writeHandler;
+        private BKLogWriteHandler writeHandler;
         private ZooKeeperClient zooKeeperClient;
         private BookKeeperClient bookKeeperClient;
 
-        public BKLogPartitionWriteHandlerAndClients(BKLogPartitionWriteHandler writeHandler, ZooKeeperClient zooKeeperClient, BookKeeperClient bookKeeperClient) {
+        public BKLogPartitionWriteHandlerAndClients(BKLogWriteHandler writeHandler, ZooKeeperClient zooKeeperClient, BookKeeperClient bookKeeperClient) {
             this.writeHandler = writeHandler;
             this.zooKeeperClient = zooKeeperClient;
             this.bookKeeperClient = bookKeeperClient;
@@ -127,7 +127,7 @@ public class DLMTestUtil {
             writeHandler.close();
         }
 
-        public BKLogPartitionWriteHandler getWriteHandler() {
+        public BKLogWriteHandler getWriteHandler() {
             return writeHandler;
         }
     }
@@ -159,23 +159,23 @@ public class DLMTestUtil {
             .ledgersPath(bkdlConfig.getBkLedgersPath())
             .statsLogger(NullStatsLogger.INSTANCE);
 
-        BKLogPartitionWriteHandler writeHandler = BKLogPartitionWriteHandler.createBKLogPartitionWriteHandler(name,
-            streamName,
-            conf,
-            uri,
-            zkcBuilder,
-            bkcBuilder,
-            OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + streamName).build(),
-            null,
-            OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
-            null,
-            NullStatsLogger.INSTANCE,
-            new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert", "dl_alert"),
-            "localhost",
-            DistributedLogConstants.LOCAL_REGION_ID,
-            PermitLimiter.NULL_PERMIT_LIMITER,
-            new SettableFeatureProvider("", 0),
-            ConfUtils.getConstDynConf(conf));
+        BKLogWriteHandler writeHandler = BKLogWriteHandler.createBKLogPartitionWriteHandler(name,
+                streamName,
+                conf,
+                uri,
+                zkcBuilder,
+                bkcBuilder,
+                OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + streamName).build(),
+                null,
+                OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
+                null,
+                NullStatsLogger.INSTANCE,
+                new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert", "dl_alert"),
+                "localhost",
+                DistributedLogConstants.LOCAL_REGION_ID,
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0),
+                ConfUtils.getConstDynConf(conf));
 
         return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
@@ -183,7 +183,7 @@ public class DLMTestUtil {
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
         try {
-            BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
             List<LogSegmentMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
             LogSegmentMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
             BookKeeperClient bkc = dlm.getWriterBKC();
@@ -361,7 +361,7 @@ public class DLMTestUtil {
                                                             boolean completeLogSegment)
             throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
-        BKLogPartitionWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         // Start a log segment with a given ledger seq number.
         writeHandler.lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         writeHandler.startLogSegmentCount.incrementAndGet();
@@ -402,7 +402,7 @@ public class DLMTestUtil {
                                                     long ledgerSeqNo, long startTxID, long segmentSize,
                                                     boolean recordWrongLastDLSN) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
-        BKLogPartitionWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         // Start a log segment with a given ledger seq number.
         writeHandler.lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         writeHandler.startLogSegmentCount.incrementAndGet();

@@ -28,7 +28,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     private final LogSegmentMetadata metadata;
     private String zkPath;
-    private final BKLogPartitionReadHandler ledgerManager;
+    private final BKLogReadHandler ledgerManager;
     private final ZooKeeperClient zkc;
     private LedgerDataAccessor ledgerDataAccessor;
     private boolean shouldResume = true;
@@ -40,7 +40,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
     /**
      * Construct BookKeeper log record input stream.
      */
-    ResumableBKPerStreamLogReader(BKLogPartitionReadHandler ledgerManager,
+    ResumableBKPerStreamLogReader(BKLogReadHandler ledgerManager,
                                   ZooKeeperClient zkc,
                                   LedgerDataAccessor ledgerDataAccessor,
                                   LogSegmentMetadata metadata,

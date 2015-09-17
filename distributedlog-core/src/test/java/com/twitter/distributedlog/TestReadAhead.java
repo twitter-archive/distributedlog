@@ -14,7 +14,7 @@ import java.util.concurrent.TimeoutException;
 import static org.junit.Assert.*;
 
 /**
- * {@link com.twitter.distributedlog.BKLogPartitionReadHandler.ReadAheadWorker} related test cases.
+ * {@link BKLogReadHandler.ReadAheadWorker} related test cases.
  */
 public class TestReadAhead extends TestDistributedLogBase {
 

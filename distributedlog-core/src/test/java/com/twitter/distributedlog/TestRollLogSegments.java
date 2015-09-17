@@ -385,7 +385,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         logger.info("Waiting for long poll getting interrupted with metadata changed");
 
         // simulate a recovery without closing ledger causing recording wrong last dlsn
-        BKLogPartitionWriteHandler writeHandler = writer.getCachedPartitionHandler();
+        BKLogWriteHandler writeHandler = writer.getCachedWriteHandler();
         writeHandler.completeAndCloseLogSegment(
                 writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLedgerSequenceNumber()),
                 perStreamWriter.getLedgerSequenceNumber(),

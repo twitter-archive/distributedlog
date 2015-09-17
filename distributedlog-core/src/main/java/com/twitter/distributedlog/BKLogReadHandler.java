@@ -61,8 +61,8 @@ import com.twitter.util.Throw;
 import com.twitter.util.Try;
 import com.twitter.util.Return;
 
-class BKLogPartitionReadHandler extends BKLogPartitionHandler {
-    static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
+class BKLogReadHandler extends BKLogHandler {
+    static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
     private static final Random random = new Random(System.currentTimeMillis());
@@ -124,22 +124,22 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    public BKLogPartitionReadHandler(String name,
-                                     String streamIdentifier,
-                                     Optional<String> subscriberId,
-                                     DistributedLogConfiguration conf,
-                                     URI uri,
-                                     ZooKeeperClientBuilder zkcBuilder,
-                                     BookKeeperClientBuilder bkcBuilder,
-                                     OrderedScheduler scheduler,
-                                     OrderedSafeExecutor lockStateExecutor,
-                                     ScheduledExecutorService readAheadExecutor,
-                                     AlertStatsLogger alertStatsLogger,
-                                     ReadAheadExceptionsLogger readAheadExceptionsLogger,
-                                     StatsLogger statsLogger,
-                                     String clientId,
-                                     AsyncNotification notification,
-                                     boolean isHandleForReading) {
+    public BKLogReadHandler(String name,
+                            String streamIdentifier,
+                            Optional<String> subscriberId,
+                            DistributedLogConfiguration conf,
+                            URI uri,
+                            ZooKeeperClientBuilder zkcBuilder,
+                            BookKeeperClientBuilder bkcBuilder,
+                            OrderedScheduler scheduler,
+                            OrderedSafeExecutor lockStateExecutor,
+                            ScheduledExecutorService readAheadExecutor,
+                            AlertStatsLogger alertStatsLogger,
+                            ReadAheadExceptionsLogger readAheadExceptionsLogger,
+                            StatsLogger statsLogger,
+                            String clientId,
+                            AsyncNotification notification,
+                            boolean isHandleForReading) {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
@@ -156,10 +156,10 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         this.subscriberId = subscriberId;
         if (subscriberId.isPresent()) {
-            this.readLockPath = partitionRootPath + BKLogPartitionHandler.SUBSCRIBERS_PATH
-                    + "/" + subscriberId.get() + BKLogPartitionHandler.READ_LOCK_PATH;
+            this.readLockPath = logRootPath + BKLogHandler.SUBSCRIBERS_PATH
+                    + "/" + subscriberId.get() + BKLogHandler.READ_LOCK_PATH;
         } else {
-            this.readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
+            this.readLockPath = logRootPath + BKLogHandler.READ_LOCK_PATH;
         }
         this.lockStateExecutor = lockStateExecutor;
 
@@ -217,14 +217,14 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 public DistributedReentrantLock applyE() throws IOException {
                     // Unfortunately this has a blocking call which we should not execute on the
                     // ZK completion thread
-                    BKLogPartitionReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
+                    BKLogReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
                         zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
                         getLockClientId(), statsLogger, conf.getZKNumRetries(),
                         conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
 
                     LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
                     readLockRequestStat.inc();
-                    return BKLogPartitionReadHandler.this.readLock;
+                    return BKLogReadHandler.this.readLock;
                 }
             };
             lockAcquireFuture = ensureReadLockPathExist().flatMap(new ExceptionalFunction<Void, Future<Void>>() {
@@ -598,7 +598,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 return null;
             }
         });
-        Optional<String> parentPathShouldNotCreate = Optional.of(partitionRootPath);
+        Optional<String> parentPathShouldNotCreate = Optional.of(logRootPath);
         Utils.zkAsyncCreateFullPathOptimisticRecursive(zooKeeperClient, readLockPath, parentPathShouldNotCreate,
                 new byte[0], zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
                 new org.apache.zookeeper.AsyncCallback.StringCallback() {
@@ -827,7 +827,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
         private final String fullyQualifiedName;
-        private final BKLogPartitionReadHandler bkLedgerManager;
+        private final BKLogReadHandler bkLedgerManager;
         private volatile boolean reInitializeMetadata = true;
         private final LedgerReadPosition startReadPosition;
         protected LedgerReadPosition nextReadAheadPosition;
@@ -880,7 +880,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         private final Watcher getLedgersWatcher;
 
         public ReadAheadWorker(String fullyQualifiedName,
-                               BKLogPartitionReadHandler ledgerManager,
+                               BKLogReadHandler ledgerManager,
                                LedgerReadPosition startPosition,
                                LedgerDataAccessor ledgerDataAccessor,
                                boolean simulateErrors,
@@ -903,7 +903,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.conf = conf;
             this.noLedgerExceptionOnReadLACThreshold =
                     conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() / conf.getReadAheadWaitTime();
-            this.tracker = new ReadAheadTracker(BKLogPartitionReadHandler.this.name, ledgerDataAccessor,
+            this.tracker = new ReadAheadTracker(BKLogReadHandler.this.name, ledgerDataAccessor,
                     ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
             this.resumeStopWatch = Stopwatch.createUnstarted();
             this.getLedgersWatcher = this.bkLedgerManager.zooKeeperClient.getWatcherManager()
@@ -1352,7 +1352,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     if (metadataNotificationTimeMillis > 0) {
                         long metadataReinitializeTimeMillis = System.currentTimeMillis();
                         long elapsedMillisSinceMetadataChanged = metadataReinitializeTimeMillis - metadataNotificationTimeMillis;
-                        if (elapsedMillisSinceMetadataChanged >= BKLogPartitionReadHandler.this.metadataLatencyWarnThresholdMillis) {
+                        if (elapsedMillisSinceMetadataChanged >= BKLogReadHandler.this.metadataLatencyWarnThresholdMillis) {
                             LOG.warn("{} reinitialize metadata at {}, which is {} millis after receiving notification at {}.",
                                      new Object[] { getFullyQualifiedName(), metadataReinitializeTimeMillis,
                                                     elapsedMillisSinceMetadataChanged, metadataNotificationTimeMillis});

@@ -8,7 +8,6 @@ import com.twitter.util.Await;
 import com.twitter.util.Future;
 
 import org.junit.Rule;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
@@ -27,7 +26,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     public TestName runtime = new TestName();
 
     private Future<LogRecordWithDLSN> getFirstGreaterThanRecord(BKDistributedLogManager bkdlm, int ledgerNo, DLSN dlsn) throws Exception {
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         return ReadUtils.asyncReadFirstUserRecord(
             bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
@@ -35,7 +34,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     }
 
     private Future<LogRecordWithDLSN> getLastUserRecord(BKDistributedLogManager bkdlm, int ledgerNo) throws Exception {
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         return ReadUtils.asyncReadLastRecord(
             bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),

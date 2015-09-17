@@ -69,10 +69,10 @@ import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
 
-class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
-    static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
+class BKLogWriteHandler extends BKLogHandler {
+    static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
-    static BKLogPartitionWriteHandler createBKLogPartitionWriteHandler(String name,
+    static BKLogWriteHandler createBKLogPartitionWriteHandler(String name,
                                                                        String streamIdentifier,
                                                                        DistributedLogConfiguration conf,
                                                                        URI uri,
@@ -89,7 +89,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                                                        PermitLimiter writeLimiter,
                                                                        FeatureProvider featureProvider,
                                                                        DynamicDistributedLogConfiguration dynConf) throws IOException {
-        return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
+        return new BKLogWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
                 scheduler, orderedFuturePool, lockStateExecutor, ledgerAllocator,
                 statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider, dynConf);
     }
@@ -205,23 +205,23 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    BKLogPartitionWriteHandler(String name,
-                               String streamIdentifier,
-                               DistributedLogConfiguration conf,
-                               URI uri,
-                               ZooKeeperClientBuilder zkcBuilder,
-                               BookKeeperClientBuilder bkcBuilder,
-                               OrderedScheduler scheduler,
-                               FuturePool orderedFuturePool,
-                               OrderedSafeExecutor lockStateExecutor,
-                               LedgerAllocator allocator,
-                               StatsLogger statsLogger,
-                               AlertStatsLogger alertStatsLogger,
-                               String clientId,
-                               int regionId,
-                               PermitLimiter writeLimiter,
-                               FeatureProvider featureProvider,
-                               DynamicDistributedLogConfiguration dynConf) throws IOException {
+    BKLogWriteHandler(String name,
+                      String streamIdentifier,
+                      DistributedLogConfiguration conf,
+                      URI uri,
+                      ZooKeeperClientBuilder zkcBuilder,
+                      BookKeeperClientBuilder bkcBuilder,
+                      OrderedScheduler scheduler,
+                      FuturePool orderedFuturePool,
+                      OrderedSafeExecutor lockStateExecutor,
+                      LedgerAllocator allocator,
+                      StatsLogger statsLogger,
+                      AlertStatsLogger alertStatsLogger,
+                      String clientId,
+                      int regionId,
+                      PermitLimiter writeLimiter,
+                      FeatureProvider featureProvider,
+                      DynamicDistributedLogConfiguration dynConf) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.orderedFuturePool = orderedFuturePool;
@@ -256,9 +256,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
         this.ownAllocator = null == allocator;
 
-        this.maxTxIdPath = partitionRootPath + BKLogPartitionHandler.MAX_TXID_PATH;
-        final String lockPath = partitionRootPath + BKLogPartitionHandler.LOCK_PATH;
-        allocationPath = partitionRootPath + BKLogPartitionHandler.ALLOCATION_PATH;
+        this.maxTxIdPath = logRootPath + BKLogHandler.MAX_TXID_PATH;
+        final String lockPath = logRootPath + BKLogHandler.LOCK_PATH;
+        allocationPath = logRootPath + BKLogHandler.ALLOCATION_PATH;
 
         // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat maxTxIdData = new DataWithStat();
@@ -274,7 +274,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new DLInterruptedException("Failed to initialize zookeeper client", e);
             }
 
-            createStreamIfNotExists(name, partitionRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
+            createStreamIfNotExists(name, logRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
         } else {
             getLedgersData(ledgersData);
         }
@@ -383,7 +383,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * @return write handler
      * @throws LockingException
      */
-    BKLogPartitionWriteHandler lockHandler() throws LockingException {
+    BKLogWriteHandler lockHandler() throws LockingException {
         if (lockHandler) {
             return this;
         }
@@ -392,7 +392,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         return this;
     }
 
-    BKLogPartitionWriteHandler unlockHandler() throws LockingException {
+    BKLogWriteHandler unlockHandler() throws LockingException {
         if (lockHandler) {
             lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
             lockHandler = false;
@@ -401,7 +401,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     static void createStreamIfNotExists(final String name,
-                                        final String partitionRootPath,
+                                        final String logRootPath,
                                         final ZooKeeper zk,
                                         final List<ACL> acl,
                                         final boolean ownAllocator,
@@ -410,21 +410,21 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                         final DataWithStat ledgersData) throws IOException {
 
         try {
-            PathUtils.validatePath(partitionRootPath);
+            PathUtils.validatePath(logRootPath);
         } catch (IllegalArgumentException e) {
-            LOG.error("Illegal path value {} for stream {}", new Object[] { partitionRootPath, name, e });
+            LOG.error("Illegal path value {} for stream {}", new Object[] { logRootPath, name, e });
             throw new InvalidStreamNameException(name, "Stream name is invalid");
         }
 
         // Note re. persistent lock state initialization: the read lock persistent state (path) is
         // initialized here but only used in the read handler. The reason is its more convenient and
         // less error prone to manage all stream structure in one place.
-        final String ledgerPath = partitionRootPath + BKLogPartitionHandler.LEDGERS_PATH;
-        final String maxTxIdPath = partitionRootPath + BKLogPartitionHandler.MAX_TXID_PATH;
-        final String lockPath = partitionRootPath + BKLogPartitionHandler.LOCK_PATH;
-        final String readLockPath = partitionRootPath + BKLogPartitionHandler.READ_LOCK_PATH;
-        final String versionPath = partitionRootPath + BKLogPartitionHandler.VERSION_PATH;
-        final String allocationPath = partitionRootPath + BKLogPartitionHandler.ALLOCATION_PATH;
+        final String ledgerPath = logRootPath + BKLogHandler.LEDGERS_PATH;
+        final String maxTxIdPath = logRootPath + BKLogHandler.MAX_TXID_PATH;
+        final String lockPath = logRootPath + BKLogHandler.LOCK_PATH;
+        final String readLockPath = logRootPath + BKLogHandler.READ_LOCK_PATH;
+        final String versionPath = logRootPath + BKLogHandler.VERSION_PATH;
+        final String allocationPath = logRootPath + BKLogHandler.ALLOCATION_PATH;
 
         // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
         final DataWithStat lockData = new DataWithStat();
@@ -447,9 +447,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     createAndGetZnodes();
                 } else {
                     KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                    LOG.error("Failed to create partition root path {} : ", partitionRootPath, ke);
+                    LOG.error("Failed to create log root path {} : ", logRootPath, ke);
                     exceptionToThrow.set(
-                            new ZKException("Failed to create partition root path " + partitionRootPath, ke));
+                            new ZKException("Failed to create log root path " + logRootPath, ke));
                     initializeLatch.countDown();
                 }
             }
@@ -508,14 +508,14 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 if (KeeperException.Code.OK.intValue() == rc) {
                     if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
                         lockData.notExists() || readLockData.notExists() || ledgersData.notExists()) {
-                        ZkUtils.asyncCreateFullPathOptimistic(zk, partitionRootPath, new byte[] {'0'},
+                        ZkUtils.asyncCreateFullPathOptimistic(zk, logRootPath, new byte[] {'0'},
                                 acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
                     } else {
                         initializeLatch.countDown();
                     }
                 } else {
-                    LOG.error("Failed to get partition data from {}.", partitionRootPath);
-                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + partitionRootPath,
+                    LOG.error("Failed to get log data from {}.", logRootPath);
+                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + logRootPath,
                             KeeperException.Code.get(rc)));
                     initializeLatch.countDown();
                 }
@@ -537,7 +537,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             initializeLatch.await();
         } catch (InterruptedException e) {
             throw new DLInterruptedException("Interrupted when initializing write handler for "
-                    + partitionRootPath, e);
+                    + logRootPath, e);
         }
 
         if (null != exceptionToThrow.get()) {
@@ -559,12 +559,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 Preconditions.checkNotNull(allocationData.getData());
             }
         } catch (IllegalArgumentException iae) {
-            throw new UnexpectedException("Invalid partition " + partitionRootPath, iae);
+            throw new UnexpectedException("Invalid log " + logRootPath, iae);
         }
     }
 
     protected void getLedgersData(final DataWithStat ledgersData) throws IOException {
-        final String ledgerPath = partitionRootPath + "/ledgers";
+        final String ledgerPath = logRootPath + "/ledgers";
         Stat stat = new Stat();
         try {
             byte[] data = zooKeeperClient.get().getData(ledgerPath, false, stat);
@@ -1114,7 +1114,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                         throw ke;
                     }
                 } else {
-                    LOG.warn("No OpResults for a multi operation when finalising stream " + partitionRootPath, ke);
+                    LOG.warn("No OpResults for a multi operation when finalising stream " + logRootPath, ke);
                     throw ke;
                 }
             }
@@ -1123,9 +1123,9 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             LOG.info("Completed {} to {} for {} : {}",
                      new Object[] { inprogressZnodeName, nameForCompletedLedger, getFullyQualifiedName(), completedLogSegment });
         } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted when finalising stream " + partitionRootPath, e);
+            throw new DLInterruptedException("Interrupted when finalising stream " + logRootPath, e);
         } catch (KeeperException e) {
-            throw new ZKException("Error when finalising stream " + partitionRootPath, e);
+            throw new ZKException("Error when finalising stream " + logRootPath, e);
         } finally {
             if (shouldReleaseLock && startLogSegmentCount.get() > 0) {
                 lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
@@ -1148,7 +1148,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
             try {
                 long lastTxId;
-                synchronized (BKLogPartitionWriteHandler.this) {
+                synchronized (BKLogWriteHandler.this) {
                     lastTxId = doProcessOp();
                 }
                 success = true;
@@ -1166,7 +1166,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             List<LogSegmentMetadata> segmentList = getFilteredLedgerList(false, false);
             LOG.info("Initiating Recovery For {} : {}", getFullyQualifiedName(), segmentList);
             // if lastLedgerRollingTimeMillis is not updated, we set it to now.
-            synchronized (BKLogPartitionWriteHandler.this) {
+            synchronized (BKLogWriteHandler.this) {
                 if (lastLedgerRollingTimeMillis < 0) {
                     lastLedgerRollingTimeMillis = Utils.nowInMillis();
                 }
@@ -1257,7 +1257,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         try {
             deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
         } catch (LockingException lockExc) {
-            throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
+            throw new IOException("deleteLog could not acquire exclusive lock on the log " + getFullyQualifiedName());
         }
 
         try {
@@ -1271,10 +1271,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             deleteLock.close();
             zooKeeperClient.get().exists(ledgerPath, false);
             zooKeeperClient.get().exists(maxTxIdPath, false);
-            if (partitionRootPath.toLowerCase().contains("distributedlog")) {
-                ZKUtil.deleteRecursive(zooKeeperClient.get(), partitionRootPath);
+            if (logRootPath.toLowerCase().contains("distributedlog")) {
+                ZKUtil.deleteRecursive(zooKeeperClient.get(), logRootPath);
             } else {
-                LOG.warn("Skip deletion of unrecognized ZK Path {}", partitionRootPath);
+                LOG.warn("Skip deletion of unrecognized ZK Path {}", logRootPath);
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + ledgerPath, ie);

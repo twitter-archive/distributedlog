@@ -246,7 +246,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
         out.abort();
 
-        BKLogPartitionWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler blplm1 = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
 
         assertNull(zkc.exists(blplm1.completedLedgerZNode(1, 100,
                                                           perStreamLogWriter.getLedgerSequenceNumber()), false));

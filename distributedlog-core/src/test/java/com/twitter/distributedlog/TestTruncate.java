@@ -156,7 +156,7 @@ public class TestTruncate extends TestDistributedLogBase {
 
         // Try force truncation
         BKDistributedLogManager dlm = (BKDistributedLogManager)createNewDLM(confLocal, name);
-        BKLogPartitionWriteHandler handler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler handler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         handler.purgeLogsOlderThan(Integer.MAX_VALUE);
 
         verifyEntries(name, 1, 31, 20);

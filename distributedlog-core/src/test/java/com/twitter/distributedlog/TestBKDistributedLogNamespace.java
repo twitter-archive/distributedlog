@@ -79,7 +79,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         dlm.close();
 
         // create the stream
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, streamName);
+        BKDistributedLogManager.createLog(conf, zooKeeperClient, uri, streamName);
 
         DistributedLogManager newDLM = namespace.openLog(streamName);
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
@@ -217,9 +217,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
             }
         });
         latches[0].await();
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, "test1");
+        BKDistributedLogManager.createLog(conf, zooKeeperClient, uri, "test1");
         latches[1].await();
-        BKDistributedLogManager.createUnpartitionedStream(conf, zooKeeperClient, uri, "test2");
+        BKDistributedLogManager.createLog(conf, zooKeeperClient, uri, "test2");
         latches[2].await();
         assertEquals(0, numFailures.get());
         assertNotNull(receivedStreams.get());

@@ -58,7 +58,7 @@ class BKPerStreamLogReader {
     protected LedgerInputStream lin;
     protected LogRecord.Reader reader;
 
-    protected BKPerStreamLogReader(BKLogPartitionHandler handler, final LogSegmentMetadata metadata, StatsLogger statsLogger) {
+    protected BKPerStreamLogReader(BKLogHandler handler, final LogSegmentMetadata metadata, StatsLogger statsLogger) {
         this.fullyQualifiedName = handler.getFullyQualifiedName();
         this.firstTxId = metadata.getFirstTxId();
         this.logVersion = metadata.getVersion();
@@ -76,7 +76,7 @@ class BKPerStreamLogReader {
      * to take a shortcut during recovery, as it doesn't have to read
      * every edit log transaction to find out what the last one is.
      */
-    BKPerStreamLogReader(BKLogPartitionHandler handler, LedgerDescriptor desc, LogSegmentMetadata metadata,
+    BKPerStreamLogReader(BKLogHandler handler, LedgerDescriptor desc, LogSegmentMetadata metadata,
                          long firstBookKeeperEntry, LedgerDataAccessor ledgerDataAccessor, boolean dontSkipControl, StatsLogger statsLogger)
         throws IOException {
         this.fullyQualifiedName = handler.getFullyQualifiedName();

@@ -884,7 +884,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             public Void handle(ZooKeeperClient zkc) throws IOException {
                 for (String s : streamNames) {
                     try {
-                        BKDistributedLogManager.createUnpartitionedStream(conf, zkc, uri, s);
+                        BKDistributedLogManager.createLog(conf, zkc, uri, s);
                     } catch (InterruptedException e) {
                         LOG.error("Interrupted on creating unpartitioned stream {} : ", s, e);
                         return null;

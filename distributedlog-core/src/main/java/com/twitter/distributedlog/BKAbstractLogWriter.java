@@ -35,7 +35,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     // Log Segment Writers
     protected BKLogSegmentWriter perStreamWriter = null;
     protected BKLogSegmentWriter allocatedPerStreamWriter = null;
-    protected BKLogPartitionWriteHandler partitionHander = null;
+    protected BKLogWriteHandler writeHandler = null;
 
     public BKAbstractLogWriter(DistributedLogConfiguration conf,
                                DynamicDistributedLogConfiguration dynConf,
@@ -47,19 +47,19 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
                 TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS));
     }
 
-    protected BKLogPartitionWriteHandler getCachedPartitionHandler() {
-        return partitionHander;
+    protected BKLogWriteHandler getCachedWriteHandler() {
+        return writeHandler;
     }
 
-    protected void cachePartitionHandler(BKLogPartitionWriteHandler ledgerHandler) {
-        this.partitionHander = ledgerHandler;
+    protected void cacheWriteHandler(BKLogWriteHandler ledgerHandler) {
+        this.writeHandler = ledgerHandler;
     }
 
-    protected BKLogPartitionWriteHandler removeCachedPartitionHandler() {
+    protected BKLogWriteHandler removeCachedWriteHandler() {
         try {
-            return partitionHander;
+            return writeHandler;
         } finally {
-            partitionHander = null;
+            writeHandler = null;
         }
     }
 
@@ -97,16 +97,16 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
 
     protected void closeAndComplete(boolean shouldThrow) throws IOException {
         try {
-            if (null != perStreamWriter && null != partitionHander) {
+            if (null != perStreamWriter && null != writeHandler) {
                 try {
                     waitForTruncation();
-                    partitionHander.completeAndCloseLogSegment(perStreamWriter);
+                    writeHandler.completeAndCloseLogSegment(perStreamWriter);
                 } finally {
-                    // ensure partition handler is closed
-                    partitionHander.close();
+                    // ensure write handler is closed
+                    writeHandler.close();
                 }
                 perStreamWriter = null;
-                partitionHander = null;
+                writeHandler = null;
             }
         } catch (IOException exc) {
             LOG.error("Completing Log segments encountered exception", exc);
@@ -155,9 +155,9 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
                 LOG.error("Failed to close allocated per stream writer : ", ioe);
             }
         }
-        BKLogPartitionWriteHandler partitionWriteHandler = getCachedPartitionHandler();
-        if (null != partitionWriteHandler) {
-            partitionWriteHandler.close();
+        BKLogWriteHandler writeHandler = getCachedWriteHandler();
+        if (null != writeHandler) {
+            writeHandler.close();
         }
     }
 
@@ -172,25 +172,25 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         waitForTruncation();
         Abortables.abortQuietly(getCachedLogWriter());
         Abortables.abortQuietly(getAllocatedLogWriter());
-        BKLogPartitionWriteHandler writeHandler = getCachedPartitionHandler();
+        BKLogWriteHandler writeHandler = getCachedWriteHandler();
         if (null != writeHandler) {
             writeHandler.close();
         }
     }
 
-    synchronized protected BKLogPartitionWriteHandler getWriteLedgerHandler(String streamIdentifier) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
+    synchronized protected BKLogWriteHandler getWriteLedgerHandler(String streamIdentifier) throws IOException {
+        BKLogWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
         ledgerManager.checkMetadataException();
         return ledgerManager;
     }
 
-    synchronized protected BKLogPartitionWriteHandler createAndCacheWriteHandler(String streamIdentifier,
+    synchronized protected BKLogWriteHandler createAndCacheWriteHandler(String streamIdentifier,
                                                                                  FuturePool orderedFuturePool)
             throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = getCachedPartitionHandler();
+        BKLogWriteHandler ledgerManager = getCachedWriteHandler();
         if (null == ledgerManager) {
             ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool);
-            cachePartitionHandler(ledgerManager);
+            cacheWriteHandler(ledgerManager);
         }
         return ledgerManager;
     }
@@ -204,7 +204,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier) throws IOException {
         BKLogSegmentWriter ledgerWriter = getCachedLogWriter();
 
-        // Handle the case where the last call to write actually caused an error in the partition
+        // Handle the case where the last call to write actually caused an error in the log
         //
         if ((null != ledgerWriter) && (ledgerWriter.isStreamInError() || forceRecovery)) {
             // Close the ledger writer so that we will recover and start a new log segment
@@ -213,7 +213,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             removeCachedLogWriter();
 
             // This is strictly not necessary - but its safe nevertheless
-            BKLogPartitionWriteHandler ledgerManager = removeCachedPartitionHandler();
+            BKLogWriteHandler ledgerManager = removeCachedWriteHandler();
             if (null != ledgerManager) {
                 ledgerManager.close();
             }
@@ -223,7 +223,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     }
 
     synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter, String streamIdentifier) throws IOException {
-        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
+        BKLogWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
         return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }
 
@@ -232,7 +232,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
                                                                           boolean bestEffort,
                                                                           boolean allowMaxTxID) throws IOException {
         boolean shouldCheckForTruncation = false;
-        BKLogPartitionWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
+        BKLogWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
         if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
             PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
             try {
@@ -284,7 +284,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             }
         } else if (null == ledgerWriter) {
             // recover incomplete log segments if no writer
-            BKLogPartitionWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
+            BKLogWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
             writeHandler.recoverIncompleteLogSegments();
             // if exceptions thrown during initialize we should not catch it.
             ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
@@ -330,13 +330,13 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     }
 
     static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentMetadata>> {
-        private final BKLogPartitionWriteHandler ledgerManager;
+        private final BKLogWriteHandler ledgerManager;
         private final long minTimestampToKeep;
         private volatile boolean done = false;
         private volatile boolean running = false;
         private final CountDownLatch latch = new CountDownLatch(1);
 
-        LogTruncationTask(BKLogPartitionWriteHandler ledgerManager, long minTimestampToKeep) {
+        LogTruncationTask(BKLogWriteHandler ledgerManager, long minTimestampToKeep) {
             this.ledgerManager = ledgerManager;
             this.minTimestampToKeep = minTimestampToKeep;
         }

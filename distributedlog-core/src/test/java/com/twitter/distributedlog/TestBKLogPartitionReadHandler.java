@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
 import static org.junit.Assert.*;
 
 /**
- * Test {@link BKLogPartitionReadHandler}
+ * Test {@link BKLogReadHandler}
  */
 public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
 
@@ -68,7 +68,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegments(dlName, 3, 3);
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         List<LogSegmentMetadata> ledgerList2 = readHandler.getFilteredLedgerList(true, false);
         List<LogSegmentMetadata> ledgerList3 = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
@@ -85,7 +85,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegments(dlName, 3, 3);
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(true, false, LogSegmentMetadata.COMPARATOR, false);
         final AtomicReference<List<LogSegmentMetadata>> resultHolder =
                 new AtomicReference<List<LogSegmentMetadata>>(null);
@@ -116,7 +116,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
 
         // Get full list.
-        BKLogPartitionWriteHandler writeHandler0 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler0 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> cachedFullLedgerList =
                 writeHandler0.getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR);
         assertTrue(cachedFullLedgerList.size() <= 1);
@@ -124,7 +124,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         assertEquals(11, fullLedgerList.size());
 
         // Get filtered list.
-        BKLogPartitionWriteHandler writeHandler1 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler1 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> filteredLedgerListDesc = writeHandler1.getFilteredLedgerListDesc(false, false);
         assertEquals(1, filteredLedgerListDesc.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerListDesc.get(0));
@@ -156,7 +156,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
             Await.result(future);
         }
 
-        BKLogPartitionReadHandler readHandler =
+        BKLogReadHandler readHandler =
             ((BKDistributedLogManager) dlm1).createReadLedgerHandler(confLocal.getUnpartitionedStreamName());
 
         DLSN last = dlm1.getLastDLSN();
@@ -170,7 +170,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public void testGetFirstDLSNNoLogSegments() throws Exception {
         String dlName = runtime.getMethodName();
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
         try {
             Await.result(futureRecord);
@@ -184,7 +184,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegments(dlName, 3, 3);
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<LogRecordWithDLSN> futureRecord = readHandler.asyncGetFirstLogRecord();
         try {
             LogRecordWithDLSN record = Await.result(futureRecord);
@@ -199,7 +199,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 3, 10);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler =
+        BKLogReadHandler readHandler =
             ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Future<Boolean> futureSuccess = writer.truncate(new DLSN(2, 0, 0));
@@ -215,7 +215,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 3, 10);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler =
+        BKLogReadHandler readHandler =
             ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
 
@@ -232,7 +232,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public void testGetLogRecordCountEmptyLedger() throws Exception {
         String dlName = runtime.getMethodName();
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(DLSN.InitialDLSN);
         try {
@@ -247,7 +247,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 11, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(DLSN.InitialDLSN);
         assertEquals(33, Await.result(count).longValue());
@@ -258,7 +258,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 11, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(2, 0, 0));
         assertEquals(30, Await.result(count).longValue());
@@ -271,7 +271,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 11, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(12, 0, 0));
         assertEquals(0, Await.result(count).longValue());
@@ -282,7 +282,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 11, 3);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(11, 2, 0));
         assertEquals(1, Await.result(count).longValue());
@@ -293,7 +293,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String dlName = runtime.getMethodName();
         prepareLogSegmentsNonPartitioned(dlName, 5, 10);
         DistributedLogManager dlm = createNewDLM(conf, dlName);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(3, 5, 0));
         assertEquals(25, Await.result(count).longValue());
@@ -307,7 +307,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         long txid = 1;
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(dlm, 5, 5, txid);
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(dlm, 0, 10, txid);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(1, 0, 0));
         assertEquals(15, Await.result(count).longValue());
@@ -319,7 +319,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         long txid = 1;
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(dlm, 5, 0, txid);
         txid += DLMTestUtil.generateLogSegmentNonPartitioned(dlm, 10, 0, txid);
-        BKLogPartitionReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = ((BKDistributedLogManager) dlm).createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Future<Long> count = null;
         count = readHandler.asyncGetLogRecordCount(new DLSN(1, 0, 0));
         assertEquals(0, Await.result(count).longValue());
@@ -337,7 +337,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
 
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         assertEquals(1, ledgerList.size());
         assertTrue(ledgerList.get(0).isInProgress());
@@ -361,7 +361,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
 
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         assertEquals(2, ledgerList.size());
         assertFalse(ledgerList.get(0).isInProgress());
@@ -378,14 +378,14 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
     public void testLockStreamWithMissingLog() throws Exception {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         try {
             Await.result(readHandler.lockStream());
             fail("Should fail lock stream if log not found");
         } catch (LogNotFoundException ex) {
         }
 
-        BKLogPartitionReadHandler subscriberReadHandler =
+        BKLogReadHandler subscriberReadHandler =
                 bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("test-subscriber"));
         try {
             Await.result(subscriberReadHandler.lockStream());
@@ -400,16 +400,16 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1);
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Await.result(readHandler.lockStream());
 
         // two subscribers could lock stream in parallel
         BKDistributedLogManager bkdlm10 = (BKDistributedLogManager) createNewDLM(conf, streamName);
-        BKLogPartitionReadHandler s10Handler =
+        BKLogReadHandler s10Handler =
                 bkdlm10.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
         Await.result(s10Handler.lockStream());
         BKDistributedLogManager bkdlm20 = (BKDistributedLogManager) createNewDLM(conf, streamName);
-        BKLogPartitionReadHandler s20Handler =
+        BKLogReadHandler s20Handler =
                 bkdlm20.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s2"));
         Await.result(s20Handler.lockStream());
 
@@ -426,17 +426,17 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         String streamName = runtime.getMethodName();
         BKDistributedLogManager bkdlm = (BKDistributedLogManager) createNewDLM(conf, streamName);
         DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0, 5, 1);
-        BKLogPartitionReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         Await.result(readHandler.lockStream());
 
         // same subscrbiers couldn't lock stream in parallel
         BKDistributedLogManager bkdlm10 = (BKDistributedLogManager) createNewDLM(conf, streamName);
-        BKLogPartitionReadHandler s10Handler =
+        BKLogReadHandler s10Handler =
                 bkdlm10.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
         Await.result(s10Handler.lockStream());
 
         BKDistributedLogManager bkdlm11 = (BKDistributedLogManager) createNewDLM(conf, streamName);
-        BKLogPartitionReadHandler s11Handler =
+        BKLogReadHandler s11Handler =
                 bkdlm11.createReadLedgerHandler(conf.getUnpartitionedStreamName(), Optional.of("s1"));
         try {
             Await.result(s11Handler.lockStream(), Duration.apply(10000, TimeUnit.MILLISECONDS));

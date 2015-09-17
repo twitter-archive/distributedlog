@@ -23,7 +23,7 @@ abstract class BKContinuousLogReaderBase implements ZooKeeperClient.ZooKeeperSes
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReaderBase.class);
 
     protected final BKDistributedLogManager bkDistributedLogManager;
-    protected final BKLogPartitionReadHandler bkLedgerManager;
+    protected final BKLogReadHandler bkLedgerManager;
     protected ResumableBKPerStreamLogReader currentReader = null;
     protected final boolean readAheadEnabled;
     private final boolean forceReadEnabled;

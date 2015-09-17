@@ -143,7 +143,7 @@ public interface DistributedLogManager extends MetadataAccessor {
         throws IOException;
 
     /**
-     * Get the earliest Transaction Id available in the non partitioned stream
+     * Get the earliest Transaction Id available in the log
      *
      * @return earliest transaction id
      * @throws IOException
@@ -151,7 +151,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getFirstTxId() throws IOException;
 
     /**
-     * Get Latest Transaction Id in the non partitioned stream
+     * Get Latest Transaction Id in the log
      *
      * @return latest transaction id
      * @throws IOException
@@ -159,7 +159,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getLastTxId() throws IOException;
 
     /**
-     * Get Latest DLSN in the non partitioned stream
+     * Get Latest DLSN in the log
      *
      * @return last dlsn
      * @throws IOException
@@ -167,36 +167,35 @@ public interface DistributedLogManager extends MetadataAccessor {
     public DLSN getLastDLSN() throws IOException;
 
     /**
-     * Get Latest log record with DLSN in the non partitioned stream - async
+     * Get Latest log record with DLSN in the log - async
      *
      * @return latest log record with DLSN
      */
     public Future<LogRecordWithDLSN> getLastLogRecordAsync();
 
     /**
-     * Get Latest Transaction Id in the non partitioned stream - async
+     * Get Latest Transaction Id in the log - async
      *
      * @return latest transaction id
      */
     public Future<Long> getLastTxIdAsync();
 
     /**
-     * Get first DLSN in the unpartitioned stream.
+     * Get first DLSN in the log.
      *
      * @return first dlsn in the stream
      */
     public Future<DLSN> getFirstDLSNAsync();
 
     /**
-     * Get Latest DLSN in the non partitioned stream - async
+     * Get Latest DLSN in the log - async
      *
      * @return latest transaction id
      */
     public Future<DLSN> getLastDLSNAsync();
 
     /**
-     * Get the number of log records in the active portion of the non-partitioned
-     * stream
+     * Get the number of log records in the active portion of the log
      * Any log segments that have already been truncated will not be included
      *
      * @return number of log records
@@ -205,8 +204,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     public long getLogRecordCount() throws IOException;
 
     /**
-     * Get the number of log records in the active portion of the non-partitioned
-     * stream - async.
+     * Get the number of log records in the active portion of the log - async.
      * Any log segments that have already been truncated will not be included
      *
      * @return future number of log records
@@ -215,7 +213,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN);
 
     /**
-     * Run recovery on the non partitioned log
+     * Run recovery on the log.
      *
      * @throws IOException
      */
@@ -231,7 +229,7 @@ public interface DistributedLogManager extends MetadataAccessor {
     public boolean isEndOfStreamMarked() throws IOException;
 
     /**
-     * Delete all the partitions of the specified log
+     * Delete the log.
      *
      * @throws IOException if the deletion fails
      */

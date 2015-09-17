@@ -87,7 +87,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
                 TimeUnit.MILLISECONDS.sleep(300);
                 writer.abort();
                 LOG.debug("Recovering Segments");
-                BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
                 blplm.recoverIncompleteLogSegments();
                 blplm.close();
                 LOG.debug("Recovered Segments");
@@ -481,7 +481,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
             out.closeAndComplete();
         }
 
-        BKLogPartitionWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName());
         String completedZNode = blplm.completedLedgerZNode(txid - segmentSize, txid - 1, 3);
         LogSegmentMetadata metadata = LogSegmentMetadata.read(zkClient, completedZNode);
         zkClient.get().delete(completedZNode, -1);

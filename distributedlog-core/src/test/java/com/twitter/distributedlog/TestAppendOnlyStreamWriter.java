@@ -52,7 +52,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         dlmreader.close();
         dlmwrite.close();
     }
-    
+
     @Test(timeout = 60000)
     public void writeFutureDoesNotCompleteUntilWritePersisted() throws Exception {
         String name = testNames.getMethodName();
@@ -63,15 +63,15 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         DistributedLogManager dlmwriter = createNewDLM(conf, name);
         DistributedLogManager dlmreader = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
-        
-        // Can't reliably test the future is not completed until fsync is called, since writer.force may just 
-        // happen very quickly. But we can test that the mechanics of the future write and api are basically 
-        // correct.   
+
+        // Can't reliably test the future is not completed until fsync is called, since writer.force may just
+        // happen very quickly. But we can test that the mechanics of the future write and api are basically
+        // correct.
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         Future<DLSN> dlsnFuture = writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
-        
-        // Temp solution for PUBSUB-2555. The real problem is the fsync completes before writes are submitted, so 
-        // it never takes effect. 
+
+        // Temp solution for PUBSUB-2555. The real problem is the fsync completes before writes are submitted, so
+        // it never takes effect.
         Thread.sleep(1000);
         assertFalse(dlsnFuture.isDefined());
         writer.force(false);
@@ -98,10 +98,10 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         DistributedLogManager dlmwriter = createNewDLM(conf, name);
         DistributedLogManager dlmreader = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
-        
-        // Can't reliably test the future is not completed until fsync is called, since writer.force may just 
-        // happen very quickly. But we can test that the mechanics of the future write and api are basically 
-        // correct.   
+
+        // Can't reliably test the future is not completed until fsync is called, since writer.force may just
+        // happen very quickly. But we can test that the mechanics of the future write and api are basically
+        // correct.
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         Future<DLSN> dlsnFuture = writer.write(byteStream);
         Thread.sleep(100);
@@ -112,7 +112,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         writer.force(false);
         // Position guaranteed to be accurate after writer.force().
         assertEquals(byteStream.length, writer.position());
-        
+
         // Close writer.
         writer.close();
         dlmwriter.close();
@@ -125,13 +125,13 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         assertEquals(byteStream.length, reader.position());
         reader.close();
         dlmreader.close();
-    } 
+    }
 
     @Test(timeout = 60000)
     public void positionDoesntUpdateBeforeWriteCompletion() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
-        
+
         // Long flush time, but we don't wait for it.
         conf.setPeriodicFlushFrequencyMilliSeconds(100*1000);
         conf.setImmediateFlushEnabled(false);
@@ -139,19 +139,19 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
 
         DistributedLogManager dlmwriter = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
-        
+
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         assertEquals(0, writer.position());
 
-        // Much much less than the flush time, small enough not to slow down tests too much, just 
-        // gives a little more confidence. 
+        // Much much less than the flush time, small enough not to slow down tests too much, just
+        // gives a little more confidence.
         Thread.sleep(500);
         Future<DLSN> dlsnFuture = writer.write(byteStream);
         assertEquals(0, writer.position());
-        
+
         writer.close();
         dlmwriter.close();
-    } 
+    }
 
     @Test(timeout = 60000)
     public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
@@ -163,13 +163,13 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
 
         DistributedLogManager dlmwriter = createNewDLM(conf, name);
         byte[] byteStream = DLMTestUtil.repeatString("abc", 11).getBytes();
-        
+
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         assertEquals(0, writer.position());
-        
+
         Await.result(writer.write(byteStream));
         assertEquals(33, writer.position());
-        
+
         writer.close();
         dlmwriter.close();
     }
@@ -181,9 +181,9 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setImmediateFlushEnabled(true);
         conf.setOutputBufferSize(1024);
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(conf, name);
-        
+
         URI uri = createDLMURI("/" + name);
-        BKDistributedLogManager.createUnpartitionedStream(conf, dlm.getReaderZKC(), uri, name);
+        BKDistributedLogManager.createLog(conf, dlm.getReaderZKC(), uri, name);
 
         // Log exists but is empty, better not throw.
         AppendOnlyStreamWriter writer = dlm.getAppendOnlyStreamWriter();
@@ -192,5 +192,5 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
 
         writer.close();
         dlm.close();
-    } 
+    }
 }

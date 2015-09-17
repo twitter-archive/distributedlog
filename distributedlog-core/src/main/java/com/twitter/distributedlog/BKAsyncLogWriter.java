@@ -40,7 +40,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogWriter.class);
 
-    static class TruncationFunction extends ExceptionalFunction<BKLogPartitionWriteHandler, Future<Boolean>> {
+    static class TruncationFunction extends ExceptionalFunction<BKLogWriteHandler, Future<Boolean>> {
 
         private final DLSN dlsn;
 
@@ -49,7 +49,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         }
 
         @Override
-        public Future<Boolean> applyE(BKLogPartitionWriteHandler handler) throws Throwable {
+        public Future<Boolean> applyE(BKLogWriteHandler handler) throws Throwable {
             if (DLSN.InvalidDLSN == dlsn) {
                 Promise<Boolean> promise = new Promise<Boolean>();
                 promise.setValue(false);
@@ -162,7 +162,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     BKAsyncLogWriter recover() throws IOException {
-        BKLogPartitionWriteHandler writeHandler =
+        BKLogWriteHandler writeHandler =
                 this.getWriteLedgerHandler(conf.getUnpartitionedStreamName());
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
         // to release underlying lock when rolling or completing log segments, which would reduce
@@ -432,9 +432,9 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     @Override
     public Future<Boolean> truncate(final DLSN dlsn) {
-        return orderedFuturePool.apply(new ExceptionalFunction0<BKLogPartitionWriteHandler>() {
+        return orderedFuturePool.apply(new ExceptionalFunction0<BKLogWriteHandler>() {
             @Override
-            public BKLogPartitionWriteHandler applyE() throws Throwable {
+            public BKLogWriteHandler applyE() throws Throwable {
                 return getWriteLedgerHandler(conf.getUnpartitionedStreamName());
             }
             @Override
