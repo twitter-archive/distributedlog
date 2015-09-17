@@ -70,6 +70,8 @@ enum StatusCode {
     INVALID_ENVELOPED_ENTRY = 520,
     // Unsupported metadata version
     UNSUPPORTED_METADATA_VERSION = 521,
+    // Log Already Exists
+    LOG_EXISTS = 522,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

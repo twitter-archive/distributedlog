@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.impl.BKDLUtils;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import org.apache.zookeeper.CreateMode;
@@ -27,6 +28,7 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 import static org.junit.Assert.*;
 
@@ -138,8 +140,8 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
 
     @Test
     public void testInvalidStreamName() throws Exception {
-        assertFalse(BKDistributedLogNamespace.isReservedStreamName("test"));
-        assertTrue(BKDistributedLogNamespace.isReservedStreamName(".test"));
+        assertFalse(BKDLUtils.isReservedStreamName("test"));
+        assertTrue(BKDLUtils.isReservedStreamName(".test"));
 
         URI uri = createDLMURI("/" + runtime.getMethodName());
 

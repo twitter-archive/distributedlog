@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DistributedLogManagerFactory.ClientSharingOption;
 import com.twitter.distributedlog.acl.AccessControlManager;
@@ -15,11 +16,15 @@ import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.impl.ZKLogMetadataStore;
+import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.LogMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.LimitedPermitManager;
 import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -35,10 +40,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
-import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -49,25 +51,21 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import static com.twitter.distributedlog.impl.BKDLUtils.*;
 
 /**
  * DistributedLog Namespace uses zookeeper for metadata store and bookkeeper for data store.
  */
-public class BKDistributedLogNamespace
-        implements Watcher, AsyncCallback.Children2Callback, Runnable, DistributedLogNamespace {
+public class BKDistributedLogNamespace implements DistributedLogNamespace {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogNamespace.class);
 
     public static Builder newBuilder() {
@@ -122,16 +120,32 @@ public class BKDistributedLogNamespace
             Preconditions.checkNotNull(_statsLogger, "No Stats Logger");
             Preconditions.checkNotNull(_featureProvider, "No Feature Provider");
             Preconditions.checkNotNull(_clientId, "No Client ID");
+            // validate conf and uri
+            validateConfAndURI(_conf, _uri);
+
+            // Build the namespace zookeeper client
+            ZooKeeperClientBuilder nsZkcBuilder = createDLZKClientBuilder(
+                    String.format("dlzk:%s:factory_writer_shared", _uri),
+                    _conf,
+                    DLUtils.getZKServersFromDLUri(_uri),
+                    _statsLogger.scope("dlzk_factory_writer_shared"));
+            ZooKeeperClient nsZkc = nsZkcBuilder.build();
+
+            // Resolve namespace binding
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(nsZkc, _uri);
+
             return new BKDistributedLogNamespace(
                     _conf,
                     _uri,
                     _featureProvider,
                     _statsLogger,
                     _clientId,
-                    _regionId);
+                    _regionId,
+                    nsZkcBuilder,
+                    nsZkc,
+                    bkdlConfig);
         }
     }
-
 
     static interface ZooKeeperClientHandler<T> {
         T handle(ZooKeeperClient zkc) throws IOException;
@@ -165,14 +179,11 @@ public class BKDistributedLogNamespace
         }
     }
 
-    static boolean isReservedStreamName(String name) {
-        return name.startsWith(".");
-    }
-
     private final String clientId;
     private final int regionId;
-    private DistributedLogConfiguration conf;
-    private URI namespace;
+    private final DistributedLogConfiguration conf;
+    private final URI namespace;
+    private final BKDLConfig bkdlConfig;
     private final OrderedScheduler scheduler;
     private final ScheduledExecutorService readAheadExecutor;
     private final OrderedSafeExecutor lockStateExecutor;
@@ -205,10 +216,9 @@ public class BKDistributedLogNamespace
     private AccessControlManager accessControlManager;
     // log segment rolling permit manager
     private final PermitManager logSegmentRollingPermitManager;
-    // namespace listener
-    private final AtomicBoolean namespaceWatcherSet = new AtomicBoolean(false);
-    private final CopyOnWriteArraySet<NamespaceListener> namespaceListeners =
-            new CopyOnWriteArraySet<NamespaceListener>();
+    // log metadata store
+    private final LogMetadataStore metadataStore;
+
     // feature provider
     private final FeatureProvider featureProvider;
 
@@ -226,15 +236,20 @@ public class BKDistributedLogNamespace
             FeatureProvider featureProvider,
             StatsLogger statsLogger,
             String clientId,
-            int regionId)
+            int regionId,
+            ZooKeeperClientBuilder nsZkcBuilder,
+            ZooKeeperClient nsZkc,
+            BKDLConfig bkdlConfig)
             throws IOException, IllegalArgumentException {
-        validateConfAndURI(conf, uri);
         this.conf = conf;
         this.namespace = uri;
         this.featureProvider = featureProvider;
         this.statsLogger = statsLogger;
         this.clientId = clientId;
         this.regionId = regionId;
+        this.bkdlConfig = bkdlConfig;
+
+        // Build resources
         this.scheduler = OrderedScheduler.newBuilder()
                 .name("DLM-" + uri.getPath())
                 .corePoolSize(conf.getNumWorkerThreads())
@@ -269,15 +284,8 @@ public class BKDistributedLogNamespace
             conf.getTimeoutTimerNumTicks());
 
         // Build zookeeper client for writers
-        this.sharedWriterZKCBuilderForDL = createDLZKClientBuilder(
-                String.format("dlzk:%s:factory_writer_shared", namespace),
-                conf,
-                DLUtils.getZKServersFromDLUri(uri),
-                statsLogger.scope("dlzk_factory_writer_shared"));
-        this.sharedWriterZKCForDL = this.sharedWriterZKCBuilderForDL.build();
-
-        // Resolve uri to get bk dl config
-        BKDLConfig bkdlConfig = resolveBKDLConfig();
+        this.sharedWriterZKCBuilderForDL = nsZkcBuilder;
+        this.sharedWriterZKCForDL = nsZkc;
 
         // Build zookeeper client for readers
         if (bkdlConfig.getDlZkServersForWriter().equals(bkdlConfig.getDlZkServersForReader())) {
@@ -348,33 +356,52 @@ public class BKDistributedLogNamespace
         // Stats Loggers
         this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
 
-        LOG.info("Constructed DLM Factory : clientId = {}, regionId = {}.", clientId, regionId);
+        // log metadata store
+        if (bkdlConfig.isFederatedNamespace()) {
+            this.metadataStore = new FederatedZKLogMetadataStore(conf, namespace, sharedReaderZKCForDL, scheduler);
+        } else {
+            this.metadataStore = new ZKLogMetadataStore(conf, namespace, sharedReaderZKCForDL, scheduler);
+        }
+
+        LOG.info("Constructed BK DistributedLogNamespace : clientId = {}, regionId = {}, federated = {}.",
+                new Object[] { clientId, regionId, bkdlConfig.isFederatedNamespace() });
     }
 
     //
     // Namespace Methods
     //
 
-
     @Override
     public void createLog(String logName)
             throws InvalidStreamNameException, IOException {
         validateName(logName);
-        createUnpartitionedStreams(conf, namespace, Lists.newArrayList(logName));
+        URI uri = FutureUtils.result(metadataStore.createLog(logName));
+        createUnpartitionedStreams(conf, uri, Lists.newArrayList(logName));
     }
 
     @Override
     public void deleteLog(String logName)
             throws InvalidStreamNameException, LogNotFoundException, IOException {
         validateName(logName);
-        DistributedLogManager dlm = createDistributedLogManagerWithSharedClients(logName);
+        Optional<URI> uri = FutureUtils.result(metadataStore.getLogLocation(logName));
+        if (!uri.isPresent()) {
+            throw new LogNotFoundException("Log " + logName + " isn't found.");
+        }
+        DistributedLogManager dlm = createDistributedLogManager(
+                uri.get(),
+                logName,
+                ClientSharingOption.SharedClients,
+                Optional.<DistributedLogConfiguration>absent(),
+                Optional.<DynamicDistributedLogConfiguration>absent());
         dlm.delete();
     }
 
     @Override
     public DistributedLogManager openLog(String logName)
             throws InvalidStreamNameException, IOException {
-        return createDistributedLogManagerWithSharedClients(logName);
+        return openLog(logName,
+                Optional.<DistributedLogConfiguration>absent(),
+                Optional.<DynamicDistributedLogConfiguration>absent());
     }
 
     @Override
@@ -382,31 +409,37 @@ public class BKDistributedLogNamespace
                                          Optional<DistributedLogConfiguration> logConf,
                                          Optional<DynamicDistributedLogConfiguration> dynamicLogConf)
             throws InvalidStreamNameException, IOException {
-        return createDistributedLogManager(logName, ClientSharingOption.SharedClients, logConf, dynamicLogConf);
+        Optional<URI> uri = FutureUtils.result(metadataStore.getLogLocation(logName));
+        if (!uri.isPresent()) {
+            throw new LogNotFoundException("Log " + logName + " isn't found.");
+        }
+        return createDistributedLogManager(
+                uri.get(),
+                logName,
+                ClientSharingOption.SharedClients,
+                logConf,
+                dynamicLogConf);
     }
 
     @Override
     public boolean logExists(String logName)
         throws IOException, IllegalArgumentException {
-        return checkIfLogExists(conf, namespace, logName);
+        Optional<URI> uri = FutureUtils.result(metadataStore.getLogLocation(logName));
+        return uri.isPresent() && checkIfLogExists(conf, uri.get(), logName);
     }
 
     @Override
     public Iterator<String> getLogs() throws IOException {
-        return enumerateAllLogsInNamespace().iterator();
+        return FutureUtils.result(metadataStore.getLogs());
     }
 
     @Override
     public void registerNamespaceListener(NamespaceListener listener) {
-        if (namespaceListeners.add(listener) && namespaceWatcherSet.compareAndSet(false, true)) {
-            watchNamespaceChanges();
-        }
+        metadataStore.registerNamespaceListener(listener);
     }
 
     @Override
     public synchronized AccessControlManager createAccessControlManager() throws IOException {
-        // Resolve uri to get bk dl config
-        BKDLConfig bkdlConfig = resolveBKDLConfig();
         if (null == accessControlManager) {
             String aclRootPath = bkdlConfig.getACLRootPath();
             // Build the access control manager
@@ -549,72 +582,6 @@ public class BKDistributedLogNamespace
         return handler.handle(sharedWriterZKCForDL);
     }
 
-    private BKDLConfig resolveBKDLConfig() throws IOException {
-        return withZooKeeperClient(new ZooKeeperClientHandler<BKDLConfig>() {
-            @Override
-            public BKDLConfig handle(ZooKeeperClient zkc) throws IOException {
-                return BKDLConfig.resolveDLConfig(zkc, namespace);
-            }
-        });
-    }
-
-    private void scheduleTask(Runnable r, long ms) {
-        try {
-            scheduler.schedule(r, ms, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException ree) {
-            LOG.error("Task {} scheduled in {} ms is rejected : ", new Object[] { r, ms, ree });
-        }
-    }
-
-    @Override
-    public void run() {
-        watchNamespaceChanges();
-    }
-
-    private void watchNamespaceChanges() {
-        try {
-            sharedReaderZKCForDL.get().getChildren(namespace.getPath(), this, this, null);
-        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
-        } catch (InterruptedException e) {
-            LOG.warn("Interrupted on watching namespace changes for {} : ", namespace, e);
-            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
-        }
-    }
-
-    @Override
-    public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
-        if (KeeperException.Code.OK.intValue() == rc) {
-            LOG.info("Received updated streams under {} : {}", namespace, children);
-            List<String> result = new ArrayList<String>(children.size());
-            for (String s : children) {
-                if (isReservedStreamName(s)) {
-                    continue;
-                }
-                result.add(s);
-            }
-            for (NamespaceListener listener : namespaceListeners) {
-                listener.onStreamsChanged(result.iterator());
-            }
-        } else {
-            scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
-        }
-    }
-
-    @Override
-    public void process(WatchedEvent event) {
-        if (event.getType() == Event.EventType.None) {
-            if (event.getState() == Event.KeeperState.Expired) {
-                scheduleTask(this, conf.getZKSessionTimeoutMilliseconds());
-            }
-            return;
-        }
-        if (event.getType() == Event.EventType.NodeChildrenChanged) {
-            // watch namespace changes again.
-            watchNamespaceChanges();
-        }
-    }
-
     /**
      * Create a DistributedLogManager for <i>nameOfLogStream</i>, with default shared clients.
      *
@@ -644,29 +611,28 @@ public class BKDistributedLogNamespace
             String nameOfLogStream,
             ClientSharingOption clientSharingOption)
         throws InvalidStreamNameException, IOException {
-        Optional<DistributedLogConfiguration> streamConfiguration = Optional.absent();
-        Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration = Optional.absent();
+        Optional<DistributedLogConfiguration> logConfiguration = Optional.absent();
+        Optional<DynamicDistributedLogConfiguration> dynamicLogConfiguration = Optional.absent();
         return createDistributedLogManager(
                 nameOfLogStream,
                 clientSharingOption,
-                streamConfiguration,
-                dynamicStreamConfiguration);
+                logConfiguration,
+                dynamicLogConfiguration);
     }
 
     /**
      * Create a DistributedLogManager for <i>nameOfLogStream</i>, with specified client sharing options.
-     * This method allows the caller to override global configuration options by supplying stream
-     * configuration overrides. Stream config overrides come in two flavors, static and dynamic. Static
-     * config never changes, and DynamicDistributedLogConfiguration is a) reloaded periodically and
-     * b) safe to access from any context.
+     * Override whitelisted stream-level configuration settings with settings found in
+     * <i>logConfiguration</i>.
+     *
      *
      * @param nameOfLogStream
      *          name of log stream.
      * @param clientSharingOption
      *          specifies if the ZK/BK clients are shared
-     * @param streamConfiguration
+     * @param logConfiguration
      *          stream configuration overrides.
-     * @param dynamicStreamConfiguration
+     * @param dynamicLogConfiguration
      *          dynamic stream configuration overrides.
      * @return distributedlog manager instance.
      * @throws com.twitter.distributedlog.exceptions.InvalidStreamNameException if stream name is invalid
@@ -675,19 +641,55 @@ public class BKDistributedLogNamespace
     public DistributedLogManager createDistributedLogManager(
             String nameOfLogStream,
             ClientSharingOption clientSharingOption,
-            Optional<DistributedLogConfiguration> streamConfiguration,
-            Optional<DynamicDistributedLogConfiguration> dynamicStreamConfiguration)
+            Optional<DistributedLogConfiguration> logConfiguration,
+            Optional<DynamicDistributedLogConfiguration> dynamicLogConfiguration)
+        throws InvalidStreamNameException, IOException {
+        if (bkdlConfig.isFederatedNamespace()) {
+            throw new UnsupportedOperationException("Use DistributedLogNamespace methods for federated namespace");
+        }
+        return createDistributedLogManager(
+                namespace,
+                nameOfLogStream,
+                clientSharingOption,
+                logConfiguration,
+                dynamicLogConfiguration
+        );
+    }
+
+    /**
+     * Open the log in location <i>uri</i>.
+     *
+     * @param uri
+     *          location to store the log
+     * @param nameOfLogStream
+     *          name of the log
+     * @param clientSharingOption
+     *          client sharing option
+     * @param logConfiguration
+     *          optional stream configuration
+     * @param dynamicLogConfiguration
+     *          dynamic stream configuration overrides.
+     * @return distributedlog manager instance.
+     * @throws InvalidStreamNameException if the stream name is invalid
+     * @throws IOException
+     */
+    protected DistributedLogManager createDistributedLogManager(
+            URI uri,
+            String nameOfLogStream,
+            ClientSharingOption clientSharingOption,
+            Optional<DistributedLogConfiguration> logConfiguration,
+            Optional<DynamicDistributedLogConfiguration> dynamicLogConfiguration)
         throws InvalidStreamNameException, IOException {
         // Make sure the name is well formed
         validateName(nameOfLogStream);
 
         DistributedLogConfiguration mergedConfiguration = new DistributedLogConfiguration();
         mergedConfiguration.addConfiguration(conf);
-        mergedConfiguration.loadStreamConf(streamConfiguration);
+        mergedConfiguration.loadStreamConf(logConfiguration);
         // If dynamic config was not provided, default to a static view of the global configuration.
         DynamicDistributedLogConfiguration dynConf = null;
-        if (dynamicStreamConfiguration.isPresent()) {
-            dynConf = dynamicStreamConfiguration.get();
+        if (dynamicLogConfiguration.isPresent()) {
+            dynConf = dynamicLogConfiguration.get();
         } else {
             dynConf = ConfUtils.getConstDynConf(mergedConfiguration);
         }
@@ -709,11 +711,10 @@ public class BKDistributedLogNamespace
             case SharedZKClientPerStreamBKClient:
                 writerZKCBuilderForDL = sharedWriterZKCBuilderForDL;
                 readerZKCBuilderForDL = sharedReaderZKCBuilderForDL;
-                BKDLConfig bkdlConfig = resolveBKDLConfig();
                 synchronized (this) {
                     if (null == this.sharedWriterZKCForBK) {
                         this.sharedWriterZKCBuilderForBK = createBKZKClientBuilder(
-                            String.format("bkzk:%s:factory_writer_shared", namespace),
+                            String.format("bkzk:%s:factory_writer_shared", uri),
                             mergedConfiguration,
                             bkdlConfig.getBkZkServersForWriter(),
                             statsLogger.scope("bkzk_factory_writer_shared"));
@@ -724,7 +725,7 @@ public class BKDistributedLogNamespace
                             this.sharedReaderZKCBuilderForBK = this.sharedWriterZKCBuilderForBK;
                         } else {
                             this.sharedReaderZKCBuilderForBK = createBKZKClientBuilder(
-                                String.format("bkzk:%s:factory_reader_shared", namespace),
+                                String.format("bkzk:%s:factory_reader_shared", uri),
                                 mergedConfiguration,
                                 bkdlConfig.getBkZkServersForReader(),
                                 statsLogger.scope("bkzk_factory_reader_shared"));
@@ -748,7 +749,7 @@ public class BKDistributedLogNamespace
                 nameOfLogStream,                    /* Log Name */
                 mergedConfiguration,                /* Configuration */
                 dynConf,                            /* Dynamic Configuration */
-                namespace,                          /* Namespace */
+                uri,                                /* Namespace */
                 writerZKCBuilderForDL,              /* ZKC Builder for DL Writer */
                 readerZKCBuilderForDL,              /* ZKC Builder for DL Reader */
                 writerZKCForBK,                     /* ZKC for BookKeeper for DL Writers */
@@ -773,6 +774,9 @@ public class BKDistributedLogNamespace
 
     public MetadataAccessor createMetadataAccessor(String nameOfMetadataNode)
             throws InvalidStreamNameException, IOException {
+        if (bkdlConfig.isFederatedNamespace()) {
+            throw new UnsupportedOperationException("Use DistributedLogNamespace methods for federated namespace");
+        }
         validateName(nameOfMetadataNode);
         return new ZKMetadataAccessor(nameOfMetadataNode, conf, namespace,
                 sharedWriterZKCBuilderForDL, sharedReaderZKCBuilderForDL, statsLogger);
@@ -780,16 +784,17 @@ public class BKDistributedLogNamespace
 
     public Collection<String> enumerateAllLogsInNamespace()
         throws IOException, IllegalArgumentException {
-        return withZooKeeperClient(new ZooKeeperClientHandler<Collection<String>>() {
-            @Override
-            public Collection<String> handle(ZooKeeperClient zkc) throws IOException {
-                return enumerateAllLogsInternal(zkc, conf, namespace);
-            }
-        });
+        if (bkdlConfig.isFederatedNamespace()) {
+            throw new UnsupportedOperationException("Use DistributedLogNamespace methods for federated namespace");
+        }
+        return Sets.newHashSet(getLogs());
     }
 
     public Map<String, byte[]> enumerateLogsWithMetadataInNamespace()
         throws IOException, IllegalArgumentException {
+        if (bkdlConfig.isFederatedNamespace()) {
+            throw new UnsupportedOperationException("Use DistributedLogNamespace methods for federated namespace");
+        }
         return withZooKeeperClient(new ZooKeeperClientHandler<Map<String, byte[]>>() {
             @Override
             public Map<String, byte[]> handle(ZooKeeperClient zkc) throws IOException {
@@ -804,29 +809,7 @@ public class BKDistributedLogNamespace
         validateName(nameOfStream);
     }
 
-    private static void validateConfAndURI(DistributedLogConfiguration conf, URI uri)
-        throws IllegalArgumentException {
-        // input validation
-        //
-        if (null == conf) {
-            throw new IllegalArgumentException("Incorrect Configuration");
-        }
-
-        if ((null == uri) || (null == uri.getAuthority()) || (null == uri.getPath())) {
-            throw new IllegalArgumentException("Incorrect ZK URI");
-        }
-    }
-
-    private static void validateName(String nameOfStream) throws InvalidStreamNameException {
-        if (nameOfStream.contains("/")) {
-            throw new InvalidStreamNameException(nameOfStream, "Stream Name contains invalid characters");
-        }
-        if (isReservedStreamName(nameOfStream)) {
-            throw new InvalidStreamNameException(nameOfStream, "Stream Name is reserved");
-        }
-    }
-
-    public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
+    private static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
         final String logRootPath = uri.getPath() + String.format("/%s", name);
@@ -845,42 +828,6 @@ public class BKDistributedLogNamespace
                 return false;
             }
         }, conf, uri);
-    }
-
-    public static Collection<String> enumerateAllLogsInNamespace(final DistributedLogConfiguration conf, final URI uri)
-        throws IOException, IllegalArgumentException {
-        return withZooKeeperClient(new ZooKeeperClientHandler<Collection<String>>() {
-            @Override
-            public Collection<String> handle(ZooKeeperClient zkc) throws IOException {
-                return enumerateAllLogsInternal(zkc, conf, uri);
-            }
-        }, conf, uri);
-    }
-
-    private static Collection<String> enumerateAllLogsInternal(ZooKeeperClient zkc, DistributedLogConfiguration conf, URI uri)
-        throws IOException, IllegalArgumentException {
-        validateConfAndURI(conf, uri);
-        String namespaceRootPath = uri.getPath();
-        try {
-            Stat currentStat = zkc.get().exists(namespaceRootPath, false);
-            if (currentStat == null) {
-                return new LinkedList<String>();
-            }
-            List<String> children = zkc.get().getChildren(namespaceRootPath, false);
-            List<String> result = new ArrayList<String>(children.size());
-            for (String child : children) {
-                if (!isReservedStreamName(child)) {
-                    result.add(child);
-                }
-            }
-            return result;
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + namespaceRootPath, ie);
-            throw new IOException("Interrupted while deleting " + namespaceRootPath, ie);
-        } catch (KeeperException ke) {
-            LOG.error("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
-            throw new IOException("Error reading" + namespaceRootPath + "entry in zookeeper", ke);
-        }
     }
 
     public static Map<String, byte[]> enumerateLogsWithMetadataInNamespace(final DistributedLogConfiguration conf, final URI uri)
@@ -927,8 +874,10 @@ public class BKDistributedLogNamespace
         return result;
     }
 
-    public static void createUnpartitionedStreams(final DistributedLogConfiguration conf, final URI uri,
-                                                  final List<String> streamNames)
+    private static void createUnpartitionedStreams(
+            final DistributedLogConfiguration conf,
+            final URI uri,
+            final List<String> streamNames)
         throws IOException, IllegalArgumentException {
         withZooKeeperClient(new ZooKeeperClientHandler<Void>() {
             @Override

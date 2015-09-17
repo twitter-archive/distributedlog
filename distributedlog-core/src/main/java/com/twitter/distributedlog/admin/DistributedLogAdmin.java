@@ -10,6 +10,7 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
@@ -598,6 +599,13 @@ public class DistributedLogAdmin extends DistributedLogTool {
                         println("");
                     } catch (IOException ie) {
                         println("Failed to update binding on " + uri + " : " + ie.getMessage());
+                    }
+                }
+                if (newBKDLConfig.isFederatedNamespace()) {
+                    try {
+                        FederatedZKLogMetadataStore.createFederatedNamespace(uri, zkc);
+                    } catch (KeeperException.NodeExistsException nee) {
+                        // ignore node exists exception
                     }
                 }
                 return 0;

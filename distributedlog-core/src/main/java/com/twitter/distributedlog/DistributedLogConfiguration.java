@@ -336,6 +336,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_COMPRESSION_TYPE = "compressionType";
     public static final String BKDL_COMPRESSION_TYPE_DEFAULT = "none";
 
+    // Settings for Deciders
+
     public static final String BKDL_FEATURE_PROVIDER_CLASS = "featureProviderClass";
     public static final String BKDL_DECIDER_BASE_CONFIG_PATH = "deciderBaseConfigPath";
     public static final String BKDL_DECIDER_BASE_CONFIG_PATH_DEFAULT = "decider.yml";
@@ -344,10 +346,21 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_DECIDER_ENVIRONMENT = "deciderEnvironment";
     public static final String BKDL_DECIDER_ENVIRONMENT_DEFAULT = null;
 
+    // Settings for Namespaces
+
+    public static final String BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE = "federatedMaxLogsPerSubnamespace";
+    public static final int BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT = 15000;
+    public static final String BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS = "federatedCheckExistenceWhenCacheMiss";
+    public static final boolean BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS_DEFAULT = true;
+
+    // Settings for Configurations
+
     public static final String BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC = "dynamicConfigReloadIntervalSec";
     public static final int BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT = 60;
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS = "streamConfigRouterClass";
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT = "com.twitter.distributedlog.service.config.IdentityConfigRouter";
+
+    // Settings for RateLimit
 
     public static final String BKDL_BPS_SOFT_WRITE_LIMIT = "bpsSoftWriteLimit";
     public static final int BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
@@ -2437,6 +2450,53 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setDeciderEnvironment(String environment) {
         setProperty(BKDL_DECIDER_ENVIRONMENT, environment);
+        return this;
+    }
+
+    /**
+     * Get the max logs per sub namespace for federated namespace.
+     *
+     * @return max logs per sub namespace
+     */
+    public int getFederatedMaxLogsPerSubnamespace() {
+        return getInt(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT);
+    }
+
+    /**
+     * Set the max logs per sub namespace for federated namespace.
+     *
+     * @param maxLogs
+     *          max logs per sub namespace
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setFederatedMaxLogsPerSubnamespace(int maxLogs) {
+        setProperty(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, maxLogs);
+        return this;
+    }
+
+    /**
+     * Whether check the existence of a log if querying local cache of a federated namespace missed.
+     * Enabling it will issue zookeeper queries to check all sub namespaces under a federated namespace.
+     *
+     * NOTE: by default it is on for all admin related tools. for write proxies, consider turning off for
+     * performance.
+     *
+     * @return true if it needs to check existence of a log when querying local cache misses. otherwise false.
+     */
+    public boolean getFederatedCheckExistenceWhenCacheMiss() {
+        return getBoolean(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS,
+                BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS_DEFAULT);
+    }
+
+    /**
+     * Enable check existence of a log if quering local cache of a federated namespace missed.
+     *
+     * @param enabled
+     *          flag to enable/disable this feature.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setFederatedCheckExistenceWhenCacheMiss(boolean enabled) {
+        setProperty(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS, enabled);
         return this;
     }
 

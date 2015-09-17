@@ -104,19 +104,4 @@ public class TestDistributedLogNamespaceBuilder extends TestDistributedLogBase {
             namespace.close();
         }
     }
-
-    @Test(timeout = 60000)
-    public void testBuildWithMultipleZKServers() throws Exception {
-        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(new DistributedLogConfiguration())
-                .uri(new URI("distributedlog://" + zkServers + "," + zkServers
-                        + DLOG_NAMESPACE + "/defaultnamespace"))
-                .build();
-        try {
-            assertTrue("distributedlog:// should build bookkeeper based distributedlog namespace",
-                    namespace instanceof BKDistributedLogNamespace);
-        } finally {
-            namespace.close();
-        }
-    }
 }
