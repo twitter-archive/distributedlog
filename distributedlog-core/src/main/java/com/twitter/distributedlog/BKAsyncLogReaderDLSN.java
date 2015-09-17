@@ -5,6 +5,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -435,6 +436,10 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         if (null == record) {
                             break;
                         } else {
+                            if (record.isEndOfStream()) {
+                                throw new EndOfStreamException("End of Stream Reached for "
+                                        + bkLedgerManager.getFullyQualifiedName());
+                            }
                             records.add(record);
                             ++numReads;
                         }

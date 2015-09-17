@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import org.apache.bookkeeper.client.BKException;
@@ -46,7 +47,7 @@ class LedgerDataAccessor {
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
-    private BKLogReadHandler.ReadAheadCallback readAheadCallback = null;
+    private ReadAheadCallback readAheadCallback = null;
     private final String streamName;
     private final boolean traceDeliveryLatencyEnabled;
     private volatile boolean suppressDeliveryLatency = true;

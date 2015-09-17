@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -562,6 +563,10 @@ class BKLogReadHandler extends BKLogHandler {
         }
     }
 
+    public boolean isReadAheadCaughtUp() {
+        return null != readAheadWorker && readAheadWorker.isCaughtUp();
+    }
+
     public void simulateErrors() {
         if (null != readAheadWorker) {
             readAheadWorker.simulateErrors();
@@ -701,10 +706,6 @@ class BKLogReadHandler extends BKLogHandler {
         if (null != readAheadWorker) {
             readAheadWorker.disableZKNotification();
         }
-    }
-
-    static interface ReadAheadCallback {
-        void resumeReadAhead();
     }
 
     static enum ReadAheadPhase {
@@ -912,6 +913,10 @@ class BKLogReadHandler extends BKLogHandler {
 
         public void simulateErrors() {
             this.simulateErrors = true;
+        }
+
+        public boolean isCaughtUp() {
+            return !isCatchingUp;
         }
 
         public void start() {
@@ -1286,6 +1291,14 @@ class BKLogReadHandler extends BKLogHandler {
                         }
 
                         if (null == currentMetadata) {
+                            if (isCatchingUp) {
+                                isCatchingUp = false;
+                                ledgerDataAccessor.setSuppressDeliveryLatency(false);
+                                if (isHandleForReading) {
+                                    LOG.info("{} caught up at {}: position = {} and no log segment to position on at this point.",
+                                             new Object[] { fullyQualifiedName, System.currentTimeMillis(), nextReadAheadPosition });
+                                }
+                            }
                             schedule(ReadAheadWorker.this, conf.getReadAheadWaitTimeOnEndOfStream());
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("No log segment to position on for {}. Backing off for {} millseconds",
