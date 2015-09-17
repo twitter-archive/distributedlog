@@ -25,7 +25,7 @@ public class ZKLogSegmentFilters {
         public Collection<String> filter(Collection<String> fullList) {
             List<String> result = new ArrayList<String>(fullList.size());
             String lastCompletedLogSegmentName = null;
-            long lastLedgerSequenceNumber = -1L;
+            long lastLogSegmentSequenceNumber = -1L;
             for (String s : fullList) {
                 if (s.startsWith(DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX)) {
                     result.add(s);
@@ -33,17 +33,17 @@ public class ZKLogSegmentFilters {
                     String[] parts = s.split("_");
                     try {
                         if (2 == parts.length) {
-                            // name: logrecs_<ledger_sequence_number>
-                            long ledgerSequenceNumber = Long.parseLong(parts[1]);
-                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
-                                lastLedgerSequenceNumber = ledgerSequenceNumber;
+                            // name: logrecs_<logsegment_sequence_number>
+                            long logSegmentSequenceNumber = Long.parseLong(parts[1]);
+                            if (logSegmentSequenceNumber > lastLogSegmentSequenceNumber) {
+                                lastLogSegmentSequenceNumber = logSegmentSequenceNumber;
                                 lastCompletedLogSegmentName = s;
                             }
                         } else if (6 == parts.length) {
-                            // name: logrecs_<start_tx_id>_<end_tx_id>_<ledger_sequence_number>_<ledger_id>_<region_id>
-                            long ledgerSequenceNumber = Long.parseLong(parts[3]);
-                            if (ledgerSequenceNumber > lastLedgerSequenceNumber) {
-                                lastLedgerSequenceNumber = ledgerSequenceNumber;
+                            // name: logrecs_<start_tx_id>_<end_tx_id>_<logsegment_sequence_number>_<ledger_id>_<region_id>
+                            long logSegmentSequenceNumber = Long.parseLong(parts[3]);
+                            if (logSegmentSequenceNumber > lastLogSegmentSequenceNumber) {
+                                lastLogSegmentSequenceNumber = logSegmentSequenceNumber;
                                 lastCompletedLogSegmentName = s;
                             }
                         } else {

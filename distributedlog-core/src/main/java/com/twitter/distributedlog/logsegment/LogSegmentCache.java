@@ -73,12 +73,12 @@ public class LogSegmentCache {
             if (null != prevSegment
                     && prevSegment.getVersion() >= LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value
                     && segment.getVersion() >= LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value
-                    && prevSegment.getLedgerSequenceNumber() != segment.getLedgerSequenceNumber()
-                    && prevSegment.getLedgerSequenceNumber() + 1 != segment.getLedgerSequenceNumber()) {
+                    && prevSegment.getLogSegmentSequenceNumber() != segment.getLogSegmentSequenceNumber()
+                    && prevSegment.getLogSegmentSequenceNumber() + 1 != segment.getLogSegmentSequenceNumber()) {
                 LOG.error("{} found ledger sequence number gap between log segment {} and {}",
                         new Object[] { streamName, prevSegment, segment });
                 throw new UnexpectedException(streamName + " found ledger sequence number gap between log segment "
-                        + prevSegment.getLedgerSequenceNumber() + " and " + segment.getLedgerSequenceNumber());
+                        + prevSegment.getLogSegmentSequenceNumber() + " and " + segment.getLogSegmentSequenceNumber());
             }
 
             // assign sequence id

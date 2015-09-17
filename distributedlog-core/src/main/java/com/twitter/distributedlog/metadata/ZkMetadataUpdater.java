@@ -37,8 +37,8 @@ public class ZkMetadataUpdater implements MetadataUpdater {
         this.metadataVersion = LogSegmentMetadata.LogSegmentMetadataVersion.of(conf.getDLLedgerMetadataLayoutVersion());
     }
 
-    private String formatLedgerSequenceNumber(long ledgerSeqNo) {
-        return String.format("%018d", ledgerSeqNo);
+    private String formatLogSegmentSequenceNumber(long logSegmentSeqNo) {
+        return String.format("%018d", logSegmentSeqNo);
     }
 
     @Override
@@ -60,11 +60,11 @@ public class ZkMetadataUpdater implements MetadataUpdater {
     @VisibleForTesting
     @Override
     public LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment,
-                                                         long ledgerSeqNo) throws IOException {
+                                                   long logSegmentSeqNo) throws IOException {
         final LogSegmentMetadata newSegment = segment.mutator()
-                .setLedgerSequenceNumber(ledgerSeqNo)
-                .setZkPath(segment.getZkPath().replace(formatLedgerSequenceNumber(segment.getLedgerSequenceNumber()),
-                        formatLedgerSequenceNumber(ledgerSeqNo)))
+                .setLogSegmentSequenceNumber(logSegmentSeqNo)
+                .setZkPath(segment.getZkPath().replace(formatLogSegmentSequenceNumber(segment.getLogSegmentSequenceNumber()),
+                        formatLogSegmentSequenceNumber(logSegmentSeqNo)))
                 .build();
         addNewSegmentAndDeleteOldSegment(newSegment, segment);
         return newSegment;

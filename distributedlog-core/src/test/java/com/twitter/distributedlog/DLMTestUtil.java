@@ -78,7 +78,7 @@ public class DLMTestUtil {
         for (String child : children) {
             LogSegmentMetadata segment = LogSegmentMetadata.read(zkc, ledgerPath + "/" + child);
             LOG.info("Read segment {} : {}", child, segment);
-            segments.put(segment.getLedgerSequenceNumber(), segment);
+            segments.put(segment.getLogSegmentSequenceNumber(), segment);
         }
         return segments;
     }
@@ -283,13 +283,13 @@ public class DLMTestUtil {
         return record;
     }
 
-    public static String inprogressZNodeName(long ledgerSeqNo) {
-        return String.format("%s_%018d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, ledgerSeqNo);
+    public static String inprogressZNodeName(long logSegmentSeqNo) {
+        return String.format("%s_%018d", DistributedLogConstants.INPROGRESS_LOGSEGMENT_PREFIX, logSegmentSeqNo);
     }
 
-    public static String completedLedgerZNodeNameWithVersion(long ledgerId, long firstTxId, long lastTxId, long ledgerSeqNo) {
+    public static String completedLedgerZNodeNameWithVersion(long ledgerId, long firstTxId, long lastTxId, long logSegmentSeqNo) {
         return String.format("%s_%018d_%018d_%018d_v%dl%d_%04d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX,
-                             firstTxId, lastTxId, ledgerSeqNo, DistributedLogConstants.LOGSEGMENT_NAME_VERSION, ledgerId,
+                             firstTxId, lastTxId, logSegmentSeqNo, DistributedLogConstants.LOGSEGMENT_NAME_VERSION, ledgerId,
                              DistributedLogConstants.LOCAL_REGION_ID);
     }
 
@@ -297,31 +297,31 @@ public class DLMTestUtil {
         return String.format("%s_%018d_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, firstTxId, lastTxId);
     }
 
-    public static String completedLedgerZNodeNameWithLedgerSequenceNumber(long ledgerSeqNo) {
-        return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, ledgerSeqNo);
+    public static String completedLedgerZNodeNameWithLogSegmentSequenceNumber(long logSegmentSeqNo) {
+        return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, logSegmentSeqNo);
     }
 
-    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long ledgerSeqNo) {
+    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long logSegmentSeqNo) {
         return new LogSegmentMetadata.LogSegmentMetadataBuilder(
-                    ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
+                    ledgerPath + "/" + inprogressZNodeName(logSegmentSeqNo),
                     LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                     ledgerId, firstTxId)
-                .setLedgerSequenceNo(ledgerSeqNo)
+                .setLogSegmentSequenceNo(logSegmentSeqNo)
                 .build();
     }
 
     public static LogSegmentMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
-                                                               long lastTxId, int recordCount, long ledgerSeqNo,
+                                                               long lastTxId, int recordCount, long logSegmentSeqNo,
                                                                long lastEntryId, long lastSlotId) {
         LogSegmentMetadata metadata =
                 new LogSegmentMetadata.LogSegmentMetadataBuilder(
-                        ledgerPath + "/" + inprogressZNodeName(ledgerSeqNo),
+                        ledgerPath + "/" + inprogressZNodeName(logSegmentSeqNo),
                         LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
                         ledgerId, firstTxId)
                     .setInprogress(false)
-                    .setLedgerSequenceNo(ledgerSeqNo)
+                    .setLogSegmentSequenceNo(logSegmentSeqNo)
                     .build();
-        return metadata.completeLogSegment(ledgerPath + "/" + completedLedgerZNodeNameWithLedgerSequenceNumber(ledgerSeqNo),
+        return metadata.completeLogSegment(ledgerPath + "/" + completedLedgerZNodeNameWithLogSegmentSequenceNumber(logSegmentSeqNo),
                 lastTxId, recordCount, lastEntryId, lastSlotId, firstTxId);
     }
 
@@ -356,9 +356,9 @@ public class DLMTestUtil {
         return txid - startTxid;
     }
 
-    public static void injectLogSegmentWithGivenLedgerSeqNo(DistributedLogManager manager, DistributedLogConfiguration conf,
-                                                            long ledgerSeqNo, long startTxID, boolean writeEntries, long segmentSize,
-                                                            boolean completeLogSegment)
+    public static void injectLogSegmentWithGivenLogSegmentSeqNo(DistributedLogManager manager, DistributedLogConfiguration conf,
+                                                                long logSegmentSeqNo, long startTxID, boolean writeEntries, long segmentSize,
+                                                                boolean completeLogSegment)
             throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
         BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
@@ -368,18 +368,18 @@ public class DLMTestUtil {
         BookKeeperClient bkc = dlm.getWriterBKC();
         LedgerHandle lh = bkc.get().createLedger(conf.getEnsembleSize(), conf.getWriteQuorumSize(),
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
-        String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
-        String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
+        String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, logSegmentSeqNo);
+        String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, logSegmentSeqNo);
         LogSegmentMetadata l =
             new LogSegmentMetadata.LogSegmentMetadataBuilder(znodePath,
                     conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
-                .setLedgerSequenceNo(ledgerSeqNo)
+                .setLogSegmentSequenceNo(logSegmentSeqNo)
                 .build();
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         if (writeEntries) {
@@ -399,7 +399,7 @@ public class DLMTestUtil {
     }
 
     public static void injectLogSegmentWithLastDLSN(DistributedLogManager manager, DistributedLogConfiguration conf,
-                                                    long ledgerSeqNo, long startTxID, long segmentSize,
+                                                    long logSegmentSeqNo, long startTxID, long segmentSize,
                                                     boolean recordWrongLastDLSN) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
         BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
@@ -409,19 +409,19 @@ public class DLMTestUtil {
         BookKeeperClient bkc = dlm.getReaderBKC();
         LedgerHandle lh = bkc.get().createLedger(conf.getEnsembleSize(), conf.getWriteQuorumSize(),
                 conf.getAckQuorumSize(), BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes());
-        String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, ledgerSeqNo);
-        String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, ledgerSeqNo);
+        String inprogressZnodeName = writeHandler.inprogressZNodeName(lh.getId(), startTxID, logSegmentSeqNo);
+        String znodePath = writeHandler.inprogressZNode(lh.getId(), startTxID, logSegmentSeqNo);
         LogSegmentMetadata l =
             new LogSegmentMetadata.LogSegmentMetadataBuilder(znodePath,
                 conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), startTxID)
-            .setLedgerSequenceNo(ledgerSeqNo)
+            .setLogSegmentSequenceNo(logSegmentSeqNo)
             .setInprogress(false)
             .build();
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, ledgerSeqNo, writeHandler.scheduler,
+                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
                 writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         long txid = startTxID;
@@ -436,8 +436,8 @@ public class DLMTestUtil {
         if (recordWrongLastDLSN) {
             writer.close();
             writeHandler.completeAndCloseLogSegment(
-                    writeHandler.inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLedgerSequenceNumber()),
-                    writer.getLedgerSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), startTxID + segmentSize - 2,
+                    writeHandler.inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
+                    writer.getLogSegmentSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), startTxID + segmentSize - 2,
                     writer.getPositionWithinLogSegment() - 1, wrongDLSN.getEntryId(), wrongDLSN.getSlotId(), true);
         } else {
             writeHandler.completeAndCloseLogSegment(writer);

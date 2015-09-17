@@ -44,8 +44,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK = "ledgerMetadataSkipMinVersionCheck";
     public static final boolean BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT = false;
 
-    public static final String BKDL_FIRST_LEDGER_SEQUENCE_NUMBER = "first-ledger-sequence-number";
-    public static final long BKDL_FIRST_LEDGER_SEQUENCE_NUMBER_DEFAULT = DistributedLogConstants.FIRST_LEDGER_SEQNO;
+    public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER = "first-logsegment-sequence-number";
+    public static final long BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT = DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
 
     // Name for the default (non-partitioned) stream
     public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
@@ -1483,8 +1483,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return first ledger sequence number
      */
-    public long getFirstLedgerSequenceNumber() {
-        return this.getLong(BKDL_FIRST_LEDGER_SEQUENCE_NUMBER, BKDL_FIRST_LEDGER_SEQUENCE_NUMBER_DEFAULT);
+    public long getFirstLogSegmentSequenceNumber() {
+        return this.getLong(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT);
     }
 
     /**
@@ -1492,15 +1492,16 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * upgraded and did not have ledger sequence number to start with or for newly created
      * streams
      *
-     * @param firstLedgerSequenceNumber first ledger sequence number
+     * @param firstLogSegmentSequenceNumber first ledger sequence number
      * @return distributed log configuration
      */
-    public DistributedLogConfiguration setFirstLedgerSequenceNumber(long firstLedgerSequenceNumber) throws IllegalArgumentException {
-        if (firstLedgerSequenceNumber <= 0) {
+    public DistributedLogConfiguration setFirstLogSegmentSequenceNumber(long firstLogSegmentSequenceNumber)
+            throws IllegalArgumentException {
+        if (firstLogSegmentSequenceNumber <= 0) {
             // Incorrect ledger sequence number specified
             throw new IllegalArgumentException("Incorrect value for ledger sequence number");
         }
-        setProperty(BKDL_FIRST_LEDGER_SEQUENCE_NUMBER, firstLedgerSequenceNumber);
+        setProperty(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, firstLogSegmentSequenceNumber);
         return this;
     }
 

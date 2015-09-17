@@ -36,15 +36,15 @@ public class BKDLConfig implements DLConfig {
     public static void propagateConfiguration(BKDLConfig bkdlConfig, DistributedLogConfiguration dlConf) {
         dlConf.setSanityCheckTxnID(bkdlConfig.getSanityCheckTxnID());
         dlConf.setEncodeRegionIDInVersion(bkdlConfig.getEncodeRegionID());
-        dlConf.setFirstLedgerSequenceNumber(bkdlConfig.getFirstLedgerSeqNo());
+        dlConf.setFirstLogSegmentSequenceNumber(bkdlConfig.getFirstLogSegmentSeqNo());
         if (bkdlConfig.isFederatedNamespace()) {
             dlConf.setCreateStreamIfNotExists(false);
             LOG.info("Disabled createIfNotExists for federated namespace.");
         }
         LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}," +
-                        " firstLedgerSequenceNumber = {}, createStreamIfNotExists = {}, isFederated = {}.",
+                        " firstLogSegmentSequenceNumber = {}, createStreamIfNotExists = {}, isFederated = {}.",
                 new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion(),
-                        dlConf.getFirstLedgerSequenceNumber(), dlConf.getCreateStreamIfNotExists(),
+                        dlConf.getFirstLogSegmentSequenceNumber(), dlConf.getCreateStreamIfNotExists(),
                         bkdlConfig.isFederatedNamespace() });
     }
 
@@ -74,7 +74,7 @@ public class BKDLConfig implements DLConfig {
     private String dlZkServersForWriter;
     private String dlZkServersForReader;
     private String aclRootPath;
-    private Long firstLedgerSeqNo;
+    private Long firstLogSegmentSeqNo;
     private boolean isFederatedNamespace = false;
 
     /**
@@ -210,11 +210,11 @@ public class BKDLConfig implements DLConfig {
      * upgraded and did not have ledger sequence number to start with or for newly created
      * streams
      *
-     * @param firstLedgerSeqNo first ledger sequence number
+     * @param firstLogSegmentSeqNo first ledger sequence number
      * @return bk dl config
      */
-    public BKDLConfig setFirstLedgerSeqNo(long firstLedgerSeqNo) {
-        this.firstLedgerSeqNo = firstLedgerSeqNo;
+    public BKDLConfig setFirstLogSegmentSeqNo(long firstLogSegmentSeqNo) {
+        this.firstLogSegmentSeqNo = firstLogSegmentSeqNo;
         return this;
     }
 
@@ -225,11 +225,11 @@ public class BKDLConfig implements DLConfig {
      *
      * @return first ledger sequence number
      */
-    public Long getFirstLedgerSeqNo() {
-        if (null == firstLedgerSeqNo) {
-            return DistributedLogConstants.FIRST_LEDGER_SEQNO;
+    public Long getFirstLogSegmentSeqNo() {
+        if (null == firstLogSegmentSeqNo) {
+            return DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
         }
-        return firstLedgerSeqNo;
+        return firstLogSegmentSeqNo;
     }
 
     /**
@@ -273,7 +273,7 @@ public class BKDLConfig implements DLConfig {
                sanityCheckTxnID == another.sanityCheckTxnID &&
                encodeRegionID == another.encodeRegionID &&
                Objects.equal(aclRootPath, another.aclRootPath) &&
-               Objects.equal(firstLedgerSeqNo, another.firstLedgerSeqNo) &&
+               Objects.equal(firstLogSegmentSeqNo, another.firstLogSegmentSeqNo) &&
                Objects.equal(isFederatedNamespace, another.isFederatedNamespace);
 
     }
@@ -306,8 +306,8 @@ public class BKDLConfig implements DLConfig {
         if (null != aclRootPath) {
             configFormat.setAclRootPath(aclRootPath);
         }
-        if (null != firstLedgerSeqNo) {
-            configFormat.setFirstLedgerSeqNo(firstLedgerSeqNo);
+        if (null != firstLogSegmentSeqNo) {
+            configFormat.setFirstLogSegmentSeqNo(firstLogSegmentSeqNo);
         }
         if (isFederatedNamespace) {
             configFormat.setFederatedNamespace(true);
@@ -368,8 +368,8 @@ public class BKDLConfig implements DLConfig {
             aclRootPath = configFormat.getAclRootPath();
         }
 
-        if (configFormat.isSetFirstLedgerSeqNo()) {
-            firstLedgerSeqNo = configFormat.getFirstLedgerSeqNo();
+        if (configFormat.isSetFirstLogSegmentSeqNo()) {
+            firstLogSegmentSeqNo = configFormat.getFirstLogSegmentSeqNo();
         }
         isFederatedNamespace = configFormat.isSetFederatedNamespace() && configFormat.isFederatedNamespace();
 

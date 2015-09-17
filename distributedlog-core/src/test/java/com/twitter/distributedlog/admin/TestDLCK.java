@@ -60,15 +60,15 @@ public class TestDLCK extends TestDistributedLogBase {
                 new HashMap<Long, LogSegmentMetadata>();
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         for (LogSegmentMetadata segment : segments) {
-            logSegmentMap.put(segment.getLedgerSequenceNumber(), segment);
+            logSegmentMap.put(segment.getLogSegmentSequenceNumber(), segment);
         }
         return logSegmentMap;
     }
 
     static void verifyLogSegment(Map<Long, LogSegmentMetadata> segments,
-                                 DLSN lastDLSN, long ledgerSequenceNumber,
+                                 DLSN lastDLSN, long logSegmentSequenceNumber,
                                  int recordCount, long lastTxId) {
-        LogSegmentMetadata segment = segments.get(ledgerSequenceNumber);
+        LogSegmentMetadata segment = segments.get(logSegmentSequenceNumber);
         assertNotNull(segment);
         assertEquals(lastDLSN, segment.getLastDLSN());
         assertEquals(recordCount, segment.getRecordCount());

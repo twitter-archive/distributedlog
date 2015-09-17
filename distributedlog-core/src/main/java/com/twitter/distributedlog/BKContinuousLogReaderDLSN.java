@@ -46,7 +46,7 @@ class BKContinuousLogReaderDLSN extends BKContinuousLogReaderBase implements Log
         DLSN position = nextDLSN;
         if (DLSN.InvalidDLSN == nextDLSN) {
             if (DLSN.InvalidDLSN != lastDLSN) {
-                position = new DLSN(lastDLSN.getLedgerSequenceNo() + 1, -1 , -1);
+                position = new DLSN(lastDLSN.getLogSegmentSequenceNo() + 1, -1 , -1);
             } else {
                 position = startDLSN;
             }

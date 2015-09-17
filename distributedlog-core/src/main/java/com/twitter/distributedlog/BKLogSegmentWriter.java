@@ -103,8 +103,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     private static class BKTransmitPacket {
-        public BKTransmitPacket(long ledgerSequenceNo, int initialBufferSize) {
-            this.ledgerSequenceNo = ledgerSequenceNo;
+        public BKTransmitPacket(long logSegmentSequenceNo, int initialBufferSize) {
+            this.logSegmentSequenceNo = logSegmentSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
             this.isControl = false;
             this.transmitComplete = new Promise<Integer>();
@@ -124,8 +124,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             buffer.reset();
         }
 
-        public long getLedgerSequenceNo() {
-            return ledgerSequenceNo;
+        public long getLogSegmentSequenceNo() {
+            return logSegmentSequenceNo;
         }
 
         public void addToPromiseList(Promise<DLSN> nextPromise, long txId) {
@@ -140,7 +140,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         private void satisfyPromises(long entryId) {
             long nextSlotId = 0;
             for(Promise<DLSN> promise : promiseList) {
-                promise.setValue(new DLSN(ledgerSequenceNo, entryId, nextSlotId));
+                promise.setValue(new DLSN(logSegmentSequenceNo, entryId, nextSlotId));
                 nextSlotId++;
             }
             promiseList.clear();
@@ -167,7 +167,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
         public DLSN finalize(long entryId, int transmitResult) {
             if (transmitResult == BKException.Code.OK) {
-                lastDLSN = new DLSN(ledgerSequenceNo, entryId, promiseList.size() - 1);
+                lastDLSN = new DLSN(logSegmentSequenceNo, entryId, promiseList.size() - 1);
             }
             return lastDLSN;
         }
@@ -209,7 +209,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
 
         private boolean isControl;
-        private long ledgerSequenceNo;
+        private long logSegmentSequenceNo;
         private DLSN lastDLSN;
         private List<Promise<DLSN>> promiseList;
         private Promise<Integer> transmitComplete;
@@ -261,7 +261,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private boolean closed = true;
     private final boolean enableRecordCounts;
     private int positionWithinLogSegment = 0;
-    private final long ledgerSequenceNumber;
+    private final long logSegmentSequenceNumber;
     // Used only for values that *could* change (e.g. buffer size etc.)
     private final DistributedLogConfiguration conf;
     private final ScheduledExecutorService executorService;
@@ -338,7 +338,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  DistributedLogConfiguration conf,
                                  int logSegmentMetadataVersion,
                                  LedgerHandle lh, DistributedReentrantLock lock,
-                                 long startTxId, long ledgerSequenceNumber,
+                                 long startTxId, long logSegmentSequenceNumber,
                                  ScheduledExecutorService executorService,
                                  FuturePool orderedFuturePool,
                                  StatsLogger statsLogger,
@@ -427,8 +427,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             this.transmissionThreshold = conf.getOutputBufferSize();
         }
 
-        this.ledgerSequenceNumber = ledgerSequenceNumber;
-        this.packetCurrent = new BKTransmitPacket(ledgerSequenceNumber, Math.max(transmissionThreshold, 1024));
+        this.logSegmentSequenceNumber = logSegmentSequenceNumber;
+        this.packetCurrent = new BKTransmitPacket(logSegmentSequenceNumber, Math.max(transmissionThreshold, 1024));
         this.packetPrevious = null;
         this.writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
         this.startTxId = startTxId;
@@ -491,8 +491,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         return this.lh;
     }
 
-    protected final long getLedgerSequenceNumber() {
-        return ledgerSequenceNumber;
+    protected final long getLogSegmentSequenceNumber() {
+        return logSegmentSequenceNumber;
     }
 
     /**
@@ -567,7 +567,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     private BKTransmitPacket getTransmitPacket() {
-        return new BKTransmitPacket(ledgerSequenceNumber,
+        return new BKTransmitPacket(logSegmentSequenceNumber,
             Math.max(transmissionThreshold, getAverageTransmitSize()));
     }
 

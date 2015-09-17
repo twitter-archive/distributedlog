@@ -324,19 +324,19 @@ class BKLogReadHandler extends BKLogHandler {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Inspecting Ledger: {} for {}", l, fromDLSN);
                 }
-                DLSN lastDLSN = new DLSN(l.getLedgerSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
+                DLSN lastDLSN = new DLSN(l.getLogSegmentSequenceNumber(), l.getLastEntryId(), l.getLastSlotId());
                 if (l.isInProgress()) {
                     try {
                         // as mostly doGetInputStream is to position on reader, so we disable forwardReading
                         // on readLastTxIdInLedger, then the reader could be positioned in the reader quickly
                         lastDLSN = readLastTxIdInLedger(l).getRight();
                     } catch (IOException exc) {
-                        lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
+                        lastDLSN = new DLSN(l.getLogSegmentSequenceNumber(), -1, -1);
                         LOG.info("Reading beyond flush point");
                     }
 
                     if (lastDLSN == DLSN.InvalidDLSN) {
-                        lastDLSN = new DLSN(l.getLedgerSequenceNumber(), -1, -1);
+                        lastDLSN = new DLSN(l.getLogSegmentSequenceNumber(), -1, -1);
                     }
                 }
 
@@ -354,7 +354,7 @@ class BKLogReadHandler extends BKLogHandler {
                             positionDLSN = fromDLSN;
                         }
 
-                        if (l.getLedgerSequenceNumber() == positionDLSN.getLedgerSequenceNo()) {
+                        if (l.getLogSegmentSequenceNumber() == positionDLSN.getLogSegmentSequenceNo()) {
                             startBKEntry = Math.max(startBKEntry, positionDLSN.getEntryId());
                         }
 
@@ -388,13 +388,13 @@ class BKLogReadHandler extends BKLogHandler {
                         throw new IOException("Could not open ledger for " + fromDLSN, e);
                     }
                 }
-                if (fromDLSN.getLedgerSequenceNo() == lastDLSN.getLedgerSequenceNo()) {
+                if (fromDLSN.getLogSegmentSequenceNo() == lastDLSN.getLogSegmentSequenceNo()) {
                     // We specified a position past the end of the current ledger; position on the first record of the
                     // next ledger
                     fromDLSN = fromDLSN.positionOnTheNextLedger();
                 }
 
-                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
+                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLogSegmentSequenceNumber(), Long.MAX_VALUE));
             }
         } else {
             if (fThrowOnEmpty) {
@@ -497,7 +497,7 @@ class BKLogReadHandler extends BKLogHandler {
                         throw e;
                     }
                 }
-                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), Long.MAX_VALUE));
+                ledgerDataAccessor.purgeReadAheadCache(new LedgerReadPosition(l.getLedgerId(), l.getLogSegmentSequenceNumber(), Long.MAX_VALUE));
             }
         } else {
             if (fThrowOnEmpty) {
@@ -1197,7 +1197,7 @@ class BKLogReadHandler extends BKLogHandler {
                                 continue;
                             }
 
-                            DLSN nextReadDLSN = new DLSN(nextReadAheadPosition.getLedgerSequenceNumber(), nextReadAheadPosition.getEntryId(), -1);
+                            DLSN nextReadDLSN = new DLSN(nextReadAheadPosition.getLogSegmentSequenceNumber(), nextReadAheadPosition.getEntryId(), -1);
 
                             // next read position still inside a log segment
                             final boolean hasDataToRead = (l.getLastDLSN().compareTo(nextReadDLSN) >= 0);
@@ -1207,7 +1207,7 @@ class BKLogReadHandler extends BKLogHandler {
                             final boolean checkOrCloseLedger = hasDataToRead ||
                                 // next read position move over a log segment, if l is still inprogress or it was inprogress
                                 ((l.isInProgress() || (null != currentMetadata && currentMetadata.isInProgress())) &&
-                                        l.getLedgerSequenceNumber() == nextReadAheadPosition.getLedgerSequenceNumber());
+                                        l.getLogSegmentSequenceNumber() == nextReadAheadPosition.getLogSegmentSequenceNumber());
 
                             // If we are positioning on a partially truncated log segment then the truncation point should
                             // be before the nextReadPosition
@@ -1240,7 +1240,7 @@ class BKLogReadHandler extends BKLogHandler {
                                     ledgerDataAccessor.setMinActiveDLSN(l.getMinActiveDLSN());
                                 }
 
-                                if(l.getLedgerSequenceNumber() == nextReadAheadPosition.getLedgerSequenceNumber()) {
+                                if(l.getLogSegmentSequenceNumber() == nextReadAheadPosition.getLogSegmentSequenceNumber()) {
                                     startBKEntry = Math.max(startBKEntry, nextReadAheadPosition.getEntryId());
                                     if (currentMetadata != null) {
                                         inProgressChanged = currentMetadata.isInProgress() && !l.isInProgress();
@@ -1254,7 +1254,7 @@ class BKLogReadHandler extends BKLogHandler {
                                     }
                                 }
 
-                                nextReadAheadPosition = new LedgerReadPosition(l.getLedgerId(), l.getLedgerSequenceNumber(), startBKEntry);
+                                nextReadAheadPosition = new LedgerReadPosition(l.getLedgerId(), l.getLogSegmentSequenceNumber(), startBKEntry);
                                 if (conf.getTraceReadAheadMetadataChanges()) {
                                     LOG.info("Moved read position to {} for stream {} at {}.",
                                              new Object[] {nextReadAheadPosition, getFullyQualifiedName(), System.currentTimeMillis() });
@@ -1523,7 +1523,7 @@ class BKLogReadHandler extends BKLogHandler {
                                         currentMetadata = null;
                                         if (currentMetadataIndex + 1 < ledgerList.size()) {
                                             currentMetadata = ledgerList.get(++currentMetadataIndex);
-                                            if (currentMetadata.getLedgerSequenceNumber() != (oldMetadata.getLedgerSequenceNumber() + 1)) {
+                                            if (currentMetadata.getLogSegmentSequenceNumber() != (oldMetadata.getLogSegmentSequenceNumber() + 1)) {
                                                 // We should never get here as we should have exited the loop if
                                                 // pendingRequests were empty
                                                 bkLedgerManager.raiseAlert("Unexpected condition during read ahead; {} , {}",
@@ -1546,7 +1546,7 @@ class BKLogReadHandler extends BKLogHandler {
                                                         LOG.trace("Moving read position to a new ledger {} for {}.",
                                                             currentMetadata, fullyQualifiedName);
                                                     }
-                                                    nextReadAheadPosition.positionOnNewLedger(currentMetadata.getLedgerId(), currentMetadata.getLedgerSequenceNumber());
+                                                    nextReadAheadPosition.positionOnNewLogSegment(currentMetadata.getLedgerId(), currentMetadata.getLogSegmentSequenceNumber());
                                                 }
                                             }
                                         }
@@ -1688,7 +1688,7 @@ class BKLogReadHandler extends BKLogHandler {
 
                             nextReadAheadPosition.advance();
 
-                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()),
+                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLogSegmentSequenceNo(), entry.getEntryId()),
                                                    entry, null != ctx ? ctx.toString() : "",
                                                    currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
 
@@ -1783,7 +1783,7 @@ class BKLogReadHandler extends BKLogHandler {
                             bkcUnExpectedExceptions.set(0);
                             nextReadAheadPosition.advance();
                             LedgerEntry e = seq.nextElement();
-                            LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLedgerSequenceNumber(), e.getEntryId());
+                            LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLogSegmentSequenceNumber(), e.getEntryId());
                             ledgerDataAccessor.set(readPosition, e, null != ctx ? ctx.toString() : "",
                                     currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
                             ++numReads;

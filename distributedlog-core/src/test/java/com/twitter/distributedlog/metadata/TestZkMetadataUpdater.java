@@ -97,7 +97,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         // get log segment 6
         LogSegmentMetadata segmentChanged = segmentList.get(6L);
         assertNotNull(segmentChanged);
-        assertEquals(6L, segmentChanged.getLedgerSequenceNumber());
+        assertEquals(6L, segmentChanged.getLogSegmentSequenceNumber());
         assertTrue(segmentChanged.isInProgress());
         assertEquals(5 * 100, segmentChanged.getFirstTxId());
         assertEquals(3L, segmentChanged.getLedgerId());
@@ -184,7 +184,7 @@ public class TestZkMetadataUpdater extends ZooKeeperClusterTestCase {
         assertEquals(completedLogSegment.getCompletionTime(), readCompletedLogSegment.getCompletionTime());
         assertEquals(completedLogSegment.getFirstTxId(), readCompletedLogSegment.getFirstTxId());
         assertEquals(completedLogSegment.getLedgerId(), readCompletedLogSegment.getLedgerId());
-        assertEquals(completedLogSegment.getLedgerSequenceNumber(), readCompletedLogSegment.getLedgerSequenceNumber());
+        assertEquals(completedLogSegment.getLogSegmentSequenceNumber(), readCompletedLogSegment.getLogSegmentSequenceNumber());
         assertEquals(completedLogSegment.getRegionId(), readCompletedLogSegment.getRegionId());
         assertEquals(completedLogSegment.getZkPath(), readCompletedLogSegment.getZkPath());
         assertEquals(completedLogSegment.getZNodeName(), readCompletedLogSegment.getZNodeName());

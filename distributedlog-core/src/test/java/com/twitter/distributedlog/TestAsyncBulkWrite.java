@@ -142,7 +142,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         LogRecord record = DLMTestUtil.getLogRecordInstance(txid++, 2048);
         Future<DLSN> result = writer.write(record);
         DLSN dlsn = validateFutureSucceededAndGetResult(result);
-        assertEquals(1, dlsn.getLedgerSequenceNo());
+        assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
         // Write two more via bulk. Ledger doesn't roll because there's a partial failure.
         List<LogRecord> records = null;
@@ -155,7 +155,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         results = validateFutureSucceededAndGetResult(futureResults);
         result = results.get(0);
         dlsn = validateFutureSucceededAndGetResult(result);
-        assertEquals(1, dlsn.getLedgerSequenceNo());
+        assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
         // Now writer is in a bad state.
         records = new ArrayList<LogRecord>(1);
@@ -232,7 +232,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         long txIndex = 1;
         DLSN dlsn = checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
         assertEquals(4, dlsn.getEntryId());
-        assertEquals(1, dlsn.getLedgerSequenceNo());
+        assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
         writer.closeAndComplete();
         dlm.close();
@@ -262,7 +262,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
 
         DLSN dlsn = checkAllSucceeded(writer, batchSize, recSize, ledgerIndex, entryIndex, slotIndex, txIndex);
         assertEquals(4, dlsn.getEntryId());
-        assertEquals(1, dlsn.getLedgerSequenceNo());
+        assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
         FailpointUtils.setFailpoint(
             FailpointUtils.FailPointName.FP_TransmitComplete,
@@ -304,7 +304,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
             if (dlsn.getEntryId() > prevEntryId) {
                 slotIndex = 0;
             }
-            assertEquals(ledgerIndex, dlsn.getLedgerSequenceNo());
+            assertEquals(ledgerIndex, dlsn.getLogSegmentSequenceNo());
             assertEquals(slotIndex, dlsn.getSlotId());
             slotIndex++;
             prevEntryId = dlsn.getEntryId();

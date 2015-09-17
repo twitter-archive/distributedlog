@@ -164,7 +164,7 @@ public class ReadUtils {
                                         LedgerEntry entry = entries.nextElement();
                                         try {
                                             visitEntryRecords(
-                                                streamName, metadata, ledgerDescriptor.getLedgerSequenceNo(), entry, context, selector);
+                                                streamName, metadata, ledgerDescriptor.getLogSegmentSequenceNo(), entry, context, selector);
                                         } catch (IOException ioe) {
                                             // exception is only thrown due to bad ledger entry, so it might be corrupted
                                             // we shouldn't do anything beyond this point. throw the exception to application
@@ -193,7 +193,7 @@ public class ReadUtils {
      *
      * @param streamName
      *          fully qualified stream name (used for logging)
-     * @param ledgerSeqNo
+     * @param logSegmentSeqNo
      *          ledger sequence number
      * @param entry
      *          ledger entry
@@ -205,12 +205,12 @@ public class ReadUtils {
     private static void visitEntryRecords(
             String streamName,
             LogSegmentMetadata metadata,
-            long ledgerSeqNo,
+            long logSegmentSeqNo,
             LedgerEntry entry,
             ScanContext context,
             LogRecordSelector selector) throws IOException {
         LogRecord.Reader reader =
-                new LedgerEntryReader(streamName, ledgerSeqNo, entry,
+                new LedgerEntryReader(streamName, logSegmentSeqNo, entry,
                         metadata.getEnvelopeEntries(), metadata.getStartSequenceId(),
                         NullStatsLogger.INSTANCE);
         LogRecordWithDLSN nextRecord = reader.readOp();
@@ -405,7 +405,7 @@ public class ReadUtils {
             final String digestpw,
             final DLSN dlsn) {
         long startEntryId = 0L;
-        if (l.getLedgerSequenceNumber() == dlsn.getLedgerSequenceNo()) {
+        if (l.getLogSegmentSequenceNumber() == dlsn.getLogSegmentSequenceNo()) {
             startEntryId = dlsn.getEntryId();
         }
         final LogRecordSelector selector = new FirstDLSNGreaterThanSelector(dlsn);

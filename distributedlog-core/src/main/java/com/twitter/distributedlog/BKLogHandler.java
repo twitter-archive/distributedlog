@@ -599,7 +599,7 @@ abstract class BKLogHandler implements Watcher {
 
                         List<Future<Long>> futureCounts = new ArrayList<Future<Long>>(ledgerList.size());
                         for (LogSegmentMetadata ledger : ledgerList) {
-                            if (ledger.getLedgerSequenceNumber() >= beginDLSN.getLedgerSequenceNo()) {
+                            if (ledger.getLogSegmentSequenceNumber() >= beginDLSN.getLogSegmentSequenceNo()) {
                                 futureCounts.add(asyncGetLogRecordCount(ledger, beginDLSN));
                             }
                         }
@@ -702,7 +702,7 @@ abstract class BKLogHandler implements Watcher {
             if (l.isInProgress()) {
                 try {
                     long lastTxId = readLastTxIdInLedger(l).getLeft();
-                    if ((lastTxId != DistributedLogConstants.EMPTY_LEDGER_TX_ID) &&
+                    if ((lastTxId != DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID) &&
                         (lastTxId != DistributedLogConstants.INVALID_TXID) &&
                         (lastTxId < thresholdTxId)) {
                         return lastTxId;
@@ -777,7 +777,7 @@ abstract class BKLogHandler implements Watcher {
         LogRecordWithDLSN record = recoverLastRecordInLedger(l, false, false, true);
 
         if (null == record) {
-            return Pair.of(DistributedLogConstants.EMPTY_LEDGER_TX_ID, DLSN.InvalidDLSN);
+            return Pair.of(DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID, DLSN.InvalidDLSN);
         }
         else {
             return Pair.of(record.getTransactionId(), record.getDlsn());

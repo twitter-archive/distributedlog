@@ -15,23 +15,23 @@ import static com.google.common.base.Charsets.UTF_8;
 /**
  * Utility class for storing and reading max ledger sequence number
  */
-class MaxLedgerSequenceNo {
+class MaxLogSegmentSequenceNo {
 
-    static final Logger LOG = LoggerFactory.getLogger(MaxLedgerSequenceNo.class);
+    static final Logger LOG = LoggerFactory.getLogger(MaxLogSegmentSequenceNo.class);
 
     int zkVersion;
     long maxSeqNo;
 
-    MaxLedgerSequenceNo(DataWithStat dataWithStat) {
+    MaxLogSegmentSequenceNo(DataWithStat dataWithStat) {
         if (dataWithStat.exists()) {
             zkVersion = dataWithStat.getStat().getVersion();
             try {
-                maxSeqNo = toLedgerSequenceNo(dataWithStat.getData());
+                maxSeqNo = toLogSegmentSequenceNo(dataWithStat.getData());
             } catch (NumberFormatException nfe) {
-                maxSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+                maxSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
             }
         } else {
-            maxSeqNo = DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO;
+            maxSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
             zkVersion = -1;
         }
     }
@@ -44,35 +44,35 @@ class MaxLedgerSequenceNo {
         return maxSeqNo;
     }
 
-    synchronized MaxLedgerSequenceNo update(int zkVersion, long ledgerSeqNo) {
+    synchronized MaxLogSegmentSequenceNo update(int zkVersion, long logSegmentSeqNo) {
         this.zkVersion = zkVersion;
-        this.maxSeqNo = ledgerSeqNo;
+        this.maxSeqNo = logSegmentSeqNo;
         return this;
     }
 
-    synchronized void store(ZooKeeperClient zkc, String path, long ledgerSeqNo) throws IOException {
+    synchronized void store(ZooKeeperClient zkc, String path, long logSegmentSeqNo) throws IOException {
         try {
-            Stat stat = zkc.get().setData(path, toBytes(ledgerSeqNo), zkVersion);
+            Stat stat = zkc.get().setData(path, toBytes(logSegmentSeqNo), zkVersion);
             this.zkVersion = stat.getVersion();
-            this.maxSeqNo = ledgerSeqNo;
+            this.maxSeqNo = logSegmentSeqNo;
         } catch (KeeperException ke) {
-            throw new ZKException("Error writing max ledger sequence number " + ledgerSeqNo + " to "
+            throw new ZKException("Error writing max ledger sequence number " + logSegmentSeqNo + " to "
                                   + path + " : ", ke);
         } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
-            throw new IOException("Error writing max ledger sequence number " + ledgerSeqNo + " to "
+            throw new IOException("Error writing max ledger sequence number " + logSegmentSeqNo + " to "
                     + path + " : ", zce);
         } catch (InterruptedException e) {
-            throw new DLInterruptedException("Error writing max ledger sequence number " + ledgerSeqNo + " to "
+            throw new DLInterruptedException("Error writing max ledger sequence number " + logSegmentSeqNo + " to "
                     + path + " : ", e);
         }
     }
 
-    static long toLedgerSequenceNo(byte[] data) {
+    static long toLogSegmentSequenceNo(byte[] data) {
         String seqNoStr = new String(data, UTF_8);
         return Long.valueOf(seqNoStr);
     }
 
-    static byte[] toBytes(long ledgerSeqNo) {
-        return Long.toString(ledgerSeqNo).getBytes(UTF_8);
+    static byte[] toBytes(long logSegmentSeqNo) {
+        return Long.toString(logSegmentSeqNo).getBytes(UTF_8);
     }
 }

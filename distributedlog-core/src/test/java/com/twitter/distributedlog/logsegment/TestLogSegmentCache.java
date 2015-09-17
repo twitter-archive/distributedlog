@@ -25,7 +25,7 @@ public class TestLogSegmentCache {
     public void testBasicOperations() {
         LogSegmentMetadata metadata =
                 DLMTestUtil.completedLogSegment("/segment1", 1L, 1L, 100L, 100, 1L, 99L, 0L);
-        String name = DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(1L);
+        String name = DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(1L);
 
         LogSegmentCache cache = new LogSegmentCache("test-basic-operations");
         assertNull("No log segment " + name + " should be cached", cache.get(name));
@@ -48,7 +48,7 @@ public class TestLogSegmentCache {
         for (int i = 1; i <= 5; i++) {
             LogSegmentMetadata metadata =
                     DLMTestUtil.completedLogSegment("/segment" + i, i, i, i * 100L, 100, i, 99L, 0L);
-            String name = DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i);
+            String name = DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i);
             cache.add(name, metadata);
         }
         // add one inprogress log segment
@@ -60,15 +60,15 @@ public class TestLogSegmentCache {
         // deleted first 2 completed log segments and completed the last one
         Set<String> segmentRemoved = Sets.newHashSet();
         for (int i = 1; i <= 2; i++) {
-            segmentRemoved.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i));
+            segmentRemoved.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i));
         }
         segmentRemoved.add((DLMTestUtil.inprogressZNodeName(6)));
         Set<String> segmentReceived = Sets.newHashSet();
         Set<String> segmentAdded = Sets.newHashSet();
         for (int i = 3; i <= 6; i++) {
-            segmentReceived.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i));
+            segmentReceived.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i));
             if (i == 6) {
-                segmentAdded.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i));
+                segmentAdded.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i));
             }
         }
 
@@ -86,7 +86,7 @@ public class TestLogSegmentCache {
         for (int i = 1; i <= 5; i++) {
             LogSegmentMetadata metadata =
                     DLMTestUtil.completedLogSegment("/segment" + i, i, i, i * 100L, 100, i, 99L, 0L);
-            String name = DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i);
+            String name = DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i);
             cache.add(name, metadata);
         }
         // add one inprogress log segment
@@ -98,15 +98,15 @@ public class TestLogSegmentCache {
         // deleted first 2 completed log segments and completed the last one
         Set<String> segmentRemoved = Sets.newHashSet();
         for (int i = 1; i <= 2; i++) {
-            segmentRemoved.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i));
+            segmentRemoved.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i));
         }
         segmentRemoved.add((DLMTestUtil.inprogressZNodeName(6)));
         Set<String> segmentReceived = Sets.newHashSet();
         Map<String, LogSegmentMetadata> segmentAdded = Maps.newHashMap();
         for (int i = 3; i <= 6; i++) {
-            segmentReceived.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i));
+            segmentReceived.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i));
             if (i == 6) {
-                segmentAdded.put(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i),
+                segmentAdded.put(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i),
                         DLMTestUtil.completedLogSegment("/segment" + i, i, i, i * 100L, 100, i, 99L, 0L));
             }
         }
@@ -128,24 +128,24 @@ public class TestLogSegmentCache {
     @Test(timeout = 60000, expected = UnexpectedException.class)
     public void testGapDetection() throws Exception {
         LogSegmentCache cache = new LogSegmentCache("test-gap-detection");
-        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(1L),
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(1L),
                 DLMTestUtil.completedLogSegment("/segment-1", 1L, 1L, 100L, 100, 1L, 99L, 0L));
-        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(3L),
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(3L),
                 DLMTestUtil.completedLogSegment("/segment-3", 3L, 3L, 300L, 100, 3L, 99L, 0L));
         cache.getLogSegments(LogSegmentMetadata.COMPARATOR);
     }
 
     @Test(timeout = 60000)
-    public void testGapDetectionOnLogSegmentsWithoutLedgerSequenceNumber() throws Exception {
+    public void testGapDetectionOnLogSegmentsWithoutLogSegmentSequenceNumber() throws Exception {
         LogSegmentCache cache = new LogSegmentCache("test-gap-detection");
         LogSegmentMetadata segment1 =
                 DLMTestUtil.completedLogSegment("/segment-1", 1L, 1L, 100L, 100, 1L, 99L, 0L)
                         .mutator().setVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V1_ORIGINAL).build();
-        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(1L), segment1);
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(1L), segment1);
         LogSegmentMetadata segment3 =
                 DLMTestUtil.completedLogSegment("/segment-3", 3L, 3L, 300L, 100, 3L, 99L, 0L)
                         .mutator().setVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO).build();
-        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(3L), segment3);
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(3L), segment3);
         List<LogSegmentMetadata> expectedList = Lists.asList(segment1, new LogSegmentMetadata[] { segment3 });
         List<LogSegmentMetadata> resultList = cache.getLogSegments(LogSegmentMetadata.COMPARATOR);
         assertEquals(expectedList, resultList);
@@ -162,7 +162,7 @@ public class TestLogSegmentCache {
         LogSegmentMetadata completed =
                 DLMTestUtil.completedLogSegment("/segment-1", 1L, 1L, 100L, 100, 1L, 99L, 0L);
         expectedList.add(completed);
-        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(1L), completed);
+        cache.add(DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(1L), completed);
 
         List<LogSegmentMetadata> retrievedList = cache.getLogSegments(LogSegmentMetadata.COMPARATOR);
         assertEquals("Should get both log segments in ascending order",
@@ -185,7 +185,7 @@ public class TestLogSegmentCache {
 
     private static void assertEqualsWithoutSequenceId(LogSegmentMetadata m1, LogSegmentMetadata m2) {
         assertEquals("expected " + m1 + " but got " + m2,
-                m1.getLedgerSequenceNumber(), m2.getLedgerSequenceNumber());
+                m1.getLogSegmentSequenceNumber(), m2.getLogSegmentSequenceNumber());
         assertEquals("expected " + m1 + " but got " + m2,
                 m1.getLedgerId(), m2.getLedgerId());
         assertEquals("expected " + m1 + " but got " + m2,

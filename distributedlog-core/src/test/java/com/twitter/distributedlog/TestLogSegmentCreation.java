@@ -70,14 +70,14 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
 
         boolean hasInprogress = false;
         boolean hasDuplicatedSegment = false;
-        long nextSeqNo = segments.get(0).getLedgerSequenceNumber();
+        long nextSeqNo = segments.get(0).getLogSegmentSequenceNumber();
         for (int i = 1; i < segments.size(); i++) {
             LogSegmentMetadata segment = segments.get(i);
-            assertTrue(segment.getLedgerSequenceNumber() >= nextSeqNo);
-            if (segment.getLedgerSequenceNumber() == nextSeqNo) {
+            assertTrue(segment.getLogSegmentSequenceNumber() >= nextSeqNo);
+            if (segment.getLogSegmentSequenceNumber() == nextSeqNo) {
                 hasDuplicatedSegment = true;
             }
-            nextSeqNo = segment.getLedgerSequenceNumber();
+            nextSeqNo = segment.getLogSegmentSequenceNumber();
             if (segment.isInProgress()) {
                 hasInprogress = true;
             }

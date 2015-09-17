@@ -115,7 +115,7 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
     }
 
     @Test(timeout = 60000)
-    public void testFirstLedgerSequenceNumber() throws Exception {
+    public void testFirstLogSegmentSequenceNumber() throws Exception {
         DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
 
         URI uri = createURI("/messaging/distributedlog-testfirstledgerseqno/dl1");
@@ -123,25 +123,25 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
         meta1.create(uri);
         BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read1, dlConf);
-        assertEquals(DistributedLogConstants.FIRST_LEDGER_SEQNO, dlConf.getFirstLedgerSequenceNumber());
+        assertEquals(DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO, dlConf.getFirstLogSegmentSequenceNumber());
 
         BKDLConfig.clearCachedDLConfigs();
 
         DLMetadata meta2 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
-                .setFirstLedgerSeqNo(9999L));
+                .setFirstLogSegmentSeqNo(9999L));
         meta2.update(uri);
         BKDLConfig read2 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read2, dlConf);
-        assertEquals(9999L, dlConf.getFirstLedgerSequenceNumber());
+        assertEquals(9999L, dlConf.getFirstLogSegmentSequenceNumber());
 
         BKDLConfig.clearCachedDLConfigs();
 
         DLMetadata meta3 = DLMetadata.create(new BKDLConfig("127.0.0.1:7000", "ledgers")
-                .setFirstLedgerSeqNo(99L));
+                .setFirstLogSegmentSeqNo(99L));
         meta3.update(uri);
         BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read3, dlConf);
-        assertEquals(99L, dlConf.getFirstLedgerSequenceNumber());
+        assertEquals(99L, dlConf.getFirstLogSegmentSequenceNumber());
 
         BKDLConfig.clearCachedDLConfigs();
     }

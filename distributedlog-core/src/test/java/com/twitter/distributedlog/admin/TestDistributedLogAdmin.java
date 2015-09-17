@@ -65,7 +65,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
         // create completed log segments
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
         DLMTestUtil.generateCompletedLogSegments(dlm, conf, 4, 10);
-        DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, conf, 5, 41, false, 10, true);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, conf, 5, 41, false, 10, true);
         dlm.close();
 
         // create a reader
@@ -83,7 +83,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
         }
 
         dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
-        DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, conf, 3L, 5 * 10 + 1, true, 10, false);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, conf, 3L, 5 * 10 + 1, true, 10, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);

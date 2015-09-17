@@ -83,7 +83,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
         assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
-        assertEquals(read1.getLedgerSequenceNumber(), metadata1.getLedgerSequenceNumber());
+        assertEquals(read1.getLogSegmentSequenceNumber(), metadata1.getLogSegmentSequenceNumber());
         assertEquals(DistributedLogConstants.LOCAL_REGION_ID, read1.getRegionId());
     }
 
@@ -107,7 +107,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
         LogSegmentMetadata metadata =
                 new LogSegmentMetadataBuilder(
                         "/metadata", LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
-                        .setRegionId(0).setLedgerSequenceNo(1L).build();
+                        .setRegionId(0).setLogSegmentSequenceNo(1L).build();
         metadata = metadata.completeLogSegment("/completed-metadata", 1000L, 1000, 1000L, 0L, 0L);
 
         LogSegmentMetadata partiallyTruncatedSegment =
@@ -140,7 +140,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
                 new LogSegmentMetadataBuilder(
                         "/metadata", LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID, 1L, 0L)
                         .setRegionId(0)
-                        .setLedgerSequenceNo(1L)
+                        .setLogSegmentSequenceNo(1L)
                         .setStartSequenceId(999L)
                         .build();
         // write inprogress log segment with v5
@@ -152,7 +152,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
                 new LogSegmentMetadataBuilder(
                         "/metadata", LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES, 1L, 0L)
                         .setRegionId(0)
-                        .setLedgerSequenceNo(1L)
+                        .setLogSegmentSequenceNo(1L)
                         .setStartSequenceId(999L)
                         .build();
         String datav4 = metadatav4.getFinalisedData();

@@ -30,8 +30,8 @@ public class TestReadAhead extends TestDistributedLogBase {
         confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
-        DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, confLocal, 1L, 1L, false, 0, false);
-        DLMTestUtil.injectLogSegmentWithGivenLedgerSeqNo(dlm, confLocal, 2L, 11L, true, 10, true);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, confLocal, 1L, 1L, false, 0, false);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, confLocal, 2L, 11L, true, 10, true);
 
         BKDistributedLogManager readDLM = (BKDistributedLogManager) createNewDLM(confLocal, name);
         final BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) readDLM.getAsyncLogReader(DLSN.InitialDLSN);

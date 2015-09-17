@@ -7,8 +7,6 @@ import org.apache.commons.codec.binary.Hex;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Charsets.UTF_8;
-
 public class DLSN implements Comparable<DLSN> {
 
     public static final byte VERSION0 = (byte) 0;
@@ -22,18 +20,26 @@ public class DLSN implements Comparable<DLSN> {
     static final int VERSION0_LEN = Long.SIZE * 3 + Byte.SIZE;
     static final int VERSION1_LEN = Long.SIZE * 3 / Byte.SIZE + 1;
 
-    private final long ledgerSequenceNo;
+    private final long logSegmentSequenceNo;
     private final long entryId;
     private final long slotId;
 
-    public DLSN(long ledgerSequenceNo, long entryId, long slotId) {
-        this.ledgerSequenceNo = ledgerSequenceNo;
+    public DLSN(long logSegmentSequenceNo, long entryId, long slotId) {
+        this.logSegmentSequenceNo = logSegmentSequenceNo;
         this.entryId = entryId;
         this.slotId = slotId;
     }
 
+    long getLogSegmentSequenceNo() {
+        return logSegmentSequenceNo;
+    }
+
+    /**
+     * use {@link #getLogSegmentSequenceNo()} instead
+     */
+    @Deprecated
     long getLedgerSequenceNo() {
-        return ledgerSequenceNo;
+        return logSegmentSequenceNo;
     }
 
     long getEntryId() {
@@ -46,8 +52,8 @@ public class DLSN implements Comparable<DLSN> {
 
     @Override
     public int compareTo(DLSN that) {
-        if (this.ledgerSequenceNo != that.ledgerSequenceNo) {
-            return (this.ledgerSequenceNo < that.ledgerSequenceNo)? -1 : 1;
+        if (this.logSegmentSequenceNo != that.logSegmentSequenceNo) {
+            return (this.logSegmentSequenceNo < that.logSegmentSequenceNo)? -1 : 1;
         } else if (this.entryId != that.entryId) {
             return (this.entryId < that.entryId)? -1 : 1;
         } else {
@@ -64,7 +70,7 @@ public class DLSN implements Comparable<DLSN> {
         byte[] data = new byte[CUR_VERSION == version ? VERSION1_LEN : VERSION0_LEN];
         ByteBuffer bb = ByteBuffer.wrap(data);
         bb.put(version);
-        bb.putLong(ledgerSequenceNo);
+        bb.putLong(logSegmentSequenceNo);
         bb.putLong(entryId);
         bb.putLong(slotId);
         return data;
@@ -116,7 +122,7 @@ public class DLSN implements Comparable<DLSN> {
     @Override
     public String toString() {
         return "DLSN{" +
-            "ledgerSequenceNo=" + ledgerSequenceNo +
+            "logSegmentSequenceNo=" + logSegmentSequenceNo +
             ", entryId=" + entryId +
             ", slotId=" + slotId +
             '}';
@@ -130,7 +136,7 @@ public class DLSN implements Comparable<DLSN> {
         DLSN dlsn = (DLSN) o;
 
         if (entryId != dlsn.entryId) return false;
-        if (ledgerSequenceNo != dlsn.ledgerSequenceNo) return false;
+        if (logSegmentSequenceNo != dlsn.logSegmentSequenceNo) return false;
         if (slotId != dlsn.slotId) return false;
 
         return true;
@@ -138,7 +144,7 @@ public class DLSN implements Comparable<DLSN> {
 
     @Override
     public int hashCode() {
-        int result = (int) (ledgerSequenceNo ^ (ledgerSequenceNo >>> 32));
+        int result = (int) (logSegmentSequenceNo ^ (logSegmentSequenceNo >>> 32));
         result = 31 * result + (int) (entryId ^ (entryId >>> 32));
         result = 31 * result + (int) (slotId ^ (slotId >>> 32));
         return result;
@@ -152,7 +158,7 @@ public class DLSN implements Comparable<DLSN> {
      * @return the next DLSN
      */
     public DLSN getNextDLSN() {
-        return new DLSN(ledgerSequenceNo, entryId, slotId + 1);
+        return new DLSN(logSegmentSequenceNo, entryId, slotId + 1);
     }
 
     /**
@@ -163,6 +169,6 @@ public class DLSN implements Comparable<DLSN> {
      * @return the next DLSN
      */
     public DLSN positionOnTheNextLedger() {
-        return new DLSN(ledgerSequenceNo + 1 , 0, 0);
+        return new DLSN(logSegmentSequenceNo + 1 , 0, 0);
     }
 }

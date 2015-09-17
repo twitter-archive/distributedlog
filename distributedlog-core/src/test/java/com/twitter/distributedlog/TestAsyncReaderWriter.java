@@ -71,10 +71,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         // Write 3 log segments. For each log segments, write one control record and nine user records.
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             DLSN dlsn = Await.result(writer.writeControlRecord(new LogRecord(txid++, "control".getBytes(UTF_8))));
-            assertEquals(currentLedgerSeqNo, dlsn.getLedgerSequenceNo());
+            assertEquals(currentLogSegmentSeqNo, dlsn.getLogSegmentSequenceNo());
             assertEquals(0, dlsn.getEntryId());
             assertEquals(0, dlsn.getSlotId());
             for (long j = 1; j < 10; j++) {
@@ -124,7 +124,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         LogRecord record = DLMTestUtil.getLogRecordInstance(txid++, 2048);
         Future<DLSN> result = writer.write(record);
         DLSN dlsn = Await.result(result, Duration.fromSeconds(10));
-        assertEquals(1, dlsn.getLedgerSequenceNo());
+        assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
         record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
         result = writer.write(record);
@@ -163,7 +163,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         final AtomicReference<DLSN> maxDLSN = new AtomicReference<DLSN>(DLSN.InvalidDLSN);
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 final long currentEntryId = j;
@@ -172,8 +172,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 dlsnFuture.addEventListener(new FutureEventListener<DLSN>() {
                     @Override
                     public void onSuccess(DLSN value) {
-                        if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
-                            LOG.debug("LedgerSequenceNumber: {}, Expected {}", value.getLedgerSequenceNo(), currentLedgerSeqNo);
+                        if(value.getLogSegmentSequenceNo() != currentLogSegmentSeqNo) {
+                            LOG.debug("LogSegmentSequenceNumber: {}, Expected {}", value.getLogSegmentSequenceNo(), currentLogSegmentSeqNo);
                             errorsFound.set(true);
                         }
 
@@ -191,7 +191,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                     }
                     @Override
                     public void onFailure(Throwable cause) {
-                        LOG.error("Encountered exception on writing record {} in log segment {}", currentEntryId, currentLedgerSeqNo);
+                        LOG.error("Encountered exception on writing record {} in log segment {}", currentEntryId, currentLogSegmentSeqNo);
                         errorsFound.set(true);
                     }
                 });
@@ -592,20 +592,20 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
     static class WriteFutureEventListener implements FutureEventListener<DLSN> {
         private final LogRecord record;
-        private final long currentLedgerSeqNo;
+        private final long currentLogSegmentSeqNo;
         private final long currentEntryId;
         private final CountDownLatch syncLatch;
         private final AtomicBoolean errorsFound;
         private final boolean verifyEntryId;
 
         WriteFutureEventListener(LogRecord record,
-                                 long currentLedgerSeqNo,
+                                 long currentLogSegmentSeqNo,
                                  long currentEntryId,
                                  CountDownLatch syncLatch,
                                  AtomicBoolean errorsFound,
                                  boolean verifyEntryId) {
             this.record = record;
-            this.currentLedgerSeqNo = currentLedgerSeqNo;
+            this.currentLogSegmentSeqNo = currentLogSegmentSeqNo;
             this.currentEntryId = currentEntryId;
             this.syncLatch = syncLatch;
             this.errorsFound = errorsFound;
@@ -617,8 +617,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
          */
         @Override
         public void onSuccess(DLSN value) {
-            if(value.getLedgerSequenceNo() != currentLedgerSeqNo) {
-                LOG.error("Ledger Seq No: {}, Expected: {}", value.getLedgerSequenceNo(), currentLedgerSeqNo);
+            if(value.getLogSegmentSequenceNo() != currentLogSegmentSeqNo) {
+                LOG.error("Ledger Seq No: {}, Expected: {}", value.getLogSegmentSequenceNo(), currentLogSegmentSeqNo);
                 errorsFound.set(true);
             }
 
@@ -635,7 +635,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         @Override
         public void onFailure(Throwable cause) {
             LOG.error("Encountered failures on writing record as (lid = {}, eid = {}) :",
-                    new Object[]{currentLedgerSeqNo, currentEntryId, cause});
+                    new Object[]{currentLogSegmentSeqNo, currentEntryId, cause});
             errorsFound.set(true);
             syncLatch.countDown();
         }
@@ -671,14 +671,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < 10; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
-                        record, currentLedgerSeqNo, currentEntryId, writeLatch, writeErrors, true));
+                        record, currentLogSegmentSeqNo, currentEntryId, writeLatch, writeErrors, true));
                 if (i == 0 && j == 0) {
                     boolean monotonic = LogSegmentMetadata.supportsSequenceId(logSegmentVersion);
                     TestAsyncReaderWriter.readNext(
@@ -749,14 +749,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < 10; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
-                        record, currentLedgerSeqNo, currentEntryId, writeLatch, writeErrors, true));
+                        record, currentLogSegmentSeqNo, currentEntryId, writeLatch, writeErrors, true));
             }
             writer.closeAndComplete();
         }
@@ -813,7 +813,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < 3; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter[] writers = new BKAsyncLogWriter[count];
             for (int s = 0; s < count; s++) {
                 writers[s] = (BKAsyncLogWriter)(dlms[s].startAsyncLogSegmentNonPartitioned());
@@ -824,7 +824,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 for (int s = 0; s < count; s++) {
                     Future<DLSN> dlsnFuture = writers[s].write(record);
                     dlsnFuture.addEventListener(new WriteFutureEventListener(
-                            record, currentLedgerSeqNo, currentEntryId, writeLatch, writeErrors, true));
+                            record, currentLogSegmentSeqNo, currentEntryId, writeLatch, writeErrors, true));
                 }
             }
             for (int s = 0; s < count; s++) {
@@ -883,14 +883,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 final long currentEntryId = j;
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
-                        record, currentLedgerSeqNo, currentEntryId, writeLatch, writeErrors, true));
+                        record, currentLogSegmentSeqNo, currentEntryId, writeLatch, writeErrors, true));
             }
             writer.closeAndComplete();
         }
@@ -952,14 +952,14 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         int txid = 1;
         for (long i = 0; i < numLogSegments; i++) {
-            final long currentLedgerSeqNo = i + 1;
+            final long currentLogSegmentSeqNo = i + 1;
             BKAsyncLogWriter writer = (BKAsyncLogWriter)(dlm.startAsyncLogSegmentNonPartitioned());
             for (long j = 0; j < numRecordsPerLogSegment; j++) {
                 Thread.sleep(50);
                 final LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid++);
                 Future<DLSN> dlsnFuture = writer.write(record);
                 dlsnFuture.addEventListener(new WriteFutureEventListener(
-                        record, currentLedgerSeqNo, j, writeLatch, writeErrors, false));
+                        record, currentLogSegmentSeqNo, j, writeLatch, writeErrors, false));
                 if (i == 0 && j == 0) {
                     boolean monotonic = LogSegmentMetadata.supportsSequenceId(confLocal.getDLLedgerMetadataLayoutVersion());
                     TestAsyncReaderWriter.readNext(

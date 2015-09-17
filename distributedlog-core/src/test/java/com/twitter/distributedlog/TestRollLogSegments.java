@@ -111,9 +111,9 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                 public void onSuccess(DLSN value) {
                     logger.info("Completed entry {} : {}.", entryId, value);
                     synchronized (lastDLSNs) {
-                        DLSN lastDLSN = lastDLSNs.get(value.getLedgerSequenceNo());
+                        DLSN lastDLSN = lastDLSNs.get(value.getLogSegmentSequenceNo());
                         if (null == lastDLSN || lastDLSN.compareTo(value) < 0) {
-                            lastDLSNs.put(value.getLedgerSequenceNo(), value);
+                            lastDLSNs.put(value.getLogSegmentSequenceNo(), value);
                         }
                     }
                     latch.countDown();
@@ -138,7 +138,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         assertEquals(lastDLSNs.size(), segments.size());
         for (LogSegmentMetadata segment : segments) {
             DLSN dlsnInMetadata = segment.getLastDLSN();
-            DLSN dlsnSeen = lastDLSNs.get(segment.getLedgerSequenceNumber());
+            DLSN dlsnSeen = lastDLSNs.get(segment.getLogSegmentSequenceNumber());
             assertNotNull(dlsnInMetadata);
             assertNotNull(dlsnSeen);
             if (dlsnInMetadata.compareTo(dlsnSeen) != 0) {
@@ -387,8 +387,8 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // simulate a recovery without closing ledger causing recording wrong last dlsn
         BKLogWriteHandler writeHandler = writer.getCachedWriteHandler();
         writeHandler.completeAndCloseLogSegment(
-                writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLedgerSequenceNumber()),
-                perStreamWriter.getLedgerSequenceNumber(),
+                writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLogSegmentSequenceNumber()),
+                perStreamWriter.getLogSegmentSequenceNumber(),
                 perStreamWriter.getLedgerHandle().getId(),
                 perStreamWriter.getStartTxId(), perStreamWriter.getLastTxId(),
                 perStreamWriter.getPositionWithinLogSegment() - 1,

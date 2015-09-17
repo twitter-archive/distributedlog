@@ -268,7 +268,7 @@ class BKPerStreamLogReader {
             }
 
             readPosition = new LedgerReadPosition(ledgerDesc.getLedgerId(),
-                                                    ledgerDesc.getLedgerSequenceNo(),
+                                                    ledgerDesc.getLogSegmentSequenceNo(),
                                                     readEntries);
             LedgerEntry e;
             Stopwatch stopwatch = Stopwatch.createStarted();
@@ -386,7 +386,7 @@ class BKPerStreamLogReader {
                 return DLSN.InvalidDLSN;
             }
 
-            return new DLSN(ledgerDesc.getLedgerSequenceNo(), readPosition.getEntryId(), currentSlotId);
+            return new DLSN(ledgerDesc.getLogSegmentSequenceNo(), readPosition.getEntryId(), currentSlotId);
         }
 
         public boolean reachedEndOfLedger() {

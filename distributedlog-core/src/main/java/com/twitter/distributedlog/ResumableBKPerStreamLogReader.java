@@ -208,7 +208,7 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
 
     synchronized public LedgerReadPosition getNextLedgerEntryToRead() {
         assert (null != lin);
-        return new LedgerReadPosition(metadata.getLedgerSequenceNumber(), lin.nextEntryToRead());
+        return new LedgerReadPosition(metadata.getLogSegmentSequenceNumber(), lin.nextEntryToRead());
     }
 
     synchronized boolean reachedEndOfLogSegment() {

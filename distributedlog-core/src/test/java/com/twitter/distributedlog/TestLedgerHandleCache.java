@@ -86,7 +86,7 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
             // open ledger after zkc closed
             try {
                 cache.openLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("",
-                        2, lh.getId(), 1).setLedgerSequenceNo(lh.getId()).build(), false);
+                        2, lh.getId(), 1).setLogSegmentSequenceNo(lh.getId()).build(), false);
                 fail("Should throw BKException.ZKException if zookeeper client is closed.");
             } catch (BKException.ZKException ze) {
                 // expected
@@ -94,7 +94,7 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
             final AtomicInteger rcHolder = new AtomicInteger(0);
             final CountDownLatch latch = new CountDownLatch(1);
             cache.asyncOpenLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("",
-                        2, lh.getId(), 1).setLedgerSequenceNo(lh.getId()).build(), false,
+                        2, lh.getId(), 1).setLogSegmentSequenceNo(lh.getId()).build(), false,
                     new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
                 @Override
                 public void operationComplete(int rc, LedgerDescriptor result) {

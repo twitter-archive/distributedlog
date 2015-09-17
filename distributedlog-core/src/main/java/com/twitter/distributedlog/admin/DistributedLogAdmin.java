@@ -83,16 +83,16 @@ public class DistributedLogAdmin extends DistributedLogTool {
             if (verbose) {
                 System.out.println("LogSegments for " + streamName + " : ");
                 for (LogSegmentMetadata segment : segments) {
-                    System.out.println(segment.getLedgerSequenceNumber() + "\t: " + segment);
+                    System.out.println(segment.getLogSegmentSequenceNumber() + "\t: " + segment);
                 }
             }
             LOG.info("Get log segments for {} : {}", streamName, segments);
             // validate log segments
-            long maxCompletedLedgerSequenceNumber = -1L;
+            long maxCompletedLogSegmentSequenceNumber = -1L;
             LogSegmentMetadata inprogressSegment = null;
             for (LogSegmentMetadata segment : segments) {
                 if (!segment.isInProgress()) {
-                    maxCompletedLedgerSequenceNumber = Math.max(maxCompletedLedgerSequenceNumber, segment.getLedgerSequenceNumber());
+                    maxCompletedLogSegmentSequenceNumber = Math.max(maxCompletedLogSegmentSequenceNumber, segment.getLogSegmentSequenceNumber());
                 } else {
                     // we already found an inprogress segment
                     if (null != inprogressSegment) {
@@ -101,11 +101,11 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     inprogressSegment = segment;
                 }
             }
-            if (null == inprogressSegment || inprogressSegment.getLedgerSequenceNumber() > maxCompletedLedgerSequenceNumber) {
+            if (null == inprogressSegment || inprogressSegment.getLogSegmentSequenceNumber() > maxCompletedLogSegmentSequenceNumber) {
                 // nothing to fix
                 return;
             }
-            final long newLedgerSequenceNumber = maxCompletedLedgerSequenceNumber + 1;
+            final long newLogSegmentSequenceNumber = maxCompletedLogSegmentSequenceNumber + 1;
             if (interactive && !IOUtils.confirmPrompt("Confirm to fix (Y/N), Ctrl+C to break : ")) {
                 if (verbose) {
                     System.out.println("Give up fixing stream " + streamName);
@@ -113,7 +113,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 return;
             }
             final LogSegmentMetadata newSegment =
-                    metadataUpdater.changeSequenceNumber(inprogressSegment, newLedgerSequenceNumber);
+                    metadataUpdater.changeSequenceNumber(inprogressSegment, newLogSegmentSequenceNumber);
             LOG.info("Fixed {} : {} -> {} ",
                      new Object[] { streamName, inprogressSegment, newSegment });
             if (verbose) {
@@ -365,7 +365,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
         if (verbose) {
             System.out.println("Stream " + streamCandidate.streamName + " : ");
             for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
-                System.out.println("  " + segmentCandidate.metadata.getLedgerSequenceNumber()
+                System.out.println("  " + segmentCandidate.metadata.getLogSegmentSequenceNumber()
                         + " : metadata = " + segmentCandidate.metadata + ", last dlsn = "
                         + segmentCandidate.lastRecord.getDlsn());
             }
@@ -378,7 +378,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             LogSegmentMetadata newMetadata =
                     metadataUpdater.updateLastRecord(segmentCandidate.metadata, segmentCandidate.lastRecord);
             if (verbose) {
-                System.out.println("  Fixed segment " + segmentCandidate.metadata.getLedgerSequenceNumber() + " : ");
+                System.out.println("  Fixed segment " + segmentCandidate.metadata.getLogSegmentSequenceNumber() + " : ");
                 System.out.println("    old metadata : " + segmentCandidate.metadata);
                 System.out.println("    new metadata : " + newMetadata);
             }
@@ -469,7 +469,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             options.addOption("dlzr", "dlZkServersForReader", true, "ZooKeeper servers used for distributedlog for readers.");
             options.addOption("i", "sanityCheckTxnID", true, "Flag to sanity check highest txn id.");
             options.addOption("r", "encodeRegionID", true, "Flag to encode region id.");
-            options.addOption("seqno", "firstLedgerSeqNo", true, "The first ledger sequence number to use after upgrade");
+            options.addOption("seqno", "firstLogSegmentSeqNo", true, "The first log segment sequence number to use after upgrade");
             options.addOption("fns", "federatedNamespace", false, "Flag to turn a namespace to federated namespace");
             options.addOption("f", "force", false, "Force binding without prompt.");
             options.addOption("c", "creation", false, "Whether is it a creation binding.");
@@ -542,7 +542,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                                 .setEncodeRegionID(encodeRegionID);
 
                 if (cmdline.hasOption("seqno")) {
-                    newBKDLConfig = newBKDLConfig.setFirstLedgerSeqNo(Long.parseLong(cmdline.getOptionValue("seqno")));
+                    newBKDLConfig = newBKDLConfig.setFirstLogSegmentSeqNo(Long.parseLong(cmdline.getOptionValue("seqno")));
                 }
 
                 if (cmdline.hasOption("fns")) {

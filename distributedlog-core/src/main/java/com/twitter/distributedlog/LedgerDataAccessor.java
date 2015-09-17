@@ -377,7 +377,7 @@ class LedgerDataAccessor {
     void processNewLedgerEntry(final LedgerReadPosition readPosition, final LedgerEntry ledgerEntry,
                                final String reason, boolean envelopeEntries, long startSequenceId) {
         try {
-            LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLedgerSequenceNumber(),
+            LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLogSegmentSequenceNumber(),
                     ledgerEntry, envelopeEntries, startSequenceId, statsLogger);
             while(true) {
                 LogRecordWithDLSN record = reader.readOp();

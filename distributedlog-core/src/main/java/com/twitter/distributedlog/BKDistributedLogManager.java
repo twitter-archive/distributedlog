@@ -457,7 +457,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         try {
             position = getLastTxIdInternal(conf.getUnpartitionedStreamName(), true, false);
             if (DistributedLogConstants.INVALID_TXID == position ||
-                DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
+                DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID == position) {
                 position = 0;
             }
         } catch (LogEmptyException ex) {

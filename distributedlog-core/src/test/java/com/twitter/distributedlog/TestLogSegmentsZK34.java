@@ -22,19 +22,19 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
 
     static Logger LOG = LoggerFactory.getLogger(TestLogSegmentsZK34.class);
 
-    private static MaxLedgerSequenceNo getMaxLedgerSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
-                                                              DistributedLogConfiguration conf) throws Exception {
+    private static MaxLogSegmentSequenceNo getMaxLogSegmentSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
+                                                                      DistributedLogConfiguration conf) throws Exception {
         Stat stat = new Stat();
         String partitionPath = BKDistributedLogManager.getPartitionPath(
                 uri, streamName, conf.getUnpartitionedStreamName()) + "/ledgers";
         byte[] data = zkc.get().getData(partitionPath, false, stat);
         DataWithStat dataWithStat = new DataWithStat();
         dataWithStat.setDataWithStat(data, stat);
-        return new MaxLedgerSequenceNo(dataWithStat);
+        return new MaxLogSegmentSequenceNo(dataWithStat);
     }
 
-    private static void updateMaxLedgerSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
-                                                  DistributedLogConfiguration conf, byte[] data) throws Exception {
+    private static void updateMaxLogSegmentSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
+                                                      DistributedLogConfiguration conf, byte[] data) throws Exception {
         String partitionPath = BKDistributedLogManager.getPartitionPath(
                 uri, streamName, conf.getUnpartitionedStreamName()) + "/ledgers";
         zkc.get().setData(partitionPath, data, -1);
@@ -63,8 +63,8 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
         namespace.createLog(streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
-        assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
+        MaxLogSegmentSequenceNo max1 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        assertEquals(DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO, max1.getSequenceNumber());
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
@@ -72,7 +72,7 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLogSegmentSequenceNo max2 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
         dlm.close();
         namespace.close();
@@ -94,8 +94,8 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
         namespace.createLog(streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
-        assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
+        MaxLogSegmentSequenceNo max1 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        assertEquals(DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO, max1.getSequenceNumber());
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
@@ -103,30 +103,30 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLogSegmentSequenceNo max2 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
 
         // nuke the max ledger sequence number
-        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
+        updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
             BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
             out1.write(DLMTestUtil.getLogRecordInstance(numSegments));
             out1.closeAndComplete();
-            MaxLedgerSequenceNo max3 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+            MaxLogSegmentSequenceNo max3 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
             assertEquals(4, max3.getSequenceNumber());
         } finally {
             dlm1.close();
         }
 
         // invalid max ledger sequence number
-        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
+        updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
         DistributedLogManager dlm2 = namespace.openLog(streamName);
         try {
             BKSyncLogWriter out2 = (BKSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
             out2.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
             out2.closeAndComplete();
-            MaxLedgerSequenceNo max4 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+            MaxLogSegmentSequenceNo max4 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
             assertEquals(5, max4.getSequenceNumber());
         } finally {
             dlm2.close();
@@ -152,8 +152,8 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder().conf(conf).uri(uri).build();
 
         namespace.createLog(streamName);
-        MaxLedgerSequenceNo max1 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
-        assertEquals(DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO, max1.getSequenceNumber());
+        MaxLogSegmentSequenceNo max1 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        assertEquals(DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO, max1.getSequenceNumber());
         DistributedLogManager dlm = namespace.openLog(streamName);
         final int numSegments = 3;
         for (int i = 0; i < numSegments; i++) {
@@ -161,11 +161,11 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
             out.write(DLMTestUtil.getLogRecordInstance(i));
             out.closeAndComplete();
         }
-        MaxLedgerSequenceNo max2 = getMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
+        MaxLogSegmentSequenceNo max2 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
         assertEquals(3, max2.getSequenceNumber());
 
         // update the max ledger sequence number
-        updateMaxLedgerSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, MaxLedgerSequenceNo.toBytes(99));
+        updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, MaxLogSegmentSequenceNo.toBytes(99));
 
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
@@ -183,9 +183,9 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
         List<LogSegmentMetadata> segments = dlm2.getLogSegments();
         try {
             assertEquals(3, segments.size());
-            assertEquals(1L, segments.get(0).getLedgerSequenceNumber());
-            assertEquals(2L, segments.get(1).getLedgerSequenceNumber());
-            assertEquals(3L, segments.get(2).getLedgerSequenceNumber());
+            assertEquals(1L, segments.get(0).getLogSegmentSequenceNumber());
+            assertEquals(2L, segments.get(1).getLogSegmentSequenceNumber());
+            assertEquals(3L, segments.get(2).getLogSegmentSequenceNumber());
         } finally {
             dlm2.close();
         }

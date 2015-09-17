@@ -133,7 +133,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
     }
 
     private BKLogSegmentWriter createLogSegmentWriter(DistributedLogConfiguration conf,
-                                                      long ledgerSequenceNumber,
+                                                      long logSegmentSequenceNumber,
                                                       long startTxId,
                                                       DistributedReentrantLock lock) throws Exception {
         LedgerHandle lh = bkc.get().createLedger(3, 2, 2,
@@ -146,7 +146,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 lh,
                 lock,
                 startTxId,
-                ledgerSequenceNumber,
+                logSegmentSequenceNumber,
                 executorService,
                 futurePool,
                 NullStatsLogger.INSTANCE,
@@ -220,7 +220,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         for (int i = 0; i < numRecords; i++) {
             DLSN dlsn = dlsns.get(i);
             assertEquals("Incorrent ledger sequence number",
-                    0L, dlsn.getLedgerSequenceNo());
+                    0L, dlsn.getLogSegmentSequenceNo());
             assertEquals("Incorrent entry id",
                     0L, dlsn.getEntryId());
             assertEquals("Inconsistent slot id",
@@ -540,7 +540,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         for (int i = 0; i < numRecords; i++) {
             DLSN dlsn = dlsns.get(i);
             assertEquals("Incorrent ledger sequence number",
-                    0L, dlsn.getLedgerSequenceNo());
+                    0L, dlsn.getLogSegmentSequenceNo());
             assertEquals("Incorrent entry id",
                     0L, dlsn.getEntryId());
             assertEquals("Inconsistent slot id",

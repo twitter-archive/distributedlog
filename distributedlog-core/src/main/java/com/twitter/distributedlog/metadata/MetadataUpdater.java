@@ -25,16 +25,16 @@ public interface MetadataUpdater {
             throws IOException;
 
     /**
-     * Change ledger sequence number of <i>segment</i> to given <i>ledgerSeqNo</i>.
+     * Change ledger sequence number of <i>segment</i> to given <i>logSegmentSeqNo</i>.
      *
      * @param segment
      *          log segment to change sequence number.
-     * @param ledgerSeqNo
+     * @param logSegmentSeqNo
      *          ledger sequence number to change.
      * @return new log segment
      * @throws IOException
      */
-    LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment, long ledgerSeqNo)
+    LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment, long logSegmentSeqNo)
             throws IOException;
 
     /**

@@ -97,7 +97,7 @@ public class LogSegmentMetadata {
         protected long lastTxId;
         protected long completionTime;
         protected int recordCount;
-        protected long ledgerSequenceNo;
+        protected long logSegmentSequenceNo;
         protected long lastEntryId;
         protected long lastSlotId;
         protected long minActiveEntryId;
@@ -179,8 +179,8 @@ public class LogSegmentMetadata {
             return this;
         }
 
-        LogSegmentMetadataBuilder setLedgerSequenceNo(long ledgerSequenceNo) {
-            this.ledgerSequenceNo = ledgerSequenceNo;
+        LogSegmentMetadataBuilder setLogSegmentSequenceNo(long logSegmentSequenceNo) {
+            this.logSegmentSequenceNo = logSegmentSequenceNo;
             return this;
         }
 
@@ -224,7 +224,7 @@ public class LogSegmentMetadata {
                 completionTime,
                 inprogress,
                 recordCount,
-                ledgerSequenceNo,
+                    logSegmentSequenceNo,
                 lastEntryId,
                 lastSlotId,
                 regionId,
@@ -247,7 +247,7 @@ public class LogSegmentMetadata {
         Mutator(LogSegmentMetadata original) {
             super(original.getZkPath(), original.getVersion(), original.getLedgerId(), original.getFirstTxId());
             this.inprogress = original.isInProgress();
-            this.ledgerSequenceNo = original.getLedgerSequenceNumber();
+            this.logSegmentSequenceNo = original.getLogSegmentSequenceNumber();
             this.lastEntryId = original.getLastEntryId();
             this.lastSlotId = original.getLastSlotId();
             this.lastTxId = original.getLastTxId();
@@ -267,8 +267,8 @@ public class LogSegmentMetadata {
             return this;
         }
 
-        public Mutator setLedgerSequenceNumber(long seqNo) {
-            this.ledgerSequenceNo = seqNo;
+        public Mutator setLogSegmentSequenceNumber(long seqNo) {
+            this.logSegmentSequenceNo = seqNo;
             return this;
         }
 
@@ -278,14 +278,14 @@ public class LogSegmentMetadata {
         }
 
         public Mutator setLastDLSN(DLSN dlsn) {
-            this.ledgerSequenceNo = dlsn.getLedgerSequenceNo();
+            this.logSegmentSequenceNo = dlsn.getLogSegmentSequenceNo();
             this.lastEntryId = dlsn.getEntryId();
             this.lastSlotId = dlsn.getSlotId();
             return this;
         }
 
         public Mutator setMinActiveDLSN(DLSN dlsn) {
-            if (this.ledgerSequenceNo != dlsn.getLedgerSequenceNo()) {
+            if (this.logSegmentSequenceNo != dlsn.getLogSegmentSequenceNo()) {
                 throw new IllegalArgumentException("Updating minDLSN in an incorrect log segment");
             }
             this.minActiveEntryId = dlsn.getEntryId();
@@ -330,8 +330,8 @@ public class LogSegmentMetadata {
 
         public int compare(LogSegmentMetadata o1,
                            LogSegmentMetadata o2) {
-            if ((o1.getLedgerSequenceNumber() == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
-                (o2.getLedgerSequenceNumber() == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+            if ((o1.getLogSegmentSequenceNumber() == DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO) ||
+                (o2.getLogSegmentSequenceNumber() == DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO)) {
                 if (o1.firstTxId < o2.firstTxId) {
                     return -1;
                 } else if (o1.firstTxId == o2.firstTxId) {
@@ -340,9 +340,9 @@ public class LogSegmentMetadata {
                     return 1;
                 }
             } else {
-                if (o1.getLedgerSequenceNumber() < o2.getLedgerSequenceNumber()) {
+                if (o1.getLogSegmentSequenceNumber() < o2.getLogSegmentSequenceNumber()) {
                     return -1;
-                } else if (o1.getLedgerSequenceNumber() == o2.getLedgerSequenceNumber()) {
+                } else if (o1.getLogSegmentSequenceNumber() == o2.getLogSegmentSequenceNumber()) {
                     // make sure we won't move over inprogress log segment if it still presents in the list
                     if (o1.isInProgress() && !o2.isInProgress()) {
                         return -1;
@@ -364,8 +364,8 @@ public class LogSegmentMetadata {
         = new Comparator<LogSegmentMetadata>() {
         public int compare(LogSegmentMetadata o1,
                            LogSegmentMetadata o2) {
-            if ((o1.getLedgerSequenceNumber() == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO) ||
-                (o2.getLedgerSequenceNumber() == DistributedLogConstants.UNASSIGNED_LEDGER_SEQNO)) {
+            if ((o1.getLogSegmentSequenceNumber() == DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO) ||
+                (o2.getLogSegmentSequenceNumber() == DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO)) {
                 if (o1.firstTxId > o2.firstTxId) {
                     return -1;
                 } else if (o1.firstTxId == o2.firstTxId) {
@@ -374,9 +374,9 @@ public class LogSegmentMetadata {
                     return 1;
                 }
             } else {
-                if (o1.getLedgerSequenceNumber() > o2.getLedgerSequenceNumber()) {
+                if (o1.getLogSegmentSequenceNumber() > o2.getLogSegmentSequenceNumber()) {
                     return -1;
-                } else if (o1.getLedgerSequenceNumber() == o2.getLedgerSequenceNumber()) {
+                } else if (o1.getLogSegmentSequenceNumber() == o2.getLogSegmentSequenceNumber()) {
                     // make sure we won't move over inprogress log segment if it still presents in the list
                     if (o1.isInProgress() && !o2.isInProgress()) {
                         return 1;
@@ -420,7 +420,7 @@ public class LogSegmentMetadata {
                                long completionTime,
                                boolean inprogress,
                                int recordCount,
-                               long ledgerSequenceNumber,
+                               long logSegmentSequenceNumber,
                                long lastEntryId,
                                long lastSlotId,
                                int regionId,
@@ -437,8 +437,8 @@ public class LogSegmentMetadata {
         this.inprogress = inprogress;
         this.completionTime = completionTime;
         this.recordCount = recordCount;
-        this.lastDLSN = new DLSN(ledgerSequenceNumber, lastEntryId, lastSlotId);
-        this.minActiveDLSN = new DLSN(ledgerSequenceNumber, minActiveEntryId, minActiveSlotId);
+        this.lastDLSN = new DLSN(logSegmentSequenceNumber, lastEntryId, lastSlotId);
+        this.minActiveDLSN = new DLSN(logSegmentSequenceNumber, minActiveEntryId, minActiveSlotId);
         this.startSequenceId = startSequenceId;
         this.regionId = regionId;
         this.status = status;
@@ -469,8 +469,8 @@ public class LogSegmentMetadata {
         return ledgerId;
     }
 
-    public long getLedgerSequenceNumber() {
-        return lastDLSN.getLedgerSequenceNo();
+    public long getLogSegmentSequenceNumber() {
+        return lastDLSN.getLogSegmentSequenceNo();
     }
 
     public int getVersion() {
@@ -492,7 +492,7 @@ public class LogSegmentMetadata {
     public long getStartSequenceId() {
         // generate negative sequence id for log segments that created <= v4
         return supportsSequenceId() && startSequenceId != DistributedLogConstants.UNASSIGNED_SEQUENCE_ID ?
-                startSequenceId : Long.MIN_VALUE + (getLedgerSequenceNumber() << 32L);
+                startSequenceId : Long.MIN_VALUE + (getLogSegmentSequenceNumber() << 32L);
     }
 
     public boolean isTruncated() {
@@ -523,7 +523,7 @@ public class LogSegmentMetadata {
     }
 
     public DLSN getFirstDLSN() {
-        return new DLSN(getLedgerSequenceNumber(), 0, 0);
+        return new DLSN(getLogSegmentSequenceNumber(), 0, 0);
     }
 
     public int getRecordCount() {
@@ -540,7 +540,7 @@ public class LogSegmentMetadata {
 
     @VisibleForTesting
     public boolean isDLSNinThisSegment(DLSN dlsn) {
-        return dlsn.getLedgerSequenceNo() == getLedgerSequenceNumber();
+        return dlsn.getLogSegmentSequenceNo() == getLogSegmentSequenceNumber();
     }
 
     @VisibleForTesting
@@ -578,7 +578,7 @@ public class LogSegmentMetadata {
 
         return new Mutator(this)
                 .setZkPath(zkPath)
-                .setLastDLSN(new DLSN(this.lastDLSN.getLedgerSequenceNo(), lastEntryId, lastSlotId))
+                .setLastDLSN(new DLSN(this.lastDLSN.getLogSegmentSequenceNo(), lastEntryId, lastSlotId))
                 .setLastTxId(newLastTxId)
                 .setInprogress(false)
                 .setCompletionTime(Utils.nowInMillis())
@@ -708,9 +708,9 @@ public class LogSegmentMetadata {
         if (parts.length == 4) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
-            long ledgerSequenceNumber = Long.valueOf(parts[3]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
-                .setLedgerSequenceNo(ledgerSequenceNumber)
+                .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                 .setRegionId(regionId)
                 .setStatus(status)
                 .build();
@@ -722,7 +722,7 @@ public class LogSegmentMetadata {
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
-            long ledgerSequenceNumber = Long.valueOf(parts[5]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, firstTxId)
@@ -730,7 +730,7 @@ public class LogSegmentMetadata {
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
                 .setRecordCount((int) recordCount)
-                .setLedgerSequenceNo(ledgerSequenceNumber)
+                .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                 .setLastEntryId(lastEntryId)
                 .setLastSlotId(lastSlotId)
                 .setRegionId(regionId)
@@ -763,12 +763,12 @@ public class LogSegmentMetadata {
         if (parts.length == 6) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
-            long ledgerSequenceNumber = Long.valueOf(parts[3]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
             long minActiveEntryId = Long.valueOf(parts[4]);
             long minActiveSlotId = Long.valueOf(parts[5]);
 
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
-                .setLedgerSequenceNo(ledgerSequenceNumber)
+                .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                 .setMinActiveEntryId(minActiveEntryId)
                 .setMinActiveSlotId(minActiveSlotId)
                 .setRegionId(regionId)
@@ -785,7 +785,7 @@ public class LogSegmentMetadata {
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
-            long ledgerSequenceNumber = Long.valueOf(parts[5]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
             long minActiveEntryId = Long.valueOf(parts[8]);
@@ -795,7 +795,7 @@ public class LogSegmentMetadata {
                 .setLastTxId(lastTxId)
                 .setCompletionTime(completionTime)
                 .setRecordCount((int) recordCount)
-                .setLedgerSequenceNo(ledgerSequenceNumber)
+                .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                 .setLastEntryId(lastEntryId)
                 .setLastSlotId(lastSlotId)
                 .setMinActiveEntryId(minActiveEntryId)
@@ -833,13 +833,13 @@ public class LogSegmentMetadata {
         if (parts.length == 7) {
             long ledgerId = Long.valueOf(parts[1]);
             long txId = Long.valueOf(parts[2]);
-            long ledgerSequenceNumber = Long.valueOf(parts[3]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
             long minActiveEntryId = Long.valueOf(parts[4]);
             long minActiveSlotId = Long.valueOf(parts[5]);
             long startSequenceId = Long.valueOf(parts[6]);
 
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
-                    .setLedgerSequenceNo(ledgerSequenceNumber)
+                    .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                     .setMinActiveEntryId(minActiveEntryId)
                     .setMinActiveSlotId(minActiveSlotId)
                     .setRegionId(regionId)
@@ -855,7 +855,7 @@ public class LogSegmentMetadata {
             long firstTxId = Long.valueOf(parts[2]);
             long lastTxId = Long.valueOf(parts[3]);
             long completionTime = Long.valueOf(parts[4]);
-            long ledgerSequenceNumber = Long.valueOf(parts[5]);
+            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
             long lastEntryId = Long.valueOf(parts[6]);
             long lastSlotId = Long.valueOf(parts[7]);
             long minActiveEntryId = Long.valueOf(parts[8]);
@@ -866,7 +866,7 @@ public class LogSegmentMetadata {
                     .setLastTxId(lastTxId)
                     .setCompletionTime(completionTime)
                     .setRecordCount((int) recordCount)
-                    .setLedgerSequenceNo(ledgerSequenceNumber)
+                    .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                     .setLastEntryId(lastEntryId)
                     .setLastSlotId(lastSlotId)
                     .setMinActiveEntryId(minActiveEntryId)
@@ -921,7 +921,7 @@ public class LogSegmentMetadata {
 
     public String getFinalisedData(LogSegmentMetadataVersion version) {
         String finalisedData;
-        final long ledgerSeqNo = getLedgerSequenceNumber();
+        final long logSegmentSeqNo = getLogSegmentSequenceNumber();
         final long lastEntryId = getLastEntryId();
         final long lastSlotId = getLastSlotId();
         final long minActiveEntryId = minActiveDLSN.getEntryId();
@@ -946,31 +946,31 @@ public class LogSegmentMetadata {
             if (LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO == version) {
                 if (inprogress) {
                     finalisedData = String.format("%d;%d;%d;%d",
-                        versionStatusCount, ledgerId, firstTxId, ledgerSeqNo);
+                        versionStatusCount, ledgerId, firstTxId, logSegmentSeqNo);
                 } else {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d",
                         versionStatusCount, ledgerId, firstTxId, lastTxId, completionTime,
-                        ledgerSeqNo, lastEntryId, lastSlotId);
+                        logSegmentSeqNo, lastEntryId, lastSlotId);
                 }
             } else if (LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value >= version.value &&
                         LogSegmentMetadataVersion.VERSION_V3_MIN_ACTIVE_DLSN.value <= version.value) {
                 if (inprogress) {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d",
-                        versionStatusCount, ledgerId, firstTxId, ledgerSeqNo, minActiveEntryId, minActiveSlotId);
+                        versionStatusCount, ledgerId, firstTxId, logSegmentSeqNo, minActiveEntryId, minActiveSlotId);
                 } else {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d;%d;%d",
                         versionStatusCount, ledgerId, firstTxId, lastTxId, completionTime,
-                        ledgerSeqNo, lastEntryId, lastSlotId, minActiveEntryId, minActiveSlotId);
+                        logSegmentSeqNo, lastEntryId, lastSlotId, minActiveEntryId, minActiveSlotId);
                 }
             } else if (LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value <= version.value &&
                         LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION >= version.value) {
                 if (inprogress) {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d",
-                        versionStatusCount, ledgerId, firstTxId, ledgerSeqNo, minActiveEntryId, minActiveSlotId, startSequenceId);
+                        versionStatusCount, ledgerId, firstTxId, logSegmentSeqNo, minActiveEntryId, minActiveSlotId, startSequenceId);
                 } else {
                     finalisedData = String.format("%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d",
                         versionStatusCount, ledgerId, firstTxId, lastTxId, completionTime,
-                        ledgerSeqNo, lastEntryId, lastSlotId, minActiveEntryId, minActiveSlotId, startSequenceId);
+                        logSegmentSeqNo, lastEntryId, lastSlotId, minActiveEntryId, minActiveSlotId, startSequenceId);
                 }
             } else {
                 throw new IllegalStateException("Unsupported log segment ledger metadata version '" + version + "'");
@@ -1017,7 +1017,7 @@ public class LogSegmentMetadata {
             // completionTime is set when a node is finalized, so that
             // cannot be compared
             // if the node is inprogress, don't compare the lastTxId either
-            if (this.getLedgerSequenceNumber() != other.getLedgerSequenceNumber() ||
+            if (this.getLogSegmentSequenceNumber() != other.getLogSegmentSequenceNumber() ||
                 this.ledgerId != other.ledgerId ||
                 this.firstTxId != other.firstTxId) {
                 retVal = false;
@@ -1043,7 +1043,7 @@ public class LogSegmentMetadata {
             return false;
         }
         LogSegmentMetadata ol = (LogSegmentMetadata) o;
-        return getLedgerSequenceNumber() == ol.getLedgerSequenceNumber()
+        return getLogSegmentSequenceNumber() == ol.getLogSegmentSequenceNumber()
             && ledgerId == ol.ledgerId
             && firstTxId == ol.firstTxId
             && lastTxId == ol.lastTxId
@@ -1062,7 +1062,7 @@ public class LogSegmentMetadata {
         hash = hash * 31 + (int) lastTxId;
         hash = hash * 31 + version.value;
         hash = hash * 31 + (int) completionTime;
-        hash = hash * 31 + (int) getLedgerSequenceNumber();
+        hash = hash * 31 + (int) getLogSegmentSequenceNumber();
         return hash;
     }
 
@@ -1075,7 +1075,7 @@ public class LogSegmentMetadata {
             ", recordCount:" + recordCount +
             ", regionId:" + regionId +
             ", status:" + status +
-            ", ledgerSequenceNumber:" + getLedgerSequenceNumber() +
+            ", logSegmentSequenceNumber:" + getLogSegmentSequenceNumber() +
             ", lastEntryId:" + getLastEntryId() +
             ", lastSlotId:" + getLastSlotId() +
             ", inprogress:" + inprogress +
@@ -1093,18 +1093,18 @@ public class LogSegmentMetadata {
     // Version Checking Utilities
     //
 
-    public boolean supportsLedgerSequenceNo() {
-        return supportsLedgerSequenceNo(version.value);
+    public boolean supportsLogSegmentSequenceNo() {
+        return supportsLogSegmentSequenceNo(version.value);
     }
 
     /**
-     * Whether the provided version supports ledger sequence number.
+     * Whether the provided version supports log segment sequence number.
      *
      * @param version
      *          log segment metadata version
-     * @return true if this log segment supports ledger sequence number.
+     * @return true if this log segment supports log segment sequence number.
      */
-    public static boolean supportsLedgerSequenceNo(int version) {
+    public static boolean supportsLogSegmentSequenceNo(int version) {
         return version >= LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value;
     }
 

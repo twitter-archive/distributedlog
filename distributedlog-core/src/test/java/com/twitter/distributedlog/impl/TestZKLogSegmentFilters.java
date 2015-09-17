@@ -28,7 +28,7 @@ public class TestZKLogSegmentFilters {
             segments.add(DLMTestUtil.completedLedgerZNodeNameWithVersion(i, (i - 1) * 100, i * 100 - 1, i));
         }
         for (int i = 6; i <= 10; i++) {
-            String segmentName = DLMTestUtil.completedLedgerZNodeNameWithLedgerSequenceNumber(i);
+            String segmentName = DLMTestUtil.completedLedgerZNodeNameWithLogSegmentSequenceNumber(i);
             segments.add(segmentName);
             if (i == 10) {
                 expectedFilteredSegments.add(segmentName);

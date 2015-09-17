@@ -560,21 +560,21 @@ public class DistributedLogTool extends Tool {
                         Set<Long> inprogressSeqNos = new HashSet<Long>();
                         for (LogSegmentMetadata segment : segments) {
                             if (segment.isInProgress()) {
-                                inprogressSeqNos.add(segment.getLedgerSequenceNumber());
+                                inprogressSeqNos.add(segment.getLogSegmentSequenceNumber());
                             }
                         }
                         for (LogSegmentMetadata segment : segments) {
-                            if (!segment.isInProgress() && inprogressSeqNos.contains(segment.getLedgerSequenceNumber())) {
+                            if (!segment.isInProgress() && inprogressSeqNos.contains(segment.getLogSegmentSequenceNumber())) {
                                 isCandidate = true;
                             }
                         }
                     } else {
                         LogSegmentMetadata firstSegment = segments.get(0);
-                        long lastSeqNo = firstSegment.getLedgerSequenceNumber();
+                        long lastSeqNo = firstSegment.getLogSegmentSequenceNumber();
 
                         for (int j = 1; j < segments.size(); j++) {
                             LogSegmentMetadata nextSegment = segments.get(j);
-                            if (lastSeqNo + 1 != nextSegment.getLedgerSequenceNumber()) {
+                            if (lastSeqNo + 1 != nextSegment.getLogSegmentSequenceNumber()) {
                                 isCandidate = true;
                                 break;
                             }
@@ -862,7 +862,7 @@ public class DistributedLogTool extends Tool {
         }
 
         boolean include(LogSegmentMetadata segment) {
-            return (firstLid <= segment.getLedgerSequenceNumber() && (lastLid == -1 || lastLid >= segment.getLedgerSequenceNumber()));
+            return (firstLid <= segment.getLogSegmentSequenceNumber() && (lastLid == -1 || lastLid >= segment.getLogSegmentSequenceNumber()));
         }
 
         private void printEppStatsHeader(DistributedLogManager dlm) throws Exception {
@@ -894,7 +894,7 @@ public class DistributedLogTool extends Tool {
         }
 
         private void printLedgerRow(LogSegmentMetadata segment) throws Exception {
-            println(segment.getLedgerSequenceNumber() + "\t: " + segment);
+            println(segment.getLogSegmentSequenceNumber() + "\t: " + segment);
         }
 
         private Map<BookieSocketAddress, Integer> getBookieStats(LogSegmentMetadata segment) throws Exception {
@@ -1524,7 +1524,7 @@ public class DistributedLogTool extends Tool {
                     lastEntryId = lastEntry.getEntryId();
                 }
                 if (lastEntryId != lh.getLastAddConfirmed()) {
-                    System.out.println("Inconsistent Last Add Confirmed Found for LogSegment " + metadata.getLedgerSequenceNumber() + ": ");
+                    System.out.println("Inconsistent Last Add Confirmed Found for LogSegment " + metadata.getLogSegmentSequenceNumber() + ": ");
                     System.out.println("\t metadata: " + metadata);
                     System.out.println("\t lac in ledger metadata is " + lh.getLastAddConfirmed() + ", but lac in bookies is " + lastEntryId);
                     return false;
@@ -1566,7 +1566,7 @@ public class DistributedLogTool extends Tool {
             }
             LedgerEntry lastEntry = entries.nextElement();
             LedgerEntryReader reader = new LedgerEntryReader("dlog",
-                                                             segment.getLedgerSequenceNumber(),
+                                                             segment.getLogSegmentSequenceNumber(),
                                                              lastEntry,
                                                              LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()),
                                                              segment.getStartSequenceId(),

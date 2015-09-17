@@ -79,7 +79,7 @@ class LedgerHandleCache {
 
     public void asyncOpenLedger(LogSegmentMetadata metadata, boolean fence,
                                 final BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor> callback) {
-        final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLedgerSequenceNumber(), fence);
+        final LedgerDescriptor ledgerDesc = new LedgerDescriptor(metadata.getLedgerId(), metadata.getLogSegmentSequenceNumber(), fence);
         RefCountedLedgerHandle refhandle = handlesMap.get(ledgerDesc);
         if (null == refhandle) {
             asyncOpenLedger(ledgerDesc, new AsyncCallback.OpenCallback() {

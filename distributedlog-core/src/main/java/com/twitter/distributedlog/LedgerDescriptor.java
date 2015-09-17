@@ -2,12 +2,12 @@ package com.twitter.distributedlog;
 
 class LedgerDescriptor {
     private final long ledgerId;
-    private final long ledgerSequenceNo;
+    private final long logSegmentSequenceNo;
     private final boolean fenced;
 
-    public LedgerDescriptor(long ledgerId, long ledgerSequenceNo, boolean fenced) {
+    public LedgerDescriptor(long ledgerId, long logSegmentSequenceNo, boolean fenced) {
         this.ledgerId = ledgerId;
-        this.ledgerSequenceNo = ledgerSequenceNo;
+        this.logSegmentSequenceNo = logSegmentSequenceNo;
         this.fenced = fenced;
     }
 
@@ -15,8 +15,8 @@ class LedgerDescriptor {
         return ledgerId;
     }
 
-    public long getLedgerSequenceNo() {
-        return ledgerSequenceNo;
+    public long getLogSegmentSequenceNo() {
+        return logSegmentSequenceNo;
     }
 
     public boolean isFenced() {
@@ -42,7 +42,7 @@ class LedgerDescriptor {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("(lid=").append(ledgerId).append(", lseqno=").append(ledgerSequenceNo)
+        sb.append("(lid=").append(ledgerId).append(", lseqno=").append(logSegmentSequenceNo)
                 .append(", fenced=").append(fenced).append(")");
         return sb.toString();
     }

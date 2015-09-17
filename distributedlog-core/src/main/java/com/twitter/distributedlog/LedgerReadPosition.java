@@ -17,28 +17,28 @@ public class LedgerReadPosition {
     }
 
     long ledgerId = DistributedLogConstants.UNRESOLVED_LEDGER_ID;
-    long ledgerSequenceNo;
+    long logSegmentSequenceNo;
     long entryId;
 
-    public LedgerReadPosition(long ledgerId, long ledgerSequenceNo, long entryId) {
+    public LedgerReadPosition(long ledgerId, long logSegmentSequenceNo, long entryId) {
         this.ledgerId = ledgerId;
-        this.ledgerSequenceNo = ledgerSequenceNo;
+        this.logSegmentSequenceNo = logSegmentSequenceNo;
         this.entryId = entryId;
     }
 
     public LedgerReadPosition(LedgerReadPosition that) {
         this.ledgerId = that.ledgerId;
-        this.ledgerSequenceNo = that.ledgerSequenceNo;
+        this.logSegmentSequenceNo = that.logSegmentSequenceNo;
         this.entryId = that.entryId;
     }
 
 
     public LedgerReadPosition(final DLSN dlsn) {
-        this(dlsn.getLedgerSequenceNo(), dlsn.getEntryId());
+        this(dlsn.getLogSegmentSequenceNo(), dlsn.getEntryId());
     }
 
-    public LedgerReadPosition(long ledgerSequenceNo, long entryId) {
-        this.ledgerSequenceNo = ledgerSequenceNo;
+    public LedgerReadPosition(long logSegmentSequenceNo, long entryId) {
+        this.logSegmentSequenceNo = logSegmentSequenceNo;
         this.entryId = entryId;
     }
 
@@ -50,8 +50,8 @@ public class LedgerReadPosition {
         return ledgerId;
     }
 
-    public long getLedgerSequenceNumber() {
-        return ledgerSequenceNo;
+    public long getLogSegmentSequenceNumber() {
+        return logSegmentSequenceNo;
     }
 
     public long getEntryId() {
@@ -62,15 +62,15 @@ public class LedgerReadPosition {
         entryId++;
     }
 
-    public void positionOnNewLedger(long ledgerId, long ledgerSequenceNo) {
+    public void positionOnNewLogSegment(long ledgerId, long logSegmentSequenceNo) {
         this.ledgerId = ledgerId;
-        this.ledgerSequenceNo = ledgerSequenceNo;
+        this.logSegmentSequenceNo = logSegmentSequenceNo;
         this.entryId = 0L;
     }
 
     @Override
     public String toString() {
-        return String.format("(lid=%d, lseqNo=%d, eid=%d)", ledgerId, ledgerSequenceNo, entryId);
+        return String.format("(lid=%d, lseqNo=%d, eid=%d)", ledgerId, logSegmentSequenceNo, entryId);
     }
 
     public boolean definitelyLessThanOrEqualTo(LedgerReadPosition threshold) {
@@ -90,16 +90,16 @@ public class LedgerReadPosition {
             return PartialOrderingComparisonResult.NotComparable;
         }
 
-        if (this.ledgerSequenceNo != threshold.ledgerSequenceNo) {
-            if (this.ledgerSequenceNo < threshold.ledgerSequenceNo) {
+        if (this.logSegmentSequenceNo != threshold.logSegmentSequenceNo) {
+            if (this.logSegmentSequenceNo < threshold.logSegmentSequenceNo) {
                 return PartialOrderingComparisonResult.LessThan;
             } else {
                 return PartialOrderingComparisonResult.GreaterThan;
             }
         } else if (this.ledgerId != threshold.ledgerId) {
-            // When ledgerSequenceNo is equal we cannot definitely say that this
+            // When logSegmentSequenceNo is equal we cannot definitely say that this
             // position is less than the threshold unless ledgerIds are equal
-            // since LedgerSequenceNumber maybe inferred from transactionIds in older
+            // since LogSegmentSequenceNumber maybe inferred from transactionIds in older
             // versions of the metadata.
             return PartialOrderingComparisonResult.NotComparable;
         } else if (this.getEntryId() < threshold.getEntryId()) {

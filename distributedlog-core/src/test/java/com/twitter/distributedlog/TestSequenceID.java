@@ -211,17 +211,17 @@ public class TestSequenceID extends TestDistributedLogBase {
         assertEquals(txId, readRecords.size());
         long sequenceId = Long.MIN_VALUE;
         for (LogRecordWithDLSN record : readRecords) {
-            if (record.getDlsn().getLedgerSequenceNo() <= 4) {
+            if (record.getDlsn().getLogSegmentSequenceNo() <= 4) {
                 assertTrue(record.getSequenceId() < 0);
                 assertTrue(record.getSequenceId() > sequenceId);
                 sequenceId = record.getSequenceId();
-            } else if (record.getDlsn().getLedgerSequenceNo() <= 7) {
+            } else if (record.getDlsn().getLogSegmentSequenceNo() <= 7) {
                 if (sequenceId < 0L) {
                     sequenceId = 0L;
                 }
                 assertEquals(sequenceId, record.getSequenceId());
                 ++sequenceId;
-            } else if (record.getDlsn().getLedgerSequenceNo() >= 9) {
+            } else if (record.getDlsn().getLogSegmentSequenceNo() >= 9) {
                 if (sequenceId > 0) {
                     sequenceId = Long.MIN_VALUE;
                 }

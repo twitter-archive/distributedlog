@@ -30,7 +30,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *
      * @param name
      *          name of the reader
-     * @param ledgerSeqNo
+     * @param logSegmentSeqNo
      *          ledger sequence number
      * @param ledgerEntry
      *          ledger entry
@@ -42,12 +42,12 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          stats logger
      */
     public LedgerEntryReader(final String name,
-                             final long ledgerSeqNo,
+                             final long logSegmentSeqNo,
                              final LedgerEntry ledgerEntry,
                              final boolean envelopeEntries,
                              final long startSequenceId,
                              StatsLogger statsLogger) throws IOException {
-        this(name, ledgerSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(),
+        this(name, logSegmentSeqNo, ledgerEntry.getEntryId(), ledgerEntry.getEntryInputStream(),
                 envelopeEntries, startSequenceId, statsLogger);
     }
 
@@ -56,7 +56,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *
      * @param name
      *          name of the reader
-     * @param ledgerSeqNo
+     * @param logSegmentSeqNo
      *          ledger sequence number
      * @param entryId
      *          entry id
@@ -70,7 +70,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
      *          stats logger
      */
     public LedgerEntryReader(final String name,
-                             final long ledgerSeqNo,
+                             final long logSegmentSeqNo,
                              final long entryId,
                              final InputStream in,
                              final boolean envelopeEntries,
@@ -86,7 +86,7 @@ public class LedgerEntryReader extends LogRecord.Reader {
 
             @Override
             public DLSN getCurrentPosition() {
-                return new DLSN(ledgerSeqNo, entryId, slotId);
+                return new DLSN(logSegmentSeqNo, entryId, slotId);
             }
 
             @Override
