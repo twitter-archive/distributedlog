@@ -14,6 +14,9 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.distributedlog.selector.FirstDLSNNotLessThanSelector;
+import com.twitter.distributedlog.selector.LastRecordSelector;
+import com.twitter.distributedlog.selector.LogRecordSelector;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -26,6 +29,102 @@ import scala.runtime.BoxedUnit;
 public class ReadUtils {
 
     static final Logger LOG = LoggerFactory.getLogger(ReadUtils.class);
+
+    //
+    // Read First & Last Record Functions
+    //
+
+    /**
+     * Read last record from a ledger.
+     *
+     * @param streamName
+     *          fully qualified stream name (used for logging)
+     * @param l
+     *          ledger descriptor.
+     * @param fence
+     *          whether to fence the ledger.
+     * @param includeControl
+     *          whether to include control record.
+     * @param includeEndOfStream
+     *          whether to include end of stream.
+     * @param scanStartBatchSize
+     *          first num entries used for read last record scan
+     * @param scanMaxBatchSize
+     *          max num entries used for read last record scan
+     * @param numRecordsScanned
+     *          num of records scanned to get last record
+     * @param executorService
+     *          executor service used for processing entries
+     * @param bookKeeperClient
+     *          bookkeeper client to process entries
+     * @param digestpw
+     *          digest password to read entries from bookkeeper
+     * @return a future with last record.
+     */
+    public static Future<LogRecordWithDLSN> asyncReadLastRecord(
+            final String streamName,
+            final LogSegmentMetadata l,
+            final boolean fence,
+            final boolean includeControl,
+            final boolean includeEndOfStream,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
+            final AtomicInteger numRecordsScanned,
+            final ExecutorService executorService,
+            final BookKeeperClient bookKeeperClient,
+            final String digestpw) {
+        final LogRecordSelector selector = new LastRecordSelector();
+        return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize,
+                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               selector, true /* backward */, 0L);
+    }
+
+    /**
+     * Read first record from a ledger with a DLSN larger than that given.
+     *
+     * @param streamName
+     *          fully qualified stream name (used for logging)
+     * @param l
+     *          ledger descriptor.
+     * @param scanStartBatchSize
+     *          first num entries used for read last record scan
+     * @param scanMaxBatchSize
+     *          max num entries used for read last record scan
+     * @param numRecordsScanned
+     *          num of records scanned to get last record
+     * @param executorService
+     *          executor service used for processing entries
+     * @param bookKeeperClient
+     *          bookkeeper client to process entries
+     * @param digestpw
+     *          digest password to read entries from bookkeeper
+     * @param dlsn
+     *          threshold dlsn
+     * @return a future with last record.
+     */
+    public static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
+            final String streamName,
+            final LogSegmentMetadata l,
+            final int scanStartBatchSize,
+            final int scanMaxBatchSize,
+            final AtomicInteger numRecordsScanned,
+            final ExecutorService executorService,
+            final BookKeeperClient bookKeeperClient,
+            final String digestpw,
+            final DLSN dlsn) {
+        long startEntryId = 0L;
+        if (l.getLogSegmentSequenceNumber() == dlsn.getLogSegmentSequenceNo()) {
+            startEntryId = dlsn.getEntryId();
+        }
+        final LogRecordSelector selector = new FirstDLSNNotLessThanSelector(dlsn);
+        return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize,
+                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               selector, false /* backward */, startEntryId);
+    }
+
+    //
+    // Private methods for scanning log segments
+    //
 
     private static class ScanContext {
         // variables to about current scan state
@@ -289,7 +388,7 @@ public class ReadUtils {
                 });
     }
 
-    private static void asyncReadRecordFromLedger(
+    private static void asyncReadRecordFromLogSegment(
             final String streamName,
             final LedgerDescriptor ledgerDescriptor,
             final LedgerHandleCache handleCache,
@@ -324,94 +423,6 @@ public class ReadUtils {
                 includeControl, includeEndOfStream, backward, numRecordsScanned);
         asyncReadRecordFromEntries(streamName, ledgerDescriptor, handleCache, metadata, executorService,
                                    promise, context, selector);
-    }
-
-    /**
-     * Read last record from a ledger.
-     *
-     * @param streamName
-     *          fully qualified stream name (used for logging)
-     * @param l
-     *          ledger descriptor.
-     * @param fence
-     *          whether to fence the ledger.
-     * @param includeControl
-     *          whether to include control record.
-     * @param includeEndOfStream
-     *          whether to include end of stream.
-     * @param scanStartBatchSize
-     *          first num entries used for read last record scan
-     * @param scanMaxBatchSize
-     *          max num entries used for read last record scan
-     * @param numRecordsScanned
-     *          num of records scanned to get last record
-     * @param executorService
-     *          executor service used for processing entries
-     * @param bookKeeperClient
-     *          bookkeeper client to process entries
-     * @param digestpw
-     *          digest password to read entries from bookkeeper
-     * @return a future with last record.
-     */
-    public static Future<LogRecordWithDLSN> asyncReadLastRecord(
-            final String streamName,
-            final LogSegmentMetadata l,
-            final boolean fence,
-            final boolean includeControl,
-            final boolean includeEndOfStream,
-            final int scanStartBatchSize,
-            final int scanMaxBatchSize,
-            final AtomicInteger numRecordsScanned,
-            final ExecutorService executorService,
-            final BookKeeperClient bookKeeperClient,
-            final String digestpw) {
-        final LogRecordSelector selector = new LastRecordSelector();
-        return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize,
-                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
-                               selector, true /* backward */, 0L);
-    }
-
-    /**
-     * Read first record from a ledger with a DLSN larger than that given.
-     *
-     * @param streamName
-     *          fully qualified stream name (used for logging)
-     * @param l
-     *          ledger descriptor.
-     * @param scanStartBatchSize
-     *          first num entries used for read last record scan
-     * @param scanMaxBatchSize
-     *          max num entries used for read last record scan
-     * @param numRecordsScanned
-     *          num of records scanned to get last record
-     * @param executorService
-     *          executor service used for processing entries
-     * @param bookKeeperClient
-     *          bookkeeper client to process entries
-     * @param digestpw
-     *          digest password to read entries from bookkeeper
-     * @param dlsn
-     *          threshold dlsn
-     * @return a future with last record.
-     */
-    static Future<LogRecordWithDLSN> asyncReadFirstUserRecord(
-            final String streamName,
-            final LogSegmentMetadata l,
-            final int scanStartBatchSize,
-            final int scanMaxBatchSize,
-            final AtomicInteger numRecordsScanned,
-            final ExecutorService executorService,
-            final BookKeeperClient bookKeeperClient,
-            final String digestpw,
-            final DLSN dlsn) {
-        long startEntryId = 0L;
-        if (l.getLogSegmentSequenceNumber() == dlsn.getLogSegmentSequenceNo()) {
-            startEntryId = dlsn.getEntryId();
-        }
-        final LogRecordSelector selector = new FirstDLSNGreaterThanSelector(dlsn);
-        return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize,
-                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
-                               selector, false /* backward */, startEntryId);
     }
 
     private static Future<LogRecordWithDLSN> asyncReadRecord(
@@ -460,7 +471,7 @@ public class ReadUtils {
                                 LOG.debug("{} {} scanning {}.", new Object[] {
                                         (backward ? "backward" : "forward"), streamName, l });
                             }
-                            asyncReadRecordFromLedger(
+                            asyncReadRecordFromLogSegment(
                                     streamName, ledgerDescriptor, handleCachePriv, l, executorService,
                                     scanStartBatchSize, scanMaxBatchSize,
                                     includeControl, includeEndOfStream,
