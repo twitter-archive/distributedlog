@@ -20,7 +20,10 @@ import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.Utils;
+import org.apache.commons.lang3.tuple.Pair;
 import scala.Function0;
+import scala.Function1;
+import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -146,7 +149,11 @@ class BKLogReadHandler extends BKLogHandler {
 
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
-        handleCache = new LedgerHandleCache(this.bookKeeperClient, this.digestpw, statsLogger);
+        handleCache = LedgerHandleCache.newBuilder()
+                .bkc(this.bookKeeperClient)
+                .conf(conf)
+                .statsLogger(statsLogger)
+                .build();
         ledgerDataAccessor = new LedgerDataAccessor(
                 handleCache, getFullyQualifiedName(), statsLogger, alertStatsLogger, notification,
                 conf.getTraceReadAheadDeliveryLatency(), conf.getDataLatencyWarnThresholdMillis());
@@ -270,11 +277,12 @@ class BKLogReadHandler extends BKLogHandler {
                 LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
                 satisfyPromiseAsync(threadAcquirePromise, new Return<Void>(null));
             }
+
             @Override
             public void onFailure(Throwable cause) {
                 readLockAcquireFailureStat.inc();
                 LOG.info("failed to acquire readlock {} at {}",
-                    new Object[]{ getLockClientId(), readLockPath, cause });
+                        new Object[]{getLockClientId(), readLockPath, cause});
                 satisfyPromiseAsync(threadAcquirePromise, new Throw<Void>(cause));
             }
         });
@@ -998,6 +1006,21 @@ class BKLogReadHandler extends BKLogHandler {
             };
         }
 
+        <T> Function1<T, BoxedUnit> submit(final Function1<T, BoxedUnit> function) {
+            return new AbstractFunction1<T, BoxedUnit>() {
+                @Override
+                public BoxedUnit apply(final T input) {
+                    submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            function.apply(input);
+                        }
+                    });
+                    return BoxedUnit.UNIT;
+                }
+            };
+        }
+
         void submit(Runnable runnable) {
             if (injectReadAheadStall && Utils.randomPercent(10)) {
                 LOG.warn("Error injected: read ahead for stream {} is going to stall.", getFullyQualifiedName());
@@ -1047,9 +1070,6 @@ class BKLogReadHandler extends BKLogHandler {
                 bkLedgerManager.getHandleCache().closeLedger(ld);
                 currentLH = null;
                 retVal = true;
-            } catch (InterruptedException ie) {
-                LOG.debug("Interrupted during closing {} : ", ld, ie);
-                handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.InterruptedException);
             } catch (BKException bke) {
                 LOG.debug("BK Exception during closing {} : ", ld, bke);
                 handleException(ReadAheadPhase.CLOSE_LEDGER, bke.getCode());
@@ -1390,13 +1410,36 @@ class BKLogReadHandler extends BKLogHandler {
                 super(next);
             }
 
-            private void issueReadLastConfirmedAndEntry(boolean parallel, long lastAddConfirmed) {
-                String ctx = String.format("ReadLastConfirmedAndEntry(%s, %d)", parallel? "Parallel":"Sequential", lastAddConfirmed);
-                ReadLastConfirmedAndEntryCallbackWithNotification callback =
+            private void issueReadLastConfirmedAndEntry(final boolean parallel,
+                                                        final long lastAddConfirmed) {
+                final String ctx = String.format("ReadLastConfirmedAndEntry(%s, %d)", parallel? "Parallel":"Sequential", lastAddConfirmed);
+                final ReadLastConfirmedAndEntryCallbackWithNotification callback =
                     new ReadLastConfirmedAndEntryCallbackWithNotification(lastAddConfirmed, this, ctx);
                 boolean callbackImmediately = setMetadataNotification(callback);
-                bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(currentLH, nextReadAheadPosition.getEntryId(),
-                    conf.getReadLACLongPollTimeout(), parallel, callback, ctx);
+                bkLedgerManager.getHandleCache().asyncReadLastConfirmedAndEntry(
+                        currentLH,
+                        nextReadAheadPosition.getEntryId(),
+                        conf.getReadLACLongPollTimeout(),
+                        parallel
+                ).addEventListener(new FutureEventListener<Pair<Long, LedgerEntry>>() {
+                    @Override
+                    public void onSuccess(Pair<Long, LedgerEntry> lacAndEntry) {
+                        callback.readLastConfirmedAndEntryComplete(
+                                BKException.Code.OK,
+                                lacAndEntry.getLeft(),
+                                lacAndEntry.getRight(),
+                                ctx);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        callback.readLastConfirmedAndEntryComplete(
+                                FutureUtils.bkResultCode(cause),
+                                lastAddConfirmed,
+                                null,
+                                ctx);
+                    }
+                });
                 callback.callbackImmediately(callbackImmediately);
                 readAheadReadLACAndEntryCounter.inc();
             }
@@ -1411,16 +1454,27 @@ class BKLogReadHandler extends BKLogHandler {
                             LOG.info("Opening inprogress ledger of {} for {} at {}.",
                                      new Object[] { currentMetadata, fullyQualifiedName, System.currentTimeMillis() });
                         }
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, false)
+                                .addEventListener(new FutureEventListener<LedgerDescriptor>() {
+                                    @Override
+                                    public void onSuccess(LedgerDescriptor ld) {
+                                        operationComplete(BKException.Code.OK, ld);
+                                    }
+
+                                    @Override
+                                    public void onFailure(Throwable cause) {
+                                        operationComplete(FutureUtils.bkResultCode(cause), null);
+                                    }
+                                });
                     } else {
-                        long lastAddConfirmed;
+                        final long lastAddConfirmed;
                         boolean isClosed;
                         try {
                             isClosed = bkLedgerManager.getHandleCache().isLedgerHandleClosed(currentLH);
                             lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
-                        } catch (IOException ie) {
+                        } catch (BKException ie) {
                             // Exception is thrown due to no ledger handle
-                            handleException(ReadAheadPhase.OPEN_LEDGER, BKException.Code.NoSuchLedgerExistsException);
+                            handleException(ReadAheadPhase.OPEN_LEDGER, ie.getCode());
                             return;
                         }
 
@@ -1485,7 +1539,18 @@ class BKLogReadHandler extends BKLogHandler {
                                 default:
                                     String ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
                                     setMetadataNotification(null);
-                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, ctx);
+                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH)
+                                            .addEventListener(new FutureEventListener<Long>() {
+                                                @Override
+                                                public void onSuccess(Long lac) {
+                                                    readLastConfirmedComplete(BKException.Code.OK, lac, null);
+                                                }
+
+                                                @Override
+                                                public void onFailure(Throwable cause) {
+                                                    readLastConfirmedComplete(FutureUtils.bkResultCode(cause), lastAddConfirmed, null);
+                                                }
+                                            });
                                     readAheadReadLACCounter.inc();
                                     break;
                             }
@@ -1569,13 +1634,24 @@ class BKLogReadHandler extends BKLogHandler {
                             if (!readAheadError) {
                                 next.process(BKException.Code.OK);
                             }
-                        } catch (IOException ioe) {
-                            LOG.debug("Exception while repositioning", ioe);
-                            handleException(ReadAheadPhase.CLOSE_LEDGER, BKException.Code.NoSuchLedgerExistsException);
+                        } catch (BKException bke) {
+                            LOG.debug("Exception while repositioning", bke);
+                            handleException(ReadAheadPhase.CLOSE_LEDGER, bke.getCode());
                         }
                     } else {
                         LOG.trace("Opening completed ledger of {} for {}.", currentMetadata, fullyQualifiedName);
-                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, true, this);
+                        bkLedgerManager.getHandleCache().asyncOpenLedger(currentMetadata, true)
+                                .addEventListener(new FutureEventListener<LedgerDescriptor>() {
+                                    @Override
+                                    public void onSuccess(LedgerDescriptor ld) {
+                                        operationComplete(BKException.Code.OK, ld);
+                                    }
+
+                                    @Override
+                                    public void onFailure(Throwable cause) {
+                                        operationComplete(FutureUtils.bkResultCode(cause), null);
+                                    }
+                                });
                     }
                 }
 
@@ -1678,7 +1754,7 @@ class BKLogReadHandler extends BKLogHandler {
                                 LOG.trace("Advancing Last Add Confirmed of {} for {} : {}, {}",
                                           new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed,
                                                          bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH) });
-                            } catch (IOException exc) {
+                            } catch (BKException exc) {
                                 // Ignore
                             }
                         }
@@ -1741,8 +1817,8 @@ class BKLogReadHandler extends BKLogHandler {
                 if (null != currentLH) {
                     try {
                         lastAddConfirmed = bkLedgerManager.getHandleCache().getLastAddConfirmed(currentLH);
-                    } catch (IOException e) {
-                        handleException(ReadAheadPhase.READ_LAST_CONFIRMED, BKException.Code.NoSuchLedgerExistsException);
+                    } catch (BKException bke) {
+                        handleException(ReadAheadPhase.READ_LAST_CONFIRMED, bke.getCode());
                         return;
                     }
                     read();
@@ -1773,8 +1849,20 @@ class BKLogReadHandler extends BKLogHandler {
                              new Object[] { startEntryId, endEntryId, fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
                 }
 
-                bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, startEntryId, endEntryId , this,
-                                                                  String.format("ReadEntries(%d-%d)", startEntryId, endEntryId));
+                final String readCtx = String.format("ReadEntries(%d-%d)", startEntryId, endEntryId);
+                bkLedgerManager.getHandleCache().asyncReadEntries(currentLH, startEntryId, endEntryId)
+                        .addEventListener(new FutureEventListener<Enumeration<LedgerEntry>>() {
+
+                            @Override
+                            public void onSuccess(Enumeration<LedgerEntry> entries) {
+                                readComplete(BKException.Code.OK, null, entries, readCtx);
+                            }
+
+                            @Override
+                            public void onFailure(Throwable cause) {
+                                readComplete(FutureUtils.bkResultCode(cause), null, null, readCtx);
+                            }
+                        });
             }
 
             @Override
@@ -1784,7 +1872,7 @@ class BKLogReadHandler extends BKLogHandler {
                 submit(new Runnable() {
                     @Override
                     public void run() {
-                        if (BKException.Code.OK != rc || null == lh) {
+                        if (BKException.Code.OK != rc) {
                             readAheadReadEntriesStat.registerFailedEvent(0);
                             LOG.debug("BK Exception {} while reading entry", rc);
                             handleException(ReadAheadPhase.READ_ENTRIES, rc);

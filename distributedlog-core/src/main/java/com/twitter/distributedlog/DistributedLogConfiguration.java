@@ -651,9 +651,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * Set BK password digest
      *
      * @param bkDigestPW BK password digest
+     * @return distributedlog configuration
      */
-    public void setBKDigestPW(String bkDigestPW) {
+    public DistributedLogConfiguration setBKDigestPW(String bkDigestPW) {
         setProperty(BKDL_BOOKKEEPER_DIGEST_PW, bkDigestPW);
+        return this;
     }
 
     /**

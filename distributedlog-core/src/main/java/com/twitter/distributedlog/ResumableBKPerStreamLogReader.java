@@ -166,12 +166,10 @@ class ResumableBKPerStreamLogReader extends BKPerStreamLogReader implements Watc
         } catch (BKException e) {
             LOG.error("Could not open ledger {}", metadata.getLedgerId(), e);
             throw new IOException("Could not open ledger " + metadata.getLedgerId(), e);
-        } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted on opening ledger " + metadata.getLedgerId(), ie);
         }
     }
 
-    synchronized public boolean canResume() throws IOException {
+    synchronized public boolean canResume() throws BKException {
         return (null == ledgerDescriptor) ||
             (nodeDeleteNotification.get() ||
             !isInProgress() ||

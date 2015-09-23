@@ -12,6 +12,8 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.BoxedUnit;
 
 import static org.junit.Assert.*;
 
@@ -28,17 +30,39 @@ public class TestReadUtils extends TestDistributedLogBase {
     private Future<LogRecordWithDLSN> getFirstGreaterThanRecord(BKDistributedLogManager bkdlm, int ledgerNo, DLSN dlsn) throws Exception {
         BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
+        final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
+                .bkc(bkdlm.getWriterBKC())
+                .conf(conf)
+                .build();
         return ReadUtils.asyncReadFirstUserRecord(
             bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
-            bkdlm.getWriterBKC(), conf.getBKDigestPW(), dlsn);
+            handleCache, dlsn
+        ).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
     }
 
     private Future<LogRecordWithDLSN> getLastUserRecord(BKDistributedLogManager bkdlm, int ledgerNo) throws Exception {
         BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
+        final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
+                .bkc(bkdlm.getWriterBKC())
+                .conf(conf)
+                .build();
         return ReadUtils.asyncReadLastRecord(
             bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
-            bkdlm.getWriterBKC(), conf.getBKDigestPW());
+            handleCache
+        ).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
     }
 
     @Test(timeout = 60000)

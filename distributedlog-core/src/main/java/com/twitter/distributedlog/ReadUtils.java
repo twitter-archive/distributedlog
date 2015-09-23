@@ -6,10 +6,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,10 +54,8 @@ public class ReadUtils {
      *          num of records scanned to get last record
      * @param executorService
      *          executor service used for processing entries
-     * @param bookKeeperClient
-     *          bookkeeper client to process entries
-     * @param digestpw
-     *          digest password to read entries from bookkeeper
+     * @param handleCache
+     *          ledger handle cache
      * @return a future with last record.
      */
     public static Future<LogRecordWithDLSN> asyncReadLastRecord(
@@ -71,11 +68,10 @@ public class ReadUtils {
             final int scanMaxBatchSize,
             final AtomicInteger numRecordsScanned,
             final ExecutorService executorService,
-            final BookKeeperClient bookKeeperClient,
-            final String digestpw) {
+            final LedgerHandleCache handleCache) {
         final LogRecordSelector selector = new LastRecordSelector();
         return asyncReadRecord(streamName, l, fence, includeControl, includeEndOfStream, scanStartBatchSize,
-                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               scanMaxBatchSize, numRecordsScanned, executorService, handleCache,
                                selector, true /* backward */, 0L);
     }
 
@@ -94,10 +90,6 @@ public class ReadUtils {
      *          num of records scanned to get last record
      * @param executorService
      *          executor service used for processing entries
-     * @param bookKeeperClient
-     *          bookkeeper client to process entries
-     * @param digestpw
-     *          digest password to read entries from bookkeeper
      * @param dlsn
      *          threshold dlsn
      * @return a future with last record.
@@ -109,8 +101,7 @@ public class ReadUtils {
             final int scanMaxBatchSize,
             final AtomicInteger numRecordsScanned,
             final ExecutorService executorService,
-            final BookKeeperClient bookKeeperClient,
-            final String digestpw,
+            final LedgerHandleCache handleCache,
             final DLSN dlsn) {
         long startEntryId = 0L;
         if (l.getLogSegmentSequenceNumber() == dlsn.getLogSegmentSequenceNo()) {
@@ -118,7 +109,7 @@ public class ReadUtils {
         }
         final LogRecordSelector selector = new FirstDLSNNotLessThanSelector(dlsn);
         return asyncReadRecord(streamName, l, false, false, false, scanStartBatchSize,
-                               scanMaxBatchSize, numRecordsScanned, executorService, bookKeeperClient, digestpw,
+                               scanMaxBatchSize, numRecordsScanned, executorService, handleCache,
                                selector, false /* backward */, startEntryId);
     }
 
@@ -241,49 +232,56 @@ public class ReadUtils {
             LOG.debug("{} reading entries [{} - {}] from {}.",
                     new Object[] { streamName, startEntryId, endEntryId, ledgerDescriptor });
         }
-        handleCache.asyncReadEntries(ledgerDescriptor, startEntryId, endEntryId,
-                new org.apache.bookkeeper.client.AsyncCallback.ReadCallback() {
+        handleCache.asyncReadEntries(ledgerDescriptor, startEntryId, endEntryId)
+                .addEventListener(new FutureEventListener<Enumeration<LedgerEntry>>() {
                     @Override
-                    public void readComplete(final int rc, final LedgerHandle lh, final Enumeration<LedgerEntry> entries, Object ctx) {
+                    public void onSuccess(final Enumeration<LedgerEntry> entries) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("{} finished reading entries [{} - {}] from {} : {}",
-                                    new Object[] { streamName, startEntryId, endEntryId, ledgerDescriptor, BKException.getMessage(rc) });
+                            LOG.debug("{} finished reading entries [{} - {}] from {}",
+                                    new Object[]{ streamName, startEntryId, endEntryId, ledgerDescriptor });
                         }
                         // submit the handling logic back to DL threads
                         executorService.submit(new Runnable() {
                             @Override
                             public void run() {
-                                if (BKException.Code.OK != rc) {
-                                    String errMsg = "Error reading entries [" + startEntryId + "-" + endEntryId
-                                            + "] for reading record of " + streamName;
-                                    promise.setException(new IOException(errMsg, BKException.create(rc)));
-                                } else {
-                                    LogRecordWithDLSN record = null;
-                                    while (entries.hasMoreElements()) {
-                                        LedgerEntry entry = entries.nextElement();
-                                        try {
-                                            visitEntryRecords(
+                                LogRecordWithDLSN record = null;
+                                while (entries.hasMoreElements()) {
+                                    LedgerEntry entry = entries.nextElement();
+                                    try {
+                                        visitEntryRecords(
                                                 streamName, metadata, ledgerDescriptor.getLogSegmentSequenceNo(), entry, context, selector);
-                                        } catch (IOException ioe) {
-                                            // exception is only thrown due to bad ledger entry, so it might be corrupted
-                                            // we shouldn't do anything beyond this point. throw the exception to application
-                                            promise.setException(ioe);
-                                            return;
-                                        }
+                                    } catch (IOException ioe) {
+                                        // exception is only thrown due to bad ledger entry, so it might be corrupted
+                                        // we shouldn't do anything beyond this point. throw the exception to application
+                                        promise.setException(ioe);
+                                        return;
                                     }
-
-                                    record = selector.result();
-                                    if (LOG.isDebugEnabled()) {
-                                        LOG.debug("{} got record from entries [{} - {}] of {} : {}",
-                                                new Object[] { streamName, startEntryId, endEntryId,
-                                                        ledgerDescriptor, record });
-                                    }
-                                    promise.setValue(record);
                                 }
+
+                                record = selector.result();
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("{} got record from entries [{} - {}] of {} : {}",
+                                            new Object[]{streamName, startEntryId, endEntryId,
+                                                    ledgerDescriptor, record});
+                                }
+                                promise.setValue(record);
                             }
                         });
                     }
-                }, null);
+
+                    @Override
+                    public void onFailure(final Throwable cause) {
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                String errMsg = "Error reading entries [" + startEntryId + "-" + endEntryId
+                                            + "] for reading record of " + streamName;
+                                promise.setException(new IOException(errMsg,
+                                        BKException.create(FutureUtils.bkResultCode(cause))));
+                            }
+                        });
+                    }
+                });
         return promise;
     }
 
@@ -406,7 +404,7 @@ public class ReadUtils {
         final long lastAddConfirmed;
         try {
             lastAddConfirmed = handleCache.getLastAddConfirmed(ledgerDescriptor);
-        } catch (IOException e) {
+        } catch (BKException e) {
             promise.setException(e);
             return;
         }
@@ -435,52 +433,56 @@ public class ReadUtils {
             final int scanMaxBatchSize,
             final AtomicInteger numRecordsScanned,
             final ExecutorService executorService,
-            final BookKeeperClient bookKeeperClient,
-            final String digestpw,
+            final LedgerHandleCache handleCache,
             final LogRecordSelector selector,
             final boolean backward,
             final long startEntryId) {
 
         final Promise<LogRecordWithDLSN> promise = new Promise<LogRecordWithDLSN>();
-        // Create a ledger handle cache && open ledger handle
-        final LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
-        // close the ledger handle cache once the promise is satisified
-        promise.ensure(new AbstractFunction0<BoxedUnit>() {
-            @Override
-            public BoxedUnit apply() {
-                handleCachePriv.clear();
-                return BoxedUnit.UNIT;
-            }
-        });
 
-        handleCachePriv.asyncOpenLedger(l, fence, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
-            @Override
-            public void operationComplete(final int rc, final LedgerDescriptor ledgerDescriptor) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} Opened logsegment {} for reading record : {}",
-                            new Object[] { streamName, l, BKException.getMessage(rc) });
-                }
-                executorService.submit(new Runnable() {
+        handleCache.asyncOpenLedger(l, fence)
+                .addEventListener(new FutureEventListener<LedgerDescriptor>() {
                     @Override
-                    public void run() {
-                        if (BKException.Code.OK != rc) {
-                            String errMsg = "Error opening log segment " + l + "] for reading record of " + streamName;
-                            promise.setException(new IOException(errMsg, BKException.create(rc)));
-                        } else {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("{} {} scanning {}.", new Object[] {
-                                        (backward ? "backward" : "forward"), streamName, l });
-                            }
-                            asyncReadRecordFromLogSegment(
-                                    streamName, ledgerDescriptor, handleCachePriv, l, executorService,
-                                    scanStartBatchSize, scanMaxBatchSize,
-                                    includeControl, includeEndOfStream,
-                                    promise, numRecordsScanned, selector, backward, startEntryId);
+                    public void onSuccess(final LedgerDescriptor ledgerDescriptor) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("{} Opened logsegment {} for reading record",
+                                    streamName, l);
                         }
+                        promise.ensure(new AbstractFunction0<BoxedUnit>() {
+                            @Override
+                            public BoxedUnit apply() {
+                                handleCache.asyncCloseLedger(ledgerDescriptor);
+                                return BoxedUnit.UNIT;
+                            }
+                        });
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("{} {} scanning {}.", new Object[]{
+                                            (backward ? "backward" : "forward"), streamName, l});
+                                }
+                                asyncReadRecordFromLogSegment(
+                                        streamName, ledgerDescriptor, handleCache, l, executorService,
+                                        scanStartBatchSize, scanMaxBatchSize,
+                                        includeControl, includeEndOfStream,
+                                        promise, numRecordsScanned, selector, backward, startEntryId);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(final Throwable cause) {
+                        executorService.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                String errMsg = "Error opening log segment " + l + "] for reading record of " + streamName;
+                                promise.setException(new IOException(errMsg,
+                                        BKException.create(FutureUtils.bkResultCode(cause))));
+                            }
+                        });
                     }
                 });
-            }
-        });
         return promise;
     }
 }

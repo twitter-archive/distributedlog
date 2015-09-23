@@ -7,6 +7,9 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureCancelledException;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.client.BKException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -18,6 +21,8 @@ import java.util.concurrent.ExecutorService;
  * Utilities to process future
  */
 public class FutureUtils {
+
+    private static final Logger logger = LoggerFactory.getLogger(FutureUtils.class);
 
     private static class ListFutureProcessor<T, R>
             implements FutureEventListener<R>, Runnable {
@@ -83,6 +88,26 @@ public class FutureUtils {
             processor.run();
         }
         return processor.promise;
+    }
+
+    public static <T> T bkResult(Future<T> result) throws BKException {
+        try {
+            return Await.result(result);
+        } catch (BKException bke) {
+            throw bke;
+        } catch (InterruptedException ie) {
+            throw BKException.create(BKException.Code.InterruptedException);
+        } catch (Exception e) {
+            logger.warn("Encountered unexpected exception on waiting bookkeeper results : ", e);
+            throw BKException.create(BKException.Code.UnexpectedConditionException);
+        }
+    }
+
+    public static int bkResultCode(Throwable throwable) {
+        if (throwable instanceof BKException) {
+            return ((BKException)throwable).getCode();
+        }
+        return BKException.Code.UnexpectedConditionException;
     }
 
     public static <T> T result(Future<T> result) throws IOException {

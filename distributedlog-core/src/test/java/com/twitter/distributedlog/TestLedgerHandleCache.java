@@ -1,24 +1,17 @@
 package com.twitter.distributedlog;
 
-import org.apache.bookkeeper.client.AsyncCallback;
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Enumeration;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static com.google.common.base.Charsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 /**
  * Test {@link LedgerHandleCache}
@@ -45,34 +38,29 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
         zkc.close();
     }
 
-    @Test(timeout = 60000)
+    @Test(timeout = 60000, expected = NullPointerException.class)
+    public void testBuilderWithoutBKC() throws Exception {
+        LedgerHandleCache.newBuilder().build();
+    }
+
+    @Test(timeout = 60000, expected = NullPointerException.class)
+    public void testBuilderWithoutStatsLogger() throws Exception {
+        LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).statsLogger(null).build();
+    }
+
+    @Test(timeout = 60000, expected = BKException.BKBookieHandleNotAvailableException.class)
     public void testOpenLedgerWhenBkcClosed() throws Exception {
         BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("newBkc")
                 .zkc(zkc).ledgersPath(ledgersPath).dlConfig(conf).build();
-        LedgerHandleCache cache = new LedgerHandleCache(newBkc, "bkcClosed");
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(newBkc).conf(conf).build();
         // closed the bkc
         newBkc.close();
         // open ledger after bkc closed.
-        try {
-            cache.openLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("", 2, 1, 1).setRegionId(1).build(), false);
-            fail("Should throw IOException if bookkeeper client is closed.");
-        } catch (BKException.BKBookieHandleNotAvailableException ie) {
-            // expected
-        }
-        final AtomicInteger rcHolder = new AtomicInteger(0);
-        final CountDownLatch latch = new CountDownLatch(1);
-        cache.asyncOpenLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("", 2, 1, 1).setRegionId(1).build(), false, new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
-            @Override
-            public void operationComplete(int rc, LedgerDescriptor result) {
-                rcHolder.set(rc);
-                latch.countDown();
-            }
-        });
-        latch.await();
-        assertEquals(BKException.Code.BookieHandleNotAvailableException, rcHolder.get());
+        cache.openLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("", 2, 1, 1).setRegionId(1).build(), false);
     }
 
-    @Test(timeout = 60000)
+    @Test(timeout = 60000, expected = BKException.ZKException.class)
     public void testOpenLedgerWhenZkClosed() throws Exception {
         ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).name("zkc-openledger-when-zk-closed")
                 .zkServers(zkServers).sessionTimeoutMs(10000).build();
@@ -82,72 +70,83 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
             LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkcClosed".getBytes(UTF_8));
             lh.close();
             newZkc.close();
-            LedgerHandleCache cache = new LedgerHandleCache(newBkc, "zkcClosed");
+            LedgerHandleCache cache =
+                    LedgerHandleCache.newBuilder().bkc(newBkc).conf(conf).build();
             // open ledger after zkc closed
-            try {
-                cache.openLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("",
-                        2, lh.getId(), 1).setLogSegmentSequenceNo(lh.getId()).build(), false);
-                fail("Should throw BKException.ZKException if zookeeper client is closed.");
-            } catch (BKException.ZKException ze) {
-                // expected
-            }
-            final AtomicInteger rcHolder = new AtomicInteger(0);
-            final CountDownLatch latch = new CountDownLatch(1);
-            cache.asyncOpenLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("",
-                        2, lh.getId(), 1).setLogSegmentSequenceNo(lh.getId()).build(), false,
-                    new BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>() {
-                @Override
-                public void operationComplete(int rc, LedgerDescriptor result) {
-                    rcHolder.set(rc);
-                    latch.countDown();
-                }
-            });
-            latch.await();
-            assertEquals(BKException.Code.ZKException, rcHolder.get());
+            cache.openLedger(new LogSegmentMetadata.LogSegmentMetadataBuilder("",
+                    2, lh.getId(), 1).setLogSegmentSequenceNo(lh.getId()).build(), false);
         } finally {
             newBkc.close();
         }
     }
 
-    @Test(timeout = 60000)
-    public void testOperationsOnUnexistedLedger() throws Exception {
+    @Test(timeout = 60000, expected = BKException.BKUnexpectedConditionException.class)
+    public void testReadLastConfirmedWithoutOpeningLedger() throws Exception {
         LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
-        LedgerHandleCache cache = new LedgerHandleCache(bkc, "unexistedLedgers");
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
         // read last confirmed
-        try {
-            cache.readLastConfirmed(desc);
-            fail("Should throw IOException if ledger doesn't exist");
-        } catch (BKException.BKNoSuchLedgerExistsException ioe) {
-            // expected
-        }
-        final AtomicInteger rcHolder = new AtomicInteger(0);
-        final CountDownLatch readLastConfirmedLatch = new CountDownLatch(1);
-        cache.asyncReadLastConfirmed(desc, new AsyncCallback.ReadLastConfirmedCallback() {
-            @Override
-            public void readLastConfirmedComplete(int rc, long lastConfirmed, Object ctx) {
-                rcHolder.set(rc);
-                readLastConfirmedLatch.countDown();
-            }
-        }, null);
-        readLastConfirmedLatch.await();
-        assertEquals(BKException.Code.NoSuchLedgerExistsException, rcHolder.get());
-        // read entries
-        try {
-            cache.readEntries(desc, 0, 10);
-            fail("Should throw IOException if ledger doesn't exist");
-        } catch (BKException.BKNoSuchLedgerExistsException ioe) {
-            // expected.
-        }
-        final CountDownLatch readEntriesLatch = new CountDownLatch(1);
-        cache.asyncReadEntries(desc, 0, 10, new AsyncCallback.ReadCallback() {
-            @Override
-            public void readComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq, Object ctx) {
-                rcHolder.set(rc);
-                readEntriesLatch.countDown();
-            }
-        }, null);
-        readEntriesLatch.await();
-        assertEquals(BKException.Code.NoSuchLedgerExistsException, rcHolder.get());
+        cache.tryReadLastConfirmed(desc);
     }
 
+    @Test(timeout = 60000, expected = BKException.BKUnexpectedConditionException.class)
+    public void testReadEntriesWithoutOpeningLedger() throws Exception {
+        LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
+        // read entries
+        cache.readEntries(desc, 0, 10);
+    }
+
+    @Test(timeout = 60000, expected = BKException.BKUnexpectedConditionException.class)
+    public void testGetLastConfirmedWithoutOpeningLedger() throws Exception {
+        LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
+        // read entries
+        cache.getLastAddConfirmed(desc);
+    }
+
+    @Test(timeout = 60000, expected = BKException.BKUnexpectedConditionException.class)
+    public void testReadLastConfirmedAndEntryWithoutOpeningLedger() throws Exception {
+        LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
+        // read entries
+        FutureUtils.bkResult(cache.asyncReadLastConfirmedAndEntry(desc, 1L, 200L, false));
+    }
+
+    @Test(timeout = 60000, expected = BKException.BKUnexpectedConditionException.class)
+    public void testGetLengthWithoutOpeningLedger() throws Exception {
+        LedgerDescriptor desc = new LedgerDescriptor(9999, 9999, false);
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
+        // read entries
+        cache.getLength(desc);
+    }
+
+    @Test(timeout = 60000)
+    public void testOpenAndCloseLedger() throws Exception {
+        LedgerHandle lh = bkc.get().createLedger(1, 1, 1,
+                BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
+        LedgerHandleCache cache =
+                LedgerHandleCache.newBuilder().bkc(bkc).conf(conf).build();
+        LogSegmentMetadata segment = new LogSegmentMetadata.LogSegmentMetadataBuilder(
+                "/data", LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID, lh.getId(), 0L)
+                .build();
+        LedgerDescriptor desc1 = cache.openLedger(segment, false);
+        assertTrue(cache.handlesMap.containsKey(desc1));
+        LedgerHandleCache.RefCountedLedgerHandle refLh = cache.handlesMap.get(desc1);
+        assertEquals(1, refLh.getRefCount());
+        cache.openLedger(segment, false);
+        assertTrue(cache.handlesMap.containsKey(desc1));
+        assertEquals(2, refLh.getRefCount());
+        // close the ledger
+        cache.closeLedger(desc1);
+        assertTrue(cache.handlesMap.containsKey(desc1));
+        assertEquals(1, refLh.getRefCount());
+        cache.closeLedger(desc1);
+        assertFalse(cache.handlesMap.containsKey(desc1));
+        assertEquals(0, refLh.getRefCount());
+    }
 }

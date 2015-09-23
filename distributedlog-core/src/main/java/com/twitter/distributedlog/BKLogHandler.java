@@ -45,6 +45,8 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -520,6 +522,8 @@ abstract class BKLogHandler implements Watcher {
     }
 
     private Future<LogRecordWithDLSN> asyncReadFirstUserRecord(LogSegmentMetadata ledger, DLSN beginDLSN) {
+        final LedgerHandleCache handleCache =
+                LedgerHandleCache.newBuilder().bkc(bookKeeperClient).conf(conf).build();
         return ReadUtils.asyncReadFirstUserRecord(
                 getFullyQualifiedName(),
                 ledger,
@@ -527,9 +531,15 @@ abstract class BKLogHandler implements Watcher {
                 maxNumEntriesPerReadLastRecordScan,
                 new AtomicInteger(0),
                 scheduler,
-                bookKeeperClient,
-                digestpw,
-                beginDLSN);
+                handleCache,
+                beginDLSN
+        ).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
     }
 
     /**
@@ -673,7 +683,8 @@ abstract class BKLogHandler implements Watcher {
     public long getTxIdNotLaterThan(long thresholdTxId)
         throws IOException {
         checkLogStreamExists();
-        LedgerHandleCache handleCachePriv = new LedgerHandleCache(bookKeeperClient, digestpw);
+        LedgerHandleCache handleCachePriv =
+                LedgerHandleCache.newBuilder().bkc(bookKeeperClient).conf(conf).build();
         try {
             LedgerDataAccessor ledgerDataAccessorPriv =
                     new LedgerDataAccessor(handleCachePriv, getFullyQualifiedName(), statsLogger, alertStatsLogger);
@@ -814,6 +825,8 @@ abstract class BKLogHandler implements Watcher {
                                                          final boolean includeEndOfStream) {
         final AtomicInteger numRecordsScanned = new AtomicInteger(0);
         final Stopwatch stopwatch = Stopwatch.createStarted();
+        final LedgerHandleCache handleCache =
+                LedgerHandleCache.newBuilder().bkc(bookKeeperClient).conf(conf).build();
         return ReadUtils.asyncReadLastRecord(
                 getFullyQualifiedName(),
                 l,
@@ -824,8 +837,7 @@ abstract class BKLogHandler implements Watcher {
                 maxNumEntriesPerReadLastRecordScan,
                 numRecordsScanned,
                 scheduler,
-                bookKeeperClient,
-                digestpw
+                handleCache
         ).addEventListener(new FutureEventListener<LogRecordWithDLSN>() {
             @Override
             public void onSuccess(LogRecordWithDLSN value) {
@@ -836,6 +848,12 @@ abstract class BKLogHandler implements Watcher {
             @Override
             public void onFailure(Throwable cause) {
                 recoverLastEntryStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+            }
+        }).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
             }
         });
     }

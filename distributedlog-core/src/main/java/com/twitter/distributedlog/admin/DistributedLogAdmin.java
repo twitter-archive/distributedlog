@@ -2,7 +2,9 @@ package com.twitter.distributedlog.admin;
 
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.LedgerHandleCache;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ReadUtils;
@@ -30,6 +32,8 @@ import org.apache.commons.cli.ParseException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.net.URI;
@@ -331,6 +335,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
             return Future.value(null);
         }
 
+        final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
+                .bkc(bkc)
+                .conf(new DistributedLogConfiguration().setBKDigestPW(digestpw))
+                .build();
         return ReadUtils.asyncReadLastRecord(
                 streamName,
                 metadata,
@@ -341,8 +349,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 16,
                 new AtomicInteger(0),
                 executorService,
-                bkc,
-                digestpw
+                handleCache
         ).map(new Function<LogRecordWithDLSN, LogSegmentCandidate>() {
             @Override
             public LogSegmentCandidate apply(LogRecordWithDLSN record) {
@@ -354,6 +361,12 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 } else {
                     return null;
                 }
+            }
+        }).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
             }
         });
     }

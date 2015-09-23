@@ -108,11 +108,19 @@ class LedgerDataAccessor {
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
-        return ledgerHandleCache.getLastAddConfirmed(ledgerDesc);
+        try {
+            return ledgerHandleCache.getLastAddConfirmed(ledgerDesc);
+        } catch (BKException e) {
+            throw new IOException("Failed to get last add confirmed from " + ledgerDesc, e);
+        }
     }
 
     public long getLength(LedgerDescriptor ledgerDesc) throws IOException {
-        return ledgerHandleCache.getLength(ledgerDesc);
+        try {
+            return ledgerHandleCache.getLength(ledgerDesc);
+        } catch (BKException e) {
+            throw new IOException("Failed to get length from " + ledgerDesc, e);
+        }
     }
 
     public void closeLedger(LedgerDescriptor ledgerDesc)
