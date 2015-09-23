@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.zk.DataWithStat;
@@ -18,16 +19,16 @@ import java.util.List;
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
 
-public class TestLogSegmentsZK34 extends TestDistributedLogBase {
+public class TestLogSegmentsZK extends TestDistributedLogBase {
 
-    static Logger LOG = LoggerFactory.getLogger(TestLogSegmentsZK34.class);
+    static Logger LOG = LoggerFactory.getLogger(TestLogSegmentsZK.class);
 
     private static MaxLogSegmentSequenceNo getMaxLogSegmentSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
                                                                       DistributedLogConfiguration conf) throws Exception {
         Stat stat = new Stat();
-        String partitionPath = BKDistributedLogManager.getPartitionPath(
-                uri, streamName, conf.getUnpartitionedStreamName()) + "/ledgers";
-        byte[] data = zkc.get().getData(partitionPath, false, stat);
+        String logSegmentsPath = ZKLogMetadata.getLogSegmentsPath(
+                uri, streamName, conf.getUnpartitionedStreamName());
+        byte[] data = zkc.get().getData(logSegmentsPath, false, stat);
         DataWithStat dataWithStat = new DataWithStat();
         dataWithStat.setDataWithStat(data, stat);
         return new MaxLogSegmentSequenceNo(dataWithStat);
@@ -35,9 +36,9 @@ public class TestLogSegmentsZK34 extends TestDistributedLogBase {
 
     private static void updateMaxLogSegmentSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,
                                                       DistributedLogConfiguration conf, byte[] data) throws Exception {
-        String partitionPath = BKDistributedLogManager.getPartitionPath(
-                uri, streamName, conf.getUnpartitionedStreamName()) + "/ledgers";
-        zkc.get().setData(partitionPath, data, -1);
+        String logSegmentsPath = ZKLogMetadata.getLogSegmentsPath(
+                uri, streamName, conf.getUnpartitionedStreamName());
+        zkc.get().setData(logSegmentsPath, data, -1);
     }
 
     @Rule

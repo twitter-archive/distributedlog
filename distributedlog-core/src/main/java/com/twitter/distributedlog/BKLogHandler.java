@@ -24,6 +24,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -50,7 +51,6 @@ import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -101,13 +101,10 @@ abstract class BKLogHandler implements Watcher {
 
     private static final int LAYOUT_VERSION = -1;
 
-    protected final String name;
-    protected final String streamIdentifier;
+    protected final ZKLogMetadata logMetadata;
     protected final DistributedLogConfiguration conf;
     protected final ZooKeeperClient zooKeeperClient;
     protected final BookKeeperClient bookKeeperClient;
-    protected final String logRootPath;
-    protected final String ledgerPath;
     protected final String digestpw;
     protected final int firstNumEntriesPerReadLastRecordScan;
     protected final int maxNumEntriesPerReadLastRecordScan;
@@ -149,14 +146,6 @@ abstract class BKLogHandler implements Watcher {
     private final OpStatsLogger negativeGetCompletedSegmentStat;
     private final OpStatsLogger recoverLastEntryStats;
     private final OpStatsLogger recoverScannedEntriesStats;
-
-    final static String LEDGERS_PATH = "/ledgers";
-    final static String MAX_TXID_PATH = "/maxtxid";
-    final static String LOCK_PATH = "/lock";
-    final static String READ_LOCK_PATH = "/readLock";
-    final static String VERSION_PATH = "/version";
-    final static String ALLOCATION_PATH = "/allocation";
-    final static String SUBSCRIBERS_PATH = "/subscribers";
 
     static class SyncGetLedgersCallback implements GenericCallback<List<LogSegmentMetadata>> {
 
@@ -251,10 +240,8 @@ abstract class BKLogHandler implements Watcher {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    BKLogHandler(String name,
-                 String streamIdentifier,
+    BKLogHandler(ZKLogMetadata metadata,
                  DistributedLogConfiguration conf,
-                 URI uri,
                  ZooKeeperClientBuilder zkcBuilder,
                  BookKeeperClientBuilder bkcBuilder,
                  OrderedScheduler scheduler,
@@ -265,23 +252,20 @@ abstract class BKLogHandler implements Watcher {
                  String lockClientId) {
         Preconditions.checkNotNull(zkcBuilder);
         Preconditions.checkNotNull(bkcBuilder);
-        this.name = name;
-        this.streamIdentifier = streamIdentifier;
+        this.logMetadata = metadata;
         this.conf = conf;
         this.scheduler = scheduler;
         this.statsLogger = statsLogger;
         this.alertStatsLogger = alertStatsLogger;
         this.notification = notification;
         this.filter = filter;
-        logRootPath = BKDistributedLogManager.getPartitionPath(uri, name, streamIdentifier);
-        this.logSegmentCache = new LogSegmentCache(name);
+        this.logSegmentCache = new LogSegmentCache(metadata.getLogName());
 
-        ledgerPath = logRootPath + "/ledgers";
         digestpw = conf.getBKDigestPW();
         firstNumEntriesPerReadLastRecordScan = conf.getFirstNumEntriesPerReadLastRecordScan();
         maxNumEntriesPerReadLastRecordScan = conf.getMaxNumEntriesPerReadLastRecordScan();
         this.zooKeeperClient = zkcBuilder.build();
-        LOG.debug("Using ZK Path {}", logRootPath);
+        LOG.debug("Using ZK Path {}", logMetadata.getLogRootPath());
         this.bookKeeperClient = bkcBuilder.build();
 
         if (lockClientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)) {
@@ -291,7 +275,7 @@ abstract class BKLogHandler implements Watcher {
         }
 
         this.getChildrenWatcher = this.zooKeeperClient.getWatcherManager()
-                .registerChildWatcher(ledgerPath, this);
+                .registerChildWatcher(logMetadata.getLogSegmentsPath(), this);
 
         // Traces
         this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
@@ -644,7 +628,7 @@ abstract class BKLogHandler implements Watcher {
     Future<Void> checkLogStreamExistsAsync() {
         final Promise<Void> promise = new Promise<Void>();
         try {
-            zooKeeperClient.get().exists(ledgerPath, false, new AsyncCallback.StatCallback() {
+            zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false, new AsyncCallback.StatCallback() {
                 @Override
                 public void processResult(int rc, String path, Object ctx, Stat stat) {
                     if (KeeperException.Code.OK.intValue() == rc) {
@@ -658,8 +642,9 @@ abstract class BKLogHandler implements Watcher {
                 }
             }, null);
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while reading {}", ledgerPath, ie);
-            promise.setException(new DLInterruptedException("Interrupted while checking " + ledgerPath, ie));
+            LOG.error("Interrupted while reading {}", logMetadata.getLogSegmentsPath(), ie);
+            promise.setException(new DLInterruptedException("Interrupted while checking "
+                    + logMetadata.getLogSegmentsPath(), ie));
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             promise.setException(e);
         }
@@ -668,14 +653,15 @@ abstract class BKLogHandler implements Watcher {
 
     private void checkLogStreamExists() throws IOException {
         try {
-            if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
+            if (null == zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false)) {
                 throw new LogNotFoundException("Log " + getFullyQualifiedName() + " doesn't exist");
             }
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while reading {}", ledgerPath, ie);
-            throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
+            LOG.error("Interrupted while reading {}", logMetadata.getLogSegmentsPath(), ie);
+            throw new DLInterruptedException("Interrupted while checking "
+                    + logMetadata.getLogSegmentsPath(), ie);
         } catch (KeeperException ke) {
-            LOG.error("Error checking existence for {} : ", ledgerPath, ke);
+            LOG.error("Error checking existence for {} : ", logMetadata.getLogSegmentsPath(), ke);
             throw new ZKException("Error checking existence for " + getFullyQualifiedName() + " : ", ke);
         }
     }
@@ -777,7 +763,7 @@ abstract class BKLogHandler implements Watcher {
 
     public void close() {
         // No-op
-        this.zooKeeperClient.getWatcherManager().unregisterChildWatcher(ledgerPath, this);
+        this.zooKeeperClient.getWatcherManager().unregisterChildWatcher(logMetadata.getLogSegmentsPath(), this);
     }
 
     /**
@@ -865,7 +851,7 @@ abstract class BKLogHandler implements Watcher {
     }
 
     public String getFullyQualifiedName() {
-        return String.format("%s:%s", name, streamIdentifier);
+        return logMetadata.getFullyQualifiedName();
     }
 
     // Ledgers Related Functions
@@ -1209,7 +1195,7 @@ abstract class BKLogHandler implements Watcher {
                     finalCallback.operationComplete(rc, result);
                 }
             };
-            zooKeeperClient.get().getChildren(ledgerPath, watcher, new AsyncCallback.Children2Callback() {
+            zooKeeperClient.get().getChildren(logMetadata.getLogSegmentsPath(), watcher, new AsyncCallback.Children2Callback() {
                 @Override
                 public void processResult(final int rc, final String path, final Object ctx, final List<String> children, final Stat stat) {
                     if (KeeperException.Code.OK.intValue() != rc) {
@@ -1234,7 +1220,7 @@ abstract class BKLogHandler implements Watcher {
                     }
 
                     if (LOG.isTraceEnabled()) {
-                        LOG.trace("Got ledger list from {} : {}", ledgerPath, children);
+                        LOG.trace("Got ledger list from {} : {}", logMetadata.getLogSegmentsPath(), children);
                     }
 
                     ledgerListWatchSet.set(true);
@@ -1274,7 +1260,7 @@ abstract class BKLogHandler implements Watcher {
                     final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (final String segment: segmentsAdded) {
-                        LogSegmentMetadata.read(zooKeeperClient, ledgerPath + "/" + segment, conf.getDLLedgerMetadataSkipMinVersionCheck(),
+                        LogSegmentMetadata.read(zooKeeperClient, logMetadata.getLogSegmentPath(segment), conf.getDLLedgerMetadataSkipMinVersionCheck(),
                                 new GenericCallback<LogSegmentMetadata>() {
                                     @Override
                                     public void operationComplete(int rc, LogSegmentMetadata result) {

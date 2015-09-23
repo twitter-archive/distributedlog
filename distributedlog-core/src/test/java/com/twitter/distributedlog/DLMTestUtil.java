@@ -23,7 +23,6 @@ import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.ConfUtils;
-import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -32,9 +31,7 @@ import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
-import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,15 +129,14 @@ public class DLMTestUtil {
         }
     }
 
-    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(String streamName,
+    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(String logIdentifier,
                                                                DistributedLogConfiguration conf,
-                                                               String path,
+                                                               String logName,
                                                                int zkPort) throws Exception {
-        String name = path;
-        URI uri = createDLMURI(zkPort, "/" + path);
+        URI uri = createDLMURI(zkPort, "/" + logName);
 
         ZooKeeperClientBuilder zkcBuilder = ZooKeeperClientBuilder.newBuilder()
-            .name(String.format("dlzk:%s:handler_dedicated", name))
+            .name(String.format("dlzk:%s:handler_dedicated", logName))
             .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
             .uri(uri)
             .statsLogger(NullStatsLogger.INSTANCE.scope("dlzk_handler_dedicated"))
@@ -154,29 +150,26 @@ public class DLMTestUtil {
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);
         BookKeeperClientBuilder bkcBuilder = BookKeeperClientBuilder.newBuilder()
             .dlConfig(conf)
-            .name(String.format("bk:%s:handler_dedicated", name))
+            .name(String.format("bk:%s:handler_dedicated", logName))
             .zkServers(bkdlConfig.getBkZkServersForWriter())
             .ledgersPath(bkdlConfig.getBkLedgersPath())
             .statsLogger(NullStatsLogger.INSTANCE);
 
-        BKLogWriteHandler writeHandler = BKLogWriteHandler.createBKLogPartitionWriteHandler(name,
-                streamName,
+        BKDistributedLogManager bkdlm = new BKDistributedLogManager(
+                logName,
                 conf,
                 uri,
                 zkcBuilder,
+                zkcBuilder,
+                zkClient,
+                zkClient,
                 bkcBuilder,
-                OrderedScheduler.newBuilder().corePoolSize(1).name("Test-BKDL-" + streamName).build(),
-                null,
-                OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
-                null,
-                NullStatsLogger.INSTANCE,
-                new AlertStatsLogger(NullStatsLogger.INSTANCE, "alert", "dl_alert"),
-                "localhost",
-                DistributedLogConstants.LOCAL_REGION_ID,
-                PermitLimiter.NULL_PERMIT_LIMITER,
+                bkcBuilder,
                 new SettableFeatureProvider("", 0),
-                ConfUtils.getConstDynConf(conf));
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                NullStatsLogger.INSTANCE);
 
+        BKLogWriteHandler writeHandler = bkdlm.createWriteLedgerHandler(logIdentifier);
         return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
 

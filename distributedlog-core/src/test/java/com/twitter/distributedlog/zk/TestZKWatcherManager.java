@@ -56,7 +56,6 @@ public class TestZKWatcherManager {
         // unregister watcher
         watcherManager.unregisterChildWatcher(path, watcher);
 
-        assertEquals(0, watcherManager.allWatches.size());
         assertEquals(0, watcherManager.childWatches.size());
     }
 }

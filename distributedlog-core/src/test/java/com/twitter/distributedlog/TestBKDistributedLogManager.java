@@ -39,6 +39,7 @@ import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
@@ -308,7 +309,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             bkdlm2.getWriteHandler().startLogSegment(start);
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
-            assertEquals(ioe.getCurrentOwner(), "localhost");
+            assertEquals(ioe.getCurrentOwner(), DistributedLogConstants.UNKNOWN_CLIENT_ID);
         }
 
         bkdlm1.close();
@@ -1113,8 +1114,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         }
 
         Map<Long, LogSegmentMetadata> segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
-            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                name, confLocal.getUnpartitionedStreamName())));
+                ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
 
         LOG.info("Read segments before truncating first segment : {}", segmentList);
 
@@ -1122,8 +1122,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         updater.setLogSegmentTruncated(segmentList.get(1L));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
-            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                name, confLocal.getUnpartitionedStreamName())));
+                ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
 
         LOG.info("Read segments after truncated first segment : {}", segmentList);
 
@@ -1145,8 +1144,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         updater.setLogSegmentActive(segmentList.get(1L));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
-            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                name, confLocal.getUnpartitionedStreamName())));
+                ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
 
         LOG.info("Read segments after marked first segment as active : {}", segmentList);
 
@@ -1154,8 +1152,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         updater.setLogSegmentTruncated(segmentList.get(2L));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
-                String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                        name, confLocal.getUnpartitionedStreamName())));
+                ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
 
         LOG.info("Read segments after truncated second segment : {}", segmentList);
 
@@ -1198,8 +1195,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         }
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
-            String.format("%s/ledgers", BKDistributedLogManager.getPartitionPath(uri,
-                name, conf.getUnpartitionedStreamName())));
+                ZKLogMetadata.getLogSegmentsPath(uri, name, conf.getUnpartitionedStreamName()));
 
         Assert.assertTrue(segmentList.get(truncDLSN.getLogSegmentSequenceNo()).getMinActiveDLSN().compareTo(truncDLSN) == 0);
 

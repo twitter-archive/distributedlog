@@ -167,15 +167,9 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 }
                 DataWithStat dataWithStat = new DataWithStat();
                 dataWithStat.setDataWithStat(data, stat);
-                SimpleLedgerAllocator allocator;
-                try {
-                    allocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
-                    allocator.start();
-                } catch (IOException e) {
-                    numFailures.incrementAndGet();
-                    latch.countDown();
-                    return;
-                }
+                SimpleLedgerAllocator allocator =
+                        new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                allocator.start();
                 pendingList.add(allocator);
                 if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
                     latch.countDown();
@@ -232,15 +226,10 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         DataWithStat dataWithStat = new DataWithStat();
                         dataWithStat.setDataWithStat(data, stat);
-                        try {
-                            logger.info("Rescuing ledger allocator {}.", path);
-                            newAllocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
-                            newAllocator.start();
-                            logger.info("Rescued ledger allocator {}.", path);
-                        } catch (IOException ioe) {
-                            logger.warn("Failed to rescue ledger allocator {}, retry rescuing it later : ", path, ioe);
-                            retry = true;
-                        }
+                        logger.info("Rescuing ledger allocator {}.", path);
+                        newAllocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                        newAllocator.start();
+                        logger.info("Rescued ledger allocator {}.", path);
                     } else if (KeeperException.Code.NONODE.intValue() == rc) {
                         logger.info("Ledger allocator {} doesn't exist, skip rescuing it.", path);
                     } else {

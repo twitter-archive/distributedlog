@@ -1,19 +1,17 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.bk.LedgerAllocator;
-import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.logsegment.RollingPolicy;
 import com.twitter.distributedlog.logsegment.SizeBasedRollingPolicy;
@@ -25,7 +23,6 @@ import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
-import com.twitter.distributedlog.zk.DataWithStat;
 import com.twitter.util.Await;
 import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Function;
@@ -40,8 +37,6 @@ import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
@@ -49,18 +44,13 @@ import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.ACL;
-import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,43 +62,14 @@ import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_F
 class BKLogWriteHandler extends BKLogHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
-    static BKLogWriteHandler createBKLogPartitionWriteHandler(String name,
-                                                                       String streamIdentifier,
-                                                                       DistributedLogConfiguration conf,
-                                                                       URI uri,
-                                                                       ZooKeeperClientBuilder zkcBuilder,
-                                                                       BookKeeperClientBuilder bkcBuilder,
-                                                                       OrderedScheduler scheduler,
-                                                                       FuturePool orderedFuturePool,
-                                                                       OrderedSafeExecutor lockStateExecutor,
-                                                                       LedgerAllocator ledgerAllocator,
-                                                                       StatsLogger statsLogger,
-                                                                       AlertStatsLogger alertStatsLogger,
-                                                                       String clientId,
-                                                                       int regionId,
-                                                                       PermitLimiter writeLimiter,
-                                                                       FeatureProvider featureProvider,
-                                                                       DynamicDistributedLogConfiguration dynConf) throws IOException {
-        return new BKLogWriteHandler(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
-                scheduler, orderedFuturePool, lockStateExecutor, ledgerAllocator,
-                statsLogger, alertStatsLogger, clientId, regionId, writeLimiter, featureProvider, dynConf);
-    }
-
-    private static final int LAYOUT_VERSION = -1;
-
     protected final DistributedReentrantLock lock;
     protected final DistributedReentrantLock deleteLock;
-    protected final OrderedSafeExecutor lockStateExecutor;
-    protected final String maxTxIdPath;
-    protected final MaxTxId maxTxId;
     protected final AtomicInteger startLogSegmentCount = new AtomicInteger(0);
     protected final int ensembleSize;
     protected final int writeQuorumSize;
     protected final int ackQuorumSize;
-    protected final String allocationPath;
     protected final LedgerAllocator ledgerAllocator;
-    protected final boolean ownAllocator;
-    protected final DataWithStat allocationData;
+    protected final MaxTxId maxTxId;
     protected final MaxLogSegmentSequenceNo maxLogSegmentSequenceNo;
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
@@ -121,74 +82,11 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
 
-    private static int bytesToInt(byte[] b) {
-        assert b.length >= 4;
-        return b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3];
-    }
-
-    private static byte[] intToBytes(int i) {
-        return new byte[]{
-            (byte) (i >> 24),
-            (byte) (i >> 16),
-            (byte) (i >> 8),
-            (byte) (i)};
-    }
-
     // Stats
     private final OpStatsLogger closeOpStats;
     private final OpStatsLogger openOpStats;
     private final OpStatsLogger recoverOpStats;
     private final OpStatsLogger deleteOpStats;
-
-    static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
-        @Override
-        public void processResult(int rc, String path, Object ctx, String name) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                LOG.trace("Created path {}.", path);
-            } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                LOG.debug("Path {} is already existed.", path);
-            } else {
-                LOG.error("Failed to create path {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
-            }
-        }
-    }
-    static final IgnoreNodeExistsStringCallback IGNORE_NODE_EXISTS_STRING_CALLBACK = new IgnoreNodeExistsStringCallback();
-
-    static class MultiGetCallback implements org.apache.zookeeper.AsyncCallback.DataCallback {
-
-        final AtomicInteger numPendings;
-        final AtomicInteger numFailures;
-        final org.apache.zookeeper.AsyncCallback.VoidCallback finalCb;
-        final Object finalCtx;
-
-        MultiGetCallback(int numRequests, org.apache.zookeeper.AsyncCallback.VoidCallback finalCb, Object ctx) {
-            this.numPendings = new AtomicInteger(numRequests);
-            this.numFailures = new AtomicInteger(0);
-            this.finalCb = finalCb;
-            this.finalCtx = ctx;
-        }
-
-        @Override
-        public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                assert(ctx instanceof DataWithStat);
-                DataWithStat dataWithStat = (DataWithStat) ctx;
-                dataWithStat.setDataWithStat(data, stat);
-            } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                assert(ctx instanceof DataWithStat);
-                DataWithStat dataWithStat = (DataWithStat) ctx;
-                dataWithStat.setDataWithStat(null, null);
-            } else {
-                KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                LOG.error("Failed to get data from path {} : ", path, ke);
-                numFailures.incrementAndGet();
-                finalCb.processResult(rc, path, finalCtx);
-            }
-            if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
-                finalCb.processResult(KeeperException.Code.OK.intValue(), path, finalCtx);
-            }
-        }
-    }
 
     abstract class MetadataOp<T> {
 
@@ -205,15 +103,12 @@ class BKLogWriteHandler extends BKLogHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    BKLogWriteHandler(String name,
-                      String streamIdentifier,
+    BKLogWriteHandler(ZKLogMetadataForWriter logMetadata,
                       DistributedLogConfiguration conf,
-                      URI uri,
                       ZooKeeperClientBuilder zkcBuilder,
                       BookKeeperClientBuilder bkcBuilder,
                       OrderedScheduler scheduler,
                       FuturePool orderedFuturePool,
-                      OrderedSafeExecutor lockStateExecutor,
                       LedgerAllocator allocator,
                       StatsLogger statsLogger,
                       AlertStatsLogger alertStatsLogger,
@@ -221,14 +116,18 @@ class BKLogWriteHandler extends BKLogHandler {
                       int regionId,
                       PermitLimiter writeLimiter,
                       FeatureProvider featureProvider,
-                      DynamicDistributedLogConfiguration dynConf) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder,
+                      DynamicDistributedLogConfiguration dynConf,
+                      DistributedReentrantLock lock, /** owned by handler **/
+                      DistributedReentrantLock deleteLock /** owned by handler **/) {
+        super(logMetadata, conf, zkcBuilder, bkcBuilder,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.orderedFuturePool = orderedFuturePool;
-        this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
         this.featureProvider = featureProvider;
         this.dynConf = dynConf;
+        this.ledgerAllocator = allocator;
+        this.lock = lock;
+        this.deleteLock = deleteLock;
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -254,46 +153,15 @@ class BKLogWriteHandler extends BKLogHandler {
         }
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
 
-        this.ownAllocator = null == allocator;
-
-        this.maxTxIdPath = logRootPath + BKLogHandler.MAX_TXID_PATH;
-        final String lockPath = logRootPath + BKLogHandler.LOCK_PATH;
-        allocationPath = logRootPath + BKLogHandler.ALLOCATION_PATH;
-
-        // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
-        final DataWithStat maxTxIdData = new DataWithStat();
-        allocationData = new DataWithStat();
-        final DataWithStat ledgersData = new DataWithStat();
-
-        if (conf.getCreateStreamIfNotExists() || ownAllocator) {
-            final ZooKeeper zk;
-            try {
-                zk = zooKeeperClient.get();
-            } catch (InterruptedException e) {
-                LOG.error("Failed to initialize zookeeper client : ", e);
-                throw new DLInterruptedException("Failed to initialize zookeeper client", e);
-            }
-
-            createStreamIfNotExists(name, logRootPath, zk, zooKeeperClient.getDefaultACL(), ownAllocator, allocationData, maxTxIdData, ledgersData);
-        } else {
-            getLedgersData(ledgersData);
-        }
-
-        maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(ledgersData);
+        // Construct the max sequence no
+        maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(logMetadata.getLogSegmentsStat());
+        // Construct the max txn id.
+        maxTxId = new MaxTxId(zooKeeperClient, logMetadata.getMaxTxIdPath(),
+                conf.getSanityCheckTxnID(), logMetadata.getMaxTxIdStat());
 
         // Schedule fetching ledgers list in background before we access it.
         // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.
         scheduleGetLedgersTask(false, true);
-
-        // Build the locks
-        lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries(),
-                            conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
-        deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), getLockClientId(), statsLogger, conf.getZKNumRetries(),
-                            conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
-        // Construct the max txn id.
-        maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath, conf.getSanityCheckTxnID(), maxTxIdData);
 
         // Initialize other parameters.
         setLastLedgerRollingTimeMillis(Utils.nowInMillis());
@@ -311,20 +179,12 @@ class BKLogWriteHandler extends BKLogHandler {
         closeOpStats = segmentsStatsLogger.getOpStatsLogger("close");
         recoverOpStats = segmentsStatsLogger.getOpStatsLogger("recover");
         deleteOpStats = segmentsStatsLogger.getOpStatsLogger("delete");
-
-        // Construct ledger allocator
-        if (this.ownAllocator) {
-            ledgerAllocator = new SimpleLedgerAllocator(allocationPath, allocationData, conf, zooKeeperClient, bookKeeperClient);
-            ledgerAllocator.start();
-        } else {
-            ledgerAllocator = allocator;
-        }
     }
 
     // Transactional operations for MaxLogSegmentSequenceNo
     void tryStore(Transaction txn, MaxLogSegmentSequenceNo maxSeqNo, long seqNo) {
         byte[] data = MaxLogSegmentSequenceNo.toBytes(seqNo);
-        txn.setData(ledgerPath, data, maxSeqNo.getZkVersion());
+        txn.setData(logMetadata.getLogSegmentsPath(), data, maxSeqNo.getZkVersion());
     }
 
     void confirmStore(OpResult result, MaxLogSegmentSequenceNo maxSeqNo, long seqNo) {
@@ -398,184 +258,6 @@ class BKLogWriteHandler extends BKLogHandler {
             lockHandler = false;
         }
         return this;
-    }
-
-    static void createStreamIfNotExists(final String name,
-                                        final String logRootPath,
-                                        final ZooKeeper zk,
-                                        final List<ACL> acl,
-                                        final boolean ownAllocator,
-                                        final DataWithStat allocationData,
-                                        final DataWithStat maxTxIdData,
-                                        final DataWithStat ledgersData) throws IOException {
-
-        try {
-            PathUtils.validatePath(logRootPath);
-        } catch (IllegalArgumentException e) {
-            LOG.error("Illegal path value {} for stream {}", new Object[] { logRootPath, name, e });
-            throw new InvalidStreamNameException(name, "Stream name is invalid");
-        }
-
-        // Note re. persistent lock state initialization: the read lock persistent state (path) is
-        // initialized here but only used in the read handler. The reason is its more convenient and
-        // less error prone to manage all stream structure in one place.
-        final String ledgerPath = logRootPath + BKLogHandler.LEDGERS_PATH;
-        final String maxTxIdPath = logRootPath + BKLogHandler.MAX_TXID_PATH;
-        final String lockPath = logRootPath + BKLogHandler.LOCK_PATH;
-        final String readLockPath = logRootPath + BKLogHandler.READ_LOCK_PATH;
-        final String versionPath = logRootPath + BKLogHandler.VERSION_PATH;
-        final String allocationPath = logRootPath + BKLogHandler.ALLOCATION_PATH;
-
-        // lockData, readLockData & ledgersData just used for checking whether the path exists or not.
-        final DataWithStat lockData = new DataWithStat();
-        final DataWithStat readLockData = new DataWithStat();
-        final DataWithStat versionData = new DataWithStat();
-
-        final CountDownLatch initializeLatch = new CountDownLatch(1);
-        final AtomicReference<IOException> exceptionToThrow = new AtomicReference<IOException>(null);
-
-        class CreatePartitionCallback implements org.apache.zookeeper.AsyncCallback.StringCallback,
-                org.apache.zookeeper.AsyncCallback.DataCallback {
-
-            // num of zookeeper paths to get.
-            final AtomicInteger numPendings = new AtomicInteger(0);
-
-            @Override
-            public void processResult(int rc, String path, Object ctx, String name) {
-                if (KeeperException.Code.OK.intValue() == rc ||
-                        KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                    createAndGetZnodes();
-                } else {
-                    KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                    LOG.error("Failed to create log root path {} : ", logRootPath, ke);
-                    exceptionToThrow.set(
-                            new ZKException("Failed to create log root path " + logRootPath, ke));
-                    initializeLatch.countDown();
-                }
-            }
-
-            private void createAndGetZnodes() {
-                // Send the corresponding create requests in sequence and just wait for the last call.
-                // maxtxid path
-                zk.create(maxTxIdPath, Long.toString(0).getBytes(UTF_8), acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // version path
-                zk.create(versionPath, intToBytes(LAYOUT_VERSION), acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // ledgers path
-                zk.create(ledgerPath, new byte[]{'0'}, acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // lock path
-                zk.create(lockPath, new byte[0], acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // read lock path
-                zk.create(readLockPath, new byte[0], acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // allocation path
-                if (ownAllocator) {
-                    zk.create(allocationPath, new byte[0], acl,
-                            CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                }
-                // send get requests to maxTxId, version, allocation
-                numPendings.set(ownAllocator ? 3 : 2);
-                zk.getData(maxTxIdPath, false, this, maxTxIdData);
-                zk.getData(versionPath, false, this, versionData);
-                if (ownAllocator) {
-                    zk.getData(allocationPath, false, this, allocationData);
-                }
-            }
-
-            @Override
-            public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
-                if (KeeperException.Code.OK.intValue() == rc) {
-                    assert(ctx instanceof DataWithStat);
-                    DataWithStat dataWithStat = (DataWithStat) ctx;
-                    dataWithStat.setDataWithStat(data, stat);
-                } else {
-                    KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                    LOG.error("Failed to get data from path {} : ", path, ke);
-                    exceptionToThrow.set(new ZKException("Failed to get data from path " + path, ke));
-                }
-                if (numPendings.decrementAndGet() == 0) {
-                    initializeLatch.countDown();
-                }
-            }
-        }
-
-        class GetDataCallback implements org.apache.zookeeper.AsyncCallback.VoidCallback {
-            @Override
-            public void processResult(int rc, String path, Object ctx) {
-                if (KeeperException.Code.OK.intValue() == rc) {
-                    if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
-                        lockData.notExists() || readLockData.notExists() || ledgersData.notExists()) {
-                        ZkUtils.asyncCreateFullPathOptimistic(zk, logRootPath, new byte[] {'0'},
-                                acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
-                    } else {
-                        initializeLatch.countDown();
-                    }
-                } else {
-                    LOG.error("Failed to get log data from {}.", logRootPath);
-                    exceptionToThrow.set(new ZKException("Failed to get partiton data from " + logRootPath,
-                            KeeperException.Code.get(rc)));
-                    initializeLatch.countDown();
-                }
-            }
-        }
-
-        final int NUM_PATHS_TO_CHECK = ownAllocator ? 6 : 5;
-        MultiGetCallback getCallback = new MultiGetCallback(NUM_PATHS_TO_CHECK, new GetDataCallback(), null);
-        zk.getData(maxTxIdPath, false, getCallback, maxTxIdData);
-        zk.getData(versionPath, false, getCallback, versionData);
-        if (ownAllocator) {
-            zk.getData(allocationPath, false, getCallback, allocationData);
-        }
-        zk.getData(lockPath, false, getCallback, lockData);
-        zk.getData(readLockPath, false, getCallback, readLockData);
-        zk.getData(ledgerPath, false, getCallback, ledgersData);
-
-        try {
-            initializeLatch.await();
-        } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted when initializing write handler for "
-                    + logRootPath, e);
-        }
-
-        if (null != exceptionToThrow.get()) {
-            throw exceptionToThrow.get();
-        }
-
-        // Initialize the structures with retreived zookeeper data.
-        try {
-            // Verify Version
-            Preconditions.checkNotNull(versionData.getStat());
-            Preconditions.checkNotNull(versionData.getData());
-            Preconditions.checkArgument(LAYOUT_VERSION == bytesToInt(versionData.getData()));
-            // Verify MaxTxId
-            Preconditions.checkNotNull(maxTxIdData.getStat());
-            Preconditions.checkNotNull(maxTxIdData.getData());
-            // Verify Allocation
-            if (ownAllocator) {
-                Preconditions.checkNotNull(allocationData.getStat());
-                Preconditions.checkNotNull(allocationData.getData());
-            }
-        } catch (IllegalArgumentException iae) {
-            throw new UnexpectedException("Invalid log " + logRootPath, iae);
-        }
-    }
-
-    protected void getLedgersData(final DataWithStat ledgersData) throws IOException {
-        final String ledgerPath = logRootPath + "/ledgers";
-        Stat stat = new Stat();
-        try {
-            byte[] data = zooKeeperClient.get().getData(ledgerPath, false, stat);
-            ledgersData.setDataWithStat(data, stat);
-        } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted on getting ledgers data : " + ledgerPath, ie);
-        } catch (KeeperException.NoNodeException nne) {
-            throw new LogNotFoundException("No /ledgers found for stream " + getFullyQualifiedName());
-        } catch (KeeperException ke) {
-            throw new ZKException("Failed on getting ledgers data " + ledgerPath + " : ", ke);
-        }
     }
 
     void checkMetadataException() throws IOException {
@@ -1101,7 +783,7 @@ class BKLogWriteHandler extends BKLogHandler {
                             throw ke;
                         }
                         // fall back to use synchronous calls
-                        maxLogSegmentSequenceNo.store(zooKeeperClient, ledgerPath, maxSeqNo);
+                        maxLogSegmentSequenceNo.store(zooKeeperClient, logMetadata.getLogSegmentsPath(), maxSeqNo);
                         maxTxId.store(lastTxId);
                         LOG.info("Storing MaxTxId in Finalize Path {} LastTxId {}", inprogressZnodePath, lastTxId);
                         try {
@@ -1114,7 +796,7 @@ class BKLogWriteHandler extends BKLogHandler {
                         throw ke;
                     }
                 } else {
-                    LOG.warn("No OpResults for a multi operation when finalising stream " + logRootPath, ke);
+                    LOG.warn("No OpResults for a multi operation when finalising stream " + logMetadata.getLogRootPath(), ke);
                     throw ke;
                 }
             }
@@ -1123,9 +805,9 @@ class BKLogWriteHandler extends BKLogHandler {
             LOG.info("Completed {} to {} for {} : {}",
                      new Object[] { inprogressZnodeName, nameForCompletedLedger, getFullyQualifiedName(), completedLogSegment });
         } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted when finalising stream " + logRootPath, e);
+            throw new DLInterruptedException("Interrupted when finalising stream " + logMetadata.getLogRootPath(), e);
         } catch (KeeperException e) {
-            throw new ZKException("Error when finalising stream " + logRootPath, e);
+            throw new ZKException("Error when finalising stream " + logMetadata.getLogRootPath(), e);
         } finally {
             if (shouldReleaseLock && startLogSegmentCount.get() > 0) {
                 lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
@@ -1269,18 +951,18 @@ class BKLogWriteHandler extends BKLogHandler {
         try {
             lock.close();
             deleteLock.close();
-            zooKeeperClient.get().exists(ledgerPath, false);
-            zooKeeperClient.get().exists(maxTxIdPath, false);
-            if (logRootPath.toLowerCase().contains("distributedlog")) {
-                ZKUtil.deleteRecursive(zooKeeperClient.get(), logRootPath);
+            zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false);
+            zooKeeperClient.get().exists(logMetadata.getMaxTxIdPath(), false);
+            if (logMetadata.getLogRootPath().toLowerCase().contains("distributedlog")) {
+                ZKUtil.deleteRecursive(zooKeeperClient.get(), logMetadata.getLogRootPath());
             } else {
-                LOG.warn("Skip deletion of unrecognized ZK Path {}", logRootPath);
+                LOG.warn("Skip deletion of unrecognized ZK Path {}", logMetadata.getLogRootPath());
             }
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while deleting " + ledgerPath, ie);
-            throw new DLInterruptedException("Interrupted while deleting " + ledgerPath, ie);
+            LOG.error("Interrupted while deleting log znodes", ie);
+            throw new DLInterruptedException("Interrupted while deleting " + logMetadata.getLogRootPath(), ie);
         } catch (KeeperException ke) {
-            LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
+            LOG.error("Error deleting" + logMetadata.getLogRootPath() + " in zookeeper", ke);
         }
     }
 
@@ -1297,7 +979,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
     com.twitter.util.Future<Boolean> setLogsOlderThanDLSNTruncatedAsync(final DLSN dlsn) {
         // truncation status should be updated in order
-        return scheduler.apply(name, new ExceptionalFunction0<Boolean>() {
+        return scheduler.apply(logMetadata.getLogName(), new ExceptionalFunction0<Boolean>() {
             @Override
             public Boolean applyE() throws Throwable {
                 return setLogsOlderThanDLSNTruncated(dlsn);
@@ -1564,9 +1246,7 @@ class BKLogWriteHandler extends BKLogHandler {
         }
         lock.close();
         deleteLock.close();
-        if (ownAllocator) {
-            ledgerAllocator.close(false);
-        }
+        ledgerAllocator.close(false);
         // close the zookeeper client & bookkeeper client after closing the lock
         super.close();
     }
@@ -1584,7 +1264,7 @@ class BKLogWriteHandler extends BKLogHandler {
      * Get the znode path for a finalize ledger
      */
     String completedLedgerZNode(long firstTxId, long lastTxId, long logSegmentSeqNo) {
-        return String.format("%s/%s", ledgerPath,
+        return String.format("%s/%s", logMetadata.getLogSegmentsPath(),
             completedLedgerZNodeName(firstTxId, lastTxId, logSegmentSeqNo));
     }
 
@@ -1607,10 +1287,10 @@ class BKLogWriteHandler extends BKLogHandler {
      * Get the znode path for the inprogressZNode
      */
     String inprogressZNode(long ledgerId, long firstTxId, long logSegmentSeqNo) {
-        return ledgerPath + "/" + inprogressZNodeName(ledgerId, firstTxId, logSegmentSeqNo);
+        return logMetadata.getLogSegmentsPath() + "/" + inprogressZNodeName(ledgerId, firstTxId, logSegmentSeqNo);
     }
 
     String inprogressZNode(String inprogressZNodeName) {
-        return ledgerPath + "/" + inprogressZNodeName;
+        return logMetadata.getLogSegmentsPath() + "/" + inprogressZNodeName;
     }
 }

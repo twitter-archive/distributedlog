@@ -1,12 +1,12 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.io.Abortable;
 import com.twitter.util.Future;
 
 import java.io.Closeable;
-import java.io.IOException;
 import java.util.List;
 
-public interface AsyncLogWriter extends Closeable {
+public interface AsyncLogWriter extends Closeable, Abortable {
 
     /**
      * Get the last committed transaction id.
@@ -44,11 +44,6 @@ public interface AsyncLogWriter extends Closeable {
      * if the truncation fails.
      */
     public Future<Boolean> truncate(DLSN dlsn);
-
-    /**
-     * Abort the writer.
-     */
-    public void abort() throws IOException;
 
     /**
      * Get the name of the stream this writer writes data to

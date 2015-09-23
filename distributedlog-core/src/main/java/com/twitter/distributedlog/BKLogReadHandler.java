@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Random;
@@ -15,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
+import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -128,11 +128,9 @@ class BKLogReadHandler extends BKLogHandler {
     /**
      * Construct a Bookkeeper journal manager.
      */
-    public BKLogReadHandler(String name,
-                            String streamIdentifier,
+    public BKLogReadHandler(ZKLogMetadataForReader logMetadata,
                             Optional<String> subscriberId,
                             DistributedLogConfiguration conf,
-                            URI uri,
                             ZooKeeperClientBuilder zkcBuilder,
                             BookKeeperClientBuilder bkcBuilder,
                             OrderedScheduler scheduler,
@@ -144,7 +142,7 @@ class BKLogReadHandler extends BKLogHandler {
                             String clientId,
                             AsyncNotification notification,
                             boolean isHandleForReading) {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, scheduler,
+        super(logMetadata, conf, zkcBuilder, bkcBuilder, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
 
         this.readAheadExecutor = readAheadExecutor;
@@ -163,12 +161,7 @@ class BKLogReadHandler extends BKLogHandler {
         this.checkLogExistenceBackoffMs = this.checkLogExistenceBackoffStartMs;
 
         this.subscriberId = subscriberId;
-        if (subscriberId.isPresent()) {
-            this.readLockPath = logRootPath + BKLogHandler.SUBSCRIBERS_PATH
-                    + "/" + subscriberId.get() + BKLogHandler.READ_LOCK_PATH;
-        } else {
-            this.readLockPath = logRootPath + BKLogHandler.READ_LOCK_PATH;
-        }
+        this.readLockPath = logMetadata.getReadLockPath(subscriberId);
         this.lockStateExecutor = lockStateExecutor;
 
         this.isHandleForReading = isHandleForReading;
@@ -611,7 +604,7 @@ class BKLogReadHandler extends BKLogHandler {
                 return null;
             }
         });
-        Optional<String> parentPathShouldNotCreate = Optional.of(logRootPath);
+        Optional<String> parentPathShouldNotCreate = Optional.of(logMetadata.getLogRootPath());
         Utils.zkAsyncCreateFullPathOptimisticRecursive(zooKeeperClient, readLockPath, parentPathShouldNotCreate,
                 new byte[0], zooKeeperClient.getDefaultACL(), CreateMode.PERSISTENT,
                 new org.apache.zookeeper.AsyncCallback.StringCallback() {
@@ -647,15 +640,16 @@ class BKLogReadHandler extends BKLogHandler {
         boolean success = false;
         Stopwatch stopwatch = Stopwatch.createStarted();
         try {
-            if (null != zooKeeperClient.get().exists(ledgerPath, false)) {
+            if (null != zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false)) {
                 logExists = true;
             }
             success = true;
         } catch (InterruptedException ie) {
-            LOG.error("Interrupted while checking " + ledgerPath, ie);
-            throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
+            LOG.error("Interrupted while checking " + logMetadata.getLogSegmentsPath(), ie);
+            throw new DLInterruptedException("Interrupted while checking "
+                    + logMetadata.getLogSegmentsPath(), ie);
         } catch (KeeperException ke) {
-            LOG.error("Error checking " + ledgerPath + " existence in zookeeper", ke);
+            LOG.error("Error checking " + logMetadata.getLogSegmentsPath() + " existence in zookeeper", ke);
             throw new ZKException("Error checking " + getFullyQualifiedName() + " existence", ke);
         } finally {
             if (success) {
@@ -912,11 +906,11 @@ class BKLogReadHandler extends BKLogHandler {
             this.conf = conf;
             this.noLedgerExceptionOnReadLACThreshold =
                     conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() / conf.getReadAheadWaitTime();
-            this.tracker = new ReadAheadTracker(BKLogReadHandler.this.name, ledgerDataAccessor,
+            this.tracker = new ReadAheadTracker(logMetadata.getLogName(), ledgerDataAccessor,
                     ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
             this.resumeStopWatch = Stopwatch.createUnstarted();
             this.getLedgersWatcher = this.bkLedgerManager.zooKeeperClient.getWatcherManager()
-                    .registerChildWatcher(this.bkLedgerManager.ledgerPath, this);
+                    .registerChildWatcher(this.bkLedgerManager.logMetadata.getLogSegmentsPath(), this);
         }
 
         public void simulateErrors() {
@@ -937,7 +931,7 @@ class BKLogReadHandler extends BKLogHandler {
             running = false;
 
             this.bkLedgerManager.zooKeeperClient.getWatcherManager()
-                    .unregisterChildWatcher(this.bkLedgerManager.ledgerPath, this);
+                    .unregisterChildWatcher(this.bkLedgerManager.logMetadata.getLogSegmentsPath(), this);
 
             // Aside from unfortunate naming of variables, this allows
             // the currently active long poll to be interrupted and completed

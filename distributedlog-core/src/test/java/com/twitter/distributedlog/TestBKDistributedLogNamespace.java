@@ -59,7 +59,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         zooKeeperClient.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testCreateIfNotExists() throws Exception {
         URI uri = createDLMURI("/" + runtime.getMethodName());
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
@@ -88,7 +88,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         newDLM.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     @SuppressWarnings("deprecation")
     public void testClientSharingOptions() throws Exception {
         URI uri = createDLMURI("/clientSharingOptions");
@@ -138,7 +138,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
     }
 
 
-    @Test
+    @Test(timeout = 60000)
     public void testInvalidStreamName() throws Exception {
         assertFalse(BKDLUtils.isReservedStreamName("test"));
         assertTrue(BKDLUtils.isReservedStreamName(".test"));
@@ -163,13 +163,46 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
 
         try {
             namespace.openLog(".test2");
-            fail("Should fail to create invalid stream .test");
+            fail("Should fail to create invalid stream .test2");
+        } catch (InvalidStreamNameException isne) {
+            // expected
+        }
+
+        try {
+            namespace.openLog("/test2");
+            fail("should fail to create invalid stream /test2");
+        } catch (InvalidStreamNameException isne) {
+            // expected
+        }
+
+        try {
+            char[] chars = new char[6];
+            for (int i = 0; i < chars.length; i++) {
+                chars[i] = 'a';
+            }
+            chars[0] = 0;
+            String streamName = new String(chars);
+            namespace.openLog(streamName);
+            fail("should fail to create invalid stream " + streamName);
+        } catch (InvalidStreamNameException isne) {
+            // expected
+        }
+
+        try {
+            char[] chars = new char[6];
+            for (int i = 0; i < chars.length; i++) {
+                chars[i] = 'a';
+            }
+            chars[3] = '\u0010';
+            String streamName = new String(chars);
+            namespace.openLog(streamName);
+            fail("should fail to create invalid stream " + streamName);
         } catch (InvalidStreamNameException isne) {
             // expected
         }
 
         DistributedLogManager newDLM =
-                namespace.openLog("test2");
+                namespace.openLog("test_2-3");
         LogWriter newWriter = newDLM.startLogSegmentNonPartitioned();
         newWriter.write(DLMTestUtil.getLogRecordInstance(1));
         newWriter.close();
@@ -180,12 +213,12 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
 
         assertEquals(2, streamSet.size());
         assertTrue(streamSet.contains("test1"));
-        assertTrue(streamSet.contains("test2"));
+        assertTrue(streamSet.contains("test_2-3"));
 
         Map<String, byte[]> streamMetadatas = namespace.enumerateLogsWithMetadataInNamespace();
         assertEquals(2, streamMetadatas.size());
         assertTrue(streamMetadatas.containsKey("test1"));
-        assertTrue(streamMetadatas.containsKey("test2"));
+        assertTrue(streamMetadatas.containsKey("test_2-3"));
 
         namespace.close();
     }

@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Watcher Manager to manage watchers
@@ -47,7 +48,7 @@ public class ZKWatcherManager implements Watcher {
     private final StatsLogger statsLogger;
 
     protected final ConcurrentMap<String, Set<Watcher>> childWatches;
-    protected final Set<Watcher> allWatches;
+    protected final AtomicInteger allWatchesGauge;
 
     private ZKWatcherManager(String name,
                              StatsLogger statsLogger) {
@@ -56,7 +57,7 @@ public class ZKWatcherManager implements Watcher {
 
         // watches
         this.childWatches = new ConcurrentHashMap<String, Set<Watcher>>();
-        this.allWatches = new HashSet<Watcher>();
+        this.allWatchesGauge = new AtomicInteger(0);
 
         // stats
         this.statsLogger.registerGauge("total_watches", new Gauge<Number>() {
@@ -67,9 +68,7 @@ public class ZKWatcherManager implements Watcher {
 
             @Override
             public Number getSample() {
-                synchronized (allWatches) {
-                    return allWatches.size();
-                }
+                return allWatchesGauge.get();
             }
         });
 
@@ -94,9 +93,13 @@ public class ZKWatcherManager implements Watcher {
             watchers = (null == oldWatchers) ? newWatchers : oldWatchers;
         }
         synchronized (watchers) {
-            watchers.add(watcher);
-            synchronized (allWatches) {
-                allWatches.add(watcher);
+            if (childWatches.get(path) == watchers) {
+                if (watchers.add(watcher)) {
+                    allWatchesGauge.incrementAndGet();
+                }
+            } else {
+                logger.warn("Watcher set for path {} has been changed while registering child watcher {}.",
+                        path, watcher);
             }
         }
         return this;
@@ -110,12 +113,13 @@ public class ZKWatcherManager implements Watcher {
             return;
         }
         synchronized (watchers) {
-            watchers.remove(watcher);
+            if (watchers.remove(watcher)) {
+                allWatchesGauge.decrementAndGet();
+            } else {
+                logger.warn("Remove a non-registered child watcher {} from path {}", watcher, path);
+            }
             if (watchers.isEmpty()) {
                 childWatches.remove(path, watchers);
-            }
-            synchronized (allWatches) {
-                allWatches.remove(watcher);
             }
         }
     }
@@ -135,10 +139,11 @@ public class ZKWatcherManager implements Watcher {
     }
 
     private void handleKeeperStateEvent(WatchedEvent event) {
-        Set<Watcher> savedAllWatches;
-        synchronized (allWatches) {
-            savedAllWatches = new HashSet<Watcher>(allWatches.size());
-            savedAllWatches.addAll(allWatches);
+        Set<Watcher> savedAllWatches = new HashSet<Watcher>(allWatchesGauge.get());
+        for (Set<Watcher> watcherSet : childWatches.values()) {
+            synchronized (watcherSet) {
+                savedAllWatches.addAll(watcherSet);
+            }
         }
         for (Watcher watcher : savedAllWatches) {
             watcher.process(event);

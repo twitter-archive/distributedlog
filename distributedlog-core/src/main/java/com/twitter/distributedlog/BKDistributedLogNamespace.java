@@ -409,6 +409,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                                          Optional<DistributedLogConfiguration> logConf,
                                          Optional<DynamicDistributedLogConfiguration> dynamicLogConf)
             throws InvalidStreamNameException, IOException {
+        validateName(logName);
         Optional<URI> uri = FutureUtils.result(metadataStore.getLogLocation(logName));
         if (!uri.isPresent()) {
             throw new LogNotFoundException("Log " + logName + " isn't found.");

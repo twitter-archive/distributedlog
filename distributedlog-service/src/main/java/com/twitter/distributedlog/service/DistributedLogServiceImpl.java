@@ -13,6 +13,7 @@ import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
@@ -21,6 +22,7 @@ import com.twitter.distributedlog.exceptions.StreamNotReadyException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
+import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
 import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
@@ -388,7 +390,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     }
                     if (needAcquire) {
                         lastAcquireWatch.reset().start();
-                        acquireStream();
+                        try {
+                            acquireStream();
+                        } catch (InvalidStreamNameException ise) {
+                            shouldClose = true;
+                            closeReason = "Invalid stream name";
+                            break;
+                        }
                     } else if (StreamStatus.isUnavailable(status)) {
                         // if the stream is unavailable, stop the thread and close the stream
                         shouldClose = true;
@@ -708,7 +716,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
          */
         private void handleOwnershipAcquireFailedException(StreamOp op, final OwnershipAcquireFailedException oafe) {
             logger.warn("Failed to write data into stream {} because stream is acquired by {} : {}",
-                        new Object[] { name, oafe.getCurrentOwner(), oafe.getMessage() });
+                    new Object[]{name, oafe.getCurrentOwner(), oafe.getMessage()});
             AsyncLogWriter oldWriter = null;
             boolean statusChanged = false;
             synchronized (this) {
@@ -734,20 +742,22 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             triggerShutdown();
         }
 
-        void acquireStream() {
+        void acquireStream() throws InvalidStreamNameException {
             // Reset this flag so the acquire thread knows whether re-acquire is needed.
             writeSinceLastAcquire = false;
 
             Queue<StreamOp> oldPendingOps;
             boolean success;
+            InvalidStreamNameException exceptionToThrow = null;
             Stopwatch stopwatch = Stopwatch.createStarted();
+            AsyncLogWriter oldWriter = null;
             try {
                 AsyncLogWriter w = manager.startAsyncLogSegmentNonPartitioned();
                 synchronized (txnLock) {
                     sequencer.setLastId(w.getLastTxId());
                 }
                 synchronized (this) {
-                    setStreamStatus(StreamStatus.INITIALIZED,
+                    oldWriter = setStreamStatus(StreamStatus.INITIALIZED,
                             StreamStatus.INITIALIZING, w, null, null);
                     oldPendingOps = pendingOps;
                     pendingOps = new ArrayDeque<StreamOp>();
@@ -759,19 +769,30 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 return;
             } catch (final OwnershipAcquireFailedException oafe) {
                 logger.warn("Failed to acquire stream ownership for {}, current owner is {} : {}",
-                            new Object[] { name, oafe.getCurrentOwner(), oafe.getMessage() });
+                        new Object[]{name, oafe.getCurrentOwner(), oafe.getMessage()});
                 synchronized (this) {
-                    setStreamStatus(StreamStatus.BACKOFF,
+                    oldWriter = setStreamStatus(StreamStatus.BACKOFF,
                             StreamStatus.INITIALIZING, null, oafe.getCurrentOwner(), oafe);
                     oldPendingOps = pendingOps;
                     pendingOps = new ArrayDeque<StreamOp>();
                     success = false;
                 }
+            } catch (final InvalidStreamNameException isne) {
+                countException(isne, exceptionStatLogger);
+                logger.error("Failed to acquire stream {} due to its name is invalid", name);
+                synchronized (this) {
+                    oldWriter = setStreamStatus(StreamStatus.FAILED,
+                            StreamStatus.INITIALIZING, null, null, isne);
+                    oldPendingOps = pendingOps;
+                    pendingOps = new ArrayDeque<StreamOp>();
+                    success = false;
+                    exceptionToThrow = isne;
+                }
             } catch (final IOException ioe) {
                 countException(ioe, exceptionStatLogger);
                 logger.error("Failed to initialize stream {} : ", name, ioe);
                 synchronized (this) {
-                    setStreamStatus(StreamStatus.FAILED,
+                    oldWriter = setStreamStatus(StreamStatus.FAILED,
                             StreamStatus.INITIALIZING, null, null, ioe);
                     oldPendingOps = pendingOps;
                     pendingOps = new ArrayDeque<StreamOp>();
@@ -786,6 +807,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             for (StreamOp op : oldPendingOps) {
                 executeOp(op, success);
                 pendingOpsCounter.decrementAndGet();
+            }
+            if (null != oldWriter) {
+                Abortables.abortQuietly(oldWriter);
+            }
+            if (null != exceptionToThrow) {
+                throw exceptionToThrow;
             }
         }
 

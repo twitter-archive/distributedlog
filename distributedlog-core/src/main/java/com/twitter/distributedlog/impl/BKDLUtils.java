@@ -49,9 +49,29 @@ public class BKDLUtils {
      */
     public static void validateName(String nameOfStream)
             throws InvalidStreamNameException {
-        if (nameOfStream.contains("/")) {
-            throw new InvalidStreamNameException(nameOfStream,
-                    "Stream Name contains invalid characters");
+        String reason = null;
+        char chars[] = nameOfStream.toCharArray();
+        char c;
+        // validate the stream to see if meet zookeeper path's requirement
+        for (int i = 0; i < chars.length; i++) {
+            c = chars[i];
+
+            if (c == 0) {
+                reason = "null character not allowed @" + i;
+                break;
+            } else if (c == '/') {
+                reason = "'/' not allowed @" + i;
+                break;
+            } else if (c > '\u0000' && c < '\u001f'
+                    || c > '\u007f' && c < '\u009F'
+                    || c > '\ud800' && c < '\uf8ff'
+                    || c > '\ufff0' && c < '\uffff') {
+                reason = "invalid charater @" + i;
+                break;
+            }
+        }
+        if (null != reason) {
+            throw new InvalidStreamNameException(nameOfStream, reason);
         }
         if (isReservedStreamName(nameOfStream)) {
             throw new InvalidStreamNameException(nameOfStream,

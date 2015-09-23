@@ -133,7 +133,10 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
                             StatsLogger dlmStatsLogger) throws IOException {
         super(conf, dynConf, bkdlm);
         this.orderedFuturePool = orderedFuturePool;
+
+        // TODO: move write handler out of constructor and make sure i/o or network happen in constructor
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
+        // make sure no exception throw beyond this point, otherwise write handler couldn't be closed
 
         // features
         disableLogSegmentRollingFeature = featureProvider.getFeature(CoreFeatureKeys.DISABLE_LOGSEGMENT_ROLLING.name().toLowerCase());

@@ -130,7 +130,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      */
     public SimpleLedgerAllocator(String allocatePath, DataWithStat allocationData,
                                  DistributedLogConfiguration conf,
-                                 ZooKeeperClient zkc, BookKeeperClient bkc) throws IOException {
+                                 ZooKeeperClient zkc, BookKeeperClient bkc) {
         this.zkc = zkc;
         this.bkc = bkc;
         this.allocatePath = allocatePath;
@@ -160,7 +160,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      *          Allocation Data.
      * @throws IOException
      */
-    private void initialize(DataWithStat allocationData) throws IOException {
+    private void initialize(DataWithStat allocationData) {
         setZkVersion(allocationData.getStat().getVersion());
         byte[] data = allocationData.getData();
         if (null != data && data.length > 0) {
