@@ -390,13 +390,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     }
                     if (needAcquire) {
                         lastAcquireWatch.reset().start();
-                        try {
-                            acquireStream();
-                        } catch (InvalidStreamNameException ise) {
-                            shouldClose = true;
-                            closeReason = "Invalid stream name";
-                            break;
-                        }
+                        acquireStream();
                     } else if (StreamStatus.isUnavailable(status)) {
                         // if the stream is unavailable, stop the thread and close the stream
                         shouldClose = true;
@@ -742,7 +736,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             triggerShutdown();
         }
 
-        void acquireStream() throws InvalidStreamNameException {
+        void acquireStream() {
             // Reset this flag so the acquire thread knows whether re-acquire is needed.
             writeSinceLastAcquire = false;
 
@@ -781,12 +775,11 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 countException(isne, exceptionStatLogger);
                 logger.error("Failed to acquire stream {} due to its name is invalid", name);
                 synchronized (this) {
-                    oldWriter = setStreamStatus(StreamStatus.FAILED,
+                    oldWriter = setStreamStatus(StreamStatus.ERROR,
                             StreamStatus.INITIALIZING, null, null, isne);
                     oldPendingOps = pendingOps;
                     pendingOps = new ArrayDeque<StreamOp>();
                     success = false;
-                    exceptionToThrow = isne;
                 }
             } catch (final IOException ioe) {
                 countException(ioe, exceptionStatLogger);
@@ -810,9 +803,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             }
             if (null != oldWriter) {
                 Abortables.abortQuietly(oldWriter);
-            }
-            if (null != exceptionToThrow) {
-                throw exceptionToThrow;
             }
         }
 
