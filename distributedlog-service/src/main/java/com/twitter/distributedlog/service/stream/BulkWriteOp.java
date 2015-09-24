@@ -5,12 +5,14 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.CRC32;
 
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
@@ -63,8 +65,10 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     public BulkWriteOp(String stream,
                        List<ByteBuffer> buffers,
                        StatsLogger statsLogger,
-                       StatsLogger perStreamStatsLogger) {
-        super(stream, requestStat(statsLogger, "bulkWrite"));
+                       StatsLogger perStreamStatsLogger,
+                       Long checksum,
+                       ThreadLocal<CRC32> requestCRC) {
+        super(stream, requestStat(statsLogger, "bulkWrite"), checksum, requestCRC);
         this.buffers = buffers;
         long total = 0;
         // We do this here because the bytebuffers are mutable.
@@ -84,7 +88,8 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     }
 
     @Override
-    public void preExecute() {
+    public void preExecute() throws DLException {
+      super.preExecute();
       final long size = getPayloadSize();
       result().addEventListener(new FutureEventListener<BulkWriteResponse>() {
         @Override

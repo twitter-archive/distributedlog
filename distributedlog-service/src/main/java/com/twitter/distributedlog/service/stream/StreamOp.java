@@ -2,9 +2,12 @@ package com.twitter.distributedlog.service.stream;
 
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.AsyncLogWriter;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
+
+import java.nio.ByteBuffer;
 
 /**
  * An operation applied to a stream.
@@ -25,7 +28,7 @@ public interface StreamOp {
     /**
      * Invoked before the stream op is executed.
      */
-    void preExecute();
+    void preExecute() throws DLException;
 
     /**
      * Return the response header (containing the status code etc.).
@@ -49,4 +52,9 @@ public interface StreamOp {
      * Stopwatch gives the start time of the operation.
      */
     Stopwatch stopwatch();
+
+    /**
+     * Compute checksum from arguments.
+     */
+    Long computeChecksum();
 }

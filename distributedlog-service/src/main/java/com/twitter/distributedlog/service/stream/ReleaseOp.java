@@ -6,6 +6,8 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
+import java.util.zip.CRC32;
+
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import scala.runtime.AbstractFunction1;
@@ -13,8 +15,12 @@ import scala.runtime.AbstractFunction1;
 public class ReleaseOp extends AbstractWriteOp {
     private final StreamManager streamManager;
 
-    public ReleaseOp(String stream, StatsLogger statsLogger, StreamManager streamManager) {
-        super(stream, requestStat(statsLogger, "release"));
+    public ReleaseOp(String stream,
+                     StatsLogger statsLogger,
+                     StreamManager streamManager,
+                     Long checksum,
+                     ThreadLocal<CRC32> requestCRC) {
+        super(stream, requestStat(statsLogger, "release"), checksum, requestCRC);
         this.streamManager = streamManager;
     }
 

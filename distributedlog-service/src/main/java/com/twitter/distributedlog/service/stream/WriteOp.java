@@ -4,6 +4,8 @@ import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
@@ -14,6 +16,7 @@ import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.CRC32;
 
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -39,13 +42,15 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final byte dlsnVersion;
     private final long delayMs;
 
-    public WriteOp(String stream,
-                   ByteBuffer data,
-                   StatsLogger statsLogger,
-                   StatsLogger perStreamStatsLogger,
-                   ServerConfiguration conf,
-                   byte dlsnVersion) {
-        super(stream, requestStat(statsLogger, "write"));
+public WriteOp(String stream,
+               ByteBuffer data,
+               StatsLogger statsLogger,
+               StatsLogger perStreamStatsLogger,
+               ServerConfiguration conf,
+               byte dlsnVersion,
+               Long checksum,
+               ThreadLocal<CRC32> requestCRC) {
+        super(stream, requestStat(statsLogger, "write"), checksum, requestCRC);
         payload = new byte[data.remaining()];
         data.get(payload);
 
@@ -67,7 +72,14 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     }
 
     @Override
-    public void preExecute() {
+    public Long computeChecksum() {
+        return ProtocolUtils.writeOpCRC32(requestCRC.get(), stream, payload);
+    }
+
+    @Override
+    public void preExecute() throws DLException {
+      super.preExecute();
+
       final long size = getPayloadSize();
       result().addEventListener(new FutureEventListener<WriteResponse>() {
         @Override

@@ -404,6 +404,19 @@ public final class DistributedLogClientBuilder {
         return newBuilder;
     }
 
+    /**
+     * Enable checksum on requests to the proxy.
+     *
+     * @param enabled
+     *          flag to enable/disable checksum
+     * @return client builder
+     */
+    public DistributedLogClientBuilder checksum(boolean enabled) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        newBuilder._clientConfig.setChecksumEnabled(enabled);
+        return newBuilder;
+    }
+
     DistributedLogClientBuilder clientConfig(ClientConfig clientConfig) {
         DistributedLogClientBuilder newBuilder = newBuilder(this);
         newBuilder._clientConfig = ClientConfig.newConfig(clientConfig);

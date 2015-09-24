@@ -9,6 +9,8 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
+import java.util.zip.CRC32;
+
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import scala.runtime.AbstractFunction1;
@@ -22,8 +24,12 @@ public class HeartbeatOp extends AbstractWriteOp {
     private boolean writeControlRecord = false;
     private byte dlsnVersion;
 
-    public HeartbeatOp(String stream, StatsLogger statsLogger, byte dlsnVersion) {
-        super(stream, requestStat(statsLogger, "heartbeat"));
+    public HeartbeatOp(String stream,
+                       StatsLogger statsLogger,
+                       byte dlsnVersion,
+                       Long checksum,
+                       ThreadLocal<CRC32> requestCRC) {
+        super(stream, requestStat(statsLogger, "heartbeat"), checksum, requestCRC);
         this.dlsnVersion = dlsnVersion;
     }
 

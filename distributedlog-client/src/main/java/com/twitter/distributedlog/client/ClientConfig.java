@@ -21,6 +21,7 @@ public class ClientConfig {
     boolean periodicDumpOwnershipCacheEnabled = false;
     long periodicDumpOwnershipCacheIntervalMs = TimeUnit.MINUTES.toMillis(10);
     boolean enableHandshakeTracing = false;
+    boolean enableChecksum = true;
 
     public ClientConfig setMaxRedirects(int maxRedirects) {
         this.maxRedirects = maxRedirects;
@@ -140,6 +141,15 @@ public class ClientConfig {
         return this.enableHandshakeTracing;
     }
 
+    public ClientConfig setChecksumEnabled(boolean enabled) {
+        this.enableChecksum = enabled;
+        return this;
+    }
+
+    public boolean isChecksumEnabled() {
+        return this.enableChecksum;
+    }
+
     public static ClientConfig newConfig(ClientConfig config) {
         ClientConfig newConfig = new ClientConfig();
         newConfig.setMaxRedirects(config.getMaxRedirects())
@@ -153,7 +163,8 @@ public class ClientConfig {
                  .setPeriodicHandshakeIntervalMs(config.getPeriodicHandshakeIntervalMs())
                  .setPeriodicDumpOwnershipCacheEnabled(config.isPeriodicDumpOwnershipCacheEnabled())
                  .setPeriodicDumpOwnershipCacheIntervalMs(config.getPeriodicDumpOwnershipCacheIntervalMs())
-                 .setHandshakeTracingEnabled(config.isHandshakeTracingEnabled());
+                 .setHandshakeTracingEnabled(config.isHandshakeTracingEnabled())
+                 .setChecksumEnabled(config.isChecksumEnabled());
         return newConfig;
     }
 }

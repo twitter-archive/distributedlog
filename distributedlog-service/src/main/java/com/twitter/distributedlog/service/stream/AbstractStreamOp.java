@@ -7,25 +7,45 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import com.twitter.distributedlog.AsyncLogWriter;
+import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 
+import java.nio.ByteBuffer;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.CRC32;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class AbstractStreamOp<Response> implements StreamOp {
+    static final Logger logger = LoggerFactory.getLogger(AbstractStreamOp.class);
     protected final String stream;
     protected final OpStatsLogger opStatsLogger;
     protected final Promise<Response> result = new Promise<Response>();
     protected final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    protected final Long checksum;
 
-    public AbstractStreamOp(String stream, OpStatsLogger statsLogger) {
+    // CRC32 uses off-heap mem and can cause memory issues if allocations are not
+    // limited (ex. per request). Use ThreadLocal to ensure we have just one per
+    // thread.
+    protected final ThreadLocal<CRC32> requestCRC;
+
+    public AbstractStreamOp(String stream,
+                            OpStatsLogger statsLogger,
+                            Long checksum,
+                            ThreadLocal<CRC32> requestCRC) {
         this.stream = stream;
         this.opStatsLogger = statsLogger;
         // start here in case the operation is failed before executing.
         stopwatch.reset().start();
+        this.checksum = checksum;
+        this.requestCRC = requestCRC;
     }
 
     @Override
@@ -39,8 +59,18 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
     }
 
     @Override
-    public void preExecute() {
-        // Do nothing
+    public void preExecute() throws DLException {
+        if (null != checksum) {
+            Long serverChecksum = computeChecksum();
+            if (null != serverChecksum && !checksum.equals(serverChecksum)) {
+                throw new UnexpectedException("Thrift call arguments failed checksum");
+            }
+        }
+    }
+
+    @Override
+    public Long computeChecksum() {
+        return null;
     }
 
     @Override

@@ -95,6 +95,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.zip.CRC32;
 
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
@@ -206,8 +207,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return releasePromise;
     }
 
-    WriteOp newWriteOp(String stream, ByteBuffer data) {
-        return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion);
+    WriteOp newWriteOp(String stream, ByteBuffer data, Long checksum) {
+        return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion, checksum, requestCRC);
     }
 
     protected class Stream extends Thread {
@@ -1348,6 +1349,14 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     // Service interface methods
 
+    // For request payload checksum
+    private final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
+        @Override
+        protected CRC32 initialValue() {
+            return new CRC32();
+        }
+    };
+
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
         if (!accessControlManager.allowWrite(stream)) {
@@ -1355,7 +1364,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             return Future.value(ResponseUtils.writeDenied());
         }
         receivedRecordCounter.inc();
-        return doWrite(stream, data);
+        return doWrite(stream, data, null /* checksum */);
     }
 
     @Override
@@ -1366,7 +1375,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx), requestCRC);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1382,7 +1391,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedWriteCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        return doWrite(stream, data);
+        return doWrite(stream, data, getChecksum(ctx));
     }
 
     @Override
@@ -1391,7 +1400,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), requestCRC);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1402,7 +1411,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), requestCRC);
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }
@@ -1410,14 +1419,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return op.result();
     }
 
-
     @Override
     public Future<WriteResponse> truncate(String stream, String dlsn, WriteContext ctx) {
         if (!accessControlManager.allowTruncate(stream)) {
             deniedTruncateCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger);
+        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, getChecksum(ctx), requestCRC);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1428,7 +1436,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedDeleteCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */);
+        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), requestCRC);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1439,7 +1447,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedReleaseCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */);
+        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), requestCRC);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1462,10 +1470,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return Future.Void();
     }
 
-    private Future<WriteResponse> doWrite(final String name, ByteBuffer data) {
+    private Future<WriteResponse> doWrite(final String name, ByteBuffer data, Long checksum) {
         writePendingStat.inc();
         receivedRecordCounter.inc();
-        WriteOp op = newWriteOp(name, data);
+        WriteOp op = newWriteOp(name, data, checksum);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1475,9 +1483,16 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         });
     }
 
-    private void doExecuteStreamOp(final StreamOp op) {
-        op.preExecute();
+    private Long getChecksum(WriteContext ctx) {
+        return ctx.isSetCrc32() ? ctx.getCrc32() : null;
+    }
 
+    private void doExecuteStreamOp(final StreamOp op) {
+        try {
+            op.preExecute();
+        } catch (Exception e) {
+            op.fail(e);
+        }
         Stream stream;
         try {
             stream = getLogWriter(op.streamName());

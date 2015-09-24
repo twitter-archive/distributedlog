@@ -13,6 +13,9 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.acl.ZKAccessControl;
+import com.twitter.distributedlog.client.DistributedLogClientImpl;
+import com.twitter.distributedlog.client.routing.LocalRoutingService;
+import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
@@ -20,6 +23,8 @@ import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.finagle.NoBrokersAvailableException;
+import com.twitter.finagle.builder.ClientBuilder;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -73,6 +78,33 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         assertEquals(10, numRead);
         reader.close();
         dlm.close();
+    }
+
+    /**
+     * Sanity check to make sure both checksum flag values work.
+     */
+    @Test(timeout = 60000)
+    public void testChecksumFlag() throws Exception {
+        String name = "dlserver-basic-write";
+        LocalRoutingService routingService = LocalRoutingService.newBuilder().build();
+        routingService.addHost(name, dlServer.getAddress());
+        DistributedLogClientBuilder dlClientBuilder = DistributedLogClientBuilder.newBuilder()
+            .name(name)
+            .clientId(ClientId$.MODULE$.apply("test"))
+            .routingService(routingService)
+            .handshakeWithClientInfo(true)
+            .clientBuilder(ClientBuilder.get()
+                .hostConnectionLimit(1)
+                .connectionTimeout(Duration.fromSeconds(1))
+                .requestTimeout(Duration.fromSeconds(60)))
+            .checksum(false);
+        DistributedLogClient dlClient = (DistributedLogClientImpl) dlClientBuilder.build();
+        Await.result(dlClient.write(name, ByteBuffer.wrap(("1").getBytes())));
+        dlClient.close();
+
+        dlClient = dlClientBuilder.checksum(true).build();
+        Await.result(dlClient.write(name, ByteBuffer.wrap(("2").getBytes())));
+        dlClient.close();
     }
 
     private void runSimpleBulkWriteTest(int writeCount) throws Exception {

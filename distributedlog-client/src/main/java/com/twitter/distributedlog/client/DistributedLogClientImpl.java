@@ -6,6 +6,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.client.proxy.HostProvider;
 import com.twitter.distributedlog.client.proxy.ProxyClient;
 import com.twitter.distributedlog.client.proxy.ProxyClientManager;
@@ -72,6 +73,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.CRC32;
 
 /**
  * Implementation of distributedlog client
@@ -99,6 +101,14 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     private final OwnershipCache ownershipCache;
     // Channel/Client management
     private final ProxyClientManager clientManager;
+
+    // For request payload checksum
+    private final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
+        @Override
+        protected CRC32 initialValue() {
+            return new CRC32();
+        }
+    };
 
     // Close Status
     private boolean closed = false;
@@ -153,6 +163,12 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
 
         void doSend(SocketAddress address) {
             ctx.addToTriedHosts(address.toString());
+            if (clientConfig.isChecksumEnabled()) {
+                Long crc32 = computeChecksum();
+                if (null != crc32) {
+                    ctx.setCrc32(crc32);
+                }
+            }
             tries.incrementAndGet();
             sendWriteRequest(address, this);
         }
@@ -171,6 +187,10 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             stopwatch.stop();
             opStats.failRequest(address,
                     stopwatch.elapsed(TimeUnit.MICROSECONDS), tries.get());
+        }
+
+        Long computeChecksum() {
+            return null;
         }
 
         @Override
@@ -283,6 +303,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     abstract class AbstractWriteOp extends StreamOp {
 
         final Promise<WriteResponse> result = new Promise<WriteResponse>();
+        Long crc32 = null;
 
         AbstractWriteOp(final String name, final OpStats opStats) {
             super(name, opStats);
@@ -297,6 +318,14 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         void fail(SocketAddress address, Throwable t) {
             super.fail(address, t);
             result.setException(t);
+        }
+
+        @Override
+        Long computeChecksum() {
+            if (null == crc32) {
+                crc32 = ProtocolUtils.streamOpCRC32(requestCRC.get(), stream);
+            }
+            return crc32;
         }
 
         @Override
@@ -325,7 +354,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     class WriteOp extends AbstractWriteOp {
-
         final ByteBuffer data;
 
         WriteOp(final String name, final ByteBuffer data) {
@@ -336,6 +364,16 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         @Override
         Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
             return sc.getService().writeWithContext(stream, data, ctx);
+        }
+
+        @Override
+        Long computeChecksum() {
+            if (null == crc32) {
+                byte[] dataBytes = new byte[data.remaining()];
+                data.duplicate().get(dataBytes);
+                crc32 = ProtocolUtils.writeOpCRC32(requestCRC.get(), stream, dataBytes);
+            }
+            return crc32;
         }
 
         Future<DLSN> result() {
@@ -354,6 +392,14 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         TruncateOp(String name, DLSN dlsn) {
             super(name, clientStats.getOpStats("truncate"));
             this.dlsn = dlsn;
+        }
+
+        @Override
+        Long computeChecksum() {
+            if (null == crc32) {
+                crc32 = ProtocolUtils.truncateOpCRC32(requestCRC.get(), stream, dlsn);
+            }
+            return crc32;
         }
 
         @Override

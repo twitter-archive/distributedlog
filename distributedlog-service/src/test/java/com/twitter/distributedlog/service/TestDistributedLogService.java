@@ -1,7 +1,9 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Lists;
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.Stream;
@@ -10,6 +12,7 @@ import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.thrift.service.StatusCode;
+import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
@@ -28,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.CRC32;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
@@ -109,7 +113,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                                   String streamName,
                                   long txid) {
         ByteBuffer data = createRecord(txid);
-        return service.newWriteOp(streamName, data);
+        return service.newWriteOp(streamName, data, null);
     }
 
     @Test(timeout = 60000)
@@ -335,6 +339,109 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 localService.getAcquiredStreams().containsKey(streamName));
 
         localService.shutdown();
+    }
+
+    private DistributedLogServiceImpl createConfiguredLocalService() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setOutputBufferSize(0)
+                .setImmediateFlushEnabled(true)
+                .setPeriodicFlushFrequencyMilliSeconds(0);
+        String streamNamePrefix = testName.getMethodName();
+        return createService(serverConf, confLocal);
+    }
+
+    private ByteBuffer getTestDataBuffer() {
+        return ByteBuffer.wrap("test-data".getBytes());
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteOpNoChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext();
+        Future<WriteResponse> result = localService.writeWithContext("test", getTestDataBuffer(), ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.SUCCESS, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testTruncateOpNoChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext();
+        Future<WriteResponse> result = localService.truncate("test", new DLSN(1,2,3).serialize(), ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.SUCCESS, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testStreamOpNoChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext();
+        Future<WriteResponse> result = localService.release("test", ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.SUCCESS, resp.getHeader().getCode());
+        result = localService.delete("test", ctx);
+        resp = Await.result(result);
+        assertEquals(StatusCode.SUCCESS, resp.getHeader().getCode());
+        result = localService.heartbeat("test", ctx);
+        resp = Await.result(result);
+        assertEquals(StatusCode.SUCCESS, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteOpChecksumBadChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext().setCrc32(999);
+        Future<WriteResponse> result = localService.writeWithContext("test", getTestDataBuffer(), ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteOpChecksumBadStream() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext().setCrc32(
+            ProtocolUtils.writeOpCRC32(new CRC32(), "test", getTestDataBuffer().array()));
+        Future<WriteResponse> result = localService.writeWithContext("test1", getTestDataBuffer(), ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteOpChecksumBadData() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        ByteBuffer buffer = getTestDataBuffer();
+        WriteContext ctx = new WriteContext().setCrc32(
+            ProtocolUtils.writeOpCRC32(new CRC32(), "test", buffer.array()));
+
+        // Overwrite 1 byte to corrupt data.
+        buffer.put(1, (byte)0xab);
+        Future<WriteResponse> result = localService.writeWithContext("test", buffer, ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testStreamOpChecksumBadChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext().setCrc32(999);
+        Future<WriteResponse> result = localService.heartbeat("test", ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+        result = localService.release("test", ctx);
+        resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+        result = localService.delete("test", ctx);
+        resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
+    }
+
+    @Test(timeout = 60000)
+    public void testTruncateOpChecksumBadChecksum() throws Exception {
+        DistributedLogServiceImpl localService = createConfiguredLocalService();
+        WriteContext ctx = new WriteContext().setCrc32(999);
+        Future<WriteResponse> result = localService.truncate("test", new DLSN(1,2,3).serialize(), ctx);
+        WriteResponse resp = Await.result(result);
+        assertEquals(StatusCode.UNEXPECTED, resp.getHeader().getCode());
     }
 
     @Test(timeout = 60000)

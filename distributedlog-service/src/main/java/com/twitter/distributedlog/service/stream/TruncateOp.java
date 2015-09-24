@@ -2,10 +2,13 @@ package com.twitter.distributedlog.service.stream;
 
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
+
+import java.util.zip.CRC32;
 
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -19,9 +22,18 @@ public class TruncateOp extends AbstractWriteOp {
 
     final DLSN dlsn;
 
-    public TruncateOp(String stream, DLSN dlsn, StatsLogger statsLogger) {
-        super(stream, requestStat(statsLogger, "truncate"));
+    public TruncateOp(String stream,
+                      DLSN dlsn,
+                      StatsLogger statsLogger,
+                      Long checksum,
+                      ThreadLocal<CRC32> requestCRC) {
+        super(stream, requestStat(statsLogger, "truncate"), checksum, requestCRC);
         this.dlsn = dlsn;
+    }
+
+    @Override
+    public Long computeChecksum() {
+        return ProtocolUtils.truncateOpCRC32(requestCRC.get(), stream, dlsn);
     }
 
     @Override
