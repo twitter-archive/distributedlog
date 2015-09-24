@@ -630,9 +630,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                             case END_OF_STREAM:
                             case TRANSACTION_OUT_OF_ORDER:
                             case INVALID_STREAM_NAME:
-                            case OVER_CAPACITY:
                             case TOO_LARGE_RECORD:
                             case STREAM_NOT_READY:
+                                op.fail(cause);
+                                break;
+                            case OVER_CAPACITY:
+                                countAsException = false;
                                 op.fail(cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer
