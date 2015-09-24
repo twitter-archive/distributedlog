@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.base.Stopwatch;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.exceptions.StreamNotReadyException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
@@ -20,6 +21,7 @@ import com.twitter.util.Try;
 
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -111,9 +113,10 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     private final FuturePool orderedFuturePool;
+    private final boolean streamFailFast;
     private LinkedList<PendingLogRecord> pendingRequests = null;
     private volatile boolean encounteredError = false;
-    private boolean queueingRequests = false;
+    private boolean rollingLog = false;
     private long lastTxId = DistributedLogConstants.INVALID_TXID;
 
     private final StatsLogger statsLogger;
@@ -122,6 +125,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     private final OpStatsLogger bulkWriteOpStatsLogger;
     private final OpStatsLogger bulkWriteQueueOpStatsLogger;
     private final OpStatsLogger getWriterOpStatsLogger;
+    private final Counter pendingRequestDispatch;
 
     private final Feature disableLogSegmentRollingFeature;
 
@@ -136,6 +140,8 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
         // TODO: move write handler out of constructor and make sure i/o or network happen in constructor
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
+        this.streamFailFast = conf.getFailFastOnStreamNotReady();
+
         // make sure no exception throw beyond this point, otherwise write handler couldn't be closed
 
         // features
@@ -148,6 +154,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         this.bulkWriteOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write");
         this.bulkWriteQueueOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write/queued");
         this.getWriterOpStatsLogger = statsLogger.getOpStatsLogger("get_writer");
+        this.pendingRequestDispatch = statsLogger.getCounter("pending_request_dispatch");
     }
 
     private synchronized void setLastTxId(long txId) {
@@ -251,9 +258,9 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     void startQueueingRequests() {
-        assert(null == pendingRequests && false == queueingRequests);
+        assert(null == pendingRequests && false == rollingLog);
         pendingRequests = new LinkedList<PendingLogRecord>();
-        queueingRequests = true;
+        rollingLog = true;
     }
 
     private Future<DLSN> asyncWrite(LogRecord record) throws IOException {
@@ -277,8 +284,12 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         if (null == w) {
             w = writer;
         }
-        if (queueingRequests) {
-            result = queueRequest(record);
+        if (rollingLog) {
+            if (streamFailFast) {
+                result = Future.exception(new StreamNotReadyException("Rolling log segment"));
+            } else {
+                result = queueRequest(record);
+            }
         } else if (shouldRollLog(w)) {
             // insert a last record, so when it called back, we will trigger a log segment rolling
             startQueueingRequests();
@@ -337,7 +348,8 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
                     writer.asyncWrite(pendingLogRecord.record, true /* flush after write */)
                             .addEventListener(pendingLogRecord);
                 }
-                queueingRequests = false;
+                rollingLog = false;
+                pendingRequestDispatch.add(pendingRequests.size());
                 pendingRequests = null;
             }
         } catch (IOException ioe) {
@@ -347,17 +359,19 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     @VisibleForTesting
     void errorOutPendingRequests(Throwable cause, boolean errorOutWriter) {
-        final List<PendingLogRecord> pendingLogRecords;
+        final List<PendingLogRecord> pendingRequestsSnapshot;
         synchronized (this) {
-            pendingLogRecords = pendingRequests;
+            pendingRequestsSnapshot = pendingRequests;
             encounteredError = errorOutWriter;
             pendingRequests = null;
-            queueingRequests = false;
+            rollingLog = false;
         }
+
+        pendingRequestDispatch.add(pendingRequestsSnapshot.size());
 
         // After erroring out the writer above, no more requests
         // will be enqueued to pendingRequests
-        for (PendingLogRecord pendingLogRecord : pendingLogRecords) {
+        for (PendingLogRecord pendingLogRecord : pendingRequestsSnapshot) {
             pendingLogRecord.promise.setException(cause);
         }
     }
