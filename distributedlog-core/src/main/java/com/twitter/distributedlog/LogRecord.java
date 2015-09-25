@@ -109,7 +109,7 @@ public class LogRecord {
         metadata = metadata | LOGRECORD_FLAGS_CONTROL_MESSAGE;
     }
 
-    boolean isControl() {
+    public boolean isControl() {
         return ((metadata & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 

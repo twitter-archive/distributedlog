@@ -11,7 +11,6 @@ import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
@@ -24,6 +23,7 @@ import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionStateStore;
 import com.twitter.distributedlog.subscription.ZKSubscriptionsStore;
 import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.MonitoredFuturePool;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -51,6 +51,8 @@ import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
@@ -590,15 +592,97 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
-        throw new NotYetImplementedException("getAsyncLogReader");
+        return FutureUtils.result(openAsyncLogReader(fromTxnId));
     }
+
+    /**
+     * Opening a log reader positioning by transaction id <code>fromTxnId</code>.
+     *
+     * <p>
+     * - retrieve log segments for the stream
+     * - if the log segment list is empty, positioning by the last dlsn
+     * - otherwise, find the first log segment that contains the records whose transaction ids are not less than
+     *   the provided transaction id <code>fromTxnId</code>
+     *   - if all log segments' records' transaction ids are more than <code>fromTxnId</code>, positioning
+     *     on the first record.
+     *   - otherwise, search the log segment to find the log record
+     *     - if the log record is found, positioning the reader by that found record's dlsn
+     *     - otherwise, positioning by the last dlsn
+     * </p>
+     *
+     * @see DLUtils#findLogSegmentNotLessThanTxnId(List, long)
+     * @see ReadUtils#getLogRecordNotLessThanTxId(String, LogSegmentMetadata, long, ExecutorService, LedgerHandleCache)
+     * @param fromTxnId
+     *          transaction id to start reading from
+     * @return future representing the open result.
+     */
+    @Override
+    public Future<AsyncLogReader> openAsyncLogReader(long fromTxnId) {
+        List<LogSegmentMetadata> segments;
+        try {
+            // TODO: make it asynchronous
+            //       the first get log segments call might be blocking
+            segments = getLogSegments();
+        } catch (IOException e) {
+            return Future.exception(e);
+        }
+        if (segments.isEmpty()) {
+            return getLastDLSNAsync().flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
+                @Override
+                public Future<AsyncLogReader> apply(DLSN lastDLSN) {
+                    return openAsyncLogReader(lastDLSN);
+                }
+            });
+        }
+        int segmentIdx = DLUtils.findLogSegmentNotLessThanTxnId(segments, fromTxnId);
+        if (segmentIdx < 0) {
+            return openAsyncLogReader(new DLSN(segments.get(0).getLogSegmentSequenceNumber(), 0L, 0L));
+        }
+        final LedgerHandleCache handleCache =
+                LedgerHandleCache.newBuilder().bkc(readerBKC).conf(conf).build();
+        return ReadUtils.getLogRecordNotLessThanTxId(
+                name,
+                segments.get(segmentIdx),
+                fromTxnId,
+                writerFuturePoolExecutorService,
+                handleCache,
+                Math.max(2, conf.getReadAheadBatchSize())
+        ).flatMap(new AbstractFunction1<Optional<LogRecordWithDLSN>, Future<AsyncLogReader>>() {
+            @Override
+            public Future<AsyncLogReader> apply(Optional<LogRecordWithDLSN> foundRecord) {
+                if (foundRecord.isPresent()) {
+                    return openAsyncLogReader(foundRecord.get().getDlsn());
+                }
+                return getLastDLSNAsync().flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
+                    @Override
+                    public Future<AsyncLogReader> apply(DLSN lastDLSN) {
+                        return openAsyncLogReader(lastDLSN);
+                    }
+                });
+            }
+        }).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
+    }
+
+
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        return FutureUtils.result(openAsyncLogReader(fromDLSN));
+    }
+
+    @Override
+    public Future<AsyncLogReader> openAsyncLogReader(DLSN fromDLSN) {
         Optional<String> subscriberId = Optional.absent();
-        return new BKAsyncLogReaderDLSN(this, scheduler, getLockStateExecutor(true),
-                                        conf.getUnpartitionedStreamName(), fromDLSN, subscriberId,
-                                        statsLogger);
+        AsyncLogReader reader = new BKAsyncLogReaderDLSN(this, scheduler, getLockStateExecutor(true),
+                conf.getUnpartitionedStreamName(), fromDLSN, subscriberId,
+                statsLogger);
+        return Future.value(reader);
     }
 
     /**

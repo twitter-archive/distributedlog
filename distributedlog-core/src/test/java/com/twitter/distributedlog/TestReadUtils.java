@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.base.Optional;
+import com.google.common.collect.Lists;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 
@@ -27,16 +30,38 @@ public class TestReadUtils extends TestDistributedLogBase {
     @Rule
     public TestName runtime = new TestName();
 
+    private Future<Optional<LogRecordWithDLSN>> getLogRecordNotLessThanTxId(
+            BKDistributedLogManager bkdlm, int logsegmentIdx, long transactionId) throws Exception {
+        List<LogSegmentMetadata> logSegments = bkdlm.getLogSegments();
+        final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
+                .bkc(bkdlm.getWriterBKC())
+                .conf(conf)
+                .build();
+        return ReadUtils.getLogRecordNotLessThanTxId(
+                bkdlm.getStreamName(),
+                logSegments.get(logsegmentIdx),
+                transactionId,
+                Executors.newSingleThreadExecutor(),
+                handleCache,
+                10
+        ).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
+    }
+
     private Future<LogRecordWithDLSN> getFirstGreaterThanRecord(BKDistributedLogManager bkdlm, int ledgerNo, DLSN dlsn) throws Exception {
-        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
-        List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
+        List<LogSegmentMetadata> ledgerList = bkdlm.getLogSegments();
         final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
                 .bkc(bkdlm.getWriterBKC())
                 .conf(conf)
                 .build();
         return ReadUtils.asyncReadFirstUserRecord(
-            bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
-            handleCache, dlsn
+                bkdlm.getStreamName(), ledgerList.get(ledgerNo), 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
+                handleCache, dlsn
         ).ensure(new AbstractFunction0<BoxedUnit>() {
             @Override
             public BoxedUnit apply() {
@@ -54,8 +79,8 @@ public class TestReadUtils extends TestDistributedLogBase {
                 .conf(conf)
                 .build();
         return ReadUtils.asyncReadLastRecord(
-            bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
-            handleCache
+                bkdlm.getStreamName(), ledgerList.get(ledgerNo), false, false, false, 2, 16, new AtomicInteger(0), Executors.newFixedThreadPool(1),
+                handleCache
         ).ensure(new AbstractFunction0<BoxedUnit>() {
             @Override
             public BoxedUnit apply() {
@@ -189,4 +214,133 @@ public class TestReadUtils extends TestDistributedLogBase {
         assertEquals(null, logrec);
         bkdlm.close();
     }
+
+    @Test(timeout = 60000)
+    public void testGetEntriesToSearch() throws Exception {
+        assertTrue(ReadUtils.getEntriesToSearch(2L, 1L, 10).isEmpty());
+        assertEquals(Lists.newArrayList(1L),
+                ReadUtils.getEntriesToSearch(1L, 1L, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L),
+                ReadUtils.getEntriesToSearch(1L, 10L, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L),
+                ReadUtils.getEntriesToSearch(1L, 9L, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L),
+                ReadUtils.getEntriesToSearch(1L, 8L, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 11L),
+                ReadUtils.getEntriesToSearch(1L, 11L, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 12L),
+                ReadUtils.getEntriesToSearch(1L, 12L, 10));
+    }
+
+    @Test(timeout = 60000)
+    public void testGetEntriesToSearchByTxnId() throws Exception {
+        LogRecordWithDLSN firstRecord =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 0L, 0L), 999L);
+        LogRecordWithDLSN secondRecord =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 10L, 0L), 99L);
+        // out-of-order sequence
+        assertTrue(ReadUtils.getEntriesToSearch(888L, firstRecord, secondRecord, 10).isEmpty());
+        // same transaction id
+        assertTrue(ReadUtils.getEntriesToSearch(888L, firstRecord, firstRecord, 10).isEmpty());
+        LogRecordWithDLSN record1 =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 0L, 0L), 88L);
+        LogRecordWithDLSN record2 =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 12L, 0L), 888L);
+        LogRecordWithDLSN record3 =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 12L, 0L), 999L);
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 10L, 11L),
+                ReadUtils.getEntriesToSearch(888L, record1, record2, 10));
+        assertEquals(Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 11L),
+                ReadUtils.getEntriesToSearch(888L, record1, record3, 10));
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordNotLessThanTxIdWithGreaterTxId() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0 /* control recs */, 1, 1 /* txid */);
+
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, 999L));
+        assertFalse(result.isPresent());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordNotLessThanTxIdWithLessTxId() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0 /* control recs */, 1, 999L /* txid */);
+
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, 99L));
+        assertTrue(result.isPresent());
+        assertEquals(999L, result.get().getTransactionId());
+        assertEquals(0L, result.get().getDlsn().getEntryId());
+        assertEquals(0L, result.get().getDlsn().getSlotId());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordNotLessThanTxIdOnSmallSegment() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0 /* control recs */, 5, 1L /* txid */);
+
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, 3L));
+        assertTrue(result.isPresent());
+        assertEquals(3L, result.get().getTransactionId());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordNotLessThanTxIdOnLargeSegment() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0 /* control recs */, 100, 1L /* txid */);
+
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, 9L));
+        assertTrue(result.isPresent());
+        assertEquals(9L, result.get().getTransactionId());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordGreaterThanTxIdOnLargeSegment() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        DLMTestUtil.generateLogSegmentNonPartitioned(bkdlm, 0 /* control recs */, 100, 1L /* txid */, 3L);
+
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, 23L));
+        assertTrue(result.isPresent());
+        assertEquals(25L, result.get().getTransactionId());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLogRecordGreaterThanTxIdOnSameTxId() throws Exception {
+        String streamName = runtime.getMethodName();
+        BKDistributedLogManager bkdlm = createNewDLM(conf, streamName);
+        AsyncLogWriter out = bkdlm.startAsyncLogSegmentNonPartitioned();
+        long txid = 1L;
+        for (int i = 0; i < 10; ++i) {
+            LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
+            Await.result(out.write(record));
+            txid += 1;
+        }
+        long txidToSearch = txid;
+        for (int i = 0; i < 10; ++i) {
+            LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txidToSearch);
+            Await.result(out.write(record));
+        }
+        for (int i = 0; i < 10; ++i) {
+            LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
+            Await.result(out.write(record));
+            txid += 1;
+        }
+        out.close();
+        Optional<LogRecordWithDLSN> result =
+                FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, txidToSearch));
+        assertTrue(result.isPresent());
+        assertEquals(10L, result.get().getDlsn().getEntryId());
+    }
+
 }

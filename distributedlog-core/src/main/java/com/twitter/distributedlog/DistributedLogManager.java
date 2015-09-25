@@ -97,8 +97,28 @@ public interface DistributedLogManager extends MetadataAccessor {
 
     public LogReader getInputStream(DLSN fromDLSN) throws IOException;
 
+    /**
+     * Open an async log reader to read records from a log starting from <code>fromTxnId</code>.
+     *
+     * @param fromTxnId
+     *          transaction id to start reading from
+     * @return async log reader
+     */
+    public Future<AsyncLogReader> openAsyncLogReader(long fromTxnId);
+
+    /**
+     * Open an async log reader to read records from a log starting from <code>fromDLSN</code>
+     *
+     * @param fromDLSN
+     *          dlsn to start reading from
+     * @return async log reader
+     */
+    public Future<AsyncLogReader> openAsyncLogReader(DLSN fromDLSN);
+
+    // @Deprecated
     public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException;
 
+    // @Deprecated
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException;
 
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN);

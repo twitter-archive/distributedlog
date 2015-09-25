@@ -4,11 +4,13 @@ import com.twitter.distributedlog.LogRecordWithDLSN;
 
 /**
  * Save the first record with transaction id not less than the provided transaction id.
+ * If all records' transaction id is less than provided transaction id, save the last record.
  */
 public class FirstTxIdNotLessThanSelector implements LogRecordSelector {
 
     LogRecordWithDLSN result;
     final long txId;
+    boolean found = false;
 
     public FirstTxIdNotLessThanSelector(long txId) {
         this.txId = txId;
@@ -16,8 +18,12 @@ public class FirstTxIdNotLessThanSelector implements LogRecordSelector {
 
     @Override
     public void process(LogRecordWithDLSN record) {
-        if ((record.getTransactionId() >= txId) && (null == result)) {
-            this.result = record;
+        if (found) {
+            return;
+        }
+        this.result = record;
+        if (record.getTransactionId() >= txId) {
+            found = true;
         }
     }
 

@@ -24,6 +24,45 @@ public class FutureUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(FutureUtils.class);
 
+    public static class FutureEventListenerRunnable<R>
+            implements FutureEventListener<R> {
+
+        public static <R> FutureEventListenerRunnable<R> of(
+                FutureEventListener<R> listener,
+                ExecutorService executorService) {
+            return new FutureEventListenerRunnable<R>(executorService, listener);
+        }
+
+        private final ExecutorService executorService;
+        private final FutureEventListener<R> listener;
+
+        private FutureEventListenerRunnable(ExecutorService executorService,
+                                            FutureEventListener<R> listener) {
+            this.executorService = executorService;
+            this.listener = listener;
+        }
+
+        @Override
+        public void onSuccess(final R value) {
+            executorService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onSuccess(value);
+                }
+            });
+        }
+
+        @Override
+        public void onFailure(final Throwable cause) {
+            executorService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onFailure(cause);
+                }
+            });
+        }
+    }
+
     private static class ListFutureProcessor<T, R>
             implements FutureEventListener<R>, Runnable {
 

@@ -271,8 +271,15 @@ public class DLMTestUtil {
     }
 
     public static LogRecordWithDLSN getLogRecordWithDLSNInstance(DLSN dlsn, long txId) {
+        return getLogRecordWithDLSNInstance(dlsn, txId, false);
+    }
+
+    public static LogRecordWithDLSN getLogRecordWithDLSNInstance(DLSN dlsn, long txId, boolean isControlRecord) {
         LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId), 1L);
         record.setPositionWithinLogSegment((int)txId + 1);
+        if (isControlRecord) {
+            record.setControl();
+        }
         return record;
     }
 
@@ -331,19 +338,24 @@ public class DLMTestUtil {
         }
     }
 
-    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid) throws Exception {
+    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid)
+            throws Exception {
+        return generateLogSegmentNonPartitioned(dlm, controlEntries, userEntries, startTxid, 1L);
+    }
+
+    public static long generateLogSegmentNonPartitioned(DistributedLogManager dlm, int controlEntries, int userEntries, long startTxid, long txidStep) throws Exception {
         AsyncLogWriter out = dlm.startAsyncLogSegmentNonPartitioned();
         long txid = startTxid;
         for (int i = 0; i < controlEntries; ++i) {
             LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
             record.setControl();
             Await.result(out.write(record));
-            ++txid;
+            txid += txidStep;
         }
         for (int i = 0; i < userEntries; ++i) {
             LogRecord record = DLMTestUtil.getLargeLogRecordInstance(txid);
             Await.result(out.write(record));
-            ++txid;
+            txid += txidStep;
         }
         out.close();
         return txid - startTxid;

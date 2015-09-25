@@ -12,6 +12,35 @@ import static org.junit.Assert.*;
 public class TestLogRecordSelectors {
 
     @Test(timeout = 60000)
+    public void testFirstRecordSelector() {
+        FirstRecordSelector selectorIncludeControlRecord =
+                new FirstRecordSelector(true);
+
+        for (int i = 0; i < 5; i++) {
+            selectorIncludeControlRecord.process(
+                    DLMTestUtil.getLogRecordWithDLSNInstance(
+                            new DLSN(1L, i * 2, 0L), i * 2, true));
+            selectorIncludeControlRecord.process(
+                    DLMTestUtil.getLogRecordWithDLSNInstance(
+                            new DLSN(1L, i * 2 + 1, 0L), i * 2 + 1));
+        }
+        assertEquals(new DLSN(1L, 0L, 0L), selectorIncludeControlRecord.result().getDlsn());
+
+        FirstRecordSelector selectorExcludeControlRecord =
+                new FirstRecordSelector(false);
+
+        for (int i = 0; i < 5; i++) {
+            selectorExcludeControlRecord.process(
+                    DLMTestUtil.getLogRecordWithDLSNInstance(
+                            new DLSN(1L, i * 2, 0L), i * 2, true));
+            selectorExcludeControlRecord.process(
+                    DLMTestUtil.getLogRecordWithDLSNInstance(
+                            new DLSN(1L, i * 2 + 1, 0L), i * 2 + 1));
+        }
+        assertEquals(new DLSN(1L, 1L, 0L), selectorExcludeControlRecord.result().getDlsn());
+    }
+
+    @Test(timeout = 60000)
     public void testLastRecordSelector() {
         LastRecordSelector selector = new LastRecordSelector();
 
@@ -61,7 +90,7 @@ public class TestLogRecordSelectors {
             largerSelector.process(DLMTestUtil.getLogRecordWithDLSNInstance(
                     new DLSN(4L, i, 0L), 4 * 10 + i));
         }
-        assertNull(largerSelector.result());
+        assertEquals(49, largerSelector.result().getTransactionId());
 
         FirstTxIdNotLessThanSelector smallerSelector =
                 new FirstTxIdNotLessThanSelector(txId);
