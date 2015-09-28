@@ -644,7 +644,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 name,
                 segments.get(segmentIdx),
                 fromTxnId,
-                writerFuturePoolExecutorService,
+                scheduler,
                 handleCache,
                 Math.max(2, conf.getReadAheadBatchSize())
         ).flatMap(new AbstractFunction1<Optional<LogRecordWithDLSN>, Future<AsyncLogReader>>() {
