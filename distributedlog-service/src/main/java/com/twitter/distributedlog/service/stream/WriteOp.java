@@ -40,7 +40,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final Counter writeBytes;
 
     private final byte dlsnVersion;
-    private final long delayMs;
+    private final boolean isDurableWriteEnabled;
 
 public WriteOp(String stream,
                ByteBuffer data,
@@ -63,7 +63,7 @@ public WriteOp(String stream,
         this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
         this.dlsnVersion = dlsnVersion;
-        this.delayMs = conf.getLatencyDelay();
+        this.isDurableWriteEnabled = conf.isDurableWriteEnabled();
     }
 
     @Override
@@ -114,13 +114,17 @@ public WriteOp(String stream,
             txnId = sequencer.nextId();
             writeResult = writer.write(new LogRecord(txnId, payload));
         }
-        return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
-            @Override
-            public WriteResponse apply(DLSN value) {
-                successRecordCounter.inc();
-                return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
-            }
-        });
+        if (isDurableWriteEnabled) {
+            return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
+                @Override
+                public WriteResponse apply(DLSN value) {
+                    successRecordCounter.inc();
+                    return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
+                }
+            });
+        } else {
+            return Future.value(ResponseUtils.writeSuccess().setDlsn(DLSN.InvalidDLSN.serialize(dlsnVersion)));
+        }
     }
 
     @Override

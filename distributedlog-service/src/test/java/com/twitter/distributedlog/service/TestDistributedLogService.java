@@ -14,6 +14,7 @@ import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -352,6 +353,36 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
     private ByteBuffer getTestDataBuffer() {
         return ByteBuffer.wrap("test-data".getBytes());
+    }
+
+    @Test(timeout = 60000)
+    public void testNonDurableWrite() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setServiceTimeoutMs(Integer.MAX_VALUE)
+                .setStreamProbationTimeoutMs(Integer.MAX_VALUE)
+                .setOutputBufferSize(Integer.MAX_VALUE)
+                .setImmediateFlushEnabled(false)
+                .setPeriodicFlushFrequencyMilliSeconds(0);
+        ServerConfiguration serverConfLocal = new ServerConfiguration();
+        serverConfLocal.addConfiguration(serverConf);
+        serverConfLocal.enableDurableWrite(false);
+        String streamName = testName.getMethodName();
+        DistributedLogServiceImpl localService =
+                createService(serverConfLocal, confLocal);
+
+        int numWrites = 10;
+        List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>();
+        for (int i = 0; i < numWrites; i++) {
+            futureList.add(localService.write(streamName, createRecord(i)));
+        }
+        assertTrue("Stream " + streamName + " should be cached",
+                localService.getCachedStreams().containsKey(streamName));
+        List<WriteResponse> resultList = FutureUtils.result(Future.collect(futureList));
+        for (WriteResponse wr : resultList) {
+            assertEquals(DLSN.InvalidDLSN, DLSN.deserialize(wr.getDlsn()));
+        }
+
+        localService.shutdown();
     }
 
     @Test(timeout = 60000)

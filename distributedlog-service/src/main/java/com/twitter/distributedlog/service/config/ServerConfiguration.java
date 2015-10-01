@@ -16,9 +16,9 @@ public class ServerConfiguration extends CompositeConfiguration {
     protected final static String SERVER_DLSN_VERSION = "server_dlsn_version";
     protected final static byte SERVER_DLSN_VERSION_DEFAULT = DLSN.VERSION1;
 
-    // Server latency delay
-    protected final static String SERVER_LATENCY_DELAY = "server_latency_delay";
-    protected final static long SERVER_LATENCY_DELAY_DEFAULT = 0L;
+    // Server Durable Write Enable/Disable Flag
+    protected final static String SERVER_DURABLE_WRITE_ENABLED = "server_durable_write_enabled";
+    protected final static boolean SERVER_DURABLE_WRITE_ENABLED_DEFAULT = true;
 
     // Server Region Id
     protected final static String SERVER_REGION_ID = "server_region_id";
@@ -82,24 +82,24 @@ public class ServerConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Set the latency delay for executing write operations.
+     * Set the flag to enable/disable durable write
      *
-     * @param latencyDelay
-     *          latency delay for executing write operations
+     * @param enabled
+     *          flag to enable/disable durable write
      * @return server configuration
      */
-    public ServerConfiguration setLatencyDelay(long latencyDelay) {
-        setProperty(SERVER_LATENCY_DELAY, latencyDelay);
+    public ServerConfiguration enableDurableWrite(boolean enabled) {
+        setProperty(SERVER_DURABLE_WRITE_ENABLED, enabled);
         return this;
     }
 
     /**
-     * Get the latency delay for executing write operations.
+     * Is durable write enabled?
      *
-     * @return latency delay for executing write operations.
+     * @return true if waiting writes to be durable. otherwise false. 
      */
-    public long getLatencyDelay() {
-        return getLong(SERVER_LATENCY_DELAY, SERVER_LATENCY_DELAY_DEFAULT);
+    public boolean isDurableWriteEnabled() {
+        return getBoolean(SERVER_DURABLE_WRITE_ENABLED, SERVER_DURABLE_WRITE_ENABLED_DEFAULT);
     }
 
     /**
