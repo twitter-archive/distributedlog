@@ -6,6 +6,7 @@ import com.twitter.distributedlog.limiter.RequestLimiter;
 
 import java.io.Closeable;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.configuration.event.ConfigurationEvent;
 import org.apache.commons.configuration.event.ConfigurationListener;
@@ -24,12 +25,15 @@ public abstract class DynamicRequestLimiter<Request> implements RequestLimiter<R
     private final StatsLogger limiterStatsLogger;
     private final DynamicDistributedLogConfiguration dynConf;
     private final ConfigurationListener listener;
+    private final Feature rateLimitDisabledFeature;
     private volatile RequestLimiter<Request> limiter;
 
-    public DynamicRequestLimiter(DynamicDistributedLogConfiguration dynConf, StatsLogger statsLogger) {
+    public DynamicRequestLimiter(DynamicDistributedLogConfiguration dynConf,
+                                 StatsLogger statsLogger, Feature rateLimitDisabledFeature) {
         this.dynConf = dynConf;
         this.limiterStatsLogger = statsLogger.scope("dynamic");
         this.limiter = build();
+        this.rateLimitDisabledFeature = rateLimitDisabledFeature;
         this.listener = new ConfigurationListener() {
             @Override
             public void configurationChanged(ConfigurationEvent event) {
@@ -52,6 +56,9 @@ public abstract class DynamicRequestLimiter<Request> implements RequestLimiter<R
 
     @Override
     public void apply(Request request) throws OverCapacityException {
+        if (rateLimitDisabledFeature.isAvailable()) {
+            return;
+        }
         limiter.apply(request);
     }
 

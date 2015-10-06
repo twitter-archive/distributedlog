@@ -258,7 +258,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             this.lastException = new IOException("Fail to write record to stream " + name);
             this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
             this.dynConf = getDynamicConfiguration();
-            this.limiter = new DynamicRequestLimiter<StreamOp>(dynConf, limiterStatLogger) {
+            this.limiter = new DynamicRequestLimiter<StreamOp>(dynConf, limiterStatLogger, featureRateLimitDisabled) {
                 @Override
                 public RequestLimiter<StreamOp> build() {
                     ChainedRequestLimiter.Builder<StreamOp> builder = new ChainedRequestLimiter.Builder<StreamOp>();
@@ -1039,6 +1039,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     // Features
     private final FeatureProvider featureProvider;
     private final Feature featureRegionStopAcceptNewStream;
+    private final Feature featureRateLimitDisabled;
 
     // Stats
     private final StatsLogger statsLogger;
@@ -1134,6 +1135,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         // service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
+        this.featureRateLimitDisabled = this.featureProvider.getFeature(
+                ServerFeatureKeys.SERVICE_RATE_LIMIT_DISABLED.name().toLowerCase());
 
         // Stats
         this.statsLogger = statsLogger;

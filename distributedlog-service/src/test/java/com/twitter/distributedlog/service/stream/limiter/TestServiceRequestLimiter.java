@@ -11,6 +11,7 @@ import com.twitter.distributedlog.limiter.RequestLimiter;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -113,7 +114,8 @@ public class TestServiceRequestLimiter {
         final AtomicInteger id = new AtomicInteger(0);
         final DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(
                 new ConcurrentConstConfiguration(new DistributedLogConfiguration()));
-        DynamicRequestLimiter<MockRequest> limiter = new DynamicRequestLimiter<MockRequest>(dynConf, NullStatsLogger.INSTANCE) {
+        DynamicRequestLimiter<MockRequest> limiter = new DynamicRequestLimiter<MockRequest>(
+                dynConf, NullStatsLogger.INSTANCE, new SettableFeature("", 0)) {
             @Override
             public RequestLimiter<MockRequest> build() {
                 id.getAndIncrement();
@@ -128,11 +130,37 @@ public class TestServiceRequestLimiter {
     }
 
     @Test(timeout = 60000)
+    public void testDynamicLimiterWithDisabledFeature() throws Exception {
+        final DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(
+                new ConcurrentConstConfiguration(new DistributedLogConfiguration()));
+        final MockSoftRequestLimiter rateLimiter = new MockSoftRequestLimiter(0);
+        final SettableFeature disabledFeature = new SettableFeature("", 0);
+        DynamicRequestLimiter<MockRequest> limiter = new DynamicRequestLimiter<MockRequest>(
+                dynConf, NullStatsLogger.INSTANCE, disabledFeature) {
+            @Override
+            public RequestLimiter<MockRequest> build() {
+                return rateLimiter;
+            }
+        };
+        assertEquals(0, rateLimiter.getLimitHitCount());
+
+        // Not disabled, rate limiter was invoked
+        limiter.apply(new MockRequest(Integer.MAX_VALUE));
+        assertEquals(1, rateLimiter.getLimitHitCount());
+
+        // Disabled, rate limiter not invoked
+        disabledFeature.set(1);
+        limiter.apply(new MockRequest(Integer.MAX_VALUE));
+        assertEquals(1, rateLimiter.getLimitHitCount());
+    }
+
+    @Test(timeout = 60000)
     public void testDynamicLimiterWithException() throws Exception {
         final AtomicInteger id = new AtomicInteger(0);
         final DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(
                 new ConcurrentConstConfiguration(new DistributedLogConfiguration()));
-        DynamicRequestLimiter<MockRequest> limiter = new DynamicRequestLimiter<MockRequest>(dynConf, NullStatsLogger.INSTANCE) {
+        DynamicRequestLimiter<MockRequest> limiter = new DynamicRequestLimiter<MockRequest>(
+                dynConf, NullStatsLogger.INSTANCE, new SettableFeature("", 0)) {
             @Override
             public RequestLimiter<MockRequest> build() {
                 if (id.incrementAndGet() >= 2) {
