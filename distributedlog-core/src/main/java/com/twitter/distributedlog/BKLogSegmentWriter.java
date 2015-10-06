@@ -419,12 +419,13 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.lock = lock;
         this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
-        if (conf.getOutputBufferSize() > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+        final int configuredTransmissionThreshold = dynConf.getOutputBufferSize();
+        if (configuredTransmissionThreshold > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
             LOG.warn("Setting output buffer size {} greater than max transmission size {} for log segment {}",
-                new Object[] {conf.getOutputBufferSize(), DistributedLogConstants.MAX_TRANSMISSION_SIZE, fullyQualifiedLogSegment});
+                new Object[] {configuredTransmissionThreshold, DistributedLogConstants.MAX_TRANSMISSION_SIZE, fullyQualifiedLogSegment});
             this.transmissionThreshold = DistributedLogConstants.MAX_TRANSMISSION_SIZE;
         } else {
-            this.transmissionThreshold = conf.getOutputBufferSize();
+            this.transmissionThreshold = configuredTransmissionThreshold;
         }
 
         this.logSegmentSequenceNumber = logSegmentSequenceNumber;
@@ -448,8 +449,9 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
         // If we are transmitting immediately (threshold == 0) and if immediate
         // flush is enabled, we don't need the periodic flush task
+        final int configuredPeriodicFlushFrequency = dynConf.getPeriodicFlushFrequencyMilliSeconds();
         if (!immediateFlushEnabled || (0 != this.transmissionThreshold)) {
-            int periodicFlushFrequency = conf.getPeriodicFlushFrequencyMilliSeconds();
+            int periodicFlushFrequency = configuredPeriodicFlushFrequency;
             if (periodicFlushFrequency > 0 && executorService != null) {
                 periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
                         periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);

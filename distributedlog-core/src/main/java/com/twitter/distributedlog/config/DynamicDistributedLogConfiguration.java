@@ -97,4 +97,26 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
             defaultConfig.getInt(DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS,
                 DistributedLogConfiguration.BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT));
     }
+
+    /**
+     * Get output buffer size
+     *
+     * @return buffer size
+     */
+    public int getOutputBufferSize() {
+        return getInt(DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE,
+                DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE_DEFAULT));
+    }
+
+    /**
+     * Get Periodic Log Flush Frequency in seconds
+     *
+     * @return periodic flush frequency
+     */
+    public int getPeriodicFlushFrequencyMilliSeconds() {
+        return getInt(DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
+                DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT));
+    }
 }
