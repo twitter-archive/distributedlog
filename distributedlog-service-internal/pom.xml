@@ -24,15 +24,37 @@
       <groupId>com.twitter</groupId>
       <artifactId>distributedlog-service</artifactId>
       <version>${project.parent.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.twitter</groupId>
+          <artifactId>finagle-ostrich4_2.10</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-ostrich4_2.10</artifactId>
+      <artifactId>twitter-server-internal_2.10</artifactId>
       <version>${birdcage.sha}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-jdk14</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper.stats</groupId>
+      <artifactId>twitter-finagle-provider</artifactId>
+      <version>${bookkeeper.version}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>finagle-thriftmux_2.10</artifactId>
+      <version>${birdcage.sha}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.twitter</groupId>
+      <artifactId>finagle-stats_2.10</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>

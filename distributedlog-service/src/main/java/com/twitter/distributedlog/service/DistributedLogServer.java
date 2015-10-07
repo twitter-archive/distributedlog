@@ -17,19 +17,15 @@ import com.twitter.finagle.ThriftMuxServer$;
 import com.twitter.finagle.builder.Server;
 import com.twitter.finagle.builder.ServerBuilder;
 import com.twitter.finagle.stats.NullStatsReceiver;
-import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientIdRequiredFilter;
 import com.twitter.finagle.thrift.ThriftServerFramedCodec;
 import com.twitter.finagle.transport.Transport;
-import com.twitter.ostrich.admin.Service;
-import com.twitter.ostrich.admin.ServiceTracker;
 import com.twitter.util.Duration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
@@ -46,6 +42,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -58,58 +55,30 @@ public class DistributedLogServer implements Runnable {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServer.class);
 
-    static class DistributedLogAdminService implements Service {
-
-        final DistributedLogServiceImpl dlServiceImpl;
-
-        DistributedLogAdminService(DistributedLogServiceImpl dlServiceImpl) {
-            this.dlServiceImpl = dlServiceImpl;
-        }
-
-        @Override
-        public void start() {
-            // no-op
-        }
-
-        @Override
-        public void shutdown() {
-            logger.info("shutting down dl service");
-            this.dlServiceImpl.triggerShutdown();
-        }
-
-        @Override
-        public void quiesce() {
-            logger.info("quiescing dl service");
-            this.dlServiceImpl.triggerShutdown();
-        }
-
-        @Override
-        public void reload() {
-            // no-op
-        }
-    }
-
     final static String USAGE = "DistributedLogServer [-u <uri>] [-c <conf>]";
     final String[] args;
     final Options options = new Options();
     // expose finagle server stats.
-    final StatsReceiver statsReceiver = new OstrichStatsReceiver();
+    final StatsReceiver statsReceiver;
 
     private DistributedLogServiceImpl dlService = null;
     private Server server = null;
-    private StatsProvider statsProvider = null;
+    private StatsProvider statsProvider;
     private Announcer announcer = null;
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
     private ScheduledExecutorService configExecutorService;
     private long gracefulShutdownMs = 0L;
 
-    DistributedLogServer(String[] args) {
+    DistributedLogServer(String[] args,
+                         StatsReceiver statsReceiver,
+                         StatsProvider statsProvider) {
         this.args = args;
+        this.statsReceiver = statsReceiver;
+        this.statsProvider = statsProvider;
         // prepare options
         options.addOption("u", "uri", true, "DistributedLog URI");
         options.addOption("c", "conf", true, "DistributedLog Configuration File");
         options.addOption("sc", "stream-conf", true, "Per Stream Configuration Directory");
-        options.addOption("s", "provider", true, "DistributedLog Stats Provider");
         options.addOption("p", "port", true, "DistributedLog Server Port");
         options.addOption("sp", "stats-port", true, "DistributedLog Stats Port");
         options.addOption("si", "shard-id", true, "DistributedLog Shard ID");
@@ -125,7 +94,7 @@ public class DistributedLogServer implements Runnable {
     @Override
     public void run() {
         try {
-            logger.info("Running distributedlog server");
+            logger.info("Running distributedlog server : args = {}", Arrays.toString(args));
             BasicParser parser = new BasicParser();
             CommandLine cmdline = parser.parse(options, args);
             runCmd(cmdline);
@@ -160,14 +129,6 @@ public class DistributedLogServer implements Runnable {
                         + configFile + ".");
             }
         }
-        statsProvider = new NullStatsProvider();
-        if (cmdline.hasOption("s")) {
-            String providerClass = cmdline.getOptionValue("s");
-            statsProvider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
-        }
-        // !!! For Ostrich, it registered some non-daemon threads in ServiceTracker. If we don't stop
-        //     service tracker, the proxy will just hang during shutdown.
-        dlConf.setProperty("shouldShutdownServiceTracker", true);
         logger.info("Starting stats provider : {}", statsProvider.getClass());
         statsProvider.start(dlConf);
 
@@ -258,9 +219,6 @@ public class DistributedLogServer implements Runnable {
         DistributedLogServiceImpl dlService =
                 new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), perStreamStatsLogger, keepAliveLatch);
 
-        DistributedLogAdminService adminService = new DistributedLogAdminService(dlService);
-        ServiceTracker.register(adminService);
-
         StatsReceiver serviceStatsReceiver = statsReceiver.scope("service");
         StatsLogger serviceStatsLogger = provider.getStatsLogger("service");
 
@@ -322,7 +280,7 @@ public class DistributedLogServer implements Runnable {
             announcer.close();
         }
         closeServer(Pair.of(dlService, server), gracefulShutdownMs, TimeUnit.MILLISECONDS);
-        if (statsProvider != null) {
+        if (null != statsProvider) {
             statsProvider.stop();
         }
         SchedulerUtils.shutdownScheduler(configExecutorService, 60, TimeUnit.SECONDS);
@@ -338,9 +296,16 @@ public class DistributedLogServer implements Runnable {
      *
      * @param args
      *          distributedlog server args
+     * @param statsReceiver
+     *          stats receiver
+     * @param statsProvider
+     *          stats provider
      */
-    public static DistributedLogServer run(String[] args) {
-        final DistributedLogServer server = new DistributedLogServer(args);
+    public static DistributedLogServer run(String[] args,
+                                           StatsReceiver statsReceiver,
+                                           StatsProvider statsProvider) {
+        final DistributedLogServer server =
+                new DistributedLogServer(args, statsReceiver, statsProvider);
         server.run();
         return server;
     }
@@ -350,7 +315,9 @@ public class DistributedLogServer implements Runnable {
     }
 
     public static void main(String[] args) {
-        final DistributedLogServer server = run(args);
+        final StatsReceiver statsReceiver = NullStatsReceiver.get();
+        final StatsProvider statsProvider = new NullStatsProvider();
+        final DistributedLogServer server = run(args, statsReceiver, statsProvider);
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {

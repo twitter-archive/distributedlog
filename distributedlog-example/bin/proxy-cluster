@@ -11,4 +11,4 @@ java -cp .:distributedlog-example/lib/*:$BUILT_JAR \
     -DstatsHttpPort=9000 -DstatsExport=true \
     -Dserver_shard=0 \
     com.twitter.distributedlog.example.ProxyClusterEmulator \
-    --port 8000 --provider org.apache.bookkeeper.stats.twitter.ostrich.OstrichProvider
+    --port 8000
