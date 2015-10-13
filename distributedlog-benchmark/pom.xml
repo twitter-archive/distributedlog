@@ -22,7 +22,7 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-ostrich4_2.10</artifactId>
+      <artifactId>finagle-ostrich4_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>

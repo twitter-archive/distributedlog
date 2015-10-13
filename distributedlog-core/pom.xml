@@ -34,12 +34,12 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>util-core_2.10</artifactId>
+      <artifactId>util-core_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>decider_2.10</artifactId>
+      <artifactId>decider_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
@@ -82,7 +82,7 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>scrooge-core_2.10</artifactId>
+      <artifactId>scrooge-core_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>

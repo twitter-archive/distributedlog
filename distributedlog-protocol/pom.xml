@@ -17,17 +17,17 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>scrooge-core_2.10</artifactId>
+      <artifactId>scrooge-core_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-core_2.10</artifactId>
+      <artifactId>finagle-core_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-thrift_2.10</artifactId>
+      <artifactId>finagle-thrift_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>

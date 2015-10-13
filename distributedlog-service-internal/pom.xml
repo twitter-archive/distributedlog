@@ -33,7 +33,7 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>twitter-server-internal_2.10</artifactId>
+      <artifactId>twitter-server-internal_2.11</artifactId>
       <version>${birdcage.sha}</version>
       <exclusions>
         <exclusion>
@@ -46,15 +46,21 @@
       <groupId>org.apache.bookkeeper.stats</groupId>
       <artifactId>twitter-finagle-provider</artifactId>
       <version>${bookkeeper.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.twitter</groupId>
+          <artifactId>finagle-core_2.10</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-thriftmux_2.10</artifactId>
+      <artifactId>finagle-thriftmux_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>finagle-stats_2.10</artifactId>
+      <artifactId>finagle-stats_2.11</artifactId>
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
