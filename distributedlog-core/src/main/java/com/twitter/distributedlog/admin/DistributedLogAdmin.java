@@ -140,6 +140,12 @@ public class DistributedLogAdmin extends DistributedLogTool {
             this.metadata = metadata;
             this.lastRecord = lastRecord;
         }
+
+        @Override
+        public String toString() {
+            return "LogSegmentCandidate[ metadata = " + metadata + ", last record = " + lastRecord + " ]";
+        }
+
     }
 
     private static final Comparator<LogSegmentCandidate> LOG_SEGMENT_CANDIDATE_COMPARATOR =
@@ -162,6 +168,11 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         synchronized void addLogSegmentCandidate(LogSegmentCandidate segmentCandidate) {
             segmentCandidates.add(segmentCandidate);
+        }
+
+        @Override
+        public String toString() {
+            return "StreamCandidate[ name = " + streamName + ", segments = " + segmentCandidates + " ]";
         }
     }
 
@@ -248,7 +259,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     try {
                         LOG.info("Checking stream {}.", stream);
                         candidate = checkStream(factory, stream, executorService, bkc, digestpw);
-                        LOG.info("Checked stream {}.", stream);
+                        LOG.info("Checked stream {} - {}.", stream, candidate);
                     } catch (IOException e) {
                         LOG.error("Error on checking stream {} : ", stream, e);
                         doneLatch.countDown();

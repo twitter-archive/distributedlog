@@ -543,7 +543,22 @@ public class ReadUtils {
                             handleCache.asyncCloseLedger(ld);
                             return BoxedUnit.UNIT;
                         }
+
                     });
+                    long lastEntryId;
+                    try {
+                        lastEntryId = handleCache.getLastAddConfirmed(ld);
+                    } catch (BKException e) {
+                        promise.setException(e);
+                        return;
+                    }
+                    if (lastEntryId < 0) {
+                        // it means that the log segment is created but not written yet or an empty log segment.
+                        // it is equivalent to 'all log records whose transaction id is less than provided transactionId'
+                        Optional<LogRecordWithDLSN> nonRecord = Optional.absent();
+                        promise.setValue(nonRecord);
+                        return;
+                    }
                     // all log records whose transaction id is not less than provided transactionId
                     if (segment.getFirstTxId() >= transactionId) {
                         final FirstTxIdNotLessThanSelector selector =
@@ -568,13 +583,6 @@ public class ReadUtils {
                             }
                         });
 
-                        return;
-                    }
-                    long lastEntryId;
-                    try {
-                        lastEntryId = handleCache.getLastAddConfirmed(ld);
-                    } catch (BKException e) {
-                        promise.setException(e);
                         return;
                     }
                     getLogRecordNotLessThanTxIdFromEntries(

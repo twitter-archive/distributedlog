@@ -154,6 +154,15 @@ public interface DistributedLogManager extends MetadataAccessor {
         throws IOException;
 
     /**
+     * Get the {@link DLSN} of first log record whose transaction id is not less than <code>transactionId</code>.
+     *
+     * @param transactionId
+     *          transaction id
+     * @return dlsn of first log record whose transaction id is not less than transactionId.
+     */
+    public Future<DLSN> getDLSNNotLessThanTxId(long transactionId);
+
+    /**
      * Get the last log record in the stream
      *
      * @return the last log record in the stream

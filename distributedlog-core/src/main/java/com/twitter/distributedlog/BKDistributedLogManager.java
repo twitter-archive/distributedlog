@@ -313,25 +313,34 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return this.featureProvider;
     }
 
-    @Override
-    public synchronized List<LogSegmentMetadata> getLogSegments() throws IOException {
-        BKLogReadHandler readHandler = createReadLedgerHandler(conf.getUnpartitionedStreamName());
-        try {
-            return readHandler.getFullLedgerList(true, false);
-        } finally {
-            readHandler.close();
+    private synchronized BKLogReadHandler getReadHandlerForListener(boolean create) {
+        if (null == readHandlerForListener && create) {
+            readHandlerForListener = createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            readHandlerForListener.scheduleGetLedgersTask(true, true);
         }
+        return readHandlerForListener;
     }
 
     @Override
-    public synchronized void registerListener(LogSegmentListener listener) throws IOException {
-        if (null == readHandlerForListener) {
-            readHandlerForListener = createReadLedgerHandler(conf.getUnpartitionedStreamName());
-            readHandlerForListener.registerListener(listener);
-            readHandlerForListener.scheduleGetLedgersTask(true, true);
-        } else {
-            readHandlerForListener.registerListener(listener);
-        }
+    public List<LogSegmentMetadata> getLogSegments() throws IOException {
+        return FutureUtils.result(getLogSegmentsAsync());
+    }
+
+    protected Future<List<LogSegmentMetadata>> getLogSegmentsAsync() {
+        final BKLogReadHandler readHandler = createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        return readHandler.asyncGetFullLedgerList(true, false).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                readHandler.close();
+                return BoxedUnit.UNIT;
+            }
+        });
+    }
+
+    @Override
+    public void registerListener(LogSegmentListener listener) throws IOException {
+        BKLogReadHandler readHandler = getReadHandlerForListener(true);
+        readHandler.registerListener(listener);
     }
 
     @Override
@@ -356,19 +365,19 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     // Create Read Handler
 
-    synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
+    synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier) {
         Optional<String> subscriberId = Optional.absent();
         return createReadLedgerHandler(streamIdentifier, subscriberId, false);
     }
 
-    synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier, Optional<String> subscriberId)
-            throws IOException {
+    synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier,
+                                                                 Optional<String> subscriberId) {
         return createReadLedgerHandler(streamIdentifier, subscriberId, false);
     }
 
     synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier,
-                                                                          Optional<String> subscriberId, boolean isHandleForReading)
-            throws IOException {
+                                                                 Optional<String> subscriberId,
+                                                                 boolean isHandleForReading) {
         return createReadLedgerHandler(streamIdentifier, subscriberId, getLockStateExecutor(true), null, isHandleForReading);
     }
 
@@ -470,24 +479,17 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return logSegmentRollingPermitManager;
     }
 
-    <T> Future<T> processReaderOperation(final String streamIdentifier,
-                                         final Function<BKLogReadHandler, Future<T>> func) {
+    <T> Future<T> processReaderOperation(final Function<BKLogReadHandler, Future<T>> func) {
         initializeFuturePool(false);
         return readerFuturePool.apply(new ExceptionalFunction0<BKLogReadHandler>() {
             @Override
             public BKLogReadHandler applyE() throws Throwable {
-                return createReadLedgerHandler(streamIdentifier);
+                return getReadHandlerForListener(true);
             }
         }).flatMap(new ExceptionalFunction<BKLogReadHandler, Future<T>>() {
             @Override
             public Future<T> applyE(final BKLogReadHandler readHandler) throws Throwable {
-                return func.apply(readHandler).ensure(new ExceptionalFunction0<BoxedUnit>() {
-                    @Override
-                    public BoxedUnit applyE() throws Throwable {
-                        readHandler.close();
-                        return BoxedUnit.UNIT;
-                    }
-                });
+                return func.apply(readHandler);
             }
         });
     }
@@ -500,7 +502,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public boolean isEndOfStreamMarked() throws IOException {
-        return (getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, true) == DistributedLogConstants.MAX_TXID);
+        checkClosedOrInError("isEndOfStreamMarked");
+        long lastTxId = FutureUtils.result(getLastLogRecordAsyncInternal(false, true)).getTransactionId();
+        return lastTxId == DistributedLogConstants.MAX_TXID;
     }
 
     /**
@@ -511,7 +515,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
         long position;
         try {
-            position = getLastTxIdInternal(conf.getUnpartitionedStreamName(), true, false);
+            position = FutureUtils.result(getLastLogRecordAsyncInternal(true, false)).getTransactionId();
             if (DistributedLogConstants.INVALID_TXID == position ||
                 DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID == position) {
                 position = 0;
@@ -572,6 +576,72 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
+    @Override
+    public Future<DLSN> getDLSNNotLessThanTxId(final long fromTxnId) {
+        return getLogSegmentsAsync().flatMap(new AbstractFunction1<List<LogSegmentMetadata>, Future<DLSN>>() {
+            @Override
+            public Future<DLSN> apply(List<LogSegmentMetadata> segments) {
+                return getDLSNNotLessThanTxId(fromTxnId, segments);
+            }
+        });
+    }
+
+    private Future<DLSN> getDLSNNotLessThanTxId(long fromTxnId,
+                                                final List<LogSegmentMetadata> segments) {
+        if (segments.isEmpty()) {
+            return getLastDLSNAsync();
+        }
+        final int segmentIdx = DLUtils.findLogSegmentNotLessThanTxnId(segments, fromTxnId);
+        if (segmentIdx < 0) {
+            return Future.value(new DLSN(segments.get(0).getLogSegmentSequenceNumber(), 0L, 0L));
+        }
+        LOG.info("Search log segment {}", segments.get(segmentIdx));
+        final LedgerHandleCache handleCache =
+                LedgerHandleCache.newBuilder().bkc(readerBKC).conf(conf).build();
+        return getDLSNNotLessThanTxIdInSegment(
+                fromTxnId,
+                segmentIdx,
+                segments,
+                handleCache
+        ).ensure(new AbstractFunction0<BoxedUnit>() {
+            @Override
+            public BoxedUnit apply() {
+                handleCache.clear();
+                return BoxedUnit.UNIT;
+            }
+        });
+    }
+
+    private Future<DLSN> getDLSNNotLessThanTxIdInSegment(final long fromTxnId,
+                                                         final int segmentIdx,
+                                                         final List<LogSegmentMetadata> segments,
+                                                         final LedgerHandleCache handleCache) {
+        return ReadUtils.getLogRecordNotLessThanTxId(
+                name,
+                segments.get(segmentIdx),
+                fromTxnId,
+                scheduler,
+                handleCache,
+                Math.max(2, conf.getReadAheadBatchSize())
+        ).flatMap(new AbstractFunction1<Optional<LogRecordWithDLSN>, Future<DLSN>>() {
+            @Override
+            public Future<DLSN> apply(Optional<LogRecordWithDLSN> foundRecord) {
+                if (foundRecord.isPresent()) {
+                    return Future.value(foundRecord.get().getDlsn());
+                }
+                if ((segments.size() - 1) == segmentIdx) {
+                    return getLastDLSNAsync();
+                } else {
+                    return getDLSNNotLessThanTxIdInSegment(
+                            fromTxnId,
+                            segmentIdx + 1,
+                            segments,
+                            handleCache);
+                }
+            }
+        });
+    }
+
     /**
      * Get the input stream starting with fromTxnId for the specified log
      *
@@ -611,65 +681,20 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * </p>
      *
      * @see DLUtils#findLogSegmentNotLessThanTxnId(List, long)
-     * @see ReadUtils#getLogRecordNotLessThanTxId(String, LogSegmentMetadata, long, ExecutorService, LedgerHandleCache)
+     * @see ReadUtils#getLogRecordNotLessThanTxId(String, LogSegmentMetadata, long, ExecutorService, LedgerHandleCache, int)
      * @param fromTxnId
      *          transaction id to start reading from
      * @return future representing the open result.
      */
     @Override
     public Future<AsyncLogReader> openAsyncLogReader(long fromTxnId) {
-        List<LogSegmentMetadata> segments;
-        try {
-            // TODO: make it asynchronous
-            //       the first get log segments call might be blocking
-            segments = getLogSegments();
-        } catch (IOException e) {
-            return Future.exception(e);
-        }
-        if (segments.isEmpty()) {
-            return getLastDLSNAsync().flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
-                @Override
-                public Future<AsyncLogReader> apply(DLSN lastDLSN) {
-                    return openAsyncLogReader(lastDLSN);
-                }
-            });
-        }
-        int segmentIdx = DLUtils.findLogSegmentNotLessThanTxnId(segments, fromTxnId);
-        if (segmentIdx < 0) {
-            return openAsyncLogReader(new DLSN(segments.get(0).getLogSegmentSequenceNumber(), 0L, 0L));
-        }
-        final LedgerHandleCache handleCache =
-                LedgerHandleCache.newBuilder().bkc(readerBKC).conf(conf).build();
-        return ReadUtils.getLogRecordNotLessThanTxId(
-                name,
-                segments.get(segmentIdx),
-                fromTxnId,
-                scheduler,
-                handleCache,
-                Math.max(2, conf.getReadAheadBatchSize())
-        ).flatMap(new AbstractFunction1<Optional<LogRecordWithDLSN>, Future<AsyncLogReader>>() {
+        return getDLSNNotLessThanTxId(fromTxnId).flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
             @Override
-            public Future<AsyncLogReader> apply(Optional<LogRecordWithDLSN> foundRecord) {
-                if (foundRecord.isPresent()) {
-                    return openAsyncLogReader(foundRecord.get().getDlsn());
-                }
-                return getLastDLSNAsync().flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
-                    @Override
-                    public Future<AsyncLogReader> apply(DLSN lastDLSN) {
-                        return openAsyncLogReader(lastDLSN);
-                    }
-                });
-            }
-        }).ensure(new AbstractFunction0<BoxedUnit>() {
-            @Override
-            public BoxedUnit apply() {
-                handleCache.clear();
-                return BoxedUnit.UNIT;
+            public Future<AsyncLogReader> apply(DLSN dlsn) {
+                return openAsyncLogReader(dlsn);
             }
         });
     }
-
-
 
     @Override
     public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
@@ -801,88 +826,46 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public LogRecordWithDLSN getLastLogRecord() throws IOException {
-        return getLastLogRecordInternal(conf.getUnpartitionedStreamName());
-    }
-
-    private LogRecordWithDLSN getLastLogRecordInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLastLogRecord");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        try {
-            return ledgerHandler.getLastLogRecord(false, false);
-        } finally {
-            ledgerHandler.close();
-        }
+        return FutureUtils.result(getLastLogRecordAsync());
     }
 
     @Override
     public long getFirstTxId() throws IOException {
-        return getFirstTxIdInternal(conf.getUnpartitionedStreamName());
-    }
-
-    private long getFirstTxIdInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getFirstTxId");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        try {
-            return ledgerHandler.getFirstTxId();
-        } finally {
-            ledgerHandler.close();
-        }
+        return FutureUtils.result(getFirstRecordAsyncInternal()).getTransactionId();
     }
 
     @Override
     public long getLastTxId() throws IOException {
-        return getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, false);
-    }
-
-    private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
         checkClosedOrInError("getLastTxId");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        try {
-            return ledgerHandler.getLastTxId(recover, includeEndOfStream);
-        } finally {
-            ledgerHandler.close();
-        }
+        return FutureUtils.result(getLastTxIdAsync());
     }
 
     @Override
     public DLSN getLastDLSN() throws IOException {
-        return getLastDLSNInternal(conf.getUnpartitionedStreamName(), false, false);
-    }
-
-    private DLSN getLastDLSNInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
         checkClosedOrInError("getLastDLSN");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        try {
-            return ledgerHandler.getLastDLSN(recover, includeEndOfStream);
-        } finally {
-            ledgerHandler.close();
-        }
+        return FutureUtils.result(getLastLogRecordAsyncInternal(false, false)).getDlsn();
     }
 
     /**
-     * Get Latest log record with DLSN in the log
+     * Get Latest log record in the log
      *
-     * @return latest log record with DLSN
+     * @return latest log record
      */
     @Override
     public Future<LogRecordWithDLSN> getLastLogRecordAsync() {
-        return getLastLogRecordAsyncInternal(conf.getUnpartitionedStreamName());
+        return getLastLogRecordAsyncInternal(false, false);
     }
 
-    private Future<LogRecordWithDLSN> getLastLogRecordAsyncInternal(final String streamIdentifier) {
-        return getLastRecordAsyncInternal(streamIdentifier, false, false);
-    }
-
-    private Future<LogRecordWithDLSN> getLastRecordAsyncInternal(final String streamIdentifier,
-                                                                 final boolean recover,
-                                                                 final boolean includeEndOfStream) {
-        return processReaderOperation(streamIdentifier,
-                new Function<BKLogReadHandler, Future<LogRecordWithDLSN>>() {
-                    @Override
-                    public Future<LogRecordWithDLSN> apply(final BKLogReadHandler ledgerHandler) {
-                        return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
-                    }
-                });
+    private Future<LogRecordWithDLSN> getLastLogRecordAsyncInternal(final boolean recover,
+                                                                    final boolean includeEndOfStream) {
+        return processReaderOperation(new Function<BKLogReadHandler, Future<LogRecordWithDLSN>>() {
+            @Override
+            public Future<LogRecordWithDLSN> apply(final BKLogReadHandler ledgerHandler) {
+                return ledgerHandler.getLastLogRecordAsync(recover, includeEndOfStream);
+            }
+        });
     }
 
     /**
@@ -892,11 +875,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<Long> getLastTxIdAsync() {
-        return getLastTxIdAsyncInternal(conf.getUnpartitionedStreamName());
-    }
-
-    private Future<Long> getLastTxIdAsyncInternal(final String streamIdentifier) {
-        return getLastRecordAsyncInternal(streamIdentifier, false, false)
+        return getLastLogRecordAsyncInternal(false, false)
                 .map(RECORD_2_TXID_FUNCTION);
     }
 
@@ -910,14 +889,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return getFirstRecordAsyncInternal().map(RECORD_2_DLSN_FUNCTION);
     }
 
-    public Future<LogRecordWithDLSN> getFirstRecordAsyncInternal() {
-        return processReaderOperation(conf.getUnpartitionedStreamName(),
-                new Function<BKLogReadHandler, Future<LogRecordWithDLSN>>() {
-                    @Override
-                    public Future<LogRecordWithDLSN> apply(final BKLogReadHandler ledgerHandler) {
-                        return ledgerHandler.asyncGetFirstLogRecord();
-                    }
-                });
+    private Future<LogRecordWithDLSN> getFirstRecordAsyncInternal() {
+        return processReaderOperation(new Function<BKLogReadHandler, Future<LogRecordWithDLSN>>() {
+            @Override
+            public Future<LogRecordWithDLSN> apply(final BKLogReadHandler ledgerHandler) {
+                return ledgerHandler.asyncGetFirstLogRecord();
+            }
+        });
     }
 
     /**
@@ -927,11 +905,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<DLSN> getLastDLSNAsync() {
-        return getLastDLSNAsyncInternal(conf.getUnpartitionedStreamName());
-    }
-
-    private Future<DLSN> getLastDLSNAsyncInternal(final String streamIdentifier) {
-        return getLastRecordAsyncInternal(streamIdentifier, false, false)
+        return getLastLogRecordAsyncInternal(false, false)
                 .map(RECORD_2_DLSN_FUNCTION);
     }
 
@@ -944,17 +918,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public long getLogRecordCount() throws IOException {
-        return getLogRecordCountInternal(conf.getUnpartitionedStreamName());
-    }
-
-    private long getLogRecordCountInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLogRecordCount");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        try {
-            return ledgerHandler.getLogRecordCount();
-        } finally {
-            ledgerHandler.close();
-        }
+        return FutureUtils.result(getLogRecordCountAsync(DLSN.InitialDLSN));
     }
 
     /**
@@ -966,13 +931,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<Long> getLogRecordCountAsync(final DLSN beginDLSN) {
-        return processReaderOperation(conf.getUnpartitionedStreamName(),
-                new Function<BKLogReadHandler, Future<Long>>() {
-            @Override
-            public Future<Long> apply(BKLogReadHandler ledgerHandler) {
-                return ledgerHandler.asyncGetLogRecordCount(beginDLSN);
-            }
-        });
+        return processReaderOperation(new Function<BKLogReadHandler, Future<Long>>() {
+                    @Override
+                    public Future<Long> apply(BKLogReadHandler ledgerHandler) {
+                        return ledgerHandler.asyncGetLogRecordCount(beginDLSN);
+                    }
+                });
     }
 
     @Override

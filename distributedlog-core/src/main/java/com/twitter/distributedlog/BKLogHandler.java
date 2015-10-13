@@ -233,7 +233,7 @@ abstract class BKLogHandler implements Watcher {
 
         @Override
         public void run() {
-            asyncGetLedgerListInternal(LogSegmentMetadata.COMPARATOR, filter, getChildrenWatcher, this);
+            asyncGetLedgerListWithRetries(LogSegmentMetadata.COMPARATOR, filter, getChildrenWatcher, this);
         }
     }
 
@@ -327,7 +327,7 @@ abstract class BKLogHandler implements Watcher {
         if (isFullListFetched.get()) {
             return;
         }
-        asyncGetLedgerListInternal(LogSegmentMetadata.COMPARATOR, LogSegmentFilter.DEFAULT_FILTER,
+        asyncGetLedgerListWithRetries(LogSegmentMetadata.COMPARATOR, LogSegmentFilter.DEFAULT_FILTER,
                 null, new NOPGetLedgersCallback(getFullyQualifiedName()));
     }
 
@@ -337,8 +337,8 @@ abstract class BKLogHandler implements Watcher {
         }
         LOG.info("Scheduling get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
         firstGetLedgersTask = new SyncGetLedgersCallback(getFullyQualifiedName(), allowEmpty);
-        asyncGetLedgerListInternal(LogSegmentMetadata.COMPARATOR, filter,
-                                   watch ? getChildrenWatcher : null, firstGetLedgersTask);
+        asyncGetLedgerListWithRetries(LogSegmentMetadata.COMPARATOR, filter,
+                watch ? getChildrenWatcher : null, firstGetLedgersTask);
         LOG.info("Scheduled get ledgers task for {}, watch = {}.", getFullyQualifiedName(), watch);
     }
 
@@ -964,7 +964,11 @@ abstract class BKLogHandler implements Watcher {
             forceGetListStat.registerSuccessfulEvent(elapsedMicros);
         } else {
             forceGetListStat.registerFailedEvent(elapsedMicros);
-            throw new IOException("ZK Exception "+ rc +" reading ledger list for " + getFullyQualifiedName());
+            if (KeeperException.Code.NONODE == rc) {
+                throw new LogNotFoundException("Log " + getFullyQualifiedName() + " is not found");
+            } else {
+                throw new IOException("ZK Exception " + rc + " reading ledger list for " + getFullyQualifiedName());
+            }
         }
 
         if (throwOnEmpty && ledgers.isEmpty()) {
@@ -1055,11 +1059,11 @@ abstract class BKLogHandler implements Watcher {
     }
 
     protected Future<List<LogSegmentMetadata>> asyncForceGetLedgerList(final Comparator<LogSegmentMetadata> comparator,
-                                                                             final LogSegmentFilter segmentFilter,
-                                                                             final boolean throwOnEmpty) {
+                                                                       final LogSegmentFilter segmentFilter,
+                                                                       final boolean throwOnEmpty) {
         final Promise<List<LogSegmentMetadata>> promise = new Promise<List<LogSegmentMetadata>>();
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        asyncGetLedgerListInternal(comparator, segmentFilter, null)
+        asyncGetLedgerListWithRetries(comparator, segmentFilter, null)
             .addEventListener(new FutureEventListener<List<LogSegmentMetadata>>() {
 
                 @Override
@@ -1140,33 +1144,35 @@ abstract class BKLogHandler implements Watcher {
     protected void asyncGetLedgerList(final Comparator<LogSegmentMetadata> comparator,
                                       Watcher watcher,
                                       final GenericCallback<List<LogSegmentMetadata>> callback) {
-        asyncGetLedgerListInternal(comparator, filter, watcher, callback);
+        asyncGetLedgerListWithRetries(comparator, filter, watcher, callback);
     }
 
-    protected Future<List<LogSegmentMetadata>> asyncGetLedgerListInternal(Comparator<LogSegmentMetadata> comparator,
-                                                                                LogSegmentFilter segmentFilter,
-                                                                                Watcher watcher) {
+    protected Future<List<LogSegmentMetadata>> asyncGetLedgerListWithRetries(Comparator<LogSegmentMetadata> comparator,
+                                                                             LogSegmentFilter segmentFilter,
+                                                                             Watcher watcher) {
         final Promise<List<LogSegmentMetadata>> promise = new Promise<List<LogSegmentMetadata>>();
-        asyncGetLedgerListInternal(comparator, segmentFilter, watcher, new GenericCallback<List<LogSegmentMetadata>>() {
+        asyncGetLedgerListWithRetries(comparator, segmentFilter, watcher, new GenericCallback<List<LogSegmentMetadata>>() {
             @Override
             public void operationComplete(int rc, List<LogSegmentMetadata> segments) {
-                if (KeeperException.Code.OK.intValue() != rc) {
-                    String errMsg = "ZK Exception "+ rc + " reading ledger list for " + getFullyQualifiedName();
-                    promise.setException(new ZKException(errMsg, KeeperException.Code.get(rc)));
-                } else {
+                if (KeeperException.Code.OK.intValue() == rc) {
                     promise.setValue(segments);
+                } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                    promise.setException(new LogNotFoundException("Log " + getFullyQualifiedName() + " not found"));
+                } else {
+                    String errMsg = "ZK Exception " + rc + " reading ledger list for " + getFullyQualifiedName();
+                    promise.setException(new ZKException(errMsg, KeeperException.Code.get(rc)));
                 }
             }
         });
         return promise;
     }
 
-    private void asyncGetLedgerListInternal(final Comparator<LogSegmentMetadata> comparator,
-                                            final LogSegmentFilter segmentFilter,
-                                            final Watcher watcher,
-                                            final GenericCallback<List<LogSegmentMetadata>> finalCallback) {
+    private void asyncGetLedgerListWithRetries(final Comparator<LogSegmentMetadata> comparator,
+                                               final LogSegmentFilter segmentFilter,
+                                               final Watcher watcher,
+                                               final GenericCallback<List<LogSegmentMetadata>> finalCallback) {
         asyncGetLedgerListInternal(comparator, segmentFilter, watcher, finalCallback,
-                                   new AtomicInteger(conf.getZKNumRetries()), new AtomicLong(conf.getZKRetryBackoffStartMillis()));
+                new AtomicInteger(conf.getZKNumRetries()), new AtomicLong(conf.getZKRetryBackoffStartMillis()));
     }
 
     private void asyncGetLedgerListInternal(final Comparator<LogSegmentMetadata> comparator,
@@ -1320,8 +1326,8 @@ abstract class BKLogHandler implements Watcher {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("LogSegments Changed under {}.", getFullyQualifiedName());
             }
-            asyncGetLedgerListInternal(LogSegmentMetadata.COMPARATOR, filter,
-                                       getChildrenWatcher, new WatcherGetLedgersCallback(getFullyQualifiedName()));
+            asyncGetLedgerListWithRetries(LogSegmentMetadata.COMPARATOR, filter,
+                    getChildrenWatcher, new WatcherGetLedgersCallback(getFullyQualifiedName()));
         }
     }
 
