@@ -1,3 +1,20 @@
+0.3.37
+------
+- Remove partitions from DL
+- Move DistributedLogExample to distributedlog-example package
+- Add getLastLogRecordAsync to log manager
+- Remove unpartitioned from log writers
+- Skip ledger number validation if the ledger metadata doesn't contain ledger sequence number
+- Rename LedgerSequenceNumber to LogSegmentSequenceNumber
+- Using BKAsyncLogReader to implement BKSyncLogReader
+- LogSegmentWriter should close ledger if the log segment isn't in error state
+- Async positioning reader by transaction id
+- Move log creation and initialization logic out of log handler constructors
+- Don't retry invalid stream name exception on acquiring ownership
+- Checksum between client and proxy for write
+- Move DistributedLog Write Proxy to use TwitterServer
+- Update fiangle and utils dependencies to scala 2.11
+
 0.3.36
 ------
 - Remove partitions from DL
