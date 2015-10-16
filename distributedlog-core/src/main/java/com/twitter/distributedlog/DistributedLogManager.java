@@ -150,9 +150,6 @@ public interface DistributedLogManager extends MetadataAccessor {
      */
     public Future<AsyncLogReader> getAsyncLogReaderWithLock(String subscriberId);
 
-    public long getTxIdNotLaterThan(long fromTxnId)
-        throws IOException;
-
     /**
      * Get the {@link DLSN} of first log record whose transaction id is not less than <code>transactionId</code>.
      *

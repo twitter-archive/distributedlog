@@ -805,19 +805,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler);
     }
 
-    @Override
-    public long getTxIdNotLaterThan(long thresholdTxId) throws IOException {
-        return getTxIdNotLaterThanInternal(conf.getUnpartitionedStreamName(), thresholdTxId);
-    }
-
-    private long getTxIdNotLaterThanInternal(String streamIdentifier, long thresholdTxId) throws IOException {
-        checkClosedOrInError("getTxIdNotLaterThan");
-        BKLogReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
-        long returnValue = ledgerHandler.getTxIdNotLaterThan(thresholdTxId);
-        ledgerHandler.close();
-        return returnValue;
-    }
-
     /**
      * Get the last log record in the stream
      *
