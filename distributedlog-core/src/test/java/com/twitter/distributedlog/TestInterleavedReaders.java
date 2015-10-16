@@ -1,36 +1,53 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.util.FutureUtils;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class TestInterleavedReaders extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestInterleavedReaders.class);
 
-    private int drainStreams(LogReader reader0, LogReader reader1) throws Exception {
+    static {
+        conf.setOutputBufferSize(0);
+        conf.setImmediateFlushEnabled(true);
+    }
+
+    private int drainStreams(LogReader reader0, int num0, LogReader reader1, int num1)
+            throws Exception {
         // Allow time for watches to fire
         Thread.sleep(15);
         int numTrans = 0;
-        LogRecord record = reader0.readNext(false);
-        while (null != record) {
-            assert ((record.getTransactionId() % 2 == 0));
-            DLMTestUtil.verifyLogRecord(record);
-            numTrans++;
+        LogRecord record;
+        int i = 0;
+        while (i < num0) {
             record = reader0.readNext(false);
+            if (null != record) {
+                assertTrue((record.getTransactionId() % 2 == 0));
+                DLMTestUtil.verifyLogRecord(record);
+                numTrans++;
+                i++;
+                LOG.info("Read record {}", record);
+            }
         }
-        record = reader1.readNext(false);
-        while (null != record) {
-            assert ((record.getTransactionId() % 2 == 1));
-            DLMTestUtil.verifyLogRecord(record);
-            numTrans++;
+        i = 0;
+        while (i < num1) {
             record = reader1.readNext(false);
+            if (null != record) {
+                assertTrue((record.getTransactionId() % 2 == 1));
+                DLMTestUtil.verifyLogRecord(record);
+                numTrans++;
+                i++;
+                LOG.info("Read record {}", record);
+            }
         }
         return numTrans;
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReaders() throws Exception {
         String name = "distrlog-interleaved";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -38,24 +55,27 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader0.getInputStream(1);
-        LogReader reader1 = dlmreader1.getInputStream(1);
+        LogReader reader0 = null;
+        LogReader reader1 = null;
         long txid = 1;
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals((txid - 1), numTrans);
+        int numTrans = 0;
 
-        LogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        LogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             for (int k = 1; k <= 10; k++) {
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
-            numTrans += drainStreams(reader0, reader1);
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            if (null == reader0) {
+                reader0 = dlmreader0.getInputStream(1);
+            }
+            if (null == reader1) {
+                reader1 = dlmreader1.getInputStream(1);
+            }
+            numTrans += drainStreams(reader0, 10, reader1, 10);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
@@ -66,7 +86,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         dlmwrite1.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReadersWithRollingEdge() throws Exception {
         String name = "distrlog-interleaved-rolling-edge";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -74,30 +94,34 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader0.getInputStream(1);
-        LogReader reader1 = dlmreader1.getInputStream(1);
+        LogReader reader0 = null;
+        LogReader reader1 = null;
         long txid = 1;
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals((txid - 1), numTrans);
+        int numTrans = 0;
 
-        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
                 writer0.setForceRolling(true);
                 writer1.setForceRolling(true);
             }
             for (int k = 1; k <= 2; k++) {
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
                 writer0.setForceRolling(false);
                 writer1.setForceRolling(false);
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
-            numTrans += drainStreams(reader0, reader1);
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            LOG.info("Completed {} write", j);
+            if (null == reader0) {
+                reader0 = dlmreader0.getInputStream(1);
+            }
+            if (null == reader1) {
+                reader1 = dlmreader1.getInputStream(1);
+            }
+            numTrans += drainStreams(reader0, 2, reader1, 2);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
@@ -108,7 +132,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         dlmwrite1.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReadersWithRolling() throws Exception {
         String name = "distrlog-interleaved-rolling";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -116,30 +140,33 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader0.getInputStream(1);
-        LogReader reader1 = dlmreader1.getInputStream(1);
+        LogReader reader0 = null;
+        LogReader reader1 = null;
         long txid = 1;
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals((txid - 1), numTrans);
+        int numTrans = 0;
 
-        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
                     writer0.setForceRolling(true);
                     writer1.setForceRolling(true);
                 }
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
                 writer0.setForceRolling(false);
                 writer1.setForceRolling(false);
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
-            numTrans += drainStreams(reader0, reader1);
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            if (null == reader0) {
+                reader0 = dlmreader0.getInputStream(1);
+            }
+            if (null == reader1) {
+                reader1 = dlmreader1.getInputStream(1);
+            }
+            numTrans += drainStreams(reader0, 6, reader1, 6);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
@@ -150,7 +177,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         dlmwrite1.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReadersWithCleanup() throws Exception {
         String name = "distrlog-interleaved-cleanup";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -158,8 +185,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         long txid = 1;
         Long retentionPeriodOverride = null;
 
-        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             for (int k = 1; k <= 10; k++) {
                 if (k == 5) {
@@ -168,8 +195,10 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
                     writer1.setForceRolling(true);
                     writer1.overRideMinTimeStampToKeep(retentionPeriodOverride);
                 }
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                DLSN dlsn1 = FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                LOG.info("writer1 write record {}", dlsn1);
+                DLSN dlsn0 = FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                LOG.info("writer0 write record {}", dlsn0);
                 if (k == 5) {
                     writer0.setForceRolling(false);
                     writer1.setForceRolling(false);
@@ -177,10 +206,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
                 }
                 Thread.sleep(5);
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
         }
         writer0.close();
         writer1.close();
@@ -189,8 +216,8 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         DistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
         LogReader reader0 = dlmreader0.getInputStream(1);
         LogReader reader1 = dlmreader1.getInputStream(1);
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals(32, numTrans);
+        int numTrans = drainStreams(reader0, 15, reader1, 15);
+        assertEquals(30, numTrans);
         reader0.close();
         reader1.close();
         dlmreader0.close();
@@ -199,7 +226,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         dlmwrite1.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReadersWithRecovery() throws Exception {
         String name = "distrlog-interleaved-recovery";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -207,30 +234,35 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader0.getInputStream(1);
-        LogReader reader1 = dlmreader1.getInputStream(1);
+        LogReader reader0 = null;
+        LogReader reader1 = null;
         long txid = 1;
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals((txid - 1), numTrans);
+        int numTrans = 0;
 
-        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 2; j++) {
             for (int k = 1; k <= 6; k++) {
                 if (k == 3) {
                     writer0.setForceRecovery(true);
                     writer1.setForceRecovery(true);
                 }
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                DLSN dlsn1 = FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                LOG.info("writer1 write record {}", dlsn1);
+                DLSN dlsn0 = FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                LOG.info("writer0 write record {}", dlsn0);
                 writer0.setForceRecovery(false);
                 writer1.setForceRecovery(false);
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
-            numTrans += drainStreams(reader0, reader1);
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            if (null == reader0) {
+                reader0 = dlmreader0.getInputStream(1);
+            }
+            if (null == reader1) {
+                reader1 = dlmreader1.getInputStream(1);
+            }
+            numTrans += drainStreams(reader0, 6, reader1, 6);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
@@ -243,7 +275,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         dlmwrite1.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInterleavedReadersWithRollingEdgeUnPartitioned() throws Exception {
         String name = "distrlog-interleaved-rolling-edge-unpartitioned";
         BKDistributedLogManager dlmwrite0 = createNewDLM(conf, name + "-0");
@@ -251,30 +283,33 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         BKDistributedLogManager dlmwrite1 = createNewDLM(conf, name + "-1");
         BKDistributedLogManager dlmreader1 = createNewDLM(conf, name + "-1");
 
-        LogReader reader0 = dlmreader0.getInputStream(1);
-        LogReader reader1 = dlmreader1.getInputStream(1);
+        LogReader reader0 = null;
+        LogReader reader1 = null;
         long txid = 1;
-        int numTrans = drainStreams(reader0, reader1);
-        assertEquals((txid - 1), numTrans);
+        int numTrans = 0;
 
-        BKSyncLogWriter writer0 = dlmwrite0.startLogSegmentNonPartitioned();
-        BKSyncLogWriter writer1 = dlmwrite1.startLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer0 = dlmwrite0.startAsyncLogSegmentNonPartitioned();
+        BKAsyncLogWriter writer1 = dlmwrite1.startAsyncLogSegmentNonPartitioned();
         for (long j = 1; j <= 4; j++) {
             if (j > 1) {
                 writer0.setForceRolling(true);
                 writer1.setForceRolling(true);
             }
             for (int k = 1; k <= 2; k++) {
-                writer1.write(DLMTestUtil.getLogRecordInstance(txid++));
-                writer0.write(DLMTestUtil.getLogRecordInstance(txid++));
+                FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
+                FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
                 writer0.setForceRolling(false);
                 writer1.setForceRolling(false);
             }
-            writer0.setReadyToFlush();
-            writer0.flushAndSync();
-            writer1.setReadyToFlush();
-            writer1.flushAndSync();
-            numTrans += drainStreams(reader0, reader1);
+            FutureUtils.result(writer1.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            FutureUtils.result(writer0.writeControlRecord(DLMTestUtil.getLogRecordInstance(txid-1)));
+            if (null == reader0) {
+                reader0 = dlmreader0.getInputStream(1);
+            }
+            if (null == reader1) {
+                reader1 = dlmreader1.getInputStream(1);
+            }
+            numTrans += drainStreams(reader0, 2, reader1, 2);
             assertEquals((txid - 1), numTrans);
         }
         reader0.close();
@@ -289,7 +324,7 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
         testFactory(name, true);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testFactorySharedZK() throws Exception {
         String name = "distrlog-factorysharedZK";
         testFactory(name, false);

@@ -30,8 +30,12 @@ public class TestDistributedLogBase {
     // write ops.
     protected static DistributedLogConfiguration conf =
         new DistributedLogConfiguration()
+                .setEnableReadAhead(true)
+                .setReadAheadMaxEntries(1000)
+                .setReadAheadBatchSize(10)
                 .setLockTimeout(1)
                 .setNumWorkerThreads(1)
+                .setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(20)
                 .setSchedulerShutdownTimeoutMs(0)
                 .setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
     protected ZooKeeper zkc;

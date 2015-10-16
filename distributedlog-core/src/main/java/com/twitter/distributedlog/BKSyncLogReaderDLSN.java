@@ -1,8 +1,12 @@
 package com.twitter.distributedlog;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.util.FutureEventListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.LinkedList;
@@ -16,6 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * Synchronous Log Reader based on {@link AsyncLogReader}
  */
 class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<LogRecordWithDLSN>, ReadAheadCallback {
+
+    private static final Logger logger = LoggerFactory.getLogger(BKSyncLogReaderDLSN.class);
 
     private final BKAsyncLogReaderDLSN reader;
     private final ScheduledExecutorService executorService;
@@ -104,23 +110,41 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
              record = readAheadRecords.poll();
         } else {
             try {
-                if (reader.bkLedgerManager.isReadAheadCaughtUp()) {
+                // reader is still catching up, waiting for next record
+                while (!reader.bkLedgerManager.isReadAheadCaughtUp()
+                        && null == readerException.get()
+                        && null == record
+                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCacheEntries() > 0) {
                     record = readAheadRecords.poll(maxReadAheadWaitTime,
                             TimeUnit.MILLISECONDS);
-                } else {
-                    // reader is still catching up, waiting for next record
-                    while (!reader.bkLedgerManager.isReadAheadCaughtUp()
-                            && record == null) {
-                        record = readAheadRecords.poll(maxReadAheadWaitTime,
-                                TimeUnit.MILLISECONDS);
-                    }
+                }
+                // reader caught up but there might be entries in async reader's cache
+                while (reader.bkLedgerManager.isReadAheadCaughtUp()
+                        && null == record
+                        && null == readerException.get()
+                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCacheEntries() > 0) {
+                    record = readAheadRecords.poll(maxReadAheadWaitTime,
+                            TimeUnit.MILLISECONDS);
+                }
+                if (null == record) {
+                    record = readAheadRecords.poll(maxReadAheadWaitTime,
+                            TimeUnit.MILLISECONDS);
                 }
             } catch (InterruptedException e) {
                 throw new DLInterruptedException("Interrupted on waiting next available log record for stream "
                         + reader.getStreamName(), e);
             }
         }
+        if (null != readerException.get()) {
+            throw readerException.get();
+        }
         if (null != record) {
+            if (record.isEndOfStream()) {
+                EndOfStreamException eos = new EndOfStreamException("End of Stream Reached for "
+                                        + reader.bkLedgerManager.getFullyQualifiedName());
+                readerException.compareAndSet(null, eos);
+                throw eos;
+            }
             invokeReadAheadCallback();
         }
         return record;
@@ -154,5 +178,21 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
             closed = true;
         }
         reader.close();
+    }
+
+    //
+    // Test Methods
+    //
+    @VisibleForTesting
+    void disableReadAheadZKNotification() {
+        reader.bkLedgerManager.disableReadAheadZKNotification();
+    }
+
+    @VisibleForTesting
+    LedgerReadPosition getReadAheadPosition() {
+        if (null != reader.bkLedgerManager.readAheadWorker) {
+            return reader.bkLedgerManager.readAheadWorker.nextReadAheadPosition;
+        }
+        return null;
     }
 }

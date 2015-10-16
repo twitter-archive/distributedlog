@@ -70,8 +70,8 @@ class BKLogReadHandler extends BKLogHandler {
 
     private static final int LAYOUT_VERSION = -1;
     private static final Random random = new Random(System.currentTimeMillis());
-    private LedgerDataAccessor ledgerDataAccessor = null;
-    private final LedgerHandleCache handleCache;
+    protected final LedgerDataAccessor ledgerDataAccessor;
+    protected final LedgerHandleCache handleCache;
 
     protected final ScheduledExecutorService readAheadExecutor;
     protected ReadAheadWorker readAheadWorker = null;
@@ -1665,7 +1665,7 @@ class BKLogReadHandler extends BKLogHandler {
                         currentLH = result;
                         if (conf.getTraceReadAheadMetadataChanges()) {
                             LOG.info("Opened ledger of {} for {} at {}.",
-                                    new Object[] { currentMetadata, fullyQualifiedName, System.currentTimeMillis() });
+                                    new Object[]{currentMetadata, fullyQualifiedName, System.currentTimeMillis()});
                         }
                         bkcZkExceptions.set(0);
                         bkcUnExpectedExceptions.set(0);
@@ -1696,7 +1696,7 @@ class BKLogReadHandler extends BKLogHandler {
                     } else {
                         if (LOG.isTraceEnabled()) {
                             LOG.info("{} No entries published to ledger {} yet. Backoff reading ahead for {} ms.",
-                                    new Object[] { fullyQualifiedName, currentLH, conf.getReadAheadWaitTime() });
+                                    new Object[]{fullyQualifiedName, currentLH, conf.getReadAheadWaitTime()});
                         }
                         // Backoff before resuming
                         schedule(ReadAheadWorker.this, conf.getReadAheadWaitTime());

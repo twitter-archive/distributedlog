@@ -103,7 +103,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assertEquals((txid - 1), numTrans);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testSimpleWrite() throws Exception {
         BKDistributedLogManager dlm = createNewDLM(conf, "distrlog-simplewrite");
         BKSyncLogWriter out = dlm.startLogSegmentNonPartitioned();
@@ -120,7 +120,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         blplm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNumberOfTransactions() throws Exception {
         String name = "distrlog-txncount";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -136,7 +136,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testSanityCheckTxnID() throws Exception {
         String name = "distrlog-sanity-check-txnid";
         BKDistributedLogManager dlm = createNewDLM(conf, name);
@@ -191,7 +191,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm3.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testContinuousReaders() throws Exception {
         String name = "distrlog-continuous";
         BKDistributedLogManager dlm = createNewDLM(conf, name);
@@ -243,7 +243,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
      * Create a bkdlm namespace, write a journal from txid 1, close stream.
      * Try to create a new journal from txid 1. Should throw an exception.
      */
-    @Test
+    @Test(timeout = 60000)
     public void testWriteRestartFrom1() throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, "distrlog-restartFrom1");
         long txid = 1;
@@ -298,7 +298,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testTwoWriters() throws Exception {
         long start = 1;
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm1 = createNewBKDLM(conf, "distrlog-dualWriter");
@@ -316,7 +316,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         bkdlm2.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testSimpleRead() throws Exception {
         String name = "distrlog-simpleread";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -332,7 +332,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNumberOfTransactionsWithInprogressAtEnd() throws Exception {
         String name = "distrlog-inprogressAtEnd";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -365,7 +365,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assertEquals((txid - 1), numTrans);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testContinuousReaderBulk() throws Exception {
         String name = "distrlog-continuous-bulk";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -408,7 +408,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assertEquals((txid - 1), numTrans);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testContinuousReadersWithEmptyLedgers() throws Exception {
         String name = "distrlog-continuous-emptyledgers";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -476,13 +476,13 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNonPartitionedWrites() throws Exception {
         String name = "distrlog-non-partitioned-bulk";
         testNonPartitionedWritesInternal(name, conf);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testCheckLogExists() throws Exception {
         String name = "distrlog-check-log-exists";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -523,7 +523,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
 
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMetadataAccessor() throws Exception {
         String name = "distrlog-metadata-accessor";
         MetadataAccessor metadata = DLMTestUtil.createNewMetadataAccessor(conf, name, createDLMURI("/" + name));
@@ -534,7 +534,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assertEquals(null, metadata.getMetadata());
     }
 
-    @Test
+    @Test(timeout = 60000)
     @Deprecated
     public void testSubscriptionStateStore() throws Exception {
         String name = "distrlog-subscription-state";
@@ -647,7 +647,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         return txid;
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMarkEndOfStream() throws Exception {
         String name = "distrlog-mark-end-of-stream";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -658,32 +658,34 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         LogReader reader = dlm.getInputStream(1);
         long numTrans = 0;
         boolean exceptionEncountered = false;
+        LogRecord record = null;
         try {
-            LogRecord record = reader.readNext(false);
-            long lastTxId = -1;
+            record = reader.readNext(false);
+            long expectedTxId = 1;
             while (null != record) {
                 DLMTestUtil.verifyLogRecord(record);
-                assert (lastTxId < record.getTransactionId());
-                lastTxId = record.getTransactionId();
+                assertEquals(expectedTxId, record.getTransactionId());
+                expectedTxId++;
                 numTrans++;
                 record = reader.readNext(false);
             }
         } catch (EndOfStreamException exc) {
+            LOG.info("Encountered EndOfStream on reading records after {}", record);
             exceptionEncountered = true;
         }
         assertEquals((txid - 1), numTrans);
-        assert(exceptionEncountered);
+        assertTrue(exceptionEncountered);
         exceptionEncountered = false;
         try {
             reader.readNext(false);
         } catch (EndOfStreamException exc) {
             exceptionEncountered = true;
         }
-        assert(exceptionEncountered);
+        assertTrue(exceptionEncountered);
         reader.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testWriteFailsAfterMarkEndOfStream() throws Exception {
         String name = "distrlog-mark-end-failure";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -711,12 +713,12 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assert(exceptionEncountered);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMarkEndOfStreamOnEmptyStream() throws Exception {
         markEndOfStreamOnEmptyLogSegment(0);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMarkEndOfStreamOnClosedStream() throws Exception {
         markEndOfStreamOnEmptyLogSegment(3);
     }
@@ -758,7 +760,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         reader.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMaxLogRecSize() throws Exception {
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
@@ -777,7 +779,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assert(exceptionEncountered);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMaxTransmissionSize() throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
@@ -803,7 +805,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         assert(!exceptionEncountered);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void deleteDuringRead() throws Exception {
         String name = "distrlog-delete-with-reader";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -844,6 +846,10 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
                 numTrans++;
                 record = reader.readNext(false);
             }
+            // make sure the exception is thrown from readahead
+            while (true) {
+                reader.readNext(false);
+            }
         } catch (LogReadException readexc) {
             exceptionEncountered = true;
         } catch (LogNotFoundException exc) {
@@ -853,7 +859,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         reader.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testImmediateFlush() throws Exception {
         String name = "distrlog-immediate-flush";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -862,7 +868,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         testNonPartitionedWritesInternal(name, confLocal);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testLastLogRecordWithEmptyLedgers() throws Exception {
         String name = "distrlog-lastLogRec-emptyledgers";
         DistributedLogManager dlm = createNewDLM(conf, name);
@@ -982,7 +988,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testGetLastDLSN() throws Exception {
         String name = "distrlog-get-last-dlsn";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -1028,7 +1034,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testGetLogRecordCountAsync() throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, testNames.getMethodName());
         BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
@@ -1042,7 +1048,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testInvalidStreamFromInvalidZkPath() throws Exception {
         String baseName = testNames.getMethodName();
         String streamName = "\0blah";
@@ -1068,7 +1074,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testTruncationValidation() throws Exception {
         String name = "distrlog-truncation-validation";
         URI uri = createDLMURI("/" + name);

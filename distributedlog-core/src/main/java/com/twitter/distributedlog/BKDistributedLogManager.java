@@ -595,7 +595,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         if (segmentIdx < 0) {
             return Future.value(new DLSN(segments.get(0).getLogSegmentSequenceNumber(), 0L, 0L));
         }
-        LOG.info("Search log segment {}", segments.get(segmentIdx));
         final LedgerHandleCache handleCache =
                 LedgerHandleCache.newBuilder().bkc(readerBKC).conf(conf).build();
         return getDLSNNotLessThanTxIdInSegment(
@@ -705,7 +704,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public Future<AsyncLogReader> openAsyncLogReader(DLSN fromDLSN) {
         Optional<String> subscriberId = Optional.absent();
         AsyncLogReader reader = new BKAsyncLogReaderDLSN(this, scheduler, getLockStateExecutor(true),
-                conf.getUnpartitionedStreamName(), fromDLSN, subscriberId,
+                conf.getUnpartitionedStreamName(), fromDLSN, subscriberId, false,
                 statsLogger);
         return Future.value(reader);
     }
@@ -740,7 +739,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         final BKAsyncLogReaderDLSN reader = new BKAsyncLogReaderDLSN(
             BKDistributedLogManager.this, scheduler,
             getLockStateExecutor(true), conf.getUnpartitionedStreamName(),
-            fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN, subscriberId, statsLogger);
+            fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN, subscriberId, false, statsLogger);
         pendingReaders.add(reader);
         return reader.lockStream().flatMap(new Function<Void, Future<AsyncLogReader>>() {
             @Override
@@ -786,8 +785,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
-        checkClosedOrInError("getInputStream");
-        return new BKContinuousLogReaderTxId(this, streamIdentifier, fromTxnId, conf, statsLogger);
+        DLSN fromDLSN = FutureUtils.result(getDLSNNotLessThanTxId(fromTxnId));
+        return getInputStreamInternal(streamIdentifier, fromDLSN);
     }
 
     LogReader getInputStreamInternal(String streamIdentifier, DLSN fromDLSN)
@@ -801,6 +800,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 streamIdentifier,
                 fromDLSN,
                 subscriberId,
+                true,
                 statsLogger);
         return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler);
     }
@@ -1114,11 +1114,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
             SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL Lock State Executor for {}.", name);
-        } else {
-            if (null != writerFuturePoolExecutorService) {
-                SchedulerUtils.shutdownScheduler(writerFuturePoolExecutorService, schedTimeout, TimeUnit.MILLISECONDS);
-                LOG.info("Stopped Ordered Future Pool for {}.", name);
-            }
+        }
+        if (null != writerFuturePoolExecutorService) {
+            SchedulerUtils.shutdownScheduler(writerFuturePoolExecutorService, schedTimeout, TimeUnit.MILLISECONDS);
+            LOG.info("Stopped Ordered Future Pool for {}.", name);
         }
         if (ownWriterBKC) {
             writerBKC.close();
@@ -1159,9 +1158,13 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         if (ownExecutor) {
             // ownExecutor is a single threaded thread pool
             if (null == writerFuturePool) {
-                // Readers share the same future pool as the writerFuturePool
-                writerFuturePool = buildFuturePool(scheduler);
-                readerFuturePool = writerFuturePool;
+                writerFuturePoolExecutorService = Executors.newScheduledThreadPool(1,
+                        new ThreadFactoryBuilder()
+                                .setNameFormat("BKALW-" + name + "-executor-%d")
+                                .setDaemon(conf.getUseDaemonThread())
+                                .build());
+                writerFuturePool = buildFuturePool(writerFuturePoolExecutorService);
+                readerFuturePool = buildFuturePool(scheduler);
             }
         } else if (ordered && (null == writerFuturePool)) {
             // When we are using a thread pool that was passed from the factory, we can use

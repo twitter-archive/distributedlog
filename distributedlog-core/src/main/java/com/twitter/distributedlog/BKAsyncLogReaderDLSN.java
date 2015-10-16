@@ -69,6 +69,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     private boolean disableReadAheadZKNotification = false;
 
+    private final boolean returnEndOfStreamRecord;
+
     // Stats
     private final OpStatsLogger readNextExecTime;
     private final OpStatsLogger delayUntilPromiseSatisfied;
@@ -119,6 +121,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                          String streamIdentifier,
                          DLSN startDLSN,
                          Optional<String> subscriberId,
+                         boolean returnEndOfStreamRecord,
                          StatsLogger statsLogger) {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
@@ -131,6 +134,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         this.readNextDelayStopwatch = Stopwatch.createStarted();
         this.positionGapDetectionEnabled = bkdlm.getConf().getPositionGapDetectionEnabled();
         this.idleErrorThresholdMillis = bkdlm.getConf().getReaderIdleErrorThresholdMillis();
+        this.returnEndOfStreamRecord = returnEndOfStreamRecord;
 
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
         futureSetLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
@@ -366,7 +370,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         pendingRequests.clear();
     }
 
-
     @Override
     public void run() {
         synchronized(scheduleCount) {
@@ -436,9 +439,10 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         if (null == record) {
                             break;
                         } else {
-                            if (record.isEndOfStream()) {
-                                throw new EndOfStreamException("End of Stream Reached for "
-                                        + bkLedgerManager.getFullyQualifiedName());
+                            if (record.isEndOfStream() && !returnEndOfStreamRecord) {
+                                setLastException(new EndOfStreamException("End of Stream Reached for "
+                                        + bkLedgerManager.getFullyQualifiedName()));
+                                break;
                             }
                             records.add(record);
                             ++numReads;
