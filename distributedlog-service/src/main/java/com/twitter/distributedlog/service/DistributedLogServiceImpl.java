@@ -1500,6 +1500,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             op.preExecute();
         } catch (Exception e) {
             op.fail(e);
+            return;
         }
         Stream stream;
         try {
