@@ -45,7 +45,6 @@ public class TestDistributedLogBase {
     protected static int zkPort;
     protected static int numBookies = 3;
     protected static final List<File> tmpDirs = new ArrayList<File>();
-    protected static final int MAX_RETRIES = 10;
 
     @BeforeClass
     public static void setupCluster() throws Exception {
