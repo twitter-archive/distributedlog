@@ -204,12 +204,12 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
         } else {
             failureRecordCounter.add(buffers.size());
         }
-        result.setValue(ResponseUtils.bulkWrite(header));
+        setResponse(ResponseUtils.bulkWrite(header));
     }
 
     @Override
     public Future<ResponseHeader> responseHeader() {
-        return result.map(new AbstractFunction1<BulkWriteResponse, ResponseHeader>() {
+        return result().map(new AbstractFunction1<BulkWriteResponse, ResponseHeader>() {
             @Override
             public ResponseHeader apply(BulkWriteResponse response) {
                 return response.getHeader();

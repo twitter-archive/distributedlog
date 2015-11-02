@@ -201,11 +201,11 @@ public class DLMTestUtil {
         return numLogRecs;
     }
 
-    static LogRecord getLogRecordInstance(long txId) {
+    public static LogRecord getLogRecordInstance(long txId) {
         return new LogRecord(txId, generatePayload(txId));
     }
 
-    static LogRecord getLogRecordInstance(long txId, int size) {
+    public static LogRecord getLogRecordInstance(long txId, int size) {
         ByteBuffer buf = ByteBuffer.allocate(size);
         return new LogRecord(txId, buf.array());
     }

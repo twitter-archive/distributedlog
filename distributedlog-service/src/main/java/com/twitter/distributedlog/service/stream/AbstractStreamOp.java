@@ -3,9 +3,12 @@ package com.twitter.distributedlog.service.stream;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.util.Sequencer;
+import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.Return;
+import com.twitter.util.Try;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.exceptions.DLException;
@@ -22,12 +25,13 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Option;
 
 public abstract class AbstractStreamOp<Response> implements StreamOp {
     static final Logger logger = LoggerFactory.getLogger(AbstractStreamOp.class);
     protected final String stream;
     protected final OpStatsLogger opStatsLogger;
-    protected final Promise<Response> result = new Promise<Response>();
+    private final Promise<Response> result = new Promise<Response>();
     protected final Stopwatch stopwatch = Stopwatch.createUnstarted();
     protected final Long checksum;
 
@@ -81,7 +85,7 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
             @Override
             public void onSuccess(Response response) {
                 opStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                result.setValue(response);
+                setResponse(response);
             }
             @Override
             public void onFailure(Throwable cause) {
@@ -106,6 +110,15 @@ public abstract class AbstractStreamOp<Response> implements StreamOp {
             opStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
             fail(ResponseUtils.exceptionToHeader(cause));
         }
+    }
+
+    protected void setResponse(Response response) {
+      Return<Response> responseTry = new Return(response);
+      boolean isEmpty = result.updateIfEmpty(responseTry);
+      if (!isEmpty) {
+        Option<Try<Response>> resultTry = result.poll();
+        logger.error("Result set multiple times. Value='{}', New='{}'", resultTry, responseTry);
+      }
     }
 
     /**
