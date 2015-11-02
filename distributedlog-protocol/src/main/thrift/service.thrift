@@ -72,6 +72,8 @@ enum StatusCode {
     UNSUPPORTED_METADATA_VERSION = 521,
     // Log Already Exists
     LOG_EXISTS = 522,
+    // Checksum failed on the request
+    CHECKSUM_FAILED = 523,
 
     // 6xx: unexpected
     UNEXPECTED = 600,

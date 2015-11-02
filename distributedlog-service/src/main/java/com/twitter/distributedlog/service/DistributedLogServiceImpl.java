@@ -95,7 +95,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.zip.CRC32;
 
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
@@ -208,7 +207,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     WriteOp newWriteOp(String stream, ByteBuffer data, Long checksum) {
-        return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion, checksum, requestCRC);
+        return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion,
+            checksum, featureChecksumDisabled);
     }
 
     protected class Stream extends Thread {
@@ -1040,6 +1040,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final FeatureProvider featureProvider;
     private final Feature featureRegionStopAcceptNewStream;
     private final Feature featureRateLimitDisabled;
+    private final Feature featureChecksumDisabled;
 
     // Stats
     private final StatsLogger statsLogger;
@@ -1137,6 +1138,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
         this.featureRateLimitDisabled = this.featureProvider.getFeature(
                 ServerFeatureKeys.SERVICE_RATE_LIMIT_DISABLED.name().toLowerCase());
+        this.featureChecksumDisabled = this.featureProvider.getFeature(
+                ServerFeatureKeys.SERVICE_CHECKSUM_DISABLED.name().toLowerCase());
 
         // Stats
         this.statsLogger = statsLogger;
@@ -1357,14 +1360,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     // Service interface methods
 
-    // For request payload checksum
-    private final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
-        @Override
-        protected CRC32 initialValue() {
-            return new CRC32();
-        }
-    };
-
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
         if (!accessControlManager.allowWrite(stream)) {
@@ -1383,7 +1378,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx), requestCRC);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx), featureChecksumDisabled);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1408,7 +1403,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), requestCRC);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), featureChecksumDisabled);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1419,7 +1414,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedHeartbeatCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), requestCRC);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), featureChecksumDisabled);
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }
@@ -1433,7 +1428,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedTruncateCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, getChecksum(ctx), requestCRC);
+        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, getChecksum(ctx), featureChecksumDisabled);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1444,7 +1439,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedDeleteCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), requestCRC);
+        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), featureChecksumDisabled);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1455,7 +1450,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             deniedReleaseCounter.inc();
             return Future.value(ResponseUtils.writeDenied());
         }
-        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), requestCRC);
+        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), featureChecksumDisabled);
         doExecuteStreamOp(op);
         return op.result();
     }

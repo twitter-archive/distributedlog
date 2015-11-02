@@ -7,6 +7,7 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.ResponseUtils;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
@@ -16,8 +17,8 @@ import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
-import java.util.zip.CRC32;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -42,15 +43,15 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final byte dlsnVersion;
     private final boolean isDurableWriteEnabled;
 
-public WriteOp(String stream,
-               ByteBuffer data,
-               StatsLogger statsLogger,
-               StatsLogger perStreamStatsLogger,
-               ServerConfiguration conf,
-               byte dlsnVersion,
-               Long checksum,
-               ThreadLocal<CRC32> requestCRC) {
-        super(stream, requestStat(statsLogger, "write"), checksum, requestCRC);
+    public WriteOp(String stream,
+                   ByteBuffer data,
+                   StatsLogger statsLogger,
+                   StatsLogger perStreamStatsLogger,
+                   ServerConfiguration conf,
+                   byte dlsnVersion,
+                   Long checksum,
+                   Feature checksumDisabledFeature) {
+        super(stream, requestStat(statsLogger, "write"), checksum, checksumDisabledFeature);
         payload = new byte[data.remaining()];
         data.get(payload);
 
@@ -73,7 +74,7 @@ public WriteOp(String stream,
 
     @Override
     public Long computeChecksum() {
-        return ProtocolUtils.writeOpCRC32(requestCRC.get(), stream, payload);
+        return ProtocolUtils.writeOpCRC32(stream, payload);
     }
 
     @Override

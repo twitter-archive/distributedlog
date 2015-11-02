@@ -6,8 +6,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
-import java.util.zip.CRC32;
-
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 import scala.runtime.AbstractFunction1;
@@ -19,8 +18,8 @@ public class ReleaseOp extends AbstractWriteOp {
                      StatsLogger statsLogger,
                      StreamManager streamManager,
                      Long checksum,
-                     ThreadLocal<CRC32> requestCRC) {
-        super(stream, requestStat(statsLogger, "release"), checksum, requestCRC);
+                     Feature checksumDisabledFeature) {
+        super(stream, requestStat(statsLogger, "release"), checksum, checksumDisabledFeature);
         this.streamManager = streamManager;
     }
 

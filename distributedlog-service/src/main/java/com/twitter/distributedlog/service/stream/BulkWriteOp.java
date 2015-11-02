@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.zip.CRC32;
 
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncLogWriter;
@@ -15,7 +14,6 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.ResponseUtils;
-import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
@@ -27,6 +25,7 @@ import com.twitter.util.FutureEventListener;
 import com.twitter.util.Future;
 import com.twitter.util.Try;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -67,8 +66,8 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
                        StatsLogger statsLogger,
                        StatsLogger perStreamStatsLogger,
                        Long checksum,
-                       ThreadLocal<CRC32> requestCRC) {
-        super(stream, requestStat(statsLogger, "bulkWrite"), checksum, requestCRC);
+                       Feature checksumDisabledFeature) {
+        super(stream, requestStat(statsLogger, "bulkWrite"), checksum, checksumDisabledFeature);
         this.buffers = buffers;
         long total = 0;
         // We do this here because the bytebuffers are mutable.

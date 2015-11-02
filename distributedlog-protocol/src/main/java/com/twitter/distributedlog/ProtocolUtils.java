@@ -13,37 +13,56 @@ import org.slf4j.LoggerFactory;
  */
 public class ProtocolUtils {
 
-    static final Logger logger = LoggerFactory.getLogger(ProtocolUtils.class);
+    private static final Logger logger = LoggerFactory.getLogger(ProtocolUtils.class);
+
+    // For request payload checksum
+    private static final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
+        @Override
+        protected CRC32 initialValue() {
+            return new CRC32();
+        }
+    };
 
     /**
      * Generate crc32 for WriteOp.
      */
-    public static Long writeOpCRC32(CRC32 crc, String stream, byte[] payload) {
-        crc.update(stream.getBytes());
-        crc.update(payload);
-        long result = crc.getValue();
-        crc.reset();
-        return result;
+    public static Long writeOpCRC32(String stream, byte[] payload) {
+        CRC32 crc = requestCRC.get();
+        try {
+            crc.update(stream.getBytes());
+            crc.update(payload);
+            return crc.getValue();
+        } finally {
+            crc.reset();
+        }
     }
 
     /**
      * Generate crc32 for TruncateOp.
      */
-    public static Long truncateOpCRC32(CRC32 crc, String stream, DLSN dlsn) {
-        crc.update(stream.getBytes());
-        crc.update(dlsn.serializeBytes());
-        long result = crc.getValue();
-        crc.reset();
-        return result;
+    public static Long truncateOpCRC32(String stream, DLSN dlsn) {
+        CRC32 crc = requestCRC.get();
+        try {
+            crc.update(stream.getBytes());
+            crc.update(dlsn.serializeBytes());
+            long result = crc.getValue();
+            return crc.getValue();
+        } finally {
+            crc.reset();
+        }
     }
 
     /**
      * Generate crc32 for any op which only passes a stream name.
      */
-    public static Long streamOpCRC32(CRC32 crc, String stream) {
-        crc.update(stream.getBytes());
-        long result = crc.getValue();
-        crc.reset();
-        return result;
+    public static Long streamOpCRC32(String stream) {
+        CRC32 crc = requestCRC.get();
+        try {
+            crc.update(stream.getBytes());
+            long result = crc.getValue();
+            return crc.getValue();
+        } finally {
+            crc.reset();
+        }
     }
 }

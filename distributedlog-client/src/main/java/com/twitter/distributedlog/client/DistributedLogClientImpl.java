@@ -73,7 +73,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.CRC32;
 
 /**
  * Implementation of distributedlog client
@@ -101,14 +100,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     private final OwnershipCache ownershipCache;
     // Channel/Client management
     private final ProxyClientManager clientManager;
-
-    // For request payload checksum
-    private final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
-        @Override
-        protected CRC32 initialValue() {
-            return new CRC32();
-        }
-    };
 
     // Close Status
     private boolean closed = false;
@@ -323,7 +314,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         @Override
         Long computeChecksum() {
             if (null == crc32) {
-                crc32 = ProtocolUtils.streamOpCRC32(requestCRC.get(), stream);
+                crc32 = ProtocolUtils.streamOpCRC32(stream);
             }
             return crc32;
         }
@@ -371,7 +362,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             if (null == crc32) {
                 byte[] dataBytes = new byte[data.remaining()];
                 data.duplicate().get(dataBytes);
-                crc32 = ProtocolUtils.writeOpCRC32(requestCRC.get(), stream, dataBytes);
+                crc32 = ProtocolUtils.writeOpCRC32(stream, dataBytes);
             }
             return crc32;
         }
@@ -397,7 +388,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         @Override
         Long computeChecksum() {
             if (null == crc32) {
-                crc32 = ProtocolUtils.truncateOpCRC32(requestCRC.get(), stream, dlsn);
+                crc32 = ProtocolUtils.truncateOpCRC32(stream, dlsn);
             }
             return crc32;
         }
@@ -772,6 +763,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     case FOUND:
                         handleRedirectResponse(header, op, addr);
                         break;
+                    // for overcapacity, dont report failure since this normally happens quite a bit
+                    case OVER_CAPACITY:
+                        logger.debug("Failed to write request to {} : {}", op.stream, header);
+                        op.fail(addr, DLException.of(header));
+                        break;
                     // for responses that indicate the requests definitely failed,
                     // we should fail them immediately (e.g. TOO_LARGE_RECORD, METADATA_EXCEPTION)
                     case NOT_IMPLEMENTED:
@@ -782,9 +778,9 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     case END_OF_STREAM:
                     case TRANSACTION_OUT_OF_ORDER:
                     case INVALID_STREAM_NAME:
-                    case OVER_CAPACITY:
                     case REQUEST_DENIED:
                     case TOO_LARGE_RECORD:
+                    case CHECKSUM_FAILED:
                     // status code NOT_READY is returned if failfast is enabled in the server. don't redirect
                     // since the proxy may still own the stream.
                     case STREAM_NOT_READY:

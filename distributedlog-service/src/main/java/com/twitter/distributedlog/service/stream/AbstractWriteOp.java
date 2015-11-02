@@ -7,8 +7,8 @@ import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
-import java.util.zip.CRC32;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 
 import scala.runtime.AbstractFunction1;
@@ -18,8 +18,8 @@ public abstract class AbstractWriteOp extends AbstractStreamOp<WriteResponse> {
     protected AbstractWriteOp(String stream,
                               OpStatsLogger statsLogger,
                               Long checksum,
-                              ThreadLocal<CRC32> requestCRC) {
-        super(stream, statsLogger, checksum, requestCRC);
+                              Feature checksumDisabledFeature) {
+        super(stream, statsLogger, checksum, checksumDisabledFeature);
     }
 
     @Override
@@ -29,7 +29,7 @@ public abstract class AbstractWriteOp extends AbstractStreamOp<WriteResponse> {
 
     @Override
     public Long computeChecksum() {
-        return ProtocolUtils.streamOpCRC32(requestCRC.get(), stream);
+        return ProtocolUtils.streamOpCRC32(stream);
     }
 
     @Override

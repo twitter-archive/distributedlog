@@ -11,6 +11,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
 import org.junit.Test;
@@ -42,6 +43,7 @@ public class TestStreamOp {
     };
 
     private WriteOp getWriteOp() {
+        SettableFeature disabledFeature = new SettableFeature("", 0);
         return new WriteOp("test",
             ByteBuffer.wrap("test".getBytes()),
             new NullStatsLogger(),
@@ -49,7 +51,7 @@ public class TestStreamOp {
             new ServerConfiguration(),
             (byte)0,
             null,
-            requestCRC);
+            disabledFeature);
     }
 
     @Test(timeout = 60000)
