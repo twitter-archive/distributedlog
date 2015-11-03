@@ -7,6 +7,7 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
+import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.Stream;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamStatus;
@@ -499,7 +500,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             new ServerConfiguration(),
             (byte)0,
             checksum,
-            disabledFeature);
+            disabledFeature,
+            DefaultAccessControlManager.INSTANCE);
     }
 
     @Test(timeout = 60000)

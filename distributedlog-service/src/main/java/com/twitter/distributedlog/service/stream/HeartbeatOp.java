@@ -4,11 +4,15 @@ import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.BKAsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.RequestDeniedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Future;
 
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -20,16 +24,24 @@ public class HeartbeatOp extends AbstractWriteOp {
 
     static final byte[] HEARTBEAT_DATA = "heartbeat".getBytes(UTF_8);
 
+    private final AccessControlManager accessControlManager;
+    private final Counter deniedHeartbeatCounter;
+    private final byte dlsnVersion;
+
     private boolean writeControlRecord = false;
-    private byte dlsnVersion;
 
     public HeartbeatOp(String stream,
                        StatsLogger statsLogger,
+                       StatsLogger perStreamStatsLogger,
                        byte dlsnVersion,
                        Long checksum,
-                       Feature checksumDisabledFeature) {
+                       Feature checksumDisabledFeature,
+                       AccessControlManager accessControlManager) {
         super(stream, requestStat(statsLogger, "heartbeat"), checksum, checksumDisabledFeature);
+        StreamOpStats streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
+        this.deniedHeartbeatCounter = streamOpStats.requestDeniedCounter("heartbeat");
         this.dlsnVersion = dlsnVersion;
+        this.accessControlManager = accessControlManager;
     }
 
     public HeartbeatOp setWriteControlRecord(boolean writeControlRecord) {
@@ -58,5 +70,14 @@ public class HeartbeatOp extends AbstractWriteOp {
         } else {
             return Future.value(ResponseUtils.writeSuccess());
         }
+    }
+
+    @Override
+    public void preExecute() throws DLException {
+        if (!accessControlManager.allowAcquire(stream)) {
+            deniedHeartbeatCounter.inc();
+            throw new RequestDeniedException(stream, "heartbeat");
+        }
+        super.preExecute();
     }
 }

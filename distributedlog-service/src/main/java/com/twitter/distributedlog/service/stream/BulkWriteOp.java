@@ -11,8 +11,10 @@ import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.RequestDeniedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
@@ -37,12 +39,15 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
     private final long payloadSize;
 
     // Stats
+    private final Counter deniedBulkWriteCounter;
     private final Counter successRecordCounter;
     private final Counter failureRecordCounter;
     private final Counter redirectRecordCounter;
     private final OpStatsLogger latencyStat;
     private final Counter bytes;
     private final Counter bulkWriteBytes;
+
+    private final AccessControlManager accessControlManager;
 
     // We need to pass these through to preserve ownership change behavior in
     // client/server. Only include failures which are guaranteed to have failed
@@ -66,7 +71,8 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
                        StatsLogger statsLogger,
                        StatsLogger perStreamStatsLogger,
                        Long checksum,
-                       Feature checksumDisabledFeature) {
+                       Feature checksumDisabledFeature,
+                       AccessControlManager accessControlManager) {
         super(stream, requestStat(statsLogger, "bulkWrite"), checksum, checksumDisabledFeature);
         this.buffers = buffers;
         long total = 0;
@@ -78,34 +84,42 @@ public class BulkWriteOp extends AbstractStreamOp<BulkWriteResponse> implements 
 
         // Write record stats
         StreamOpStats streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
+        this.deniedBulkWriteCounter = streamOpStats.requestDeniedCounter("bulkWrite");
         this.successRecordCounter = streamOpStats.recordsCounter("success");
         this.failureRecordCounter = streamOpStats.recordsCounter("failure");
         this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");
         this.bulkWriteBytes = streamOpStats.scopedRequestCounter("bulkWrite", "bytes");
         this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "bulkWrite");
         this.bytes = streamOpStats.streamRequestCounter(stream, "bulkWrite", "bytes");
+
+        this.accessControlManager = accessControlManager;
+
+        final long size = getPayloadSize();
+        result().addEventListener(new FutureEventListener<BulkWriteResponse>() {
+            @Override
+            public void onSuccess(BulkWriteResponse response) {
+                if (response.getHeader().getCode() == StatusCode.SUCCESS) {
+                    latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+                    bytes.add(size);
+                    bulkWriteBytes.add(size);
+                } else {
+                    latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+                }
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+            }
+        });
     }
 
     @Override
     public void preExecute() throws DLException {
-      super.preExecute();
-      final long size = getPayloadSize();
-      result().addEventListener(new FutureEventListener<BulkWriteResponse>() {
-        @Override
-        public void onSuccess(BulkWriteResponse response) {
-          if (response.getHeader().getCode() == StatusCode.SUCCESS) {
-            latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-            bytes.add(size);
-            bulkWriteBytes.add(size);
-          } else {
-            latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-          }
+        if (!accessControlManager.allowWrite(stream)) {
+            deniedBulkWriteCounter.inc();
+            throw new RequestDeniedException(stream, "bulkWrite");
         }
-        @Override
-        public void onFailure(Throwable cause) {
-          latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-        }
-      });
+        super.preExecute();
     }
 
     @Override

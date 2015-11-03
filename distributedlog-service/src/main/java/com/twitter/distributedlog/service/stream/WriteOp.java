@@ -1,11 +1,13 @@
 package com.twitter.distributedlog.service.stream;
 
-import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.exceptions.RequestDeniedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -30,9 +32,10 @@ import scala.runtime.AbstractFunction1;
 public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     static final Logger logger = LoggerFactory.getLogger(WriteOp.class);
 
-    final byte[] payload;
+    private final byte[] payload;
 
     // Stats
+    private final Counter deniedWriteCounter;
     private final Counter successRecordCounter;
     private final Counter failureRecordCounter;
     private final Counter redirectRecordCounter;
@@ -42,6 +45,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
 
     private final byte dlsnVersion;
     private final boolean isDurableWriteEnabled;
+    private final AccessControlManager accessControlManager;
 
     public WriteOp(String stream,
                    ByteBuffer data,
@@ -50,7 +54,8 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
                    ServerConfiguration conf,
                    byte dlsnVersion,
                    Long checksum,
-                   Feature checksumDisabledFeature) {
+                   Feature checksumDisabledFeature,
+                   AccessControlManager accessControlManager) {
         super(stream, requestStat(statsLogger, "write"), checksum, checksumDisabledFeature);
         payload = new byte[data.remaining()];
         data.get(payload);
@@ -59,12 +64,32 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         this.successRecordCounter = streamOpStats.recordsCounter("success");
         this.failureRecordCounter = streamOpStats.recordsCounter("failure");
         this.redirectRecordCounter = streamOpStats.recordsCounter("redirect");
+        this.deniedWriteCounter = streamOpStats.requestDeniedCounter("write");
         this.writeBytes = streamOpStats.scopedRequestCounter("write", "bytes");
         this.latencyStat = streamOpStats.streamRequestLatencyStat(stream, "write");
         this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
         this.dlsnVersion = dlsnVersion;
         this.isDurableWriteEnabled = conf.isDurableWriteEnabled();
+        this.accessControlManager = accessControlManager;
+
+        final long size = getPayloadSize();
+        result().addEventListener(new FutureEventListener<WriteResponse>() {
+            @Override
+            public void onSuccess(WriteResponse response) {
+                if (response.getHeader().getCode() == StatusCode.SUCCESS) {
+                    latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+                    bytes.add(size);
+                    writeBytes.add(size);
+                } else {
+                    latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+                }
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+                latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
+            }
+        });
     }
 
     @Override
@@ -79,25 +104,11 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
 
     @Override
     public void preExecute() throws DLException {
-      super.preExecute();
-
-      final long size = getPayloadSize();
-      result().addEventListener(new FutureEventListener<WriteResponse>() {
-        @Override
-        public void onSuccess(WriteResponse response) {
-          if (response.getHeader().getCode() == StatusCode.SUCCESS) {
-            latencyStat.registerSuccessfulEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-            bytes.add(size);
-            writeBytes.add(size);
-          } else {
-            latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-          }
+        if (!accessControlManager.allowWrite(stream)) {
+            deniedWriteCounter.inc();
+            throw new RequestDeniedException(stream, "write");
         }
-        @Override
-        public void onFailure(Throwable cause) {
-          latencyStat.registerFailedEvent(stopwatch().elapsed(TimeUnit.MICROSECONDS));
-        }
-      });
+        super.preExecute();
     }
 
     @Override

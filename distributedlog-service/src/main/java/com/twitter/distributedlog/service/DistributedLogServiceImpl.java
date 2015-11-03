@@ -208,7 +208,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     WriteOp newWriteOp(String stream, ByteBuffer data, Long checksum) {
         return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion,
-            checksum, featureChecksumDisabled);
+            checksum, featureChecksumDisabled, accessControlManager);
     }
 
     protected class Stream extends Thread {
@@ -503,19 +503,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 scheduleTimeout(op);
             }
 
-            op.responseHeader().addEventListener(new FutureEventListener<ResponseHeader>() {
-                @Override
-                public void onSuccess(ResponseHeader header) {
-                    if (header.getLocation() != null || header.getCode() == StatusCode.FOUND) {
-                        redirects.inc();
-                    }
-                    countStatusCode(header.getCode());
-                }
-                @Override
-                public void onFailure(Throwable cause) {
-                }
-            });
-
             boolean notifyAcquireThread = false;
             boolean completeOpNow = false;
             boolean success = true;
@@ -632,10 +619,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                             case INVALID_STREAM_NAME:
                             case TOO_LARGE_RECORD:
                             case STREAM_NOT_READY:
-                                op.fail(cause);
-                                break;
                             case OVER_CAPACITY:
-                                countAsException = false;
                                 op.fail(cause);
                                 break;
                             // exceptions that *could* / *might* be recovered by creating a new writer
@@ -1054,14 +1038,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final Counter unexpectedExceptions;
     private final Counter serviceTimeout;
 
-    // denied operations counters
-    private final Counter deniedBulkWriteCounter;
-    private final Counter deniedWriteCounter;
-    private final Counter deniedHeartbeatCounter;
-    private final Counter deniedTruncateCounter;
-    private final Counter deniedDeleteCounter;
-    private final Counter deniedReleaseCounter;
-
+    // Record stats
     private final Counter receivedRecordCounter;
 
     // exception stats
@@ -1071,6 +1048,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final StatsLogger statusCodeStatLogger;
     private final ConcurrentHashMap<StatusCode, Counter> statusCodeCounters =
             new ConcurrentHashMap<StatusCode, Counter>();
+    private final Counter statusCodeTotal;
     // streams stats
     private final OpStatsLogger streamAcquireStat;
     // per streams stats
@@ -1183,15 +1161,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.redirects = streamOpStats.requestCounter("redirect");
         this.exceptionStatLogger = streamOpStats.requestScope("exceptions");
         this.statusCodeStatLogger = streamOpStats.requestScope("statuscode");
+        this.statusCodeTotal = streamOpStats.requestCounter("statuscode_count");
         this.receivedRecordCounter = streamOpStats.recordsCounter("received");
-
-        // Stats on denied requests
-        this.deniedBulkWriteCounter = streamOpStats.requestDeniedCounter("bulkWrite");
-        this.deniedWriteCounter = streamOpStats.requestDeniedCounter("write");
-        this.deniedHeartbeatCounter = streamOpStats.requestDeniedCounter("heartbeat");
-        this.deniedTruncateCounter = streamOpStats.requestDeniedCounter("truncate");
-        this.deniedDeleteCounter = streamOpStats.requestDeniedCounter("delete");
-        this.deniedReleaseCounter = streamOpStats.requestDeniedCounter("release");
 
         // Stats on streams
         StatsLogger streamsStatsLogger = statsLogger.scope("streams");
@@ -1292,6 +1263,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             }
         }
         counter.inc();
+        statusCodeTotal.inc();
     }
 
     @Override
@@ -1362,23 +1334,16 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
-        if (!accessControlManager.allowWrite(stream)) {
-            deniedWriteCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
         receivedRecordCounter.inc();
         return doWrite(stream, data, null /* checksum */);
     }
 
     @Override
     public Future<BulkWriteResponse> writeBulkWithContext(final String stream, List<ByteBuffer> data, WriteContext ctx) {
-        if (!accessControlManager.allowWrite(stream)) {
-            deniedBulkWriteCounter.inc();
-            return Future.value(ResponseUtils.bulkWriteDenied());
-        }
         bulkWritePendingStat.inc();
         receivedRecordCounter.add(data.size());
-        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx), featureChecksumDisabled);
+        BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -1390,31 +1355,21 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> writeWithContext(final String stream, ByteBuffer data, WriteContext ctx) {
-        if (!accessControlManager.allowWrite(stream)) {
-            deniedWriteCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
         return doWrite(stream, data, getChecksum(ctx));
     }
 
     @Override
     public Future<WriteResponse> heartbeat(String stream, WriteContext ctx) {
-        if (!accessControlManager.allowAcquire(stream)) {
-            deniedHeartbeatCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), featureChecksumDisabled);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, perStreamStatsLogger, dlsnVersion, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
     }
 
     @Override
     public Future<WriteResponse> heartbeatWithOptions(String stream, WriteContext ctx, HeartbeatOptions options) {
-        if (!accessControlManager.allowAcquire(stream)) {
-            deniedHeartbeatCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
-        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, dlsnVersion, getChecksum(ctx), featureChecksumDisabled);
+        HeartbeatOp op = new HeartbeatOp(stream, statsLogger, perStreamStatsLogger, dlsnVersion, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }
@@ -1424,33 +1379,24 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> truncate(String stream, String dlsn, WriteContext ctx) {
-        if (!accessControlManager.allowTruncate(stream)) {
-            deniedTruncateCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
-        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, getChecksum(ctx), featureChecksumDisabled);
+        TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, perStreamStatsLogger, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
     }
 
     @Override
     public Future<WriteResponse> delete(String stream, WriteContext ctx) {
-        if (!accessControlManager.allowTruncate(stream)) {
-            deniedDeleteCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
-        DeleteOp op = new DeleteOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), featureChecksumDisabled);
+        DeleteOp op = new DeleteOp(stream, statsLogger, perStreamStatsLogger, this /* stream manager */, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
     }
 
     @Override
     public Future<WriteResponse> release(String stream, WriteContext ctx) {
-        if (!accessControlManager.allowRelease(stream)) {
-            deniedReleaseCounter.inc();
-            return Future.value(ResponseUtils.writeDenied());
-        }
-        ReleaseOp op = new ReleaseOp(stream, statsLogger, this /* stream manager */, getChecksum(ctx), featureChecksumDisabled);
+        ReleaseOp op = new ReleaseOp(stream, statsLogger, perStreamStatsLogger, this /* stream manager */, getChecksum(ctx),
+            featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
     }
@@ -1491,12 +1437,29 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     private void doExecuteStreamOp(final StreamOp op) {
+
+        // Must attach this as early as possible--returning before this point will cause us to
+        // lose the status code.
+        op.responseHeader().addEventListener(new FutureEventListener<ResponseHeader>() {
+            @Override
+            public void onSuccess(ResponseHeader header) {
+                if (header.getLocation() != null || header.getCode() == StatusCode.FOUND) {
+                    redirects.inc();
+                }
+                countStatusCode(header.getCode());
+            }
+            @Override
+            public void onFailure(Throwable cause) {
+            }
+        });
+
         try {
             op.preExecute();
         } catch (Exception e) {
             op.fail(e);
             return;
         }
+
         Stream stream;
         try {
             stream = getLogWriter(op.streamName());
@@ -1513,6 +1476,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             op.fail(new ServiceUnavailableException("Server " + clientId + " is closed."));
             return;
         }
+
         stream.waitIfNeededAndWrite(op);
     }
 
