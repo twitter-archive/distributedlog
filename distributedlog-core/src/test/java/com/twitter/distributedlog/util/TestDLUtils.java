@@ -3,6 +3,7 @@ package com.twitter.distributedlog.util;
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
 import org.junit.Test;
 
 import java.util.List;
@@ -15,7 +16,21 @@ import static org.junit.Assert.*;
 public class TestDLUtils {
 
     private static LogSegmentMetadata completedLogSegment(
-            long logSegmentSequenceNumber, long fromTxnId, long toTxnId) {
+            long logSegmentSequenceNumber,
+            long fromTxnId,
+            long toTxnId) {
+        return completedLogSegment(
+                logSegmentSequenceNumber,
+                fromTxnId,
+                toTxnId,
+                LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+    }
+
+    private static LogSegmentMetadata completedLogSegment(
+        long logSegmentSequenceNumber,
+        long fromTxnId,
+        long toTxnId,
+        int version) {
         return DLMTestUtil.completedLogSegment(
                 "/logsegment/" + fromTxnId,
                 fromTxnId,
@@ -24,16 +39,26 @@ public class TestDLUtils {
                 100,
                 logSegmentSequenceNumber,
                 999L,
-                0L);
+                0L,
+                version);
     }
 
     private static LogSegmentMetadata inprogressLogSegment(
             long logSegmentSequenceNumber, long firstTxId) {
+        return inprogressLogSegment(
+                logSegmentSequenceNumber,
+                firstTxId,
+                LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+    }
+
+    private static LogSegmentMetadata inprogressLogSegment(
+            long logSegmentSequenceNumber, long firstTxId, int version) {
         return DLMTestUtil.inprogressLogSegment(
                 "/logsegment/" + firstTxId,
                 firstTxId,
                 firstTxId,
-                logSegmentSequenceNumber);
+                logSegmentSequenceNumber,
+                version);
     }
 
     @Test(timeout = 60000)
@@ -104,6 +129,29 @@ public class TestDLUtils {
                 inprogressLogSegment(1L, 0L),
                 inprogressLogSegment(2L, 999L));
         assertEquals(1, DLUtils.findLogSegmentNotLessThanTxnId(list12, txnId));
+    }
+
+    @Test
+    public void testNextLogSegmentSequenceNumber() throws Exception {
+        List<LogSegmentMetadata> v1List = Lists.newArrayList(
+                completedLogSegment(2L, 100L, 199L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value),
+                completedLogSegment(1L, 0L, 99L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value));
+        assertNull(DLUtils.nextLogSegmentSequenceNumber(v1List));
+
+        List<LogSegmentMetadata> afterV1List = Lists.newArrayList(
+                completedLogSegment(2L, 100L, 199L),
+                completedLogSegment(1L, 0L, 99L));
+        assertEquals((Long) 3L, DLUtils.nextLogSegmentSequenceNumber(afterV1List));
+
+        List<LogSegmentMetadata> mixList1 = Lists.newArrayList(
+                completedLogSegment(2L, 100L, 199L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value),
+                completedLogSegment(1L, 0L, 99L));
+        assertEquals((Long) 3L, DLUtils.nextLogSegmentSequenceNumber(mixList1));
+
+        List<LogSegmentMetadata> mixList2 = Lists.newArrayList(
+                completedLogSegment(2L, 100L, 199L),
+                completedLogSegment(1L, 0L, 99L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value));
+        assertEquals((Long) 3L, DLUtils.nextLogSegmentSequenceNumber(mixList2));
     }
 
 }

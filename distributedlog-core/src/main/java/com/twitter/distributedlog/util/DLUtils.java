@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.util;
 
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,5 +71,34 @@ public class DLUtils {
             }
             return found + 1;
         }
+    }
+
+    /**
+     * Assign next log segment sequence number based on a decreasing list of log segments.
+     *
+     * @param segmentListDesc
+     *          a decreasing list of log segments
+     * @return null if no log segments was assigned a sequence number in <code>segmentListDesc</code>.
+     *         otherwise, return next log segment sequence number
+     */
+    public static Long nextLogSegmentSequenceNumber(List<LogSegmentMetadata> segmentListDesc) {
+        int lastAssignedLogSegmentIdx = -1;
+        Long lastAssignedLogSegmentSeqNo = null;
+        Long nextLogSegmentSeqNo = null;
+
+        for (int i = 0; i < segmentListDesc.size(); i++) {
+            LogSegmentMetadata metadata = segmentListDesc.get(i);
+            if (LogSegmentMetadata.supportsLogSegmentSequenceNo(metadata.getVersion())) {
+                lastAssignedLogSegmentSeqNo = metadata.getLogSegmentSequenceNumber();
+                lastAssignedLogSegmentIdx = i;
+                break;
+            }
+        }
+
+        if (null != lastAssignedLogSegmentSeqNo) {
+            // latest log segment is assigned with a sequence number, start with next sequence number
+            nextLogSegmentSeqNo = lastAssignedLogSegmentSeqNo + lastAssignedLogSegmentIdx + 1;
+        }
+        return nextLogSegmentSeqNo;
     }
 }

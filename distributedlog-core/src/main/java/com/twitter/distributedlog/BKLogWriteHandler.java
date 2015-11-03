@@ -18,6 +18,7 @@ import com.twitter.distributedlog.logsegment.SizeBasedRollingPolicy;
 import com.twitter.distributedlog.logsegment.TimeBasedRollingPolicy;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
 import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -328,12 +329,16 @@ class BKLogWriteHandler extends BKLogHandler {
 
         if (LogSegmentMetadata.supportsLogSegmentSequenceNo(conf.getDLLedgerMetadataLayoutVersion())) {
             List<LogSegmentMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
-            if (!ledgerListDesc.isEmpty() &&
-                LogSegmentMetadata.supportsLogSegmentSequenceNo(ledgerListDesc.get(0).getVersion())) {
-                logSegmentSeqNo = ledgerListDesc.get(0).getLogSegmentSequenceNumber() + 1;
-            } else {
+            Long nextLogSegmentSeqNo = DLUtils.nextLogSegmentSequenceNumber(ledgerListDesc);
+
+            if (null == nextLogSegmentSeqNo) {
+                // we don't find last assigned log segment sequence number
+                // then we start the log segment with configured FirstLogSegmentSequenceNumber.
                 ignoreMaxLogSegmentSeqNo = true;
                 logSegmentSeqNo = conf.getFirstLogSegmentSequenceNumber();
+            } else {
+                // latest log segment is assigned with a sequence number, start with next sequence number
+                logSegmentSeqNo = nextLogSegmentSeqNo;
             }
         }
 

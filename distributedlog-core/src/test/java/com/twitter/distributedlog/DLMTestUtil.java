@@ -301,23 +301,56 @@ public class DLMTestUtil {
         return String.format("%s_%018d", DistributedLogConstants.COMPLETED_LOGSEGMENT_PREFIX, logSegmentSeqNo);
     }
 
-    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath, long ledgerId, long firstTxId, long logSegmentSeqNo) {
+    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath,
+                                                          long ledgerId,
+                                                          long firstTxId,
+                                                          long logSegmentSeqNo) {
+        return inprogressLogSegment(ledgerPath, ledgerId, firstTxId, logSegmentSeqNo,
+                LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+    }
+
+    public static LogSegmentMetadata inprogressLogSegment(String ledgerPath,
+                                                          long ledgerId,
+                                                          long firstTxId,
+                                                          long logSegmentSeqNo,
+                                                          int version) {
         return new LogSegmentMetadata.LogSegmentMetadataBuilder(
                     ledgerPath + "/" + inprogressZNodeName(logSegmentSeqNo),
-                    LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                    ledgerId, firstTxId)
+                    version,
+                    ledgerId,
+                    firstTxId)
                 .setLogSegmentSequenceNo(logSegmentSeqNo)
                 .build();
     }
 
-    public static LogSegmentMetadata completedLogSegment(String ledgerPath, long ledgerId, long firstTxId,
-                                                               long lastTxId, int recordCount, long logSegmentSeqNo,
-                                                               long lastEntryId, long lastSlotId) {
+    public static LogSegmentMetadata completedLogSegment(String ledgerPath,
+                                                         long ledgerId,
+                                                         long firstTxId,
+                                                         long lastTxId,
+                                                         int recordCount,
+                                                         long logSegmentSeqNo,
+                                                         long lastEntryId,
+                                                         long lastSlotId) {
+        return completedLogSegment(ledgerPath, ledgerId, firstTxId, lastTxId,
+                recordCount, logSegmentSeqNo, lastEntryId, lastSlotId,
+                LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
+    }
+
+    public static LogSegmentMetadata completedLogSegment(String ledgerPath,
+                                                         long ledgerId,
+                                                         long firstTxId,
+                                                         long lastTxId,
+                                                         int recordCount,
+                                                         long logSegmentSeqNo,
+                                                         long lastEntryId,
+                                                         long lastSlotId,
+                                                         int version) {
         LogSegmentMetadata metadata =
                 new LogSegmentMetadata.LogSegmentMetadataBuilder(
                         ledgerPath + "/" + inprogressZNodeName(logSegmentSeqNo),
-                        LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                        ledgerId, firstTxId)
+                        version,
+                        ledgerId,
+                        firstTxId)
                     .setInprogress(false)
                     .setLogSegmentSequenceNo(logSegmentSeqNo)
                     .build();
