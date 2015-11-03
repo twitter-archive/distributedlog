@@ -28,7 +28,7 @@
     <dependency>
       <groupId>com.twitter.common_internal</groupId>
       <artifactId>zookeeper-utils</artifactId>
-      <version>0.0.76</version>
+      <version>0.0.110</version>
       <exclusions>
         <exclusion>
           <groupId>org.slf4j</groupId>
