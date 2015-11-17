@@ -22,7 +22,6 @@
         </snapshotRepository>
     </distributionManagement>
     <properties>
-      <bookkeeper.version>4.2.25-TWTTR-NETTY-PROTOBUF-SHADE</bookkeeper.version>
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     <dependencies>
@@ -195,6 +194,20 @@
                 <configuration>
                     <excludeFilterFile>${basedir}/src/main/resources/findbugsExclude.xml</excludeFilterFile>
                 </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${basedir}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

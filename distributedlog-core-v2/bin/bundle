@@ -1,0 +1,18 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
+
+set -e
+shopt -s dotglob
+
+cd ${DISTRIBUTEDLOG_ROOT}
+rm -rf distributedlog-core-v2/lib
+rm -rf dist/distributedlog-core-v2*
+mkdir -p dist/distributedlog-core-v2/{conf,lib}
+mvn clean install -Ptwitter-ostrich-provider -pl distributedlog-core-v2 -am -DskipTests
+cp -rf distributedlog-core-v2/conf/* dist/distributedlog-core-v2/conf
+cp -rf distributedlog-core-v2/lib/* dist/distributedlog-core-v2/lib
+cp -rf distributedlog-core-v2/target/distributedlog-core-v2-*.jar dist/distributedlog-core-v2
+cd dist
+zip -r distributedlog-core-v2.zip distributedlog-core-v2 >/dev/null
