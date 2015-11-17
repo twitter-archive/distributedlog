@@ -87,6 +87,14 @@ public class TestDistributedLogBase {
         }
     }
 
+    protected LogRecord waitForNextRecord(LogReader reader) throws Exception {
+        LogRecord record = reader.readNext(false);
+        while (null == record) {
+            record = reader.readNext(false);
+        }
+        return record;
+    }
+
     public URI createDLMURI(String path) throws Exception {
         return DLMTestUtil.createDLMURI(zkPort, path);
     }

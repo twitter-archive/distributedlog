@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -32,15 +33,18 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
     private final int maxReadAheadWaitTime;
     private ReadAheadCallback readAheadCallback = null;
     private boolean closed = false;
+    private final Optional<Long> startTransactionId;
 
     BKSyncLogReaderDLSN(DistributedLogConfiguration conf,
                         BKAsyncLogReaderDLSN reader,
-                        ScheduledExecutorService executorService) {
+                        ScheduledExecutorService executorService,
+                        Optional<Long> startTransactionId) {
         this.maxNumCachedRecords = conf.getReadAheadMaxEntries();
         this.maxReadAheadWaitTime = conf.getReadAheadWaitTime();
         this.reader = reader;
         this.executorService = executorService;
         this.readAheadRecords = new LinkedBlockingQueue<LogRecordWithDLSN>();
+        this.startTransactionId = startTransactionId;
         scheduleReadNext();
     }
 
@@ -74,7 +78,9 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
 
     @Override
     public void onSuccess(LogRecordWithDLSN record) {
-        readAheadRecords.add(record);
+        if (!startTransactionId.isPresent() || record.getTransactionId() >= startTransactionId.get()) {
+            readAheadRecords.add(record);
+        }
         if (readAheadRecords.size() >= maxNumCachedRecords) {
             setReadAheadCallback(this);
         } else {

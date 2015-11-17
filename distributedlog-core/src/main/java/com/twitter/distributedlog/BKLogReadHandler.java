@@ -75,6 +75,7 @@ class BKLogReadHandler extends BKLogHandler {
 
     protected final ScheduledExecutorService readAheadExecutor;
     protected ReadAheadWorker readAheadWorker = null;
+    private volatile boolean logDeleted = false;
     private volatile boolean readAheadError = false;
     private volatile boolean readAheadInterrupted = false;
     private volatile boolean readingFromTruncated = false;
@@ -455,8 +456,11 @@ class BKLogReadHandler extends BKLogHandler {
         }
     }
 
-    public void checkClosedOrInError() throws LogReadException, DLInterruptedException, AlreadyTruncatedTransactionException {
-        if (readingFromTruncated) {
+    public void checkClosedOrInError()
+            throws LogNotFoundException, LogReadException, DLInterruptedException, AlreadyTruncatedTransactionException {
+        if (logDeleted) {
+            throw new LogNotFoundException(getFullyQualifiedName() + " is already deleted.");
+        } else if (readingFromTruncated) {
             throw new AlreadyTruncatedTransactionException(
                 String.format("%s: Trying to position read ahead a segment that is marked truncated",
                     getFullyQualifiedName()));
@@ -974,6 +978,13 @@ class BKLogReadHandler extends BKLogHandler {
                     @Override
                     public void run() {
                         if (KeeperException.Code.OK.intValue() != rc) {
+                            if (KeeperException.Code.NONODE.intValue() == rc) {
+                                LOG.info("Log {} has been deleted. Set ReadAhead to error to stop reading.",
+                                        getFullyQualifiedName());
+                                logDeleted = true;
+                                setReadAheadError(tracker);
+                                return;
+                            }
                             LOG.info("ZK Exception {} while reading ledger list", rc);
                             reInitializeMetadata = true;
                             if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
@@ -1727,6 +1738,9 @@ class BKLogReadHandler extends BKLogHandler {
                 if (null != notification) {
                     notification.notifyOnOperationComplete();
                 }
+            } else if (event.getType() == Event.EventType.NodeDeleted) {
+                logDeleted = true;
+                setReadAheadError(tracker);
             }
         }
 

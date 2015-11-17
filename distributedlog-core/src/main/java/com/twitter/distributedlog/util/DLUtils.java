@@ -1,6 +1,5 @@
 package com.twitter.distributedlog.util;
 
-import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

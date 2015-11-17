@@ -98,9 +98,14 @@ public class TestDLUtils {
         assertEquals(0, DLUtils.findLogSegmentNotLessThanTxnId(list5, txnId));
 
         // list that all segment's txn id is less than txn-id-to-search
-        List<LogSegmentMetadata> list6 = Lists.newArrayList(
+        List<LogSegmentMetadata> list6_0 = Lists.newArrayList(
                 completedLogSegment(1L, 100L, 200L));
-        assertEquals(0, DLUtils.findLogSegmentNotLessThanTxnId(list6, txnId));
+        assertEquals(0, DLUtils.findLogSegmentNotLessThanTxnId(list6_0, txnId));
+
+        List<LogSegmentMetadata> list6_1 = Lists.newArrayList(
+                completedLogSegment(1L, 100L, 199L),
+                completedLogSegment(2L, 200L, 299L));
+        assertEquals(1, DLUtils.findLogSegmentNotLessThanTxnId(list6_1, txnId));
 
         List<LogSegmentMetadata> list7 = Lists.newArrayList(
                 inprogressLogSegment(1L, 100L));

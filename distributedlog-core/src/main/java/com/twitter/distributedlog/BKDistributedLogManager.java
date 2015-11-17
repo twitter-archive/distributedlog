@@ -615,9 +615,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                                          final int segmentIdx,
                                                          final List<LogSegmentMetadata> segments,
                                                          final LedgerHandleCache handleCache) {
+        final LogSegmentMetadata segment = segments.get(segmentIdx);
         return ReadUtils.getLogRecordNotLessThanTxId(
                 name,
-                segments.get(segmentIdx),
+                segment,
                 fromTxnId,
                 scheduler,
                 handleCache,
@@ -629,7 +630,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                     return Future.value(foundRecord.get().getDlsn());
                 }
                 if ((segments.size() - 1) == segmentIdx) {
-                    return getLastDLSNAsync();
+                    return getLastLogRecordAsync().map(new AbstractFunction1<LogRecordWithDLSN, DLSN>() {
+                        @Override
+                        public DLSN apply(LogRecordWithDLSN record) {
+                            if (record.getTransactionId() >= fromTxnId) {
+                                return record.getDlsn();
+                            }
+                            return record.getDlsn().getNextDLSN();
+                        }
+                    });
                 } else {
                     return getDLSNNotLessThanTxIdInSegment(
                             fromTxnId,
@@ -656,7 +665,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     @Override
     public LogReader getInputStream(DLSN fromDLSN) throws IOException {
-        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromDLSN);
+        return getInputStreamInternal(conf.getUnpartitionedStreamName(), fromDLSN,
+                Optional.<Long>absent());
     }
 
     @Override
@@ -786,10 +796,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
         DLSN fromDLSN = FutureUtils.result(getDLSNNotLessThanTxId(fromTxnId));
-        return getInputStreamInternal(streamIdentifier, fromDLSN);
+        return getInputStreamInternal(streamIdentifier, fromDLSN, Optional.of(fromTxnId));
     }
 
-    LogReader getInputStreamInternal(String streamIdentifier, DLSN fromDLSN)
+    LogReader getInputStreamInternal(String streamIdentifier, DLSN fromDLSN, Optional<Long> fromTxnId)
             throws IOException {
         checkClosedOrInError("getInputStream");
         Optional<String> subscriberId = Optional.absent();
@@ -802,7 +812,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 subscriberId,
                 true,
                 statsLogger);
-        return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler);
+        return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler, fromTxnId);
     }
 
     /**
@@ -980,7 +990,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         // Safety check when we are using the shared zookeeper
         if (zkPath.toLowerCase().contains("distributedlog")) {
             try {
-                LOG.info("Delete the path associated with the log {}, ZK Path", name, zkPath);
+                LOG.info("Delete the path associated with the log {}, ZK Path {}", name, zkPath);
                 ZKUtil.deleteRecursive(writerZKC.get(), zkPath);
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted while accessing ZK", ie);
