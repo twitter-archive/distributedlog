@@ -176,9 +176,35 @@ public class Utils {
         final byte[] data,
         final List<ACL> acl,
         final CreateMode createMode) {
+        Optional<String> parentPathShouldNotCreate = Optional.absent();
+        return zkAsyncCreateFullPathOptimistic(
+                zkc,
+                pathToCreate,
+                parentPathShouldNotCreate,
+                data,
+                acl,
+                createMode);
+    }
+
+    /**
+     * Asynchronously create zookeeper path recursively and optimistically
+     *
+     * @param zkc Zookeeper client
+     * @param pathToCreate  Zookeeper full path
+     * @param parentPathShouldNotCreate zookeeper parent path should not be created
+     * @param data Zookeeper data
+     * @param acl Acl of the zk path
+     * @param createMode Create mode of zk path
+     */
+    public static Future<BoxedUnit> zkAsyncCreateFullPathOptimistic(
+        final ZooKeeperClient zkc,
+        final String pathToCreate,
+        final Optional<String> parentPathShouldNotCreate,
+        final byte[] data,
+        final List<ACL> acl,
+        final CreateMode createMode) {
         final Promise<BoxedUnit> result = new Promise<BoxedUnit>();
 
-        Optional<String> parentPathShouldNotCreate = Optional.absent();
         zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
                 data, acl, createMode, new AsyncCallback.StringCallback() {
             @Override

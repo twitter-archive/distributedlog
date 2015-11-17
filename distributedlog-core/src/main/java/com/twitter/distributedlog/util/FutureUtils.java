@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.util;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
@@ -8,6 +9,7 @@ import com.twitter.util.FutureCancelledException;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,6 +154,8 @@ public class FutureUtils {
     public static <T> T result(Future<T> result) throws IOException {
         try {
             return Await.result(result);
+        } catch (KeeperException ke) {
+            throw new ZKException("Encountred zookeeper exception on waiting result", ke);
         } catch (IOException ioe) {
             throw ioe;
         } catch (InterruptedException ie) {

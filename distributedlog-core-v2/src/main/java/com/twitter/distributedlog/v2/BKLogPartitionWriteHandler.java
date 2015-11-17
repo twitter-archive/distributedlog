@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.v2;
 
+import com.google.common.base.Optional;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
@@ -8,7 +9,10 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback;
@@ -169,10 +173,33 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             }
         }
 
+        try {
+            if (zooKeeperClient.get().exists(lockPath, false) == null) {
+                FutureUtils.result(Utils.zkAsyncCreateFullPathOptimistic(
+                        zooKeeperClient,
+                        lockPath,
+                        Optional.of(partitionRootPath),
+                        new byte[0],
+                        zooKeeperClient.getDefaultACL(),
+                        CreateMode.PERSISTENT));
+            }
+        } catch (ZKException ke) {
+            if (KeeperException.Code.NODEEXISTS != ke.getKeeperExceptionCode()) {
+                throw ke;
+            }
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on creating zookeeper lock " + lockPath, e);
+        } catch (KeeperException e) {
+            if (KeeperException.Code.NODEEXISTS != e.code()) {
+                throw new ZKException("Exception when creating zookeeper lock " + lockPath, e);
+            }
+        }
         lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(), false);
+                conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(),
+                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
         deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(), false);
+                conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(),
+                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
         lockAcquired = false;
@@ -379,7 +406,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            lock.checkWriteLock(true);
+            lock.checkOwnershipAndReacquire(true);
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 

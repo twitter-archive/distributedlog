@@ -25,6 +25,7 @@ import com.twitter.distributedlog.WriteLimiter;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
@@ -475,7 +476,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     private void checkWriteLock() throws LockingException {
         if (enforceLock) {
-            lock.checkWriteLock(false);
+            lock.checkOwnershipAndReacquire(false);
         }
     }
 
