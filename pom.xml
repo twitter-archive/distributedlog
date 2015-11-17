@@ -41,6 +41,7 @@
     <module>distributedlog-service-internal</module>
     <module>distributedlog-benchmark</module>
     <module>distributedlog-example</module>
+    <module>distributedlog-core-v2</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
