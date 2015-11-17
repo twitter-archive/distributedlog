@@ -3,6 +3,7 @@ package com.twitter.distributedlog.v2;
 import java.io.IOException;
 
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.commons.logging.Log;
@@ -23,7 +24,10 @@ public class TestFailureScenarios {
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration();
+    static {
+        conf.setLockTimeout(10);
+    }
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;

@@ -12,7 +12,7 @@ public interface PermitLimiter {
             return true;
         }
         @Override
-        public void release() {
+        public void release(int permits) {
         }
     };
 
@@ -26,5 +26,5 @@ public interface PermitLimiter {
     /**
      * Release a permit.
      */
-    void release();
+    void release(int permits);
 }

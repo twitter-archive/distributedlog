@@ -1,11 +1,16 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-import com.twitter.distributedlog.v2.util.PermitLimiter;
+import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -165,7 +170,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
 
         lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(), conf.getEnableSiblingLockForWriteLock());
+                            conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(), false);
         deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
                             conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(), false);
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
@@ -579,14 +584,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                             LOG.info("Deleting ledgers older than {}", minTimestampToKeep);
                             logTimestamp = false;
                         }
-
-                        // Something went wrong - leave the ledger around for debugging
-                        //
-                        if (conf.getSanityCheckDeletes() && (l.getCompletionTime() < sanityCheckThreshold)) {
-                            LOG.warn("Found a ledger {} older than {}", l, sanityCheckThreshold);
-                        } else {
-                            purgeList.add(l);
-                        }
+                        purgeList.add(l);
                     }
                 }
                 // purge logs

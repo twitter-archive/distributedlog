@@ -5,6 +5,8 @@ import java.net.URI;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.lang3.tuple.Pair;
@@ -31,7 +33,10 @@ public class TestDistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(TestDistributedLogManagerFactory.class);
 
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration();
+    static {
+        conf.setLockTimeout(10);
+    }
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;
     protected static String zkServers;

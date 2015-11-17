@@ -3,13 +3,19 @@ package com.twitter.distributedlog.v2;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.distributedlog.v2.metadata.BKDLConfig;
-
-import com.twitter.distributedlog.v2.util.DLUtils;
-import com.twitter.distributedlog.v2.util.PermitLimiter;
-import com.twitter.distributedlog.v2.util.SchedulerUtils;
-import com.twitter.distributedlog.v2.util.SimplePermitLimiter;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -189,11 +195,14 @@ public class DistributedLogManagerFactory {
         if (conf.getGlobalOutstandingWriteLimit() < 0) {
             this.writeLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
+            Feature disableWriteLimitFeature = new SettableFeature(
+                    CoreFeatureKeys.DISABLE_WRITE_LIMIT.name().toLowerCase(), 0);
             this.writeLimiter = new SimplePermitLimiter(
                 conf.getOutstandingWriteLimitDarkmode(),
                 conf.getGlobalOutstandingWriteLimit(),
                 statsLogger.scope("writeLimiter"),
-                true /* singleton */);
+                true /* singleton */,
+                disableWriteLimitFeature);
         }
     }
 
@@ -403,7 +412,14 @@ public class DistributedLogManagerFactory {
         DistributedLogManagerFactory.validateName(nameOfLogStream);
 
         DistributedLogConfiguration mergedConfiguration = (DistributedLogConfiguration)conf.clone();
-        mergedConfiguration.loadStreamConf(streamConfiguration);
+        Optional<com.twitter.distributedlog.DistributedLogConfiguration> streamConfV3;
+        if (streamConfiguration.isPresent()) {
+            com.twitter.distributedlog.DistributedLogConfiguration v3Conf = streamConfiguration.get();
+            streamConfV3 = Optional.of(v3Conf);
+        } else {
+            streamConfV3 = Optional.absent();
+        }
+        mergedConfiguration.loadStreamConf(streamConfV3);
 
         ZooKeeperClientBuilder writerZKCBuilderForDL = null;
         ZooKeeperClientBuilder readerZKCBuilderForDL = null;

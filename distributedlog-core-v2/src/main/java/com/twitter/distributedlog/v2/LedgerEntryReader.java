@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.EnvelopedEntry;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.RecordStream;
 import org.apache.bookkeeper.client.LedgerEntry;

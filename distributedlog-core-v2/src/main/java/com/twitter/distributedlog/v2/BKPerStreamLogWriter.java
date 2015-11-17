@@ -21,11 +21,22 @@ import com.twitter.distributedlog.BKTransmitException;
 import com.twitter.distributedlog.FlushException;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.WriteLimiter;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.feature.CoreFeatureKeys;
+import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.SimplePermitLimiter;
+import com.twitter.util.Await;
+import com.twitter.util.Duration;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
+import com.twitter.util.TimeoutException;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -39,14 +50,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.twitter.distributedlog.v2.util.PermitLimiter;
-import com.twitter.distributedlog.v2.util.SimplePermitLimiter;
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
-import com.twitter.util.Future;
-import com.twitter.util.Promise;
-import com.twitter.util.TimeoutException;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DLSNUtil.*;
@@ -167,11 +170,14 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (conf.getPerWriterOutstandingWriteLimit() < 0) {
             streamWriteLimiter = PermitLimiter.NULL_PERMIT_LIMITER;
         } else {
+            Feature disableWriteLimitFeature = new SettableFeature(
+                    CoreFeatureKeys.DISABLE_WRITE_LIMIT.name().toLowerCase(), 0);
             streamWriteLimiter = new SimplePermitLimiter(
                 conf.getOutstandingWriteLimitDarkmode(),
                 conf.getPerWriterOutstandingWriteLimit(),
                 statsLogger.scope("streamWriteLimiter"),
-                false);
+                false,
+                disableWriteLimitFeature);
         }
         this.writeLimiter = new WriteLimiter(streamName, streamWriteLimiter, globalWriteLimiter);
 

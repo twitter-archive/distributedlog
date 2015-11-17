@@ -11,6 +11,8 @@ import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -33,7 +35,10 @@ public class TestInterleavedReaders {
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
     protected static DistributedLogConfiguration conf =
-        new DistributedLogConfiguration().setLockTimeout(10);
+        new DistributedLogConfiguration();
+    static {
+        conf.setLockTimeout(10);
+    }
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;

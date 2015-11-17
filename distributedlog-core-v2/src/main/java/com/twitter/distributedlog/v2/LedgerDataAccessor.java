@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.AsyncNotification;
 import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;

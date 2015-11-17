@@ -18,6 +18,7 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.EnvelopedEntry;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.RecordStream;

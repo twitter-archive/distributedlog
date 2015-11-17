@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.BookKeeperClient;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;

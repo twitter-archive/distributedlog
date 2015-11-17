@@ -1,6 +1,9 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.v2.DistributedReentrantLock.DistributedLock;
 import com.twitter.distributedlog.v2.DistributedReentrantLock.EpochChangedException;

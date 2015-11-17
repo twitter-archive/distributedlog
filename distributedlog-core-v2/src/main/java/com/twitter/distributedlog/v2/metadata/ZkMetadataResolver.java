@@ -1,6 +1,6 @@
 package com.twitter.distributedlog.v2.metadata;
 
-import com.twitter.distributedlog.v2.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClient;
 import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.common.PathUtils;

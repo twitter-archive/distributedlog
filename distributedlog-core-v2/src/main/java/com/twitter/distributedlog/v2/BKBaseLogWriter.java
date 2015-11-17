@@ -2,6 +2,7 @@ package com.twitter.distributedlog.v2;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.slf4j.Logger;

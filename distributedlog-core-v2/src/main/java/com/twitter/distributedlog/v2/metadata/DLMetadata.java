@@ -1,9 +1,9 @@
 package com.twitter.distributedlog.v2.metadata;
 
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.v2.DistributedLogConfiguration;
-import com.twitter.distributedlog.v2.Utils;
-import com.twitter.distributedlog.v2.ZooKeeperClient;
-import com.twitter.distributedlog.v2.ZooKeeperClientBuilder;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;

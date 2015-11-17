@@ -1,6 +1,6 @@
 package com.twitter.distributedlog;
 
-interface AsyncNotification {
+public interface AsyncNotification {
     /**
      * Triggered when the background activity encounters an exception
      */

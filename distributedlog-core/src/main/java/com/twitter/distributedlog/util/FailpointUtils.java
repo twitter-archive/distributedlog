@@ -25,7 +25,7 @@ public class FailpointUtils {
         FP_LogWriterIssuePending
     }
 
-    static interface FailPointAction {
+    public static interface FailPointAction {
         boolean checkFailPoint() throws IOException;
         boolean checkFailPointNoThrow();
     }

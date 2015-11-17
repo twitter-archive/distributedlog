@@ -24,9 +24,9 @@ import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-import com.twitter.distributedlog.v2.exceptions.OverCapacityException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.logging.Log;
@@ -63,7 +63,11 @@ public class TestBookKeeperDistributedLogManager {
     private static final long DEFAULT_SEGMENT_SIZE = 1000;
 
     protected static DistributedLogConfiguration conf =
-            new DistributedLogConfiguration().setLockTimeout(10);
+            new DistributedLogConfiguration();
+    static {
+        conf.setLockTimeout(10);
+    }
+
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;

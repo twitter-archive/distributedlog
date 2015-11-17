@@ -1,8 +1,8 @@
 package com.twitter.distributedlog.v2.metadata;
 
-import com.twitter.distributedlog.v2.Utils;
-import com.twitter.distributedlog.v2.ZooKeeperClient;
-import com.twitter.distributedlog.v2.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.zookeeper.CreateMode;

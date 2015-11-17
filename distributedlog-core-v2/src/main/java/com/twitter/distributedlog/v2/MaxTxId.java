@@ -19,8 +19,8 @@ package com.twitter.distributedlog.v2;
 
 import java.io.IOException;
 
+import com.twitter.distributedlog.ZooKeeperClient;
 import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

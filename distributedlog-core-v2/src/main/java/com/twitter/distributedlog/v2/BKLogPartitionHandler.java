@@ -20,9 +20,13 @@ package com.twitter.distributedlog.v2;
 import com.google.common.base.Optional;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.v2.metadata.BKDLConfig;
 

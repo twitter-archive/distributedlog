@@ -19,7 +19,9 @@ package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.AsyncCallback;

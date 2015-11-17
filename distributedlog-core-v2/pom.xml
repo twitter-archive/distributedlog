@@ -37,6 +37,13 @@
             <version>${project.parent.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.twitter</groupId>
+            <artifactId>distributedlog-core</artifactId>
+            <version>${project.parent.version}</version>
+            <scope>test</scope>
+            <type>test-jar</type>
+        </dependency>
+        <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>16.0</version>

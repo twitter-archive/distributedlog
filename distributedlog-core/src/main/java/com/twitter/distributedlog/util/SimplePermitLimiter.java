@@ -62,8 +62,8 @@ public class SimplePermitLimiter implements PermitLimiter {
     }
 
     @Override
-    public void release() {
-        permits.decrementAndGet();
+    public void release(int permitsToRelease) {
+        permits.addAndGet(-permitsToRelease);
     }
 
     @VisibleForTesting

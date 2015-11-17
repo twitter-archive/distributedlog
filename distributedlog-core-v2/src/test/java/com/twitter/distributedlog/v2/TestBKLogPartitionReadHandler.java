@@ -25,7 +25,10 @@ import static org.junit.Assert.assertNotNull;
  */
 public class TestBKLogPartitionReadHandler {
 
-    protected static DistributedLogConfiguration conf = new DistributedLogConfiguration().setLockTimeout(10);
+    protected static DistributedLogConfiguration conf = new DistributedLogConfiguration();
+    static {
+        conf.setLockTimeout(10);
+    }
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
     private static int numBookies = 3;

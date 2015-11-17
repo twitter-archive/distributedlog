@@ -1,7 +1,11 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.v2.DistributedReentrantLock.DistributedLock;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
@@ -115,6 +119,18 @@ public class TestDistributedReentrantLock {
             }
             return true;
         }
+
+        @Override
+        public boolean checkFailPointNoThrow() {
+            try {
+                checkFailPoint();
+            } catch (IOException e) {
+                // no-op
+            }
+            return true;
+        }
+
+
     }
 
     @Test(timeout = 60000)

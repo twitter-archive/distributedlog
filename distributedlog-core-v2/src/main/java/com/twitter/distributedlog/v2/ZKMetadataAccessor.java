@@ -6,9 +6,12 @@ import java.net.URI;
 import com.google.common.annotations.VisibleForTesting;
 
 import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.v2.metadata.BKDLConfig;
-import com.twitter.distributedlog.v2.util.DLUtils;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;

@@ -1,5 +1,7 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;

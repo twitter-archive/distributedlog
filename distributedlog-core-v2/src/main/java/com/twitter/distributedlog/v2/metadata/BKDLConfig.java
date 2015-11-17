@@ -2,9 +2,9 @@ package com.twitter.distributedlog.v2.metadata;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
-import com.twitter.distributedlog.v2.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.v2.thrift.BKDLConfigFormat;
-import com.twitter.distributedlog.v2.util.DLUtils;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TJSONProtocol;
 import org.apache.thrift.transport.TMemoryBuffer;

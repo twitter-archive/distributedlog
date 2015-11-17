@@ -1,18 +1,18 @@
 package com.twitter.distributedlog.v2;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Stopwatch;
-
-import com.twitter.distributedlog.AlreadyClosedException;
-import com.twitter.distributedlog.LogReadException;
-
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.AsyncNotification;
+import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;

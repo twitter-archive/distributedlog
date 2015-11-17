@@ -3,7 +3,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.util.PermitLimiter;
 
-class WriteLimiter {
+public class WriteLimiter {
 
     String streamName;
     final PermitLimiter streamLimiter;
@@ -15,7 +15,7 @@ class WriteLimiter {
         this.globalLimiter = globalLimiter;
     }
 
-    void acquire() throws OverCapacityException {
+    public void acquire() throws OverCapacityException {
         if (!streamLimiter.acquire()) {
             throw new OverCapacityException(String.format("Stream write capacity exceeded for stream %s", streamName));
         }
@@ -24,13 +24,17 @@ class WriteLimiter {
                 throw new OverCapacityException("Global write capacity exceeded");
             }
         } catch (OverCapacityException ex) {
-            streamLimiter.release();
+            streamLimiter.release(1);
             throw ex;
         }
     }
 
-    void release() {
-        streamLimiter.release();
-        globalLimiter.release();
+    public void release() {
+        release(1);
+    }
+
+    public void release(int permits) {
+        streamLimiter.release(permits);
+        globalLimiter.release(permits);
     }
 }

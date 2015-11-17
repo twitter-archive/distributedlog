@@ -1,5 +1,9 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.BookKeeperClient;
+import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -30,7 +34,10 @@ import static org.junit.Assert.fail;
 public class TestLedgerHandleCache {
     static final Logger LOG = LoggerFactory.getLogger(TestLedgerHandleCache.class);
 
-    protected static DistributedLogConfiguration dlConf = new DistributedLogConfiguration().setLockTimeout(10);
+    protected static DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
+    static {
+        dlConf.setLockTimeout(10);
+    }
     protected static String zkServers = "127.0.0.1:7000";
     protected static String ledgersPath = "/ledgers";
     private static ZooKeeperServerShim zks;
