@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.RecordStream;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
@@ -88,6 +90,6 @@ public class LedgerEntryReader extends LogRecord.Reader {
             public String getName() {
                 return name;
             }
-        }, getInputStream(in, envelopeEntries, statsLogger), 0);
+        }, getInputStream(in, envelopeEntries, statsLogger), 0, Long.MIN_VALUE);
     }
 }

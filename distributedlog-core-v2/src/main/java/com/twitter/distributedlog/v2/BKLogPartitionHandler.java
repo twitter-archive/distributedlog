@@ -21,6 +21,8 @@ import com.google.common.base.Optional;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
 import com.twitter.distributedlog.LogEmptyException;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.v2.metadata.BKDLConfig;
 
@@ -49,6 +51,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static com.twitter.distributedlog.DLSNUtil.*;
 
 /**
  * BookKeeper Distributed Log Manager
@@ -196,7 +200,7 @@ abstract class BKLogPartitionHandler {
             if (l.isInProgress()) {
                 LogRecord record = recoverLastRecordInLedger(l, false, false, false);
                 if (null != record) {
-                    count += record.getCount();
+                    count += getPositionWithinLogSegment(record);
                 }
             } else {
                 count += l.getRecordCount();
@@ -374,7 +378,7 @@ abstract class BKLogPartitionHandler {
                     while (record != null) {
                         if ((null == lastRecord
                             || record.getTransactionId() > lastRecord.getTransactionId()) &&
-                            (includeEndOfStream || !record.isEndOfStream())) {
+                            (includeEndOfStream || !isEndOfStream(record))) {
                             lastRecord = record;
                         }
                         record = in.readOp(false);

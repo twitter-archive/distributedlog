@@ -20,6 +20,7 @@ package com.twitter.distributedlog.v2;
 import com.twitter.distributedlog.BKTransmitException;
 import com.twitter.distributedlog.FlushException;
 import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
@@ -48,6 +49,7 @@ import com.twitter.util.Promise;
 import com.twitter.util.TimeoutException;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.DLSNUtil.*;
 
 /**
  * Output stream for BookKeeper based Distributed Log Manager.
@@ -326,7 +328,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     }
 
     synchronized public void writeInternal(LogRecord record) throws IOException {
-        int logRecordSize = record.getPersistentSize();
+        int logRecordSize = getRecordPersistentSize(record);
 
         if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {
             throw new LogRecordTooLongException(String.format(
@@ -344,7 +346,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
         if (enableRecordCounts) {
             // Set the count here. The caller would appropriately increment it
             // if this log record is to be counted
-            record.setCount(recordCount);
+            setPositionWithinLogSegment(record, recordCount);
         }
 
         writeLimiter.acquire();
@@ -363,7 +365,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
 
     synchronized private void writeControlLogRecord() throws IOException {
         LogRecord controlRec = new LogRecord(lastTxId, "control".getBytes(UTF_8));
-        controlRec.setControl();
+        setControlRecord(controlRec);
         writeInternal(controlRec);
     }
 
@@ -376,7 +378,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
      */
     synchronized private void writeEndOfStreamMarker() throws IOException {
         LogRecord endOfStreamRec = new LogRecord(DistributedLogConstants.MAX_TXID, "endOfStream".getBytes(UTF_8));
-        endOfStreamRec.setEndOfStream();
+        setEndOfStream(endOfStreamRec);
         writeInternal(endOfStreamRec);
     }
 

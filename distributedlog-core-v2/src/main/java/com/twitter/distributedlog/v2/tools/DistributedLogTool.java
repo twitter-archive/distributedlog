@@ -2,11 +2,11 @@ package com.twitter.distributedlog.v2.tools;
 
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogEmptyException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.v2.DistributedLogConfiguration;
 import com.twitter.distributedlog.v2.DistributedLogManager;
 import com.twitter.distributedlog.v2.DistributedLogManagerFactory;
 import com.twitter.distributedlog.v2.LogReader;
-import com.twitter.distributedlog.v2.LogRecord;
 import com.twitter.distributedlog.v2.PartitionId;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.cli.CommandLine;

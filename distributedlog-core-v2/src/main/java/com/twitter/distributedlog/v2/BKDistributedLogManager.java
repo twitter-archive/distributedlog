@@ -6,6 +6,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.v2.metadata.BKDLConfig;

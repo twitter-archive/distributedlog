@@ -7,6 +7,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -18,10 +20,10 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
-import com.twitter.distributedlog.v2.selector.FirstTxIdNotLessThanSelector;
-import com.twitter.distributedlog.v2.selector.LogRecordSelector;
-import com.twitter.distributedlog.v2.util.FutureUtils;
-import com.twitter.distributedlog.v2.util.FutureUtils.FutureEventListenerRunnable;
+import com.twitter.distributedlog.selector.FirstTxIdNotLessThanSelector;
+import com.twitter.distributedlog.selector.LogRecordSelector;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.FutureUtils.FutureEventListenerRunnable;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -246,7 +248,7 @@ public class ReadUtils {
             if (!context.includeControl && record.isControl()) {
                 continue;
             }
-            if (!context.includeEndOfStream && record.isEndOfStream()) {
+            if (!context.includeEndOfStream && isEndOfStream(record)) {
                 continue;
             }
             selector.process(record);

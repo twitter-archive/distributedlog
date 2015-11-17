@@ -1,5 +1,7 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.LogRecord;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;

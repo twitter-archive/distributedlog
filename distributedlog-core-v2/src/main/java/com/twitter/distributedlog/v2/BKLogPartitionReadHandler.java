@@ -4,6 +4,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.v2.util.FutureUtils;
 import org.apache.bookkeeper.client.AsyncCallback;

@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.v2.examples;
 
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.v2.*;
 
 import java.net.URI;

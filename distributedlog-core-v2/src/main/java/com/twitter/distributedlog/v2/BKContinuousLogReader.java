@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
@@ -23,6 +24,7 @@ import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.twitter.distributedlog.DLSNUtil.*;
 
 public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeeperSessionExpireNotifier, AsyncNotification {
     static final Logger LOG = LoggerFactory.getLogger(BKContinuousLogReader.class);
@@ -141,7 +143,7 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         }
 
         if (null != record) {
-            if (record.isEndOfStream()) {
+            if (isEndOfStream(record)) {
                 endOfStreamEncountered = true;
                 throw new EndOfStreamException("End of Stream Reached for" + bkLedgerManager.getFullyQualifiedName());
             }

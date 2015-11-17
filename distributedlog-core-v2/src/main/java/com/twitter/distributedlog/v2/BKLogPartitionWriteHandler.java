@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
@@ -34,6 +35,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.DLSNUtil.*;
 
 class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogPartitionReadHandler.class);
@@ -475,7 +477,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
                     if (null != record) {
                         endTxId = record.getTransactionId();
-                        recordCount = record.getCount();
+                        recordCount = getPositionWithinLogSegment(record);
                     }
 
                     if (endTxId == DistributedLogConstants.INVALID_TXID) {

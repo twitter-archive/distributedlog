@@ -16,7 +16,7 @@ public class LogRecordWithDLSN extends LogRecord {
     }
 
     @VisibleForTesting
-    LogRecordWithDLSN(DLSN dlsn, long txid, byte[] data, long startSequenceIdOfCurrentSegment) {
+    public LogRecordWithDLSN(DLSN dlsn, long txid, byte[] data, long startSequenceIdOfCurrentSegment) {
         super(txid, data);
         this.dlsn = dlsn;
         this.startSequenceIdOfCurrentSegment = startSequenceIdOfCurrentSegment;

@@ -18,6 +18,7 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -35,6 +36,7 @@ import java.util.Comparator;
 import com.google.common.annotations.VisibleForTesting;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.DLSNUtil.*;
 
 /**
  * Utility class for storing the metadata associated
@@ -168,7 +170,7 @@ class LogSegmentLedgerMetadata {
         }
 
         public LogSegmentLedgerMetadataBuilder setRecordCount(LogRecord record) {
-            this.recordCount = record.getCount();
+            this.recordCount = getPositionWithinLogSegment(record);
             return this;
         }
 

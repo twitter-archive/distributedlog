@@ -19,6 +19,8 @@ package com.twitter.distributedlog.v2;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.v2.util.PermitLimiter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -29,9 +31,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.Executors;
 
+import static com.twitter.distributedlog.DLSNUtil.*;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-
 
 /**
  * Utility class for setting up bookkeeper ensembles
@@ -141,9 +143,9 @@ public class DLMTestUtil {
     }
 
     public static LogRecordWithDLSN getLogRecordWithDLSNInstance(DLSN dlsn, long txId, boolean isControlRecord) {
-        LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId));
+        LogRecordWithDLSN record = new LogRecordWithDLSN(dlsn, txId, generatePayload(txId), Long.MIN_VALUE);
         if (isControlRecord) {
-            record.setControl();
+            setControlRecord(record);
         }
         return record;
     }

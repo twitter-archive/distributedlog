@@ -180,10 +180,10 @@ public class LogRecord {
     /**
      * Class for writing log records
      */
-    static class Writer {
+    public static class Writer {
         private final DataOutputStream buf;
 
-        Writer(DataOutputStream out) {
+        public Writer(DataOutputStream out) {
             this.buf = out;
         }
 
@@ -193,11 +193,11 @@ public class LogRecord {
          * @param record The operation to write
          * @throws IOException if an error occurs during writing.
          */
-        void writeOp(LogRecord record) throws IOException {
+        public void writeOp(LogRecord record) throws IOException {
             record.writeToStream(buf);
         }
 
-        int getPendingBytes() {
+        public int getPendingBytes() {
             return buf.size();
         }
     }
@@ -206,7 +206,7 @@ public class LogRecord {
      * This class is a package private class for reading log records
      * from the persistent
       */
-    static class Reader {
+    public static class Reader {
         private final RecordStream recordStream;
         private final DataInputStream in;
         private final int logVersion;

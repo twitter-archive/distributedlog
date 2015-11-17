@@ -2,11 +2,11 @@ package com.twitter.distributedlog.v2.benchmark;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.v2.DistributedLogConfiguration;
 import com.twitter.distributedlog.v2.DistributedLogManager;
 import com.twitter.distributedlog.v2.DistributedLogManagerFactory;
 import com.twitter.distributedlog.v2.LogReader;
-import com.twitter.distributedlog.v2.LogRecord;
 import com.twitter.distributedlog.v2.benchmark.thrift.Message;
 import com.twitter.distributedlog.v2.util.SchedulerUtils;
 import org.apache.bookkeeper.stats.Counter;

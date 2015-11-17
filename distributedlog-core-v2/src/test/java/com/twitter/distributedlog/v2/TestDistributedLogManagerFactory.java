@@ -4,6 +4,7 @@ import java.net.URI;
 
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.LogRecord;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.lang3.tuple.Pair;

@@ -21,6 +21,7 @@ import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
+import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
@@ -48,6 +49,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import static com.twitter.distributedlog.DLSNUtil.*;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -1758,7 +1760,7 @@ public class TestBookKeeperDistributedLogManager {
 
         BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
         LogRecord op = DLMTestUtil.getLogRecordInstance(txid);
-        op.setControl();
+        setControlRecord(op);
         out.write(op);
         out.setReadyToFlush();
         out.flushAndSync();

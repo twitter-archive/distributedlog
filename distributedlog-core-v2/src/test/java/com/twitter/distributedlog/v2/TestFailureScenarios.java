@@ -2,6 +2,7 @@ package com.twitter.distributedlog.v2;
 
 import java.io.IOException;
 
+import com.twitter.distributedlog.LogRecord;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.commons.logging.Log;

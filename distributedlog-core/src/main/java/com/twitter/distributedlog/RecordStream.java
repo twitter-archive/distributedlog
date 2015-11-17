@@ -3,7 +3,7 @@ package com.twitter.distributedlog;
 /**
  * Stream of records
  */
-interface RecordStream {
+public interface RecordStream {
     /**
      * Move to next record
      */

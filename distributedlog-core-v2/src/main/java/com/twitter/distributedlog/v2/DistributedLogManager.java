@@ -17,6 +17,8 @@
  */
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.LogRecord;
+
 import java.io.IOException;
 
 

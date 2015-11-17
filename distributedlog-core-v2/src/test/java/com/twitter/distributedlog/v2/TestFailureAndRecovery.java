@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.LogRecord;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
