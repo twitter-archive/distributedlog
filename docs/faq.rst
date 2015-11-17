@@ -1,0 +1,5 @@
+FAQ
+===
+
+DistributedLog vs Kafka
+-----------------------
