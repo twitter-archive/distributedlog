@@ -2,6 +2,7 @@ package com.twitter.distributedlog.v2;
 
 import java.io.IOException;
 
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;

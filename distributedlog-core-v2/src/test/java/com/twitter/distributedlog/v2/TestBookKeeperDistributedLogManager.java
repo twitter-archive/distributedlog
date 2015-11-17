@@ -18,6 +18,7 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;

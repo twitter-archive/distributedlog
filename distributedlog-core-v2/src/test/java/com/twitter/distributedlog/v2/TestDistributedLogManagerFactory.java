@@ -2,6 +2,7 @@ package com.twitter.distributedlog.v2;
 
 import java.net.URI;
 
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;

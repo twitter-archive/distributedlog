@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.LogRecord;

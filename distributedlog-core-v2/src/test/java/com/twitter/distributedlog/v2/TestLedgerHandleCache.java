@@ -2,6 +2,7 @@ package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.client.AsyncCallback;

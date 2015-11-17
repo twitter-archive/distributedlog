@@ -19,6 +19,7 @@ package com.twitter.distributedlog.v2;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.util.PermitLimiter;

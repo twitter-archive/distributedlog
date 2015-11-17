@@ -28,8 +28,7 @@ import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.v2.metadata.BKDLConfig;
-
+import com.twitter.distributedlog.metadata.BKDLConfig;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
