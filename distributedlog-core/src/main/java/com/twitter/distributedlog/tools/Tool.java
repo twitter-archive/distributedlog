@@ -38,7 +38,9 @@ public abstract class Tool {
         /**
          * @return usage of this command.
          */
-        protected abstract String getUsage();
+        protected String getUsage() {
+            return cmdName + " [options]";
+        }
 
         /**
          * Run given command line <i>commandLine</i>.

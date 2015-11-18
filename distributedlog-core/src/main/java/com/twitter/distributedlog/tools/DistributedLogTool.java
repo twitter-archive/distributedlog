@@ -60,6 +60,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DLSN;
@@ -111,18 +112,18 @@ public class DistributedLogTool extends Tool {
         }
     };
 
-    static DLSN parseDLSN(String dlsnStr) throws IOException {
+    static DLSN parseDLSN(String dlsnStr) throws ParseException {
         if (dlsnStr.equals("InitialDLSN")) {
             return DLSN.InitialDLSN;
         }
         String[] parts = dlsnStr.split(",");
         if (parts.length != 3) {
-            throw new IOException("Invalid dlsn : " + dlsnStr);
+            throw new ParseException("Invalid dlsn : " + dlsnStr);
         }
         try {
             return new DLSN(Long.parseLong(parts[0]), Long.parseLong(parts[1]), Long.parseLong(parts[2]));
-        } catch (NumberFormatException nfe) {
-            throw new IOException("Invalid dlsn : " + dlsnStr, nfe);
+        } catch (Exception nfe) {
+            throw new ParseException("Invalid dlsn : " + dlsnStr);
         }
     }
 
@@ -246,6 +247,39 @@ public class DistributedLogTool extends Tool {
             DistributedLogNamespace namespace = getFactory().getNamespace();
             assert(namespace instanceof BKDistributedLogNamespace);
             return ((BKDistributedLogNamespace) namespace).getReaderBKC();
+        }
+    }
+
+    /**
+     * Base class for simple command with no resource setup requirements.
+     */
+    public abstract static class SimpleCommand extends OptsCommand {
+
+        protected final Options options = new Options();
+
+        SimpleCommand(String name, String description) {
+            super(name, description);
+        }
+
+        @Override
+        protected int runCmd(CommandLine commandLine) throws Exception {
+            try {
+                parseCommandLine(commandLine);
+            } catch (ParseException pe) {
+                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                printUsage();
+                return -1;
+            }
+            return runSimpleCmd();
+        }
+
+        abstract protected int runSimpleCmd() throws Exception;
+
+        abstract protected void parseCommandLine(CommandLine cmdline) throws ParseException;
+
+        @Override
+        protected Options getOptions() {
+            return options;
         }
     }
 
@@ -956,15 +990,11 @@ public class DistributedLogTool extends Tool {
             if (args.length < 1) {
                 throw new ParseException("Must specify at least start dlsn.");
             }
-            try {
-                if (args.length >= 1) {
-                    startDLSN = parseDLSN(args[0]);
-                }
-                if (args.length >= 2) {
-                    endDLSN = parseDLSN(args[1]);
-                }
-            } catch (IOException ioe) {
-                throw new ParseException("Invalid dlsn found : " + ioe.getMessage());
+            if (args.length >= 1) {
+                startDLSN = parseDLSN(args[0]);
+            }
+            if (args.length >= 2) {
+                endDLSN = parseDLSN(args[1]);
             }
         }
 
@@ -2410,6 +2440,115 @@ public class DistributedLogTool extends Tool {
         }
     }
 
+    protected static class TruncateStreamCommand extends PerStreamCommand {
+
+        DLSN dlsn = DLSN.InvalidDLSN;
+
+        TruncateStreamCommand() {
+            super("truncate_stream", "truncate a stream at a specific position");
+            options.addOption("dlsn", true, "Truncate all records older than this dlsn");
+        }
+
+        public void setDlsn(DLSN dlsn) {
+            this.dlsn = dlsn;
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("dlsn")) {
+                dlsn = parseDLSN(cmdline.getOptionValue("dlsn"));
+            }
+        }
+
+        @Override
+        protected int runCmd() throws Exception {
+            getConf().setZkAclId(getZkAclId());
+            return truncateStream(getFactory(), getStreamName(), dlsn);
+        }
+
+        private int truncateStream(final com.twitter.distributedlog.DistributedLogManagerFactory factory, String streamName, DLSN dlsn) throws Exception {
+            DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
+            try {
+                long totalRecords = dlm.getLogRecordCount();
+                long recordsAfterTruncate = Await.result(dlm.getLogRecordCountAsync(dlsn));
+                long recordsToTruncate = totalRecords - recordsAfterTruncate;
+                if (!getForce() && !IOUtils.confirmPrompt("Are you sure you want to truncate " + streamName + " at dlsn " + dlsn + " (" + recordsToTruncate + " records)?")) {
+                    return 0;
+                } else {
+                    AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+                    try {
+                        if (!Await.result(writer.truncate(dlsn))) {
+                            println("Failed to truncate.");
+                        }
+                        return 0;
+                    } finally {
+                        writer.close();
+                    }
+                }
+            } catch (Exception ex) {
+                println("Failed to truncate " + ex);
+                return 1;
+            } finally {
+                dlm.close();
+            }
+        }
+    }
+
+    public static class DeserializeDLSNCommand extends SimpleCommand {
+
+        String base64Dlsn = "";
+
+        DeserializeDLSNCommand() {
+            super("deserialize_dlsn", "Deserialize DLSN");
+            options.addOption("b64", "base64", true, "Base64 encoded dlsn");
+        }
+
+        public void setBase64DLSN(String base64Dlsn) {
+            base64Dlsn = base64Dlsn;
+        }
+
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            if (cmdline.hasOption("b64")) {
+                base64Dlsn = cmdline.getOptionValue("b64");
+            } else {
+                throw new IllegalArgumentException("Argument b64 is required");
+            }
+        }
+
+        @Override
+        protected int runSimpleCmd() throws Exception {
+            println(DLSN.deserialize(base64Dlsn).toString());
+            return 0;
+        }
+    }
+
+    public static class SerializeDLSNCommand extends SimpleCommand {
+
+        private DLSN dlsn = DLSN.InitialDLSN;
+
+        SerializeDLSNCommand() {
+            super("serialize_dlsn", "Serialize DLSN");
+            options.addOption("dlsn", true, "DLSN in comma separated format to serialize");
+        }
+
+        public void setDLSN(DLSN dlsn) {
+            dlsn = dlsn;
+        }
+
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            if (cmdline.hasOption("dlsn")) {
+                dlsn = parseDLSN(cmdline.getOptionValue("dlsn"));
+            }
+        }
+
+        @Override
+        protected int runSimpleCmd() throws Exception {
+            println(dlsn.serialize());
+            return 0;
+        }
+    }
+
     public DistributedLogTool() {
         super();
         addCommand(new AuditBKSpaceCommand());
@@ -2430,6 +2569,9 @@ public class DistributedLogTool extends Tool {
         addCommand(new RecoverLedgerCommand());
         addCommand(new ShowCommand());
         addCommand(new TruncateCommand());
+        addCommand(new TruncateStreamCommand());
+        addCommand(new DeserializeDLSNCommand());
+        addCommand(new SerializeDLSNCommand());
     }
 
     @Override

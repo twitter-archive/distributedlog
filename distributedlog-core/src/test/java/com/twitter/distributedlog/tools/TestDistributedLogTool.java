@@ -13,9 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.LocalDLMEmulator;
+import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.tools.DistributedLogTool.*;
 
 import static org.junit.Assert.*;
@@ -183,5 +186,27 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
             cmd.runCmd();
         } catch (BKNoSuchLedgerExistsException ex) {
         }
+    }
+
+    @Test(timeout = 60000)
+    public void testToolTruncateStream() throws Exception {
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM("testToolTruncateStream", conf, defaultUri);
+        DLMTestUtil.generateCompletedLogSegments(dlm, conf, 3, 1000);
+
+        DLSN dlsn = new DLSN(2,1,0);
+        TruncateStreamCommand cmd = new TruncateStreamCommand();
+        cmd.setDlsn(dlsn);
+        cmd.setUri(defaultUri);
+        cmd.setStreamName("testToolTruncateStream");
+        cmd.setForce(true);
+
+        assertEquals(0, cmd.runCmd());
+
+        LogReader reader = dlm.getInputStream(0);
+        LogRecordWithDLSN record = reader.readNext(false);
+        assertEquals(dlsn, record.getDlsn());
+
+        reader.close();
+        dlm.close();
     }
 }
