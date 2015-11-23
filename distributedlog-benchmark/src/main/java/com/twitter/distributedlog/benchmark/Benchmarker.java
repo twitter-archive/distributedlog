@@ -1,8 +1,8 @@
 package com.twitter.distributedlog.benchmark;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import org.apache.bookkeeper.stats.NullStatsProvider;
@@ -33,7 +33,10 @@ public class Benchmarker {
     final String[] args;
     final Options options = new Options();
 
-    int rate = 1000;
+    int rate = 100;
+    int maxRate = 1000;
+    int changeRate = 100;
+    int changeRateSeconds = 1800;
     int concurrency = 10;
     String streamPrefix = "dlog-loadtest-";
     int shardId = -1;
@@ -75,6 +78,9 @@ public class Benchmarker {
         options.addOption("ms", "messagesize", true, "Message Size (bytes)");
         options.addOption("bs", "batchsize", true, "Batch Size");
         options.addOption("r", "rate", true, "Rate limit (requests/second)");
+        options.addOption("mr", "max-rate", true, "Maximum Rate limit (requests/second)");
+        options.addOption("cr", "change-rate", true, "Rate to increase each change period (requests/second)");
+        options.addOption("ci", "change-interval", true, "Rate to increase period, seconds");
         options.addOption("t", "concurrency", true, "Concurrency (number of threads)");
         options.addOption("m", "mode", true, "Benchmark mode (read/write)");
         options.addOption("rps", "readers-per-stream", true, "Number readers per stream");
@@ -129,6 +135,15 @@ public class Benchmarker {
         }
         if (cmdline.hasOption("r")) {
             rate = Integer.parseInt(cmdline.getOptionValue("r"));
+        }
+        if (cmdline.hasOption("mr")) {
+            maxRate = Integer.parseInt(cmdline.getOptionValue("mr"));
+        }
+        if (cmdline.hasOption("cr")) {
+            changeRate = Integer.parseInt(cmdline.getOptionValue("cr"));
+        }
+        if (cmdline.hasOption("ci")) {
+            changeRateSeconds = Integer.parseInt(cmdline.getOptionValue("ci"));
         }
         if (cmdline.hasOption("t")) {
             concurrency = Integer.parseInt(cmdline.getOptionValue("t"));
@@ -223,12 +238,18 @@ public class Benchmarker {
                 "either serverset paths or finagle-names required");
         Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
         Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
+        Preconditions.checkArgument(maxRate >= rate, "max rate must be greater than rate");
+        Preconditions.checkArgument(changeRate >= 0, "change rate must be positive");
+        Preconditions.checkArgument(changeRateSeconds >= 0, "change rate must be positive");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
+
+        ShiftableRateLimiter rateLimiter =
+                new ShiftableRateLimiter(rate, maxRate, changeRate, changeRateSeconds, TimeUnit.SECONDS);
 
         return new WriterWorker(streamPrefix,
                 null == startStreamId ? shardId * numStreams : startStreamId,
                 null == endStreamId ? (shardId + 1) * numStreams : endStreamId,
-                rate,
+                rateLimiter,
                 concurrency,
                 msgSize,
                 batchSize,
@@ -244,14 +265,21 @@ public class Benchmarker {
 
     Worker runDLWriter() throws IOException {
         Preconditions.checkNotNull(dlUri, "dlUri must be defined");
+        Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
+        Preconditions.checkArgument(maxRate >= rate, "max rate must be greater than rate");
+        Preconditions.checkArgument(changeRate >= 0, "change rate must be positive");
+        Preconditions.checkArgument(changeRateSeconds >= 0, "change rate must be positive");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
+
+        ShiftableRateLimiter rateLimiter =
+                new ShiftableRateLimiter(rate, maxRate, changeRate, changeRateSeconds, TimeUnit.SECONDS);
 
         return new DLWriterWorker(conf,
                 dlUri,
                 streamPrefix,
                 shardId * numStreams,
                 (shardId + 1) * numStreams,
-                rate,
+                rateLimiter,
                 concurrency,
                 msgSize,
                 statsProvider.getStatsLogger("dlwrite"));

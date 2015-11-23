@@ -1,11 +1,11 @@
 package com.twitter.distributedlog.benchmark;
 
 import com.google.common.base.Preconditions;
-import com.google.common.util.concurrent.RateLimiter;
 
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
@@ -40,13 +40,12 @@ public class WriterWorker implements Worker {
     final String streamPrefix;
     final int startStreamId;
     final int endStreamId;
-    final int writeRate;
     final int writeConcurrency;
     final int messageSizeBytes;
     final int hostConnectionCoreSize;
     final int hostConnectionLimit;
     final ExecutorService executorService;
-    final RateLimiter rateLimiter;
+    final ShiftableRateLimiter rateLimiter;
     final ZooKeeperClient[] zkClients;
     final ServerSet[] serverSets;
     final List<String> finagleNames;
@@ -68,7 +67,7 @@ public class WriterWorker implements Worker {
     public WriterWorker(String streamPrefix,
                         int startStreamId,
                         int endStreamId,
-                        int writeRate,
+                        ShiftableRateLimiter rateLimiter,
                         int writeConcurrency,
                         int messageSizeBytes,
                         int batchSize,
@@ -85,7 +84,7 @@ public class WriterWorker implements Worker {
         this.streamPrefix = streamPrefix;
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
-        this.writeRate = writeRate;
+        this.rateLimiter = rateLimiter;
         this.writeConcurrency = writeConcurrency;
         this.messageSizeBytes = messageSizeBytes;
         this.statsReceiver = statsReceiver;
@@ -94,7 +93,6 @@ public class WriterWorker implements Worker {
         this.exceptionsLogger = statsLogger.scope("exceptions");
         this.dlErrorCodeLogger = statsLogger.scope("dl_error_code");
         this.executorService = Executors.newCachedThreadPool();
-        this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
         this.batchSize = batchSize;
         this.hostConnectionCoreSize = hostConnectionCoreSize;
@@ -234,7 +232,7 @@ public class WriterWorker implements Worker {
         public void run() {
             LOG.info("Started writer {}.", idx);
             while (running) {
-                rateLimiter.acquire();
+                rateLimiter.getLimiter().acquire();
                 final String streamName = streamNames.get(random.nextInt(numStreams));
                 final long requestMillis = System.currentTimeMillis();
                 final ByteBuffer data = buildBuffer(requestMillis, messageSizeBytes);
@@ -262,7 +260,7 @@ public class WriterWorker implements Worker {
         public void run() {
             LOG.info("Started writer {}.", idx);
             while (running) {
-                rateLimiter.acquire(batchSize);
+                rateLimiter.getLimiter().acquire(batchSize);
                 String streamName = streamNames.get(random.nextInt(numStreams));
                 final long requestMillis = System.currentTimeMillis();
                 final List<ByteBuffer> data = buildBufferList(batchSize, requestMillis, messageSizeBytes);
@@ -280,8 +278,8 @@ public class WriterWorker implements Worker {
 
     @Override
     public void run() {
-        LOG.info("Starting writer (rate = {}, concurrency = {}, prefix = {}, batchSize = {})",
-                 new Object[] { writeRate, writeConcurrency, streamPrefix, batchSize });
+        LOG.info("Starting writer (concurrency = {}, prefix = {}, batchSize = {})",
+                 new Object[] { writeConcurrency, streamPrefix, batchSize });
         for (int i = 0; i < writeConcurrency; i++) {
             Runnable writer = null;
             if (batchSize > 0) {

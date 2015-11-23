@@ -1,12 +1,12 @@
 package com.twitter.distributedlog.benchmark;
 
 import com.google.common.base.Preconditions;
-import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -39,12 +39,11 @@ public class DLWriterWorker implements Worker {
     final String streamPrefix;
     final int startStreamId;
     final int endStreamId;
-    final int writeRate;
     final int writeConcurrency;
     final int messageSizeBytes;
     final ExecutorService executorService;
     final ScheduledExecutorService rescueService;
-    final RateLimiter rateLimiter;
+    final ShiftableRateLimiter rateLimiter;
     final Random random;
     final DistributedLogNamespace namespace;
     final List<DistributedLogManager> dlms;
@@ -61,7 +60,7 @@ public class DLWriterWorker implements Worker {
                           String streamPrefix,
                           int startStreamId,
                           int endStreamId,
-                          int writeRate,
+                          ShiftableRateLimiter rateLimiter,
                           int writeConcurrency,
                           int messageSizeBytes,
                           StatsLogger statsLogger) throws IOException {
@@ -69,14 +68,13 @@ public class DLWriterWorker implements Worker {
         this.streamPrefix = streamPrefix;
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
-        this.writeRate = writeRate;
+        this.rateLimiter = rateLimiter;
         this.writeConcurrency = writeConcurrency;
         this.messageSizeBytes = messageSizeBytes;
         this.statsLogger = statsLogger;
         this.requestStat = this.statsLogger.getOpStatsLogger("requests");
         this.executorService = Executors.newCachedThreadPool();
         this.rescueService = Executors.newSingleThreadScheduledExecutor();
-        this.rateLimiter = RateLimiter.create(writeRate);
         this.random = new Random(System.currentTimeMillis());
 
         this.namespace = DistributedLogNamespaceBuilder.newBuilder()
@@ -176,8 +174,8 @@ public class DLWriterWorker implements Worker {
 
     @Override
     public void run() {
-        LOG.info("Starting dlwriter (rate = {}, concurrency = {}, prefix = {}, numStreams = {})",
-                 new Object[] { writeRate, writeConcurrency, streamPrefix, numStreams });
+        LOG.info("Starting dlwriter (concurrency = {}, prefix = {}, numStreams = {})",
+                 new Object[] { writeConcurrency, streamPrefix, numStreams });
         for (int i = 0; i < writeConcurrency; i++) {
             executorService.submit(new Writer(i));
         }
@@ -197,7 +195,7 @@ public class DLWriterWorker implements Worker {
             while (running) {
                 final int streamIdx = random.nextInt(numStreams);
                 final AsyncLogWriter writer = streamWriters.get(streamIdx);
-                rateLimiter.acquire();
+                rateLimiter.getLimiter().acquire();
                 final long requestMillis = System.currentTimeMillis();
                 final byte[] data;
                 try {
