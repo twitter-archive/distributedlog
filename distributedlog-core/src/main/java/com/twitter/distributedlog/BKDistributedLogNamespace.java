@@ -63,7 +63,41 @@ import java.util.concurrent.TimeUnit;
 import static com.twitter.distributedlog.impl.BKDLUtils.*;
 
 /**
- * DistributedLog Namespace uses zookeeper for metadata store and bookkeeper for data store.
+ * BKDistributedLogNamespace is the default implementation of {@link DistributedLogNamespace}. It uses
+ * zookeeper for metadata storage and bookkeeper for data storage.
+ * <h3>Metrics</h3>
+ *
+ * <h4>ZooKeeper Client</h4>
+ * See {@link ZooKeeperClient} for detail sub-stats.
+ * <ul>
+ * <li> `scope`/dlzk_factory_writer_shared/* : stats about the zookeeper client shared by all DL writers.
+ * <li> `scope`/dlzk_factory_reader_shared/* : stats about the zookeeper client shared by all DL readers.
+ * <li> `scope`/bkzk_factory_writer_shared/* : stats about the zookeeper client used by bookkeeper client
+ * shared by all DL writers.
+ * <li> `scope`/bkzk_factory_reader_shared/* : stats about the zookeeper client used by bookkeeper client
+ * shared by all DL readers.
+ * </ul>
+ *
+ * <h4>BookKeeper Client</h4>
+ * BookKeeper client stats are exposed directly to current scope. See {@link BookKeeperClient} for detail stats.
+ *
+ * <h4>Utils</h4>
+ * <ul>
+ * <li> `scope`/factory/thread_pool/* : stats about the ordered scheduler used by this namespace.
+ * See {@link OrderedScheduler}.
+ * <li> `scope`/factory/readahead_thread_pool/* : stats about the readahead thread pool executor
+ * used by this namespace. See {@link MonitoredScheduledThreadPoolExecutor}.
+ * <li> `scope`/writeLimiter/* : stats about the global write limiter used by this namespace.
+ * See {@link PermitLimiter}.
+ * </ul>
+ *
+ * <h4>ReadAhead Exceptions</h4>
+ * Stats about exceptions that encountered in ReadAhead are exposed under <code>`scope`/exceptions</code>.
+ * See {@link ReadAheadExceptionsLogger}.
+ *
+ * <h4>DistributedLogManager</h4>
+ *
+ * All the core stats about reader and writer are exposed under current scope via {@link BKDistributedLogManager}.
  */
 public class BKDistributedLogNamespace implements DistributedLogNamespace {
     static final Logger LOG = LoggerFactory.getLogger(BKDistributedLogNamespace.class);
@@ -76,6 +110,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         private DistributedLogConfiguration _conf = null;
         private URI _uri = null;
         private StatsLogger _statsLogger = NullStatsLogger.INSTANCE;
+        private StatsLogger _perLogStatsLogger = NullStatsLogger.INSTANCE;
         private FeatureProvider _featureProvider = new SettableFeatureProvider("", 0);
         private String _clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
         private int _regionId = DistributedLogConstants.LOCAL_REGION_ID;
@@ -97,6 +132,11 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             return this;
         }
 
+        public Builder perLogStatsLogger(StatsLogger perLogStatsLogger) {
+            this._perLogStatsLogger = perLogStatsLogger;
+            return this;
+        }
+
         public Builder featureProvider(FeatureProvider featureProvider) {
             this._featureProvider = featureProvider;
             return this;
@@ -112,6 +152,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             return this;
         }
 
+        @SuppressWarnings("deprecation")
         public BKDistributedLogNamespace build()
                 throws IOException, NullPointerException, IllegalArgumentException {
             Preconditions.checkNotNull(_conf, "No DistributedLog Configuration");
@@ -134,11 +175,19 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             // Resolve namespace binding
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(nsZkc, _uri);
 
+            // Backward Compatible to enable per log stats by configuration settings
+            StatsLogger perLogStatsLogger = _perLogStatsLogger;
+            if (perLogStatsLogger == NullStatsLogger.INSTANCE &&
+                    _conf.getEnablePerStreamStat()) {
+                perLogStatsLogger = _statsLogger.scope("stream");
+            }
+
             return new BKDistributedLogNamespace(
                     _conf,
                     _uri,
                     _featureProvider,
                     _statsLogger,
+                    perLogStatsLogger,
                     _clientId,
                     _regionId,
                     nsZkcBuilder,
@@ -224,6 +273,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
 
     // Stats Loggers
     private final StatsLogger statsLogger;
+    private final StatsLogger perLogStatsLogger;
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
 
     protected boolean closed = false;
@@ -235,6 +285,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             URI uri,
             FeatureProvider featureProvider,
             StatsLogger statsLogger,
+            StatsLogger perLogStatsLogger,
             String clientId,
             int regionId,
             ZooKeeperClientBuilder nsZkcBuilder,
@@ -245,15 +296,18 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         this.namespace = uri;
         this.featureProvider = featureProvider;
         this.statsLogger = statsLogger;
+        this.perLogStatsLogger = perLogStatsLogger;
         this.clientId = clientId;
         this.regionId = regionId;
         this.bkdlConfig = bkdlConfig;
 
         // Build resources
+        StatsLogger schedulerStatsLogger = statsLogger.scope("factory").scope("thread_pool");
         this.scheduler = OrderedScheduler.newBuilder()
                 .name("DLM-" + uri.getPath())
                 .corePoolSize(conf.getNumWorkerThreads())
-                .statsLogger(statsLogger.scope("factory").scope("thread_pool"))
+                .statsLogger(schedulerStatsLogger)
+                .perExecutorStatsLogger(schedulerStatsLogger)
                 .traceTaskExecution(conf.getEnableTaskExecutionStats())
                 .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
                 .build();
@@ -769,7 +823,8 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 writeLimiter,                       /* Write Limiter */
                 dlmLogSegmentRollingPermitManager,  /* Log segment rolling limiter */
                 featureProvider.scope("dl"),        /* Feature Provider */
-                statsLogger                         /* Stats Logger */
+                statsLogger,                        /* Stats Logger */
+                perLogStatsLogger                   /* Per Log Stats Logger */
         );
     }
 

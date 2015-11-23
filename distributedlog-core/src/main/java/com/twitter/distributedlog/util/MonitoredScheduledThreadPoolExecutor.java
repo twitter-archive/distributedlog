@@ -15,6 +15,20 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * {@link ScheduledThreadPoolExecutor} with exposed stats. This class is exposing following stats for
+ * helping understanding the healthy of this thread pool executor.
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li>pending_tasks: gauge. how many tasks are pending in this executor.
+ * <li>completed_tasks: gauge. how many tasks are completed in this executor.
+ * <li>total_tasks: gauge. how many tasks are submitted to this executor.
+ * <li>task_pending_time: opstats. measuring the characteristics about the time that tasks spent on
+ * waiting being executed.
+ * <li>task_execution_time: opstats. measuring the characteristics about the time that tasks spent on
+ * executing.
+ * </ul>
+ */
 public class MonitoredScheduledThreadPoolExecutor extends ScheduledThreadPoolExecutor {
     static final Logger LOG = LoggerFactory.getLogger(MonitoredScheduledThreadPoolExecutor.class);
 

@@ -36,7 +36,6 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.runtime.BoxedUnit;
@@ -62,6 +61,17 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
  * timeout, the sync acquire timeout will cancel the lock, and cause the
  * asyncAcquire to abort. That said, using both together is considered safe
  * and is tested.
+ * <h3>Metrics</h3>
+ * All the lock related stats are exposed under `lock`.
+ * <ul>
+ * <li>lock/acquire: opstats. latency spent on acquiring a lock.
+ * <li>lock/release: opstats. latency spent on releasing a lock.
+ * <li>lock/reacquire: opstats. latency spent on re-acquiring a lock.
+ * <li>lock/internalTryRetries: counter. the number of retries on re-creating internal locks.
+ * <li>lock/acquireTimeouts: counter. the number of timeouts on acquiring locks
+ * </ul>
+ * Other internal lock related stats are also exposed under `lock`. See {@link DistributedLock}
+ * for details.
  */
 public class DistributedReentrantLock {
 

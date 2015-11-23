@@ -14,7 +14,12 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Watcher Manager to manage watchers
+ * Watcher Manager to manage watchers.
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li> `total_watches`: total number of watches that managed by this watcher manager.
+ * <li> `num_child_watches`: number of paths that are watched for children changes by this watcher manager.
+ * </ul>
  */
 public class ZKWatcherManager implements Watcher {
 

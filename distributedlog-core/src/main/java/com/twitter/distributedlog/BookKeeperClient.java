@@ -28,6 +28,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Optional;
 
+/**
+ * BookKeeper Client wrapper over {@link BookKeeper}.
+ *
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li> bookkeeper operation stats are exposed under current scope by {@link BookKeeper}
+ * </ul>
+ */
 public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireNotifier {
     static final Logger LOG = LoggerFactory.getLogger(BookKeeperClient.class);
 

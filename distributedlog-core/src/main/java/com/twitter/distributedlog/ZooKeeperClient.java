@@ -44,7 +44,17 @@ import java.util.concurrent.TimeoutException;
 import static com.google.common.base.Charsets.UTF_8;
 
 /**
- * Manages a connection to a ZooKeeper cluster.
+ * ZooKeeper Client wrapper over {@link org.apache.bookkeeper.zookeeper.ZooKeeperClient}.
+ * It handles retries on session expires and provides a watcher manager {@link ZKWatcherManager}.
+ *
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li> zookeeper operation stats are exposed under scope <code>zk</code> by
+ * {@link org.apache.bookkeeper.zookeeper.ZooKeeperClient}
+ * <li> stats on zookeeper watched events are exposed under scope <code>watcher</code> by
+ * {@link org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase}
+ * <li> stats about {@link ZKWatcherManager} are exposed under scope <code>watcher_manager</code>
+ * </ul>
  */
 public class ZooKeeperClient {
 

@@ -38,6 +38,30 @@ import scala.Option;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
+/**
+ * BookKeeper based {@link AsyncLogWriter} implementation.
+ *
+ * <h3>Metrics</h3>
+ * All the metrics are exposed under `log_writer`.
+ * <ul>
+ * <li> `log_writer/write`: opstats. latency characteristics about the time that write operations spent.
+ * <li> `log_writer/write/queued`: opstats. latency characteristics about the time that write operations
+ * spent in the queue. `log_writer/write` latency is high might because the write operations are pending
+ * in the queue for long time due to log segment rolling.
+ * <li> `log_writer/bulk_write`: opstats. latency characteristics about the time that bulk_write
+ * operations spent.
+ * <li> `log_writer/bulk_write/queued`: opstats. latency characteristics about the time that bulk_write
+ * operations spent in the queue. `log_writer/bulk_write` latency is high might because the write operations
+ * are pending in the queue for long time due to log segment rolling.
+ * <li> `log_writer/get_writer`: opstats. the time spent on getting the writer. it could spike when there
+ * is log segment rolling happened during getting the writer. it is a good stat to look into when the latency
+ * is caused by queuing time.
+ * <li> `log_writer/pending_request_dispatch`: counter. the number of queued operations that are dispatched
+ * after log segment is rolled. it is an metric on measuring how many operations has been queued because of
+ * log segment rolling.
+ * </ul>
+ * See {@link BKLogSegmentWriter} for segment writer stats.
+ */
 public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWriter {
 
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogWriter.class);
@@ -150,9 +174,9 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         // stats
         this.statsLogger = dlmStatsLogger.scope("log_writer");
         this.writeOpStatsLogger = statsLogger.getOpStatsLogger("write");
-        this.writeQueueOpStatsLogger = statsLogger.getOpStatsLogger("write/queued");
+        this.writeQueueOpStatsLogger = statsLogger.scope("write").getOpStatsLogger("queued");
         this.bulkWriteOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write");
-        this.bulkWriteQueueOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write/queued");
+        this.bulkWriteQueueOpStatsLogger = statsLogger.scope("bulk_write").getOpStatsLogger("queued");
         this.getWriterOpStatsLogger = statsLogger.getOpStatsLogger("get_writer");
         this.pendingRequestDispatch = statsLogger.getCounter("pending_request_dispatch");
     }

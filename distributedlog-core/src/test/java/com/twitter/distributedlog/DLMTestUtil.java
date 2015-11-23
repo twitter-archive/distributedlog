@@ -418,7 +418,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         if (writeEntries) {
             long txid = startTxID;
@@ -460,7 +460,7 @@ public class DLMTestUtil {
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
         BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
                 conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
+                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
         long txid = startTxID;
         DLSN wrongDLSN = null;

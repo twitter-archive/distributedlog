@@ -102,6 +102,13 @@ import static com.google.common.base.Charsets.UTF_8;
  *                      +--------V---------+
  *                      |     CLOSED       |
  *                      +------------------+
+ *
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li>tryAcquire: opstats. latency spent on try locking operations. it includes timeouts.
+ * <li>tryTimeouts: counter. the number of timeouts on try locking operations
+ * <li>unlock: opstats. latency spent on unlock operations.
+ * </ul>
  */
 class DistributedLock {
 

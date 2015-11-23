@@ -11,9 +11,19 @@ import org.apache.bookkeeper.stats.Gauge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Simple counter based {@link PermitLimiter}.
+ *
+ * <h3>Metrics</h3>
+ * <ul>
+ * <li> `permits`: gauge. how many permits are acquired right now?
+ * <li> `permits`/*: opstats. the characteristics about number of permits already acquired on each acquires.
+ * <li> `acquireFailure`: counter. how many acquires failed? failure means it already reached maximum permits
+ * when trying to acquire.
+ * </ul>
+ */
 public class SimplePermitLimiter implements PermitLimiter {
 
-    static final Logger LOG = LoggerFactory.getLogger(SimplePermitLimiter.class);
     final Counter acquireFailureCounter;
     final OpStatsLogger permitsMetric;
     final AtomicInteger permits;

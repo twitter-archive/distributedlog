@@ -150,6 +150,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 executorService,
                 futurePool,
                 NullStatsLogger.INSTANCE,
+                NullStatsLogger.INSTANCE,
                 new AlertStatsLogger(NullStatsLogger.INSTANCE, "test"),
                 PermitLimiter.NULL_PERMIT_LIMITER,
                 new SettableFeatureProvider("", 0),

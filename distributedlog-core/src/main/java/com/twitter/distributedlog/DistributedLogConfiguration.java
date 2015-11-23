@@ -2,7 +2,9 @@ package com.twitter.distributedlog;
 
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.feature.DeciderFeatureProvider;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
@@ -1938,6 +1940,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Whether to enable per stream stat or not.
      *
+     * @deprecated please use {@link DistributedLogNamespaceBuilder#perLogStatsLogger(StatsLogger)}
      * @return flag to enable per stream stat.
      */
     public boolean getEnablePerStreamStat() {
@@ -1947,6 +1950,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the flag to enable per stream stat or not.
      *
+     * @deprecated please use {@link DistributedLogNamespaceBuilder#perLogStatsLogger(StatsLogger)}
      * @param enabled
      *          flag to enable/disable per stream stat.
      * @return dl configuration.

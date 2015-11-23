@@ -53,7 +53,6 @@ import org.slf4j.LoggerFactory;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.LockCancelledException;
-import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
@@ -65,6 +64,42 @@ import com.twitter.util.Throw;
 import com.twitter.util.Try;
 import com.twitter.util.Return;
 
+/**
+ * Log Handler for Readers.
+ * <h3>Metrics</h3>
+ *
+ * <h4>ReadAhead Worker</h4>
+ * Most of readahead stats are exposed under scope `readahead_worker`. Only readahead exceptions are exposed
+ * in parent scope via <code>readAheadExceptionsLogger</code>.
+ * <ul>
+ * <li> `readahead_worker`/wait: counter. number of waits that readahead worker is waiting. If this keeps increasing,
+ * it usually means readahead keep getting full because of reader slows down reading.
+ * <li> `readahead_worker`/repositions: counter. number of repositions that readhead worker encounters. reposition
+ * means that a readahead worker finds that it isn't advancing to a new log segment and force re-positioning.
+ * <li> `readahead_worker`/entry_piggy_back_hits: counter. it increases when the last add confirmed being advanced
+ * because of the piggy-back lac.
+ * <li> `readahead_worker`/entry_piggy_back_misses: counter. it increases when the last add confirmed isn't advanced
+ * by a read entry because it doesn't piggy back a newer lac.
+ * <li> `readahead_worker`/read_entries: opstats. stats on number of entries read per readahead read batch.
+ * <li> `readahead_worker`/read_lac_counter: counter. stats on the number of readLastConfirmed operations
+ * <li> `readahead_worker`/read_lac_and_entry_counter: counter. stats on the number of readLastConfirmedAndEntry
+ * operations.
+ * <li> `readahead_worker`/cache_full: counter. it increases each time readahead worker finds cache become full.
+ * If it keeps increasing, that means reader slows down reading.
+ * <li> `readahead_worker`/resume: opstats. stats on readahead worker resuming reading from wait state.
+ * <li> `readahead_worker`/long_poll_interruption: opstats. stats on the number of interruptions happened to long
+ * poll. the interruptions are usually because of receiving zookeeper notifications.
+ * <li> `readahead_worker`/notification_execution: opstats. stats on executions over the notifications received from
+ * zookeeper.
+ * <li> `readahead_worker`/metadata_reinitialization: opstats. stats on metadata reinitialization after receiving
+ * notifcation from log segments updates.
+ * <li> `readahead_worker`/idle_reader_warn: counter. it increases each time the readahead worker detects itself
+ * becoming idle.
+ * </ul>
+ * <h4>Read Lock</h4>
+ * All read lock related stats are exposed under scope `read_lock`. See {@link DistributedReentrantLock}
+ * for detail stats.
+ */
 class BKLogReadHandler extends BKLogHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
@@ -96,14 +131,7 @@ class BKLogReadHandler extends BKLogHandler {
     private final Counter readAheadReadLACCounter;
     private final Counter readAheadReadLACAndEntryCounter;
     private final Counter readAheadCacheFullCounter;
-    private final Counter readLockRequestStat;
-    private final Counter readLockAcquireSuccessStat;
-    private final Counter readLockAcquireFailureStat;
-    private final Counter readLockReleaseStat;
     private final Counter idleReaderWarn;
-    private final OpStatsLogger getInputStreamByTxIdStat;
-    private final OpStatsLogger getInputStreamByDLSNStat;
-    private final OpStatsLogger existsStat;
     private final OpStatsLogger readAheadReadEntriesStat;
     private final OpStatsLogger resumeReadAheadStat;
     private final OpStatsLogger longPollInterruptionStat;
@@ -140,6 +168,7 @@ class BKLogReadHandler extends BKLogHandler {
                             AlertStatsLogger alertStatsLogger,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
                             StatsLogger statsLogger,
+                            StatsLogger perLogStatsLogger,
                             String clientId,
                             AsyncNotification notification,
                             boolean isHandleForReading) {
@@ -182,17 +211,8 @@ class BKLogReadHandler extends BKLogHandler {
         resumeReadAheadStat = readAheadStatsLogger.getOpStatsLogger("resume");
         idleReaderWarn = readAheadStatsLogger.getCounter("idle_reader_warn");
         readAheadPerStreamStatsLogger =
-                isHandleForReading && conf.getEnablePerStreamStat() ? readAheadStatsLogger.scope("stream") : NullStatsLogger.INSTANCE;
-        StatsLogger readerStatsLogger = statsLogger.scope("reader");
-        getInputStreamByDLSNStat = readerStatsLogger.getOpStatsLogger("open_stream_by_dlsn");
-        getInputStreamByTxIdStat = readerStatsLogger.getOpStatsLogger("open_stream_by_txid");
-        existsStat = readerStatsLogger.getOpStatsLogger("check_stream_exists");
+                isHandleForReading ? perLogStatsLogger : NullStatsLogger.INSTANCE;
         this.readAheadExceptionsLogger = readAheadExceptionsLogger;
-        StatsLogger readLockStatsLogger = statsLogger.scope("read_lock");
-        readLockRequestStat = readLockStatsLogger.getCounter("request");
-        readLockAcquireSuccessStat = readLockStatsLogger.getCounter("acquire_success");
-        readLockAcquireFailureStat = readLockStatsLogger.getCounter("acquire_failure");
-        readLockReleaseStat = readLockStatsLogger.getCounter("release");
     }
 
     @VisibleForTesting
@@ -219,13 +239,18 @@ class BKLogReadHandler extends BKLogHandler {
                 public DistributedReentrantLock applyE() throws IOException {
                     // Unfortunately this has a blocking call which we should not execute on the
                     // ZK completion thread
-                    BKLogReadHandler.this.readLock = new DistributedReentrantLock(lockStateExecutor,
-                        zooKeeperClient, readLockPath, conf.getLockTimeoutMilliSeconds(),
-                        getLockClientId(), statsLogger, conf.getZKNumRetries(),
-                        conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
+                    BKLogReadHandler.this.readLock = new DistributedReentrantLock(
+                            lockStateExecutor,
+                            zooKeeperClient,
+                            readLockPath,
+                            conf.getLockTimeoutMilliSeconds(),
+                            getLockClientId(),
+                            statsLogger.scope("read_lock"),
+                            conf.getZKNumRetries(),
+                            conf.getLockReacquireTimeoutMilliSeconds(),
+                            conf.getLockOpTimeoutMilliSeconds());
 
                     LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
-                    readLockRequestStat.inc();
                     return BKLogReadHandler.this.readLock;
                 }
             };
@@ -267,14 +292,12 @@ class BKLogReadHandler extends BKLogHandler {
         acquireFuture.addEventListener(new FutureEventListener<Void>() {
             @Override
             public void onSuccess(Void complete) {
-                readLockAcquireSuccessStat.inc();
                 LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
                 satisfyPromiseAsync(threadAcquirePromise, new Return<Void>(null));
             }
 
             @Override
             public void onFailure(Throwable cause) {
-                readLockAcquireFailureStat.inc();
                 LOG.info("failed to acquire readlock {} at {}",
                         new Object[]{getLockClientId(), readLockPath, cause});
                 satisfyPromiseAsync(threadAcquirePromise, new Throw<Void>(cause));
@@ -321,7 +344,6 @@ class BKLogReadHandler extends BKLogHandler {
                     // effect will be to abort any acquire
                     // attempts.
                     LOG.info("closing readlock {} at {}", getLockClientId(), readLockPath);
-                    readLockReleaseStat.inc();
                     readLock.close();
                 }
             }
@@ -412,32 +434,6 @@ class BKLogReadHandler extends BKLogHandler {
                     }
                 }, null);
         return promise;
-    }
-
-    public boolean doesLogExist() throws IOException {
-        boolean logExists = false;
-        boolean success = false;
-        Stopwatch stopwatch = Stopwatch.createStarted();
-        try {
-            if (null != zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false)) {
-                logExists = true;
-            }
-            success = true;
-        } catch (InterruptedException ie) {
-            LOG.error("Interrupted while checking " + logMetadata.getLogSegmentsPath(), ie);
-            throw new DLInterruptedException("Interrupted while checking "
-                    + logMetadata.getLogSegmentsPath(), ie);
-        } catch (KeeperException ke) {
-            LOG.error("Error checking " + logMetadata.getLogSegmentsPath() + " existence in zookeeper", ke);
-            throw new ZKException("Error checking " + getFullyQualifiedName() + " existence", ke);
-        } finally {
-            if (success) {
-                existsStat.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            } else {
-                existsStat.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            }
-        }
-        return logExists;
     }
 
     void setReadAheadInterrupted(ReadAheadTracker tracker) {

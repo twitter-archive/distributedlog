@@ -9,12 +9,31 @@ import org.apache.bookkeeper.stats.OpStatsData;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
+/**
+ * Stats Loggers that broadcast stats to multiple {@link StatsLogger}.
+ */
 public class BroadCastStatsLogger {
-    public static class Two implements StatsLogger {
-        private final StatsLogger first;
-        private final StatsLogger second;
 
-        public Two(StatsLogger first, StatsLogger second) {
+    /**
+     * Create a broadcast stats logger of two stats loggers `<code>first</code>` and
+     * `<code>second</code>`. The returned stats logger doesn't allow registering any
+     * {@link Gauge}.
+     *
+     * @param first
+     *          first stats logger
+     * @param second
+     *          second stats logger
+     * @return broadcast stats logger
+     */
+    public static StatsLogger two(StatsLogger first, StatsLogger second) {
+        return new CachingStatsLogger(new Two(first, second));
+    }
+
+    static class Two implements StatsLogger {
+        protected final StatsLogger first;
+        protected final StatsLogger second;
+
+        private Two(StatsLogger first, StatsLogger second) {
             super();
             Preconditions.checkNotNull(first);
             Preconditions.checkNotNull(second);
@@ -97,8 +116,40 @@ public class BroadCastStatsLogger {
         }
 
         @Override
-        public StatsLogger scope(final String statName) {
-            return new CachingStatsLogger(new Two(first.scope(statName), second.scope(statName)));
+        public StatsLogger scope(final String scope) {
+            return new Two(first.scope(scope), second.scope(scope));
+        }
+    }
+
+    /**
+     * Create a broadcast stats logger of two stats loggers <code>master</code> and <code>slave</code>.
+     * It is similar as {@link #two(StatsLogger, StatsLogger)}, but it allows registering {@link Gauge}s.
+     * The {@link Gauge} will be registered under master.
+     *
+     * @param master
+     *          master stats logger to receive {@link Counter}, {@link OpStatsLogger} and {@link Gauge}.
+     * @param slave
+     *          slave stats logger to receive only {@link Counter} and {@link OpStatsLogger}.
+     * @return broadcast stats logger
+     */
+    public static StatsLogger masterslave(StatsLogger master, StatsLogger slave) {
+        return new CachingStatsLogger(new MasterSlave(master, slave));
+    }
+
+    static class MasterSlave extends Two {
+
+        private MasterSlave(StatsLogger master, StatsLogger slave) {
+            super(master, slave);
+        }
+
+        @Override
+        public <T extends Number> void registerGauge(String statName, Gauge<T> gauge) {
+            first.registerGauge(statName, gauge);
+        }
+
+        @Override
+        public StatsLogger scope(String scope) {
+            return new MasterSlave(first.scope(scope), second.scope(scope));
         }
     }
 }

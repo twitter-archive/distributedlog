@@ -34,7 +34,6 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -68,33 +67,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * BookKeeper Distributed Log Manager
- * <p/>
- * The URI format for bookkeeper is distributed://[zkEnsemble]/[rootZnode]
- * [zookkeeper ensemble] is a list of semi-colon separated, zookeeper host:port
- * pairs. In the example above there are 3 servers, in the ensemble,
- * zk1, zk2 &amp; zk3, each one listening on port 2181.
- * <p/>
- * [root znode] is the path of the zookeeper znode, under which the editlog
- * information will be stored.
- * <p/>
- * Other configuration options are:
+ * The base class about log handler on managing log segments.
+ *
+ * <h3>Metrics</h3>
+ * The log handler is a base class on managing log segments. so all the metrics
+ * here are related to log segments retrieval and exposed under `logsegments`.
+ * These metrics are all OpStats, in the format of <code>`scope`/logsegments/`op`</code>.
+ * <p>
+ * Those operations are:
  * <ul>
- * <li><b>output-buffer-size</b>
- * Number of bytes a bookkeeper journal stream will buffer before
- * forcing a flush. Default is 1024.</li>
- * <li><b>ensemble-size</b>
- * Number of bookkeeper servers in edit log ledger ensembles. This
- * is the number of bookkeeper servers which need to be available
- * for the ledger to be writable. Default is 3.</li>
- * <li><b>quorum-size</b>
- * Number of bookkeeper servers in the write quorum. This is the
- * number of bookkeeper servers which must have acknowledged the
- * write of an entry before it is considered written.
- * Default is 2.</li>
- * <li><b>digestPw</b>
- * Password to use when creating ledgers. </li>
+ * <li>force_get_list: force to get the list of log segments.
+ * <li>get_list: get the list of the log segments. it might just retrieve from
+ * local log segment cache.
+ * <li>get_filtered_list: get the filtered list of log segments.
+ * <li>get_full_list: get the full list of log segments.
+ * <li>get_inprogress_segment: time between the inprogress log segment created and
+ * the handler read it.
+ * <li>get_completed_segment: time between a log segment is turned to completed and
+ * the handler read it.
+ * <li>negative_get_inprogress_segment: record the negative values for `get_inprogress_segment`.
+ * <li>negative_get_completed_segment: record the negative values for `get_completed_segment`.
+ * <li>recover_last_entry: recovering last entry from a log segment
+ * <li>recover_scanned_entries: the number of entries that are scanned during recovering.
  * </ul>
+ * @see {@link BKLogWriteHandler} for writers
+ * @see {@link BKLogReadHandler} for readers
  */
 abstract class BKLogHandler implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(BKLogHandler.class);

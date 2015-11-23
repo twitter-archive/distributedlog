@@ -35,6 +35,7 @@ public class DistributedLogNamespaceBuilder {
     private DistributedLogConfiguration _conf = null;
     private URI _uri = null;
     private StatsLogger _statsLogger = NullStatsLogger.INSTANCE;
+    private StatsLogger _perLogStatsLogger = NullStatsLogger.INSTANCE;
     private FeatureProvider _featureProvider = null;
     private String _clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private int _regionId = DistributedLogConstants.LOCAL_REGION_ID;
@@ -76,6 +77,18 @@ public class DistributedLogNamespaceBuilder {
      */
     public DistributedLogNamespaceBuilder statsLogger(StatsLogger statsLogger) {
         this._statsLogger = statsLogger;
+        return this;
+    }
+
+    /**
+     * Stats Logger used for collecting per log stats.
+     *
+     * @param statsLogger
+     *          stats logger for collecting per log stats
+     * @return namespace builder.
+     */
+    public DistributedLogNamespaceBuilder perLogStatsLogger(StatsLogger statsLogger) {
+        this._perLogStatsLogger = statsLogger;
         return this;
     }
 

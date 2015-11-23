@@ -60,6 +60,18 @@ import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
 
+/**
+ * Log Handler for Writers.
+ *
+ * <h3>Metrics</h3>
+ * All the metrics about log write handler are exposed under scope `segments`.
+ * <ul>
+ * <li> `segments`/open : opstats. latency characteristics on starting a new log segment.
+ * <li> `segments`/close : opstats. latency characteristics on completing an inprogress log segment.
+ * <li> `segments`/recover : opstats. latency characteristics on recovering a log segment.
+ * <li> `segments`/delete : opstats. latency characteristics on deleting a log segment.
+ * </ul>
+ */
 class BKLogWriteHandler extends BKLogHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
@@ -84,6 +96,7 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final DynamicDistributedLogConfiguration dynConf;
 
     // Stats
+    private final StatsLogger perLogStatsLogger;
     private final OpStatsLogger closeOpStats;
     private final OpStatsLogger openOpStats;
     private final OpStatsLogger recoverOpStats;
@@ -112,6 +125,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       FuturePool orderedFuturePool,
                       LedgerAllocator allocator,
                       StatsLogger statsLogger,
+                      StatsLogger perLogStatsLogger,
                       AlertStatsLogger alertStatsLogger,
                       String clientId,
                       int regionId,
@@ -122,6 +136,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       DistributedReentrantLock deleteLock /** owned by handler **/) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
+        this.perLogStatsLogger = perLogStatsLogger;
         this.orderedFuturePool = orderedFuturePool;
         this.writeLimiter = writeLimiter;
         this.featureProvider = featureProvider;
@@ -478,9 +493,23 @@ class BKLogWriteHandler extends BKLogHandler {
             }
             LOG.info("Created inprogress log segment {} for {} : {}",
                     new Object[] { inprogressZnodeName, getFullyQualifiedName(), l });
-            return new BKLogSegmentWriter(getFullyQualifiedName(), inprogressZnodeName, conf, conf.getDLLedgerMetadataLayoutVersion(),
-                lh, lock, txId, logSegmentSeqNo, scheduler, orderedFuturePool, statsLogger, alertStatsLogger, writeLimiter,
-                featureProvider, dynConf);
+            return new BKLogSegmentWriter(
+                    getFullyQualifiedName(),
+                    inprogressZnodeName,
+                    conf,
+                    conf.getDLLedgerMetadataLayoutVersion(),
+                    lh,
+                    lock,
+                    txId,
+                    logSegmentSeqNo,
+                    scheduler,
+                    orderedFuturePool,
+                    statsLogger,
+                    perLogStatsLogger,
+                    alertStatsLogger,
+                    writeLimiter,
+                    featureProvider,
+                    dynConf);
         } catch (IOException exc) {
             // If we haven't written an in progress node as yet, lets not fail if this was supposed
             // to be best effort, we can retry this later

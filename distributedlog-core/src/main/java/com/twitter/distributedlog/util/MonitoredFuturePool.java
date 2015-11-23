@@ -19,6 +19,19 @@ import java.util.concurrent.atomic.AtomicLong;
 import scala.runtime.BoxedUnit;
 import scala.Function0;
 
+/**
+ * {@link FuturePool} with exposed stats. This class is exposing following stats for helping understanding
+ * the healthy of this thread pool executor.
+ * <h3>Metrics</h3>
+ * Stats are only exposed when <code>traceTaskExecution</code> is true.
+ * <ul>
+ * <li>task_pending_time: opstats. measuring the characteristics about the time that tasks spent on waiting
+ * being executed.
+ * <li>task_execution_time: opstats. measuring the characteristics about the time that tasks spent on executing.
+ * <li>task_enqueue_time: opstats. measuring the characteristics about the time that tasks spent on submitting.
+ * <li>tasks_pending: gauge. how many tasks are pending in this future pool.
+ * </ul>
+ */
 public class MonitoredFuturePool implements FuturePool {
     static final Logger LOG = LoggerFactory.getLogger(MonitoredFuturePool.class);
 
@@ -56,6 +69,15 @@ public class MonitoredFuturePool implements FuturePool {
         }
     }
 
+    /**
+     * Create a future pool with stats exposed.
+     *
+     * @param futurePool underlying future pool to execute futures
+     * @param statsLogger stats logger to receive exposed stats
+     * @param traceTaskExecution flag to enable/disable exposing stats about task execution
+     * @param traceTaskExecutionWarnTimeUs flag to enable/disable logging slow tasks
+     *                                     whose execution time is above this value
+     */
     public MonitoredFuturePool(FuturePool futurePool,
                                StatsLogger statsLogger,
                                boolean traceTaskExecution,

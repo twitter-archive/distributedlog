@@ -43,7 +43,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.stats.CachingStatsLogger;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -88,6 +87,19 @@ import static com.google.common.base.Charsets.UTF_8;
  * are complete in the bookkeeper entries means that each bookkeeper log entry
  * can be read as a complete edit log. This is useful for reading, as we don't
  * need to read through the entire log segment to get the last written entry.
+ *
+ * <h3>Metrics</h3>
+ *
+ * <ul>
+ * <li> flush/periodic/{success,miss}: counters for periodic flushes.
+ * <li> data/{success,miss}: counters for data transmits.
+ * <li> transmit/packetsize: opstats. characteristics of packet size for transmits.
+ * <li> control/success: counter of success transmit of control records
+ * <li> seg_writer/write: opstats. latency characteristics of write operations in segment writer.
+ * <li> seg_writer/add_complete/{callback,queued,deferred}: opstats. latency components of add completions.
+ * <li> seg_writer/pendings: counter. the number of records pending by the segment writers.
+ * <li> transmit/outstanding/requests: per stream gauge. the number of outstanding transmits each stream.
+ * </ul>
  */
 class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Sizable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
@@ -342,6 +354,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  ScheduledExecutorService executorService,
                                  FuturePool orderedFuturePool,
                                  StatsLogger statsLogger,
+                                 StatsLogger perLogStatsLogger,
                                  AlertStatsLogger alertStatsLogger,
                                  PermitLimiter globalWriteLimiter,
                                  FeatureProvider featureProvider,
@@ -365,15 +378,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
         this.writeLimiter = new WriteLimiter(streamName, streamWriteLimiter, globalWriteLimiter);
         this.alertStatsLogger = alertStatsLogger;
-
-        // stats
-        if (conf.getEnablePerStreamStat()) {
-            this.envelopeStatsLogger = new CachingStatsLogger(
-                new BroadCastStatsLogger.Two(statsLogger, statsLogger.scope(streamName))
-            );
-        } else {
-            this.envelopeStatsLogger = statsLogger;
-        }
+        this.envelopeStatsLogger = BroadCastStatsLogger.masterslave(statsLogger, perLogStatsLogger);
 
         StatsLogger flushStatsLogger = statsLogger.scope("flush");
         StatsLogger pFlushStatsLogger = flushStatsLogger.scope("periodic");
@@ -381,10 +386,10 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         pFlushMisses = pFlushStatsLogger.getCounter("miss");
 
         // transmit
-        StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
         StatsLogger transmitDataStatsLogger = statsLogger.scope("data");
         transmitDataSuccesses = transmitDataStatsLogger.getCounter("success");
         transmitDataMisses = transmitDataStatsLogger.getCounter("miss");
+        StatsLogger transmitStatsLogger = statsLogger.scope("transmit");
         transmitDataPacketSize =  transmitStatsLogger.getOpStatsLogger("packetsize");
         StatsLogger transmitControlStatsLogger = statsLogger.scope("control");
         transmitControlSuccesses = transmitControlStatsLogger.getCounter("success");
@@ -396,20 +401,17 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         pendingWrites = segWriterStatsLogger.getCounter("pending");
 
         // outstanding transmit requests
-        StatsLogger transmitOutstandingLogger = transmitStatsLogger.scope("outstanding");
-        String statPrefixForStream = streamName.replaceAll(":|<|>|/", "_");
-        if (conf.getEnablePerStreamStat()) {
-            transmitOutstandingLogger.registerGauge(statPrefixForStream + "_requests", new Gauge<Number>() {
-                @Override
-                public Number getDefaultValue() {
-                    return 0;
-                }
-                @Override
-                public Number getSample() {
-                    return outstandingTransmits.get();
-                }
-            });
-        }
+        StatsLogger transmitOutstandingLogger = perLogStatsLogger.scope("transmit").scope("outstanding");
+        transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                                          return 0;
+                                                   }
+            @Override
+            public Number getSample() {
+                                    return outstandingTransmits.get();
+                                                                      }
+        });
 
         outstandingTransmits = new AtomicInteger(0);
         this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
