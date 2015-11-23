@@ -54,6 +54,16 @@ public class MonitoredScheduledThreadPoolExecutor extends ScheduledThreadPoolExe
                 taskExecutionStats.registerSuccessfulEvent(executionMicros);
             }
         }
+
+        @Override
+        public String toString() {
+            return runnable.toString();
+        }
+
+        @Override
+        public int hashCode() {
+            return runnable.hashCode();
+        }
     }
 
     private class TimedCallable<T> implements Callable<T> {
@@ -198,9 +208,9 @@ public class MonitoredScheduledThreadPoolExecutor extends ScheduledThreadPoolExe
             try {
                 ((Future<?>) runnable).get();
             } catch (CancellationException e) {
-                LOG.info("Task cancelled", e);
+                LOG.info("Task {} cancelled", runnable, e.getCause());
             } catch (InterruptedException e) {
-                LOG.info("Task was interrupted", e);
+                LOG.info("Task {} was interrupted", runnable, e);
             } catch (ExecutionException e) {
                 return e.getCause();
             }
