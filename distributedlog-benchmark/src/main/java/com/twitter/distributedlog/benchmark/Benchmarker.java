@@ -58,6 +58,8 @@ public class Benchmarker {
     boolean thriftmux = false;
     boolean handshakeWithClientInfo = false;
     boolean readFromHead = false;
+    int sendBufferSize = 1024 * 1024;
+    int recvBufferSize = 1024 * 1024;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -93,6 +95,8 @@ public class Benchmarker {
         options.addOption("mx", "thriftmux", false, "Enable thriftmux (write mode only)");
         options.addOption("hsci", "handshake-with-client-info", false, "Enable handshaking with client info");
         options.addOption("rfh", "read-from-head", false, "Read from head of the stream");
+        options.addOption("sb", "send-buffer", true, "Channel send buffer size, in bytes");
+        options.addOption("rb", "recv-buffer", true, "Channel recv buffer size, in bytes");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -183,6 +187,12 @@ public class Benchmarker {
         if (cmdline.hasOption("hcl")) {
             hostConnectionLimit = Integer.parseInt(cmdline.getOptionValue("hcl"));
         }
+        if (cmdline.hasOption("sb")) {
+            sendBufferSize = Integer.parseInt(cmdline.getOptionValue("sb"));
+        }
+        if (cmdline.hasOption("rb")) {
+            recvBufferSize = Integer.parseInt(cmdline.getOptionValue("rb"));
+        }
         thriftmux = cmdline.hasOption("mx");
         handshakeWithClientInfo = cmdline.hasOption("hsci");
         readFromHead = cmdline.hasOption("rfh");
@@ -260,7 +270,9 @@ public class Benchmarker {
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
                 thriftmux,
-                handshakeWithClientInfo);
+                handshakeWithClientInfo,
+                sendBufferSize,
+                recvBufferSize);
     }
 
     Worker runDLWriter() throws IOException {

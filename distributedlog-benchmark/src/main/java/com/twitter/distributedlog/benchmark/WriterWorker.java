@@ -55,6 +55,8 @@ public class WriterWorker implements Worker {
     final int batchSize;
     final boolean thriftmux;
     final boolean handshakeWithClientInfo;
+    final int sendBufferSize;
+    final int recvBufferSize;
 
     volatile boolean running = true;
 
@@ -78,7 +80,9 @@ public class WriterWorker implements Worker {
                         StatsReceiver statsReceiver,
                         StatsLogger statsLogger,
                         boolean thriftmux,
-                        boolean handshakeWithClientInfo) {
+                        boolean handshakeWithClientInfo,
+                        int sendBufferSize,
+                        int recvBufferSize) {
         Preconditions.checkArgument(startStreamId <= endStreamId);
         Preconditions.checkArgument(!finagleNames.isEmpty() || !serverSetPaths.isEmpty());
         this.streamPrefix = streamPrefix;
@@ -99,6 +103,8 @@ public class WriterWorker implements Worker {
         this.hostConnectionLimit = hostConnectionLimit;
         this.thriftmux = thriftmux;
         this.handshakeWithClientInfo = handshakeWithClientInfo;
+        this.sendBufferSize = sendBufferSize;
+        this.recvBufferSize = recvBufferSize;
         this.finagleNames = finagleNames;
         this.serverSets = new ServerSet[serverSetPaths.size()];
         this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
@@ -134,7 +140,9 @@ public class WriterWorker implements Worker {
             .hostConnectionCoresize(hostConnectionCoreSize)
             .tcpConnectTimeout(Duration$.MODULE$.fromMilliseconds(200))
             .connectTimeout(Duration$.MODULE$.fromMilliseconds(200))
-            .requestTimeout(Duration$.MODULE$.fromSeconds(2));
+            .requestTimeout(Duration$.MODULE$.fromSeconds(2))
+            .sendBufferSize(sendBufferSize)
+            .recvBufferSize(recvBufferSize);
 
         ClientId clientId = ClientId$.MODULE$.apply("dlog_loadtest_writer");
 
