@@ -19,9 +19,12 @@ package com.twitter.distributedlog.v2;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
+import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.MetadataAccessor;
 import com.twitter.distributedlog.util.PermitLimiter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -61,13 +64,13 @@ public class DLMTestUtil {
         return createNewBKDLM(new PartitionId(0), conf, path);
     }
 
-    static DistributedLogManager createNewDLM(DistributedLogConfiguration conf,
+    static BKDistributedLogManager createNewDLM(DistributedLogConfiguration conf,
                                               String name) throws Exception {
-        return DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
+        return (BKDistributedLogManager) DistributedLogManagerFactory.createDistributedLogManager(name, conf, createDLMURI("/" + name));
     }
 
     static MetadataAccessor createNewMetadataAccessor(DistributedLogConfiguration conf,
-                                              String name) throws Exception {
+                                                      String name) throws Exception {
         return DistributedLogManagerFactory.createMetadataAccessor(name, createDLMURI("/" + name), conf);
     }
 
@@ -79,19 +82,6 @@ public class DLMTestUtil {
                         new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
                 OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
                 NullStatsLogger.INSTANCE, "localhost", PermitLimiter.NULL_PERMIT_LIMITER);
-    }
-
-    static long getNumberofLogRecords(DistributedLogManager bkdlm, PartitionId partition, long startTxId) throws IOException {
-        long numLogRecs = 0;
-        LogReader reader = bkdlm.getInputStream(partition, startTxId);
-        LogRecord record = reader.readNext(false);
-        while (null != record) {
-            numLogRecs++;
-            verifyLogRecord(record);
-            record = reader.readNext(false);
-        }
-        reader.close();
-        return numLogRecs;
     }
 
     static long getNumberofLogRecords(DistributedLogManager bkdlm, long startTxId) throws IOException {
@@ -156,7 +146,7 @@ public class DLMTestUtil {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
         long txid = 1L;
         for (long i = 0; i < numCompletedSegments; i++) {
-            BKUnPartitionedSyncLogWriter writer = dlm.startLogSegmentNonPartitioned();
+            BKUnPartitionedSyncLogWriter writer = (BKUnPartitionedSyncLogWriter) dlm.startLogSegmentNonPartitioned();
             for (long j = 1; j <= segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }

@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;

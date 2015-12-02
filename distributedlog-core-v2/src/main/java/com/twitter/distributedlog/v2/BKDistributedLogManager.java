@@ -4,18 +4,30 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.AppendOnlyStreamReader;
+import com.twitter.distributedlog.AppendOnlyStreamWriter;
+import com.twitter.distributedlog.AsyncLogReader;
+import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
-import com.twitter.distributedlog.LogEmptyException;
+import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogNotFoundException;
-import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogReader;
+import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.subscription.SubscriptionStateStore;
+import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
@@ -222,17 +234,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     /**
-     * Check if an end of stream marker was added to the stream for the partition
-     * A stream with an end of stream marker cannot be appended to
-     *
-     * @return true if the marker was added to the stream, false otherwise
-     */
-    @Override
-    public boolean isEndOfStreamMarked(PartitionId partition) throws IOException {
-        throw new NotYetImplementedException("isEndOfStreamMarked for partitioned streams");
-    }
-
-    /**
      * Check if an end of stream marker was added to the stream
      * A stream with an end of stream marker cannot be appended to
      *
@@ -249,19 +250,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     public AppendOnlyStreamWriter getAppendOnlyStreamWriter() throws IOException {
-        long position;
-        try {
-            position = getLastTxIdInternal(conf.getUnpartitionedStreamName(), true, false);
-            if (DistributedLogConstants.INVALID_TXID == position ||
-                DistributedLogConstants.EMPTY_LEDGER_TX_ID == position) {
-                position = 0;
-            }
-        } catch (LogEmptyException lee) {
-            // Start with position zero
-            //
-            position = 0;
-        }
-        return new AppendOnlyStreamWriter(startLogSegmentNonPartitioned(), position);
+        throw new NotYetImplementedException("Please use v3 version for append only stream writer");
     }
 
     /**
@@ -270,7 +259,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     public AppendOnlyStreamReader getAppendOnlyStreamReader() throws IOException {
-        return new AppendOnlyStreamReader(this);
+        throw new NotYetImplementedException("Please use v3 version for append only stream reader");
     }
 
     /**
@@ -278,7 +267,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      *
      * @return the writer interface to generate log records
      */
-    @Override
     public PartitionAwareLogWriter startLogSegment() throws IOException {
         checkClosedOrInError("startLogSegment");
         return new BKPartitionAwareLogWriter(conf, this);
@@ -290,7 +278,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the writer interface to generate log records
      */
     @Override
-    public synchronized BKUnPartitionedSyncLogWriter startLogSegmentNonPartitioned() throws IOException {
+    public synchronized LogWriter startLogSegmentNonPartitioned() throws IOException {
         checkClosedOrInError("startLogSegmentNonPartitioned");
         return new BKUnPartitionedSyncLogWriter(conf, this);
     }
@@ -303,9 +291,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the stream starting with transaction fromTxnId
      * @throws IOException if a stream cannot be found.
      */
-    @Override
     public LogReader getInputStream(PartitionId partition, long fromTxnId)
-        throws IOException {
+            throws IOException {
         return getInputStreamInternal(partition.toString(), fromTxnId);
     }
 
@@ -328,6 +315,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return new BKContinuousLogReader(this, streamIdentifier, fromTxnId, conf, statsLogger);
     }
 
+
     /**
      * Get the last log record no later than the specified transactionId
      *
@@ -336,12 +324,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return the last log record before a given transactionId
      * @throws IOException if a stream cannot be found.
      */
-    @Override
     public long getTxIdNotLaterThan(PartitionId partition, long thresholdTxId) throws IOException {
         return getTxIdNotLaterThanInternal(partition.toString(), thresholdTxId);
     }
 
-    @Override
     public long getTxIdNotLaterThan(long thresholdTxId) throws IOException {
         return getTxIdNotLaterThanInternal(conf.getUnpartitionedStreamName(), thresholdTxId);
     }
@@ -357,27 +343,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     /**
      * Get the last log record in the stream
      *
-     * @param partition – the partition within the log stream to read from
      * @return the last log record in the stream
      * @throws java.io.IOException if a stream cannot be found.
      */
     @Override
-    public LogRecord getLastLogRecord(PartitionId partition) throws IOException {
-        return getLastLogRecordInternal(partition.toString());
-    }
-
-    /**
-     * Get the last log record in the stream
-     *
-     * @return the last log record in the stream
-     * @throws java.io.IOException if a stream cannot be found.
-     */
-    @Override
-    public LogRecord getLastLogRecord() throws IOException {
+    public LogRecordWithDLSN getLastLogRecord() throws IOException {
         return getLastLogRecordInternal(conf.getUnpartitionedStreamName());
     }
 
-    private LogRecord getLastLogRecordInternal(String streamIdentifier) throws IOException {
+    private LogRecordWithDLSN getLastLogRecordInternal(String streamIdentifier) throws IOException {
         checkClosedOrInError("getLastLogRecord");
         BKLogPartitionReadHandler ledgerHandler = createReadLedgerHandler(streamIdentifier);
         try {
@@ -387,7 +361,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
-    @Override
     public long getFirstTxId(PartitionId partition) throws IOException {
         return getFirstTxIdInternal(partition.toString());
     }
@@ -408,13 +381,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
-    public long getLastTxId(PartitionId partition) throws IOException {
-        return getLastTxIdInternal(partition.toString(), false, false);
-    }
-
-    @Override
     public long getLastTxId() throws IOException {
         return getLastTxIdInternal(conf.getUnpartitionedStreamName(), false, false);
+    }
+
+    public long getLastTxId(PartitionId partition) throws IOException {
+        return getLastTxIdInternal(partition.toString(), false, false);
     }
 
     private long getLastTxIdInternal(String streamIdentifier, boolean recover, boolean includeEndOfStream) throws IOException {
@@ -436,7 +408,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @return number of log records
      * @throws IOException
      */
-    @Override
     public long getLogRecordCount(PartitionId partition) throws IOException {
         return getLogRecordCountInternal(partition.toString());
     }
@@ -470,7 +441,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @param partition – the partition within the log stream to delete
      * @throws IOException if the recovery fails
      */
-    @Override
     public void recover(PartitionId partition) throws IOException {
         recoverInternal(partition.toString());
     }
@@ -511,7 +481,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @param partition – the partition within the log stream to delete
      * @throws IOException if the deletion fails
      */
-    @Override
     public void deletePartition(PartitionId partition) throws IOException {
         deletePartition(partition.toString());
     }
@@ -652,5 +621,113 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             LOG.error("Task {} is rejected : ", ree);
             return false;
         }
+    }
+
+    // v3 methods
+
+
+    @Override
+    public List<LogSegmentMetadata> getLogSegments() throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public void registerListener(LogSegmentListener listener) throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public void unregisterListener(LogSegmentListener listener) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public LogReader getInputStream(DLSN fromDLSN) throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<AsyncLogReader> openAsyncLogReader(long fromTxnId) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<AsyncLogReader> openAsyncLogReader(DLSN fromDLSN) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(long fromTxnId) throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public AsyncLogReader getAsyncLogReader(DLSN fromDLSN) throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(DLSN fromDLSN, String subscriberId) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<AsyncLogReader> getAsyncLogReaderWithLock(String subscriberId) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<DLSN> getDLSNNotLessThanTxId(long transactionId) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public DLSN getLastDLSN() throws IOException {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<LogRecordWithDLSN> getLastLogRecordAsync() {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<Long> getLastTxIdAsync() {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<DLSN> getFirstDLSNAsync() {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<DLSN> getLastDLSNAsync() {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public Future<Long> getLogRecordCountAsync(DLSN beginDLSN) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public SubscriptionStateStore getSubscriptionStateStore(String subscriberId) {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
+    public SubscriptionsStore getSubscriptionsStore() {
+        throw new UnsupportedOperationException("Not supported in v2");
     }
 }

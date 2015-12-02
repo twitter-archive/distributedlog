@@ -1,11 +1,11 @@
 package com.twitter.distributedlog.v2.benchmark.stream;
 
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.v2.DistributedLogConstants;
-import com.twitter.distributedlog.v2.DistributedLogManager;
 import com.twitter.distributedlog.v2.DistributedLogManagerFactory;
 import com.twitter.distributedlog.v2.DistributedLogManagerFactory.ClientSharingOption;
-import com.twitter.distributedlog.v2.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;

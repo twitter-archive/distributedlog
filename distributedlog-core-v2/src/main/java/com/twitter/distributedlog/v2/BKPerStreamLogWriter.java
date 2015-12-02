@@ -21,6 +21,7 @@ import com.twitter.distributedlog.BKTransmitException;
 import com.twitter.distributedlog.FlushException;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.WriteLimiter;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;

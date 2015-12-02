@@ -2,10 +2,12 @@ package com.twitter.distributedlog.v2;
 
 import java.net.URI;
 
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;

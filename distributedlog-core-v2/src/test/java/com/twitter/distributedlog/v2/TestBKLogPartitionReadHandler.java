@@ -1,7 +1,9 @@
 package com.twitter.distributedlog.v2;
 
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;

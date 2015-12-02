@@ -6,6 +6,7 @@ import java.net.URI;
 import com.google.common.annotations.VisibleForTesting;
 
 import com.twitter.distributedlog.AlreadyClosedException;
+import com.twitter.distributedlog.MetadataAccessor;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -109,6 +110,11 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         this.readerZKC = this.readerZKCBuilder.build();
 
         closed = false;
+    }
+
+    @Override
+    public String getStreamName() {
+        return name;
     }
 
     /**

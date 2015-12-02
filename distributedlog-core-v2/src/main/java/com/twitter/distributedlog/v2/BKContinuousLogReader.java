@@ -11,7 +11,8 @@ import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AsyncNotification;
 import com.twitter.distributedlog.LogReadException;
-import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogReader;
+import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
@@ -112,14 +113,14 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public synchronized LogRecord readNext(boolean nonBlocking) throws IOException {
+    public synchronized LogRecordWithDLSN readNext(boolean nonBlocking) throws IOException {
         if (nonBlocking && !readAheadEnabled) {
             throw new IllegalArgumentException("Non blocking semantics require read-ahead");
         }
 
         checkClosedOrInError("LogReader#readNext");
 
-        LogRecord record = null;
+        LogRecordWithDLSN record = null;
         boolean advancedOnce = false;
         while (!advancedOnce) {
             advancedOnce = createOrPositionReader(nonBlocking, forceBlockingRead);
@@ -257,11 +258,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
      * @throws IOException if there is an error reading from the stream
      */
     @Override
-    public synchronized List<LogRecord> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
-        LinkedList<LogRecord> retList = new LinkedList<LogRecord>();
+    public synchronized List<LogRecordWithDLSN> readBulk(boolean nonBlocking, int numLogRecords) throws IOException{
+        LinkedList<LogRecordWithDLSN> retList = new LinkedList<LogRecordWithDLSN>();
 
         int numRead = 0;
-        LogRecord record = readNext(nonBlocking);
+        LogRecordWithDLSN record = readNext(nonBlocking);
         while ((null != record)) {
             retList.add(record);
             numRead++;
@@ -277,11 +278,6 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     @Override
     public void notifySessionExpired() {
         zkSessionExpired = true;
-    }
-
-    @Override
-    public synchronized long getLastTxId() {
-        return lastTxId;
     }
 
     private void checkClosedOrInError(String operation) throws EndOfStreamException, AlreadyClosedException, LogReadException, DLInterruptedException {
@@ -314,25 +310,12 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
     }
 
     /**
-     * Triggered when the background activity completes an operation
-     */
-    @Override
-    public synchronized void notifyOnOperationComplete() {
-        if (null != notification) {
-            notification.notifyNextRecordAvailable();
-            notification = null;
-            bkLedgerManager.setNotification(null);
-        }
-    }
-
-    /**
      * Register for notifications of changes to background reader when using
      * non blocking semantics
      *
      * @param readNotification Implementation of the ReaderNotification interface whose methods
      * are called when new data is available or when the reader errors out
      */
-    @Override
     public synchronized void registerNotification(ReaderNotification readNotification) {
         if ((null != notification) && (null != readNotification)) {
             throw new IllegalStateException("Notification already registered for " + bkLedgerManager.getFullyQualifiedName());
@@ -353,6 +336,18 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         } catch (IOException exc) {
             LOG.error("registerNotification encountered exception", exc);
             notifyOnError();
+        }
+    }
+
+    /**
+     * Triggered when the background activity completes an operation
+     */
+    @Override
+    public synchronized void notifyOnOperationComplete() {
+        if (null != notification) {
+            notification.notifyNextRecordAvailable();
+            notification = null;
+            bkLedgerManager.setNotification(null);
         }
     }
 

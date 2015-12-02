@@ -2,12 +2,12 @@ package com.twitter.distributedlog.v2.benchmark;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.v2.DistributedLogConfiguration;
-import com.twitter.distributedlog.v2.DistributedLogManager;
 import com.twitter.distributedlog.v2.DistributedLogManagerFactory;
-import com.twitter.distributedlog.v2.LogWriter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.thrift.TException;

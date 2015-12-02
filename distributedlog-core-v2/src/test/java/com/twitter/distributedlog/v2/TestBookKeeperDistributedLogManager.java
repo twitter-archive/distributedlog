@@ -18,11 +18,18 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
+import com.twitter.distributedlog.AppendOnlyStreamReader;
+import com.twitter.distributedlog.AppendOnlyStreamWriter;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogEmptyException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
+import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.LogWriter;
+import com.twitter.distributedlog.MetadataAccessor;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
@@ -380,7 +387,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testPartitionedWrites() throws Exception {
         String name = "distrlog-partitioned";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -439,7 +446,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testPartitionedWritesBulk() throws Exception {
         String name = "distrlog-partitioned-bulk";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -509,7 +516,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testPartitionedWritesBulkSeparateReader() throws Exception {
         String name = "distrlog-partitioned-bulk-separate-reader";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -581,7 +588,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testPartitionedWritesBulkSeparateReaderWriterOpen() throws Exception {
         String name = "distrlog-partitioned-bulk-separate-reader-writer-open";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -618,7 +625,7 @@ public class TestBookKeeperDistributedLogManager {
         writer.flushAndSync();
         writer.close();
 
-        DistributedLogManager dlm2 = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm2 = DLMTestUtil.createNewDLM(conf, name);
         LogReader reader = dlm2.getInputStream(new PartitionId(0), 2);
         long numTrans = 0;
         LogRecord record = reader.readNext(false);
@@ -654,7 +661,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testContinuousReaderBulk() throws Exception {
         String name = "distrlog-continuous-bulk";
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
         long txid = 1;
         for (long i = 0; i < 3; i++) {
             BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
@@ -679,10 +686,10 @@ public class TestBookKeeperDistributedLogManager {
 
         LogReader reader = dlm.getInputStream(1);
         long numTrans = 0;
-        List<LogRecord> recordList = reader.readBulk(false, 13);
+        List<LogRecordWithDLSN> recordList = reader.readBulk(false, 13);
         long lastTxId = -1;
         while (!recordList.isEmpty()) {
-            for (LogRecord record : recordList) {
+            for (LogRecordWithDLSN record : recordList) {
                 assert (lastTxId < record.getTransactionId());
                 lastTxId = record.getTransactionId();
                 DLMTestUtil.verifyLogRecord(record);
@@ -747,7 +754,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void deletePartitionsTest() throws Exception {
         String name = "distrlog-deletepartitions";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 701;
         PartitionAwareLogWriter writer = dlmwrite.startLogSegment();
@@ -762,7 +769,7 @@ public class TestBookKeeperDistributedLogManager {
         writer.close();
         dlmwrite.close();
 
-        DistributedLogManager dlmdelete = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmdelete = DLMTestUtil.createNewDLM(conf, name);
         dlmdelete.deletePartition(new PartitionId(0));
         dlmdelete.deletePartition(new PartitionId(1));
 
@@ -771,7 +778,7 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void deleteLogTest() throws Exception {
         String name = "distrlog-deletelog";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 701;
         long numTrans;
@@ -787,16 +794,16 @@ public class TestBookKeeperDistributedLogManager {
         writer.close();
         dlmwrite.close();
 
-        DistributedLogManager dlmdelete = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmdelete = DLMTestUtil.createNewDLM(conf, name);
 
         dlmdelete.delete();
         dlmdelete.close();
 
         assertFalse(DistributedLogManagerFactory.checkIfLogExists(conf, DLMTestUtil.createDLMURI("/" + name), name));
 
-        DistributedLogManager dlmwrite2 = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite2 = DLMTestUtil.createNewDLM(conf, name);
 
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
         LogReader reader0 = dlmwrite2.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmwrite2.getInputStream(new PartitionId(1), 1);
 
@@ -842,7 +849,7 @@ public class TestBookKeeperDistributedLogManager {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(128);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -914,7 +921,7 @@ public class TestBookKeeperDistributedLogManager {
         String name = "distrlog-separate-bk-setting";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -983,9 +990,9 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testGetTxId() throws Exception {
         String name = "distrlog-getTxId";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
 
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         try {
             dlmreader.getTxIdNotLaterThan(new PartitionId(0), 70L);
@@ -1059,8 +1066,8 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.loadConf(conf);
         confLocal.setEnableReadAhead(!conf.getEnableReadAhead());
 
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(confLocal, name);
 
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
@@ -1126,8 +1133,8 @@ public class TestBookKeeperDistributedLogManager {
         confLocal.setReadAheadMaxEntries(1);
         confLocal.setRetentionPeriodHours(24 * 7);
 
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(confLocal, name);
 
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
@@ -1187,8 +1194,8 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void testFlushedTxId() throws Exception {
         String name = "distrlog-flushed-txId";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -1250,7 +1257,7 @@ public class TestBookKeeperDistributedLogManager {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(64);
-        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+        BKDistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
 
         long txid = 1;
         for (long i = 0; i < 3; i++) {
@@ -1357,8 +1364,8 @@ public class TestBookKeeperDistributedLogManager {
     @Test
     public void positionReader() throws Exception {
         String name = "distrlog-position-reader";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         long txid = 1;
         long numTrans = txid - 1;
@@ -1393,37 +1400,6 @@ public class TestBookKeeperDistributedLogManager {
             dlmreader.getLogRecordCount(new PartitionId(0)) + dlmreader.getLogRecordCount(new PartitionId(1)));
         reader0.close();
         reader1.close();
-        dlmreader.close();
-        dlmwrite.close();
-    }
-
-    @Test
-    public void appendOnlyStreams() throws Exception {
-        String name = "distrlog-append-only-streams";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-        byte[] byteStream = DLMTestUtil.repeatString("abc", 51).getBytes();
-
-        long txid = 1;
-        AppendOnlyStreamWriter writer = dlmwrite.getAppendOnlyStreamWriter();
-        writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
-        writer.write(DLMTestUtil.repeatString("abc", 40).getBytes());
-        writer.force(false);
-        writer.close();
-        AppendOnlyStreamReader reader = dlmreader.getAppendOnlyStreamReader();
-
-        byte[] bytesIn = new byte[byteStream.length];
-        int read = reader.read(bytesIn, 0, 23);
-        assertEquals(23, read);
-        read = reader.read(bytesIn, 23, 31);
-        assertEquals(read, 31);
-        byte[] bytesInTemp = new byte[byteStream.length];
-        read = reader.read(bytesInTemp, 0, byteStream.length);
-        assertEquals(read, byteStream.length - 23 - 31);
-        read = new ByteArrayInputStream(bytesInTemp).read(bytesIn, 23 + 31, byteStream.length - 23 - 31);
-        assertEquals(read, byteStream.length - 23 - 31);
-        assertArrayEquals(bytesIn, byteStream);
-        reader.close();
         dlmreader.close();
         dlmwrite.close();
     }

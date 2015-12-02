@@ -8,10 +8,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReadException;
+import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -92,8 +95,8 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReaders() throws Exception {
         String name = "distrlog-interleaved";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -121,9 +124,8 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReadersWithRollingEdge() throws Exception {
         String name = "distrlog-interleaved-rolling-edge";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -155,9 +157,8 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReadersWithRolling() throws Exception {
         String name = "distrlog-interleaved-rolling";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
-
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -189,7 +190,7 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReadersWithCleanup() throws Exception {
         String name = "distrlog-interleaved-cleanup";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
         long txid = 1;
         Long retentionPeriodOverride = null;
 
@@ -213,7 +214,7 @@ public class TestInterleavedReaders {
         }
         writer.close();
 
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
         int numTrans = drainStreams(reader0, reader1);
@@ -227,8 +228,8 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReadersWithRecovery() throws Exception {
         String name = "distrlog-interleaved-recovery";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -262,8 +263,8 @@ public class TestInterleavedReaders {
     @Test
     public void testInterleavedReadersWithRollingEdgeUnPartitioned() throws Exception {
         String name = "distrlog-interleaved-rolling-edge-unpartitioned";
-        DistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
-        DistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(conf, name);
+        BKDistributedLogManager dlmreader = DLMTestUtil.createNewDLM(conf, name);
 
         LogReader reader0 = dlmreader.getInputStream(new PartitionId(0), 1);
         LogReader reader1 = dlmreader.getInputStream(new PartitionId(1), 1);
@@ -326,7 +327,7 @@ public class TestInterleavedReaders {
 
                 if (notification) {
                     final CountDownLatch syncLatch = new CountDownLatch(1);
-                    reader.registerNotification(new LogReader.ReaderNotification() {
+                    reader.registerNotification(new ReaderNotification() {
                         @Override
                         public void notifyNextRecordAvailable() {
                             syncLatch.countDown();

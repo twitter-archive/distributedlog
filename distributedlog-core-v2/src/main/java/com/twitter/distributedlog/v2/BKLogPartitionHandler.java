@@ -169,12 +169,12 @@ abstract class BKLogPartitionHandler {
         this.bookKeeperClient = bkcBuilder.build();
     }
 
-    public LogRecord getLastLogRecord(boolean recover, boolean includeEndOfStream) throws IOException {
+    public LogRecordWithDLSN getLastLogRecord(boolean recover, boolean includeEndOfStream) throws IOException {
         checkLogStreamExists();
         List<LogSegmentLedgerMetadata> ledgerList = getLedgerListDesc(true);
 
         for (LogSegmentLedgerMetadata metadata: ledgerList) {
-            LogRecord record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
+            LogRecordWithDLSN record = recoverLastRecordInLedger(metadata, recover, false, includeEndOfStream);
 
             if (null != record) {
                 return record;
