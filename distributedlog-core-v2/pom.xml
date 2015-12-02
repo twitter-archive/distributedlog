@@ -9,21 +9,6 @@
     </parent>
     <artifactId>distributedlog-core-v2</artifactId>
     <name>DistributedLog Core Library V2</name>
-    <distributionManagement>
-        <repository>
-            <id>artifactory-release</id>
-            <name>Twitter Artifactory Releases</name>
-            <url>http://artifactory.local.twitter.com/libs-releases-local</url>
-        </repository>
-        <snapshotRepository>
-            <id>artifactory-snapshot</id>
-            <name>Twitter Artifactory Snapshots</name>
-            <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
-        </snapshotRepository>
-    </distributionManagement>
-    <properties>
-      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
     <dependencies>
         <dependency>
             <groupId>com.twitter</groupId>
