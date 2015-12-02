@@ -5,7 +5,7 @@
     <parent>
       <groupId>com.twitter</groupId>
       <artifactId>distributedlog</artifactId>
-      <version>0.3.38-SNAPSHOT</version>
+      <version>0.3.40-SNAPSHOT</version>
     </parent>
     <artifactId>distributedlog-core-v2</artifactId>
     <name>DistributedLog Core Library V2</name>

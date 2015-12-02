@@ -1,3 +1,16 @@
+0.3.39
+------
+- Sync Reader uses Async Reader
+- Write proxy returns if failed to pre-execute the stream operation
+- Write proxy checksum
+- Upgrade zookeeper version
+- LogSegmentSequenceNumber Assignment should consider v3 rolling back to v2
+- Merge Search Release to master
+- SyncLogReader should start from the fromTxnId
+- ReadAhead should detect log deletion
+- Docbird structure
+- Unify per stream stats logging
+
 0.3.37
 ------
 - Remove partitions from DL
