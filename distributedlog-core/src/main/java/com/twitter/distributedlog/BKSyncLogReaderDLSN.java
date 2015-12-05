@@ -120,7 +120,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
                 while (!reader.bkLedgerManager.isReadAheadCaughtUp()
                         && null == readerException.get()
                         && null == record
-                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCacheEntries() > 0) {
+                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCachedRecords() > 0) {
                     record = readAheadRecords.poll(maxReadAheadWaitTime,
                             TimeUnit.MILLISECONDS);
                 }
@@ -128,7 +128,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
                 while (reader.bkLedgerManager.isReadAheadCaughtUp()
                         && null == record
                         && null == readerException.get()
-                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCacheEntries() > 0) {
+                        && reader.bkLedgerManager.ledgerDataAccessor.getNumCachedRecords() > 0) {
                     record = readAheadRecords.poll(maxReadAheadWaitTime,
                             TimeUnit.MILLISECONDS);
                 }

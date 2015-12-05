@@ -13,9 +13,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Ticker;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
+import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
@@ -87,6 +89,9 @@ import com.twitter.util.Return;
  * <li> `readahead_worker`/cache_full: counter. it increases each time readahead worker finds cache become full.
  * If it keeps increasing, that means reader slows down reading.
  * <li> `readahead_worker`/resume: opstats. stats on readahead worker resuming reading from wait state.
+ * <li> `readahead_worker`/read_lac_lag: opstats. stats on the number of entries diff between the lac reader knew
+ * last time and the lac that it received. if `lag` between two subsequent lacs is high, that might means delay
+ * might be high. because reader is only allowed to read entries after lac is advanced.
  * <li> `readahead_worker`/long_poll_interruption: opstats. stats on the number of interruptions happened to long
  * poll. the interruptions are usually because of receiving zookeeper notifications.
  * <li> `readahead_worker`/notification_execution: opstats. stats on executions over the notifications received from
@@ -116,10 +121,6 @@ class BKLogReadHandler extends BKLogHandler {
     private volatile boolean readingFromTruncated = false;
     private final AlertStatsLogger alertStatsLogger;
 
-    private final long checkLogExistenceBackoffStartMs;
-    private final long checkLogExistenceBackoffMaxMs;
-    private long checkLogExistenceBackoffMs;
-
     private final boolean isHandleForReading;
 
     // stats
@@ -133,7 +134,8 @@ class BKLogReadHandler extends BKLogHandler {
     private final Counter readAheadCacheFullCounter;
     private final Counter idleReaderWarn;
     private final OpStatsLogger readAheadReadEntriesStat;
-    private final OpStatsLogger resumeReadAheadStat;
+    private final OpStatsLogger readAheadCacheResumeStat;
+    private final OpStatsLogger readAheadLacLagStats;
     private final OpStatsLogger longPollInterruptionStat;
     private final OpStatsLogger metadataReinitializationStat;
     private final OpStatsLogger notificationExecutionStat;
@@ -174,21 +176,26 @@ class BKLogReadHandler extends BKLogHandler {
                             boolean isHandleForReading) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
-
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
+        this.readAheadPerStreamStatsLogger =
+                isHandleForReading ? perLogStatsLogger : NullStatsLogger.INSTANCE;
+        StatsLogger handlerStatsLogger =
+                BroadCastStatsLogger.masterslave(readAheadPerStreamStatsLogger, statsLogger);
+
         handleCache = LedgerHandleCache.newBuilder()
                 .bkc(this.bookKeeperClient)
                 .conf(conf)
                 .statsLogger(statsLogger)
                 .build();
         ledgerDataAccessor = new LedgerDataAccessor(
-                handleCache, getFullyQualifiedName(), statsLogger, alertStatsLogger, notification,
-                conf.getTraceReadAheadDeliveryLatency(), conf.getDataLatencyWarnThresholdMillis());
-
-        this.checkLogExistenceBackoffStartMs = conf.getCheckLogExistenceBackoffStartMillis();
-        this.checkLogExistenceBackoffMaxMs = conf.getCheckLogExistenceBackoffMaxMillis();
-        this.checkLogExistenceBackoffMs = this.checkLogExistenceBackoffStartMs;
+                getFullyQualifiedName(),
+                handlerStatsLogger,
+                alertStatsLogger,
+                notification,
+                conf.getTraceReadAheadDeliveryLatency(),
+                conf.getDataLatencyWarnThresholdMillis(),
+                Ticker.systemTicker());
 
         this.subscriberId = subscriberId;
         this.readLockPath = logMetadata.getReadLockPath(subscriberId);
@@ -196,7 +203,8 @@ class BKLogReadHandler extends BKLogHandler {
 
         this.isHandleForReading = isHandleForReading;
         // Stats
-        StatsLogger readAheadStatsLogger = statsLogger.scope("readahead_worker");
+
+        StatsLogger readAheadStatsLogger = handlerStatsLogger.scope("readahead_worker");
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
         readAheadRepositions = readAheadStatsLogger.getCounter("repositions");
         readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
@@ -205,13 +213,12 @@ class BKLogReadHandler extends BKLogHandler {
         readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
         readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
         readAheadCacheFullCounter = readAheadStatsLogger.getCounter("cache_full");
+        readAheadCacheResumeStat = readAheadStatsLogger.getOpStatsLogger("resume");
+        readAheadLacLagStats = readAheadStatsLogger.getOpStatsLogger("read_lac_lag");
         longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
         notificationExecutionStat = readAheadStatsLogger.getOpStatsLogger("notification_execution");
         metadataReinitializationStat = readAheadStatsLogger.getOpStatsLogger("metadata_reinitialization");
-        resumeReadAheadStat = readAheadStatsLogger.getOpStatsLogger("resume");
         idleReaderWarn = readAheadStatsLogger.getCounter("idle_reader_warn");
-        readAheadPerStreamStatsLogger =
-                isHandleForReading ? perLogStatsLogger : NullStatsLogger.INSTANCE;
         this.readAheadExceptionsLogger = readAheadExceptionsLogger;
     }
 
@@ -359,7 +366,6 @@ class BKLogReadHandler extends BKLogHandler {
                 simulateErrors,
                 conf);
             readAheadWorker.start();
-            ledgerDataAccessor.setReadAheadEnabled(conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
         } else {
             readAheadWorker.advanceReadAhead(startPosition);
         }
@@ -522,18 +528,12 @@ class BKLogReadHandler extends BKLogHandler {
         // which phase that the worker is in.
         ReadAheadPhase phase;
 
-        // Stats
-        final Counter cacheFullCounter;
-        final OpStatsLogger cacheResumeStats;
-        final OpStatsLogger readLACLagStats;
-
         ReadAheadTracker(String streamName,
                          final LedgerDataAccessor ledgerDataAccessor,
                          ReadAheadPhase initialPhase,
                          StatsLogger statsLogger) {
             this.phase = initialPhase;
-            StatsLogger streamStatsLogger = statsLogger.scope(streamName.replaceAll(":|<|>|/", "_"));
-            streamStatsLogger.registerGauge("phase", new Gauge<Number>() {
+            statsLogger.registerGauge("phase", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return ReadAheadPhase.SCHEDULE_READAHEAD.getCode();
@@ -544,7 +544,7 @@ class BKLogReadHandler extends BKLogHandler {
                     return phase.getCode();
                 }
             });
-            streamStatsLogger.registerGauge("ticks", new Gauge<Number>() {
+            statsLogger.registerGauge("ticks", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return 0;
@@ -555,7 +555,7 @@ class BKLogReadHandler extends BKLogHandler {
                     return ticks.get();
                 }
             });
-            streamStatsLogger.registerGauge("cache_entries", new Gauge<Number>() {
+            statsLogger.registerGauge("cache_entries", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return 0;
@@ -563,12 +563,9 @@ class BKLogReadHandler extends BKLogHandler {
 
                 @Override
                 public Number getSample() {
-                    return ledgerDataAccessor.getNumCacheEntries();
+                    return ledgerDataAccessor.getNumCachedRecords();
                 }
             });
-            this.cacheFullCounter = streamStatsLogger.getCounter("cache_full");
-            this.cacheResumeStats = streamStatsLogger.getOpStatsLogger("cache_resume");
-            this.readLACLagStats = streamStatsLogger.getOpStatsLogger("read_lac_lag");
         }
 
         ReadAheadPhase getPhase() {
@@ -755,8 +752,7 @@ class BKLogReadHandler extends BKLogHandler {
         public void resumeReadAhead() {
             try {
                 long cacheResumeLatency = resumeStopWatch.stop().elapsed(TimeUnit.MICROSECONDS);
-                resumeReadAheadStat.registerSuccessfulEvent(cacheResumeLatency);
-                tracker.cacheResumeStats.registerSuccessfulEvent(cacheResumeLatency);
+                readAheadCacheResumeStat.registerSuccessfulEvent(cacheResumeLatency);
             } catch (IllegalStateException ise) {
                 LOG.error("Encountered illegal state when stopping resume stop watch for {} : ", getFullyQualifiedName(), ise);
             }
@@ -1151,7 +1147,6 @@ class BKLogReadHandler extends BKLogHandler {
                             return;
                         }
                         currentMetadata = null;
-                        ledgerDataAccessor.purgeReadAheadCache(readerPosition);
                         readAheadRepositions.inc();
                     }
                 }
@@ -1550,7 +1545,7 @@ class BKLogReadHandler extends BKLogHandler {
                             if (!isCatchingUp) {
                                 long lac = lastConfirmed - nextReadAheadPosition.getEntryId();
                                 if (lac > 0) {
-                                    tracker.readLACLagStats.registerSuccessfulEvent(lac);
+                                    readAheadLacLagStats.registerSuccessfulEvent(lac);
                                 }
                             }
 
@@ -1672,7 +1667,7 @@ class BKLogReadHandler extends BKLogHandler {
                             }
                         }
                         readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
-                        if (ledgerDataAccessor.getNumCacheEntries() >= conf.getReadAheadMaxEntries()) {
+                        if (ledgerDataAccessor.getNumCachedRecords() >= conf.getReadAheadMaxEntries()) {
                             cacheFull = true;
                             complete();
                         } else {
@@ -1686,7 +1681,6 @@ class BKLogReadHandler extends BKLogHandler {
                 if (cacheFull) {
                     LOG.trace("Cache for {} is full. Backoff reading until notified", fullyQualifiedName);
                     readAheadCacheFullCounter.inc();
-                    tracker.cacheFullCounter.inc();
                     resumeStopWatch.reset().start();
                     ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, conf.getReadAheadMaxEntries());
                 } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
