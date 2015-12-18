@@ -9,11 +9,12 @@ import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl.Stream;
+import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamImpl;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamStatus;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
+import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -109,10 +110,12 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 uri, NullStatsLogger.INSTANCE, NullStatsLogger.INSTANCE, latch);
     }
 
-    private Stream createStream(DistributedLogServiceImpl service,
+    private StreamImpl createStream(DistributedLogServiceImpl service,
                                 String name) throws Exception {
-        Stream stream = service.newStream(name);
-        stream.initialize().suspendAcquiring().start();
+        StreamImpl stream = (StreamImpl) service.newStream(name);
+        stream.initialize();
+        stream.suspendAcquiring();
+        stream.start();
         return stream;
     }
 
@@ -130,9 +133,9 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testAcquireStreams() throws Exception {
         String streamName = testName.getMethodName();
-        Stream s0 = createStream(service, streamName);
+        StreamImpl s0 = createStream(service, streamName);
         DistributedLogServiceImpl service1 = createService(serverConf, dlConf);
-        Stream s1 = createStream(service1, streamName);
+        StreamImpl s1 = createStream(service1, streamName);
 
         // create write ops
         WriteOp op0 = createWriteOp(service, streamName, 0L);
@@ -176,7 +179,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testCloseShouldErrorOutPendingOps() throws Exception {
         String streamName = testName.getMethodName();
-        Stream s = createStream(service, streamName);
+        StreamImpl s = createStream(service, streamName);
 
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
@@ -200,7 +203,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testCloseTwice() throws Exception {
         String streamName = testName.getMethodName();
-        Stream s = createStream(service, streamName);
+        StreamImpl s = createStream(service, streamName);
 
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
@@ -251,7 +254,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testFailRequestsDuringClosing() throws Exception {
         String streamName = testName.getMethodName();
-        Stream s = createStream(service, streamName);
+        StreamImpl s = createStream(service, streamName);
 
         final CountDownLatch deferCloseLatch = new CountDownLatch(1);
         service.schedule(new Runnable() {
@@ -319,7 +322,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertTrue("Stream " + streamName + " should be cached",
                 localService.getCachedStreams().containsKey(streamName));
 
-        Stream s = localService.getCachedStreams().get(streamName);
+        StreamImpl s = (StreamImpl) localService.getCachedStreams().get(streamName);
         // the stream should be set CLOSING
         while (StreamStatus.CLOSING != s.getStatus()) {
             TimeUnit.MILLISECONDS.sleep(20);
@@ -610,7 +613,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         }
 
         for (Stream s : localService.getAcquiredStreams().values()) {
-            s.status = StreamStatus.FAILED;
+            StreamImpl stream = (StreamImpl) s;
+            stream.status = StreamStatus.FAILED;
         }
 
         Future<List<Void>> closeResult = localService.closeStreams();

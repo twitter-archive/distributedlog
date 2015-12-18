@@ -33,9 +33,12 @@ import com.twitter.distributedlog.service.stream.BulkWriteOp;
 import com.twitter.distributedlog.service.stream.DeleteOp;
 import com.twitter.distributedlog.service.stream.HeartbeatOp;
 import com.twitter.distributedlog.service.stream.ReleaseOp;
+import com.twitter.distributedlog.service.stream.StreamFactory;
+import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.service.stream.StreamManager;
 import com.twitter.distributedlog.service.stream.StreamOpStats;
 import com.twitter.distributedlog.service.stream.StreamOp;
+import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.service.stream.TruncateOp;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.service.stream.limiter.BpsHardLimiter;
@@ -99,7 +102,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
-public class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, StreamManager {
+public class DistributedLogServiceImpl implements DistributedLogService.ServiceIface, StreamFactory {
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
     static enum StreamStatus {
@@ -137,81 +140,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         MEM
     }
 
-    public Future<Void> doDeleteAndRemoveAsync(final String stream) {
-        Stream s = streams.get(stream);
-        if (null == s) {
-            logger.warn("No stream {} to delete.", stream);
-            return Future.exception(new UnexpectedException("No stream " + stream + " to delete."));
-        } else {
-            Future<Void> result;
-            logger.info("Deleting stream {}, {}", stream, s);
-            try {
-                s.delete();
-                result = s.requestClose("Stream Deleted");
-            } catch (IOException e) {
-                logger.error("Failed on removing stream {} : ", stream, e);
-                result = Future.exception(e);
-            }
-            return result;
-        }
-    }
-
-    /**
-     * Must be enqueued to an executor to avoid deadlocks (close and execute-op both
-     * try to acquire the same read-write lock).
-     */
-    @Override
-    public Future<Void> deleteAndRemoveAsync(final String stream) {
-        final Promise<Void> result = new Promise<Void>();
-        java.util.concurrent.Future<?> scheduleFuture = schedule(new Runnable() {
-            @Override
-            public void run() {
-                result.become(doDeleteAndRemoveAsync(stream));
-            }
-        }, 0);
-        if (null == scheduleFuture) {
-            return Future.exception(
-                    new ServiceUnavailableException("Couldn't schedule a delete task."));
-        }
-        return result;
-    }
-
-    public Future<Void> doCloseAndRemoveAsync(final String stream) {
-        Stream s = streams.get(stream);
-        if (null == s) {
-            logger.info("No stream {} to release.", stream);
-            return Future.value(null);
-        } else {
-            return s.requestClose("release ownership");
-        }
-    }
-
-    /**
-     * Must be enqueued to an executor to avoid deadlocks (close and execute-op both
-     * try to acquire the same read-write lock).
-     */
-    @Override
-    public Future<Void> closeAndRemoveAsync(final String stream) {
-        final Promise<Void> releasePromise = new Promise<Void>();
-        java.util.concurrent.Future<?> scheduleFuture = schedule(new Runnable() {
-            @Override
-            public void run() {
-                releasePromise.become(doCloseAndRemoveAsync(stream));
-            }
-        }, 0);
-        if (null == scheduleFuture) {
-            return Future.exception(
-                    new ServiceUnavailableException("Couldn't schedule a release task."));
-        }
-        return releasePromise;
-    }
-
     WriteOp newWriteOp(String stream, ByteBuffer data, Long checksum) {
         return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion,
             checksum, featureChecksumDisabled, accessControlManager);
     }
 
-    protected class Stream extends Thread {
+    protected class StreamImpl extends Thread implements Stream {
         final String name;
 
         // lock
@@ -246,11 +180,14 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         final StatsLogger streamLogger;
         final StatsLogger exceptionStatLogger;
 
+        private final StreamManager streamManager;
+
         // Since we may create and discard streams at initialization if there's a race,
         // must not do any expensive intialization here (particularly any locking or
         // significant resource allocation etc.).
-        Stream(final String name) {
+        StreamImpl(final String name, final StreamManager streamManager) {
             super("Stream-" + name);
+            this.streamManager = streamManager;
             this.name = name;
             this.status = StreamStatus.UNINITIALIZED;
             this.streamLogger = streamOpStats.streamRequestStatsLogger(name);
@@ -273,6 +210,14 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             setDaemon(true);
         }
 
+        public String getOwner() {
+            return owner;
+        }
+
+        public String getStreamName() {
+            return name;
+        }
+
         private DynamicDistributedLogConfiguration getDynamicConfiguration() {
             Optional<DynamicDistributedLogConfiguration> dynDlConf =
                     streamConfigProvider.getDynamicStreamConfig(name);
@@ -290,7 +235,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
 
         // Expensive initialization, only called once per stream.
-        public Stream initialize() throws IOException {
+        @Override
+        public void initialize() throws IOException {
             manager = openLog(name);
 
             // Better to avoid registering the gauge multiple times, so do this in init
@@ -308,11 +254,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             // Signal initialization is complete, should be last in this method.
             status = StreamStatus.INITIALIZING;
-            return this;
         }
 
         @VisibleForTesting
-        Stream suspendAcquiring() {
+        StreamImpl suspendAcquiring() {
             synchronized (streamLock) {
                 suspended = true;
             }
@@ -320,7 +265,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         }
 
         @VisibleForTesting
-        Stream resumeAcquiring() {
+        StreamImpl resumeAcquiring() {
             synchronized (streamLock) {
                 suspended = false;
                 streamLock.notifyAll();
@@ -366,12 +311,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     synchronized (this) {
                         switch (this.status) {
                         case INITIALIZING:
-                            acquiredStreams.remove(name, this);
+                            streamManager.notifyReleased(this);
                             needAcquire = true;
                             break;
                         case FAILED:
                             this.status = StreamStatus.INITIALIZING;
-                            acquiredStreams.remove(name, this);
+                            streamManager.notifyReleased(this);
                             needAcquire = true;
                             break;
                         case BACKOFF:
@@ -381,7 +326,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                             // be set and we will try to acquire as intended.
                             if (writeSinceLastAcquire) {
                                 this.status = StreamStatus.INITIALIZING;
-                                acquiredStreams.remove(name, this);
+                                streamManager.notifyReleased(this);
                                 needAcquire = true;
                             }
                             break;
@@ -440,20 +385,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             });
         }
 
-        void scheduleRemoval(final String streamName, long delayMs) {
-            logger.info("Scheduling removal of stream {} from cache after {} sec.", name, delayMs);
-            final Timeout timeout = dlTimer.newTimeout(new TimerTask() {
-                @Override
-                public void run(Timeout timeout) throws Exception {
-                    if (streams.remove(streamName, Stream.this)) {
-                        logger.info("Removed cached stream {} after probation.", name);
-                    } else {
-                        logger.info("Cached stream {} already removed.", name);
-                    }
-                }
-            }, delayMs, TimeUnit.MILLISECONDS);
-        }
-
         /**
          * Close the stream and schedule cache eviction at some point in the future.
          * We delay this as a way to place the stream in a probationary state--cached
@@ -475,7 +406,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             closeFuture.onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
                 @Override
                 public BoxedUnit apply(Void result) {
-                    scheduleRemoval(name, streamProbationTimeoutMs);
+                    streamManager.scheduleRemoval(StreamImpl.this, streamProbationTimeoutMs);
                     return BoxedUnit.UNIT;
                 }
             });
@@ -487,7 +418,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
          * @param op
          *          stream operation to execute.
          */
-        void waitIfNeededAndWrite(StreamOp op) {
+        @Override
+        public void waitIfNeededAndWrite(StreamOp op) {
             // Let stream acquire thread know a write has been attempted.
             writeSinceLastAcquire = true;
 
@@ -850,10 +782,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 this.lastAcquireFailureWatch.reset().start();
             }
             if (StreamStatus.INITIALIZED == newStatus) {
-                acquiredStreams.put(name, this);
+                streamManager.notifyAcquired(this);
                 logger.info("Inserted acquired stream {} -> writer {}", name, this);
             } else {
-                acquiredStreams.remove(name, this);
+                streamManager.notifyReleased(this);
                 logger.info("Removed acquired stream {} -> writer {}", name, this);
             }
             return oldWriter;
@@ -889,7 +821,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             }
         }
 
-        Future<Void> requestClose(String reason) {
+        @Override
+        public Future<Void> requestClose(String reason) {
             return requestClose(reason, true);
         }
 
@@ -905,7 +838,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 // if the stream isn't closed from INITIALIZED state, we abort the stream instead of closing it.
                 abort = StreamStatus.INITIALIZED != status;
                 status = StreamStatus.CLOSING;
-                acquiredStreams.remove(name, this);
+                streamManager.notifyReleased(this);
             } finally {
                 closeLock.writeLock().unlock();
             }
@@ -929,7 +862,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 closePromise.onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
                     @Override
                     public BoxedUnit apply(Void result) {
-                        if (streams.remove(name, Stream.this)) {
+                        if (streamManager.notifyRemoved(StreamImpl.this)) {
                             logger.info("Removed cached stream {} after closed.", name);
                         }
                         return BoxedUnit.UNIT;
@@ -939,7 +872,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             return closePromise;
         }
 
-        private void delete() throws IOException {
+        @Override
+        public void delete() throws IOException {
             if (null != writer) {
                 writer.close();
                 synchronized (this) {
@@ -967,7 +901,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 }
                 abort = shouldAbort || (StreamStatus.INITIALIZED != status && StreamStatus.CLOSING != status);
                 status = StreamStatus.CLOSED;
-                acquiredStreams.remove(name, this);
+                streamManager.notifyReleased(this);
             } finally {
                 closeLock.writeLock().unlock();
             }
@@ -1008,10 +942,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final ServerConfiguration serverConfig;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
-    private final ConcurrentHashMap<String, Stream> streams =
-            new ConcurrentHashMap<String, Stream>();
-    private final ConcurrentHashMap<String, Stream> acquiredStreams =
-            new ConcurrentHashMap<String, Stream>();
 
     private final int serverRegionId;
     private ServerStatus serverStatus = ServerStatus.WRITE_AND_ACCEPT;
@@ -1063,6 +993,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private long serviceTimeoutMs;
     private final long streamProbationTimeoutMs;
     private final StreamConfigProvider streamConfigProvider;
+    private final StreamManager streamManager;
 
     DistributedLogServiceImpl(ServerConfiguration serverConf,
                               DistributedLogConfiguration dlConf,
@@ -1110,6 +1041,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         // Executor Service.
         this.executorService = Executors.newScheduledThreadPool(numThreads,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
+
+        // Stream manager
+        this.streamManager = new StreamManagerImpl(clientId, executorService, this);
 
         // service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
@@ -1174,7 +1108,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             @Override
             public Number getSample() {
-                return acquiredStreams.size();
+                return streamManager.getAcquiredStreams().size();
             }
         });
         streamsStatsLogger.registerGauge("cached", new Gauge<Number>() {
@@ -1185,7 +1119,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             @Override
             public Number getSample() {
-                return streams.size();
+                return streamManager.getCachedStreams().size();
             }
         });
         this.streamAcquireStat = streamsStatsLogger.getOpStatsLogger("acquire");
@@ -1195,8 +1129,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 new Object[] { clientId, allocatorPoolName, serverConf.isPerStreamStatEnabled(), dlsnVersion });
     }
 
-    Stream newStream(String name) {
-        return new Stream(name);
+    @Override
+    public Stream newStream(String name) {
+        return new StreamImpl(name, streamManager);
     }
 
     @VisibleForTesting
@@ -1211,32 +1146,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @VisibleForTesting
     ConcurrentMap<String, Stream> getCachedStreams() {
-        return this.streams;
+        return streamManager.getCachedStreams();
     }
 
     @VisibleForTesting
     ConcurrentMap<String, Stream> getAcquiredStreams() {
-        return this.acquiredStreams;
-    }
-
-    java.util.concurrent.Future<?> schedule(Runnable r, long delayMs) {
-        closeLock.readLock().lock();
-        try {
-            if (ServerStatus.DOWN == serverStatus) {
-                return null;
-            }
-            if (delayMs > 0) {
-                return executorService.schedule(r, delayMs, TimeUnit.MILLISECONDS);
-            } else {
-                return executorService.submit(r);
-            }
-        } catch (RejectedExecutionException ree) {
-            logger.error("Failed to schedule task {} in {} ms : ",
-                    new Object[] { r, delayMs, ree });
-            return null;
-        } finally {
-            closeLock.readLock().unlock();
-        }
+        return streamManager.getAcquiredStreams();
     }
 
     void countException(Throwable t, StatsLogger streamExceptionLogger) {
@@ -1285,26 +1200,18 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             return Future.value(serverInfo);
         }
 
-        Map<String, String> ownerships = new HashMap<String, String>();
-        for (String name : acquiredStreams.keySet()) {
-            if (clientInfo.isSetStreamNameRegex() && !name.matches(clientInfo.getStreamNameRegex())) {
-                continue;
-            }
-            Stream stream = acquiredStreams.get(name);
-            if (null == stream) {
-                continue;
-            }
-            String owner = stream.owner;
-            if (null == owner) {
-                ownerships.put(name, clientId);
-            }
+        Optional<String> regex = Optional.absent();
+        if (clientInfo.isSetStreamNameRegex()) {
+            regex = Optional.of(clientInfo.getStreamNameRegex());
         }
-        serverInfo.setOwnerships(ownerships);
+
+        Map<String, String> ownershipMap = streamManager.getStreamOwnershipMap(regex);
+        serverInfo.setOwnerships(ownershipMap);
         return Future.value(serverInfo);
     }
 
-    Stream getLogWriter(String stream) throws IOException {
-        Stream writer = streams.get(stream);
+    public Stream getLogWriter(String stream) throws IOException {
+        Stream writer = streamManager.getStream(stream);
         if (null == writer) {
             closeLock.readLock().lock();
             try {
@@ -1315,14 +1222,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     // if it is closed, we would not acquire stream again.
                     return null;
                 }
-                writer = newStream(stream);
-                Stream oldWriter = streams.putIfAbsent(stream, writer);
-                if (null != oldWriter) {
-                    writer = oldWriter;
-                } else {
-                    logger.info("Inserted mapping stream {} -> writer {}", stream, writer);
-                    writer.initialize().start();
-                }
+                writer = streamManager.openStream(stream);
             } finally {
                 closeLock.readLock().unlock();
             }
@@ -1387,7 +1287,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> delete(String stream, WriteContext ctx) {
-        DeleteOp op = new DeleteOp(stream, statsLogger, perStreamStatsLogger, this /* stream manager */, getChecksum(ctx),
+        DeleteOp op = new DeleteOp(stream, statsLogger, perStreamStatsLogger, streamManager, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
@@ -1395,7 +1295,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> release(String stream, WriteContext ctx) {
-        ReleaseOp op = new ReleaseOp(stream, statsLogger, perStreamStatsLogger, this /* stream manager */, getChecksum(ctx),
+        ReleaseOp op = new ReleaseOp(stream, statsLogger, perStreamStatsLogger, streamManager, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
         doExecuteStreamOp(op);
         return op.result();
@@ -1480,30 +1380,29 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         stream.waitIfNeededAndWrite(op);
     }
 
-    Future<List<Void>> closeStreams() {
-        int numAcquired = acquiredStreams.size();
-        int numCached = streams.size();
-        logger.info("Closing all acquired streams : acquired = {}, cached = {}.",
-                    numAcquired, numCached);
-        Set<Stream> streamsToClose = new HashSet<Stream>();
-        streamsToClose.addAll(streams.values());
-        return closeStreams(streamsToClose, Optional.<RateLimiter>absent());
+    @VisibleForTesting
+    java.util.concurrent.Future<?> schedule(Runnable runnable, long delayMs) {
+        closeLock.readLock().lock();
+        try {
+            if (serverStatus != ServerStatus.WRITE_AND_ACCEPT) {
+                return null;
+            } else if (delayMs > 0) {
+                return executorService.schedule(runnable, delayMs, TimeUnit.MILLISECONDS);
+            } else {
+                return executorService.submit(runnable);
+            }
+        } catch (RejectedExecutionException ree) {
+            logger.error("Failed to schedule task {} in {} ms : ",
+                    new Object[] { runnable, delayMs, ree });
+            return null;
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
-    private Future<List<Void>> closeStreams(Set<Stream> streamsToClose, Optional<RateLimiter> rateLimiter) {
-        if (streamsToClose.isEmpty()) {
-            logger.info("No streams to close.");
-            List<Void> emptyList = new ArrayList<Void>();
-            return Future.value(emptyList);
-        }
-        List<Future<Void>> futures = new ArrayList<Future<Void>>(streamsToClose.size());
-        for (Stream stream : streamsToClose) {
-            if (rateLimiter.isPresent()) {
-                rateLimiter.get().acquire();
-            }
-            futures.add(stream.requestClose("Close Streams"));
-        }
-        return Future.collect(futures);
+    @VisibleForTesting
+    Future<List<Void>> closeStreams() {
+        return streamManager.closeStreams();
     }
 
     void shutdown() {
@@ -1518,9 +1417,11 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 closeLock.writeLock().unlock();
             }
 
+            streamManager.close();
+
             Stopwatch closeStreamsStopwatch = Stopwatch.createStarted();
 
-            Future<List<Void>> closeResult = closeStreams();
+            Future<List<Void>> closeResult = streamManager.closeStreams();
             logger.info("Waiting for closing all streams ...");
             try {
                 Await.result(closeResult, Duration.fromTimeUnit(5, TimeUnit.MINUTES));
