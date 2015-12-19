@@ -77,6 +77,40 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
     }
 
     /**
+     * A lower threshold requests per second limit on writes to the distributedlog proxy globally.
+     *
+     * @return Requests per second write limit
+     */
+    public int getRpsSoftServiceLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_RPS_SOFT_SERVICE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RPS_SOFT_SERVICE_LIMIT,
+                DistributedLogConfiguration.BKDL_RPS_SOFT_SERVICE_LIMIT_DEFAULT));
+    }
+
+    /**
+     * An upper threshold requests per second limit on writes to the distributedlog proxy globally.
+     *
+     * @return Requests per second write limit
+     */
+    public int getRpsHardServiceLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_RPS_HARD_SERVICE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RPS_HARD_SERVICE_LIMIT,
+                DistributedLogConfiguration.BKDL_RPS_HARD_SERVICE_LIMIT_DEFAULT));
+    }
+
+    /**
+     * When 60min average rps for the entire service instance hits this value, new streams will be
+     * rejected.
+     *
+     * @return Requests per second limit
+     */
+    public int getRpsStreamAcquireServiceLimit() {
+        return getInt(DistributedLogConfiguration.BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT,
+                DistributedLogConfiguration.BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT));
+    }
+
+    /**
      * Get percent of write requests which should be delayed by BKDL_EI_INJECTED_WRITE_DELAY_MS.
      *
      * @return percent of writes to delay.

@@ -12,6 +12,8 @@ import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.service.stream.StreamImpl.StreamStatus;
 import com.twitter.distributedlog.service.stream.StreamImpl;
+import com.twitter.distributedlog.service.stream.StreamManagerImpl;
+import com.twitter.distributedlog.service.stream.StreamManager;
 import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
@@ -135,10 +137,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         // create write ops
         WriteOp op0 = createWriteOp(service, streamName, 0L);
-        s0.waitIfNeededAndWrite(op0);
+        s0.submit(op0);
 
         WriteOp op1 = createWriteOp(service1, streamName, 1L);
-        s1.waitIfNeededAndWrite(op1);
+        s1.submit(op1);
 
         // check pending size
         assertEquals("Write Op 0 should be pending in service 0",
@@ -181,7 +183,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
         for (int i = 0; i < numWrites; i++) {
             WriteOp op = createWriteOp(service, streamName, i);
-            s.waitIfNeededAndWrite(op);
+            s.submit(op);
             futureList.add(op.result());
         }
         assertEquals(numWrites, s.numPendingOps());
@@ -205,7 +207,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
         for (int i = 0; i < numWrites; i++) {
             WriteOp op = createWriteOp(service, streamName, i);
-            s.waitIfNeededAndWrite(op);
+            s.submit(op);
             futureList.add(op.result());
         }
         assertEquals(numWrites, s.numPendingOps());
@@ -269,7 +271,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 StreamStatus.CLOSING, s.getStatus());
         assertFalse(closeFuture.isDefined());
         WriteOp op1 = createWriteOp(service, streamName, 0L);
-        s.waitIfNeededAndWrite(op1);
+        s.submit(op1);
         WriteResponse response1 = Await.result(op1.result());
         assertEquals("Op should fail with " + StatusCode.STREAM_UNAVAILABLE + " if it is closing",
                 StatusCode.STREAM_UNAVAILABLE, response1.getHeader().getCode());
@@ -279,7 +281,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSED,
                 StreamStatus.CLOSED, s.getStatus());
         WriteOp op2 = createWriteOp(service, streamName, 1L);
-        s.waitIfNeededAndWrite(op2);
+        s.submit(op2);
         WriteResponse response2 = Await.result(op2.result());
         assertEquals("Op should fail with " + StatusCode.STREAM_UNAVAILABLE + " if it is closed",
                 StatusCode.STREAM_UNAVAILABLE, response2.getHeader().getCode());
@@ -296,6 +298,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         String streamName = testName.getMethodName();
         // create a new service with 200ms timeout
         DistributedLogServiceImpl localService = createService(serverConf, confLocal);
+        StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
         final CountDownLatch deferCloseLatch = new CountDownLatch(1);
         localService.schedule(new Runnable() {
@@ -316,9 +319,9 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         }
 
         assertTrue("Stream " + streamName + " should be cached",
-                localService.getCachedStreams().containsKey(streamName));
+                streamManager.getCachedStreams().containsKey(streamName));
 
-        StreamImpl s = (StreamImpl) localService.getCachedStreams().get(streamName);
+        StreamImpl s = (StreamImpl) streamManager.getCachedStreams().get(streamName);
         // the stream should be set CLOSING
         while (StreamStatus.CLOSING != s.getStatus()) {
             TimeUnit.MILLISECONDS.sleep(20);
@@ -339,14 +342,14 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                     StatusCode.BK_TRANSMIT_ERROR, response.getHeader().getCode());
         }
 
-        while (localService.getCachedStreams().containsKey(streamName)) {
+        while (streamManager.getCachedStreams().containsKey(streamName)) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
 
         assertFalse("Stream should be removed from cache",
-                localService.getCachedStreams().containsKey(streamName));
+                streamManager.getCachedStreams().containsKey(streamName));
         assertFalse("Stream should be removed from acquired cache",
-                localService.getAcquiredStreams().containsKey(streamName));
+                streamManager.getAcquiredStreams().containsKey(streamName));
 
         localService.shutdown();
     }
@@ -377,6 +380,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         String streamName = testName.getMethodName();
         DistributedLogServiceImpl localService =
                 createService(serverConfLocal, confLocal);
+        StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>();
@@ -384,7 +388,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             futureList.add(localService.write(streamName, createRecord(i)));
         }
         assertTrue("Stream " + streamName + " should be cached",
-                localService.getCachedStreams().containsKey(streamName));
+                streamManager.getCachedStreams().containsKey(streamName));
         List<WriteResponse> resultList = FutureUtils.result(Future.collect(futureList));
         for (WriteResponse wr : resultList) {
             assertEquals(DLSN.InvalidDLSN, DLSN.deserialize(wr.getDlsn()));
@@ -544,6 +548,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         String streamNamePrefix = testName.getMethodName();
         DistributedLogServiceImpl localService = createService(serverConf, confLocal);
+        StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
         int numStreams = 10;
         int numWrites = 10;
@@ -557,8 +562,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         }
 
         assertEquals("There should be " + numStreams + " streams in cache",
-                numStreams, localService.getCachedStreams().size());
-        while (localService.getAcquiredStreams().size() < numStreams) {
+                numStreams, streamManager.getCachedStreams().size());
+        while (streamManager.getAcquiredStreams().size() < numStreams) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
 
@@ -574,9 +579,9 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                     StatusCode.WRITE_EXCEPTION == response.getHeader().getCode());
         }
         assertTrue("There should be no streams in the cache",
-                localService.getCachedStreams().isEmpty());
+                streamManager.getCachedStreams().isEmpty());
         assertTrue("There should be no streams in the acquired cache",
-                localService.getAcquiredStreams().isEmpty());
+                streamManager.getAcquiredStreams().isEmpty());
 
         localService.shutdown();
     }
@@ -590,6 +595,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         String streamNamePrefix = testName.getMethodName();
         DistributedLogServiceImpl localService = createService(serverConf, confLocal);
+        StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
         int numStreams = 10;
         int numWrites = 10;
@@ -603,12 +609,12 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         }
 
         assertEquals("There should be " + numStreams + " streams in cache",
-                numStreams, localService.getCachedStreams().size());
-        while (localService.getAcquiredStreams().size() < numStreams) {
+                numStreams, streamManager.getCachedStreams().size());
+        while (streamManager.getAcquiredStreams().size() < numStreams) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
 
-        for (Stream s : localService.getAcquiredStreams().values()) {
+        for (Stream s : streamManager.getAcquiredStreams().values()) {
             StreamImpl stream = (StreamImpl) s;
             stream.setStatus(StreamStatus.FAILED);
         }
@@ -626,9 +632,9 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                     StatusCode.WRITE_EXCEPTION == response.getHeader().getCode());
         }
         assertTrue("There should be no streams in the cache",
-                localService.getCachedStreams().isEmpty());
+                streamManager.getCachedStreams().isEmpty());
         assertTrue("There should be no streams in the acquired cache",
-                localService.getAcquiredStreams().isEmpty());
+                streamManager.getAcquiredStreams().isEmpty());
 
         localService.shutdown();
     }
@@ -636,14 +642,15 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testShutdown() throws Exception {
         service.shutdown();
+        StreamManagerImpl streamManager = (StreamManagerImpl) service.getStreamManager();
         WriteResponse response =
                 Await.result(service.write(testName.getMethodName(), createRecord(0L)));
         assertEquals("Write should fail with " + StatusCode.SERVICE_UNAVAILABLE,
                 StatusCode.SERVICE_UNAVAILABLE, response.getHeader().getCode());
         assertTrue("There should be no streams created after shutdown",
-                service.getCachedStreams().isEmpty());
+                streamManager.getCachedStreams().isEmpty());
         assertTrue("There should be no streams acquired after shutdown",
-                service.getAcquiredStreams().isEmpty());
+                streamManager.getAcquiredStreams().isEmpty());
     }
 
 }

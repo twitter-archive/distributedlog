@@ -24,6 +24,10 @@ public class StreamOpStats {
         this.streamStatsLogger = perStreamStatsLogger;
     }
 
+    public StatsLogger baseStatsLogger(String opName) {
+        return baseStatsLogger;
+    }
+
     public Counter baseCounter(String opName) {
         return baseStatsLogger.getCounter(opName);
     }

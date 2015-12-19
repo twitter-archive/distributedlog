@@ -362,7 +362,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS = "streamConfigRouterClass";
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT = "com.twitter.distributedlog.service.config.IdentityConfigRouter";
 
-    // Settings for RateLimit
+    // Rate limits: per stream
 
     public static final String BKDL_BPS_SOFT_WRITE_LIMIT = "bpsSoftWriteLimit";
     public static final int BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
@@ -372,6 +372,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
     public static final String BKDL_RPS_HARD_WRITE_LIMIT = "rpsHardWriteLimit";
     public static final int BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT = -1;
+
+    // Rate and resource limits: per shard
+
+    public static final String BKDL_RPS_SOFT_SERVICE_LIMIT = "rpsSoftServiceLimit";
+    public static final int BKDL_RPS_SOFT_SERVICE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_RPS_HARD_SERVICE_LIMIT = "rpsHardServiceLimit";
+    public static final int BKDL_RPS_HARD_SERVICE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT = "rpsStreamAcquireServiceLimit";
+    public static final int BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT = -1;
 
     // Whitelisted stream-level configuration settings.
     private static final Set<String> streamSettings = Sets.newHashSet(

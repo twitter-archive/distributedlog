@@ -794,6 +794,11 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                         // region is unavailable, redirect the request to hosts in other region
                         redirect(op, null);
                         break;
+                    // Proxy was overloaded and refused to try to acquire the stream. Don't remove ownership, since
+                    // we didn't have it in the first place.
+                    case TOO_MANY_STREAMS:
+                        handleRedirectableError(addr, op, header);
+                        break;
                     case STREAM_UNAVAILABLE:
                     case ZOOKEEPER_ERROR:
                     case LOCKING_EXCEPTION:
@@ -805,12 +810,7 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                         // when we are receiving these exceptions from proxy, it means proxy or the stream is closed
                         // redirect the request.
                         ownershipCache.removeOwnerFromStream(op.stream, addr, header.getCode().name());
-                        if (streamFailfast) {
-                            logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
-                            op.fail(addr, DLException.of(header));
-                        } else {
-                            redirect(op, null);
-                        }
+                        handleRedirectableError(addr, op, header);
                         break;
                 }
             }
@@ -844,6 +844,17 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
             }
         }
         return cause;
+    }
+
+    private void handleRedirectableError(SocketAddress addr,
+                                         StreamOp op,
+                                         ResponseHeader header) {
+        if (streamFailfast) {
+            logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
+            op.fail(addr, DLException.of(header));
+        } else {
+            redirect(op, null);
+        }
     }
 
     void handleServiceUnavailable(SocketAddress addr,

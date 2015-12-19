@@ -1,5 +1,6 @@
 package com.twitter.distributedlog.service.stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
@@ -20,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.slf4j.Logger;
@@ -39,8 +41,12 @@ public class StreamManagerImpl implements StreamManager {
 
     private final ConcurrentHashMap<String, Stream> streams =
         new ConcurrentHashMap<String, Stream>();
+    private final AtomicInteger numCached = new AtomicInteger(0);
+
     private final ConcurrentHashMap<String, Stream> acquiredStreams =
         new ConcurrentHashMap<String, Stream>();
+    private final AtomicInteger numAcquired = new AtomicInteger(0);
+
     final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
     private final ScheduledExecutorService executorService;
     private final String clientId;
@@ -95,17 +101,25 @@ public class StreamManagerImpl implements StreamManager {
 
     @Override
     public void notifyReleased(Stream stream) {
-        acquiredStreams.remove(stream.getStreamName(), stream);
+        if (acquiredStreams.remove(stream.getStreamName(), stream)) {
+            numAcquired.getAndDecrement();
+        }
     }
 
     @Override
     public void notifyAcquired(Stream stream) {
-        acquiredStreams.put(stream.getStreamName(), stream);
+        if (null == acquiredStreams.put(stream.getStreamName(), stream)) {
+            numAcquired.getAndIncrement();
+        }
     }
 
     @Override
     public boolean notifyRemoved(Stream stream) {
-        return streams.remove(stream.getStreamName(), stream);
+        if (streams.remove(stream.getStreamName(), stream)) {
+            numCached.getAndDecrement();
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -146,6 +160,7 @@ public class StreamManagerImpl implements StreamManager {
                 if (null != oldWriter) {
                     stream = oldWriter;
                 } else {
+                    numCached.getAndIncrement();
                     logger.info("Inserted mapping stream name {} -> stream {}", streamName, stream);
                     stream.initialize();
                     stream.start();
@@ -175,7 +190,7 @@ public class StreamManagerImpl implements StreamManager {
         schedule(new Runnable() {
             @Override
             public void run() {
-                if (streams.remove(stream.getStreamName(), stream)) {
+                if (notifyRemoved(stream)) {
                     logger.info("Removed cached stream {} after probation.", stream.getStreamName());
                 } else {
                     logger.info("Cached stream {} already removed.", stream.getStreamName());
@@ -185,13 +200,18 @@ public class StreamManagerImpl implements StreamManager {
     }
 
     @Override
-    public ConcurrentHashMap<String, Stream> getCachedStreams() {
-        return streams;
+    public int numAcquired() {
+        return numAcquired.get();
     }
 
     @Override
-    public ConcurrentHashMap<String, Stream> getAcquiredStreams() {
-        return acquiredStreams;
+    public int numCached() {
+        return numCached.get();
+    }
+
+    @Override
+    public boolean isAcquired(String streamName) {
+        return acquiredStreams.containsKey(streamName);
     }
 
     @Override
@@ -277,5 +297,15 @@ public class StreamManagerImpl implements StreamManager {
             }
             return result;
         }
+    }
+
+    @VisibleForTesting
+    public ConcurrentHashMap<String, Stream> getCachedStreams() {
+        return streams;
+    }
+
+    @VisibleForTesting
+    public ConcurrentHashMap<String, Stream> getAcquiredStreams() {
+        return acquiredStreams;
     }
 }

@@ -22,17 +22,15 @@ import org.slf4j.LoggerFactory;
 public abstract class DynamicRequestLimiter<Request> implements RequestLimiter<Request>, Closeable {
     static final Logger LOG = LoggerFactory.getLogger(DynamicRequestLimiter.class);
 
-    private final StatsLogger limiterStatsLogger;
-    private final DynamicDistributedLogConfiguration dynConf;
     private final ConfigurationListener listener;
     private final Feature rateLimitDisabledFeature;
-    private volatile RequestLimiter<Request> limiter;
+    volatile RequestLimiter<Request> limiter;
+    final DynamicDistributedLogConfiguration dynConf;
 
     public DynamicRequestLimiter(DynamicDistributedLogConfiguration dynConf,
                                  StatsLogger statsLogger, Feature rateLimitDisabledFeature) {
+        final StatsLogger limiterStatsLogger = statsLogger.scope("dynamic");
         this.dynConf = dynConf;
-        this.limiterStatsLogger = statsLogger.scope("dynamic");
-        this.limiter = build();
         this.rateLimitDisabledFeature = rateLimitDisabledFeature;
         this.listener = new ConfigurationListener() {
             @Override
@@ -52,6 +50,10 @@ public abstract class DynamicRequestLimiter<Request> implements RequestLimiter<R
         };
         LOG.debug("Registering config changed callback");
         dynConf.addConfigurationListener(listener);
+    }
+
+    public void initialize() {
+        this.limiter = build();
     }
 
     @Override

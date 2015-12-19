@@ -122,6 +122,7 @@ public class TestServiceRequestLimiter {
                 return new MockRequestLimiter();
             }
         };
+        limiter.initialize();
         assertEquals(1, id.get());
         dynConf.setProperty("test1", 1);
         assertEquals(2, id.get());
@@ -142,6 +143,7 @@ public class TestServiceRequestLimiter {
                 return rateLimiter;
             }
         };
+        limiter.initialize();
         assertEquals(0, rateLimiter.getLimitHitCount());
 
         // Not disabled, rate limiter was invoked
@@ -169,6 +171,7 @@ public class TestServiceRequestLimiter {
                 return new MockRequestLimiter();
             }
         };
+        limiter.initialize();
         assertEquals(1, id.get());
         try {
             dynConf.setProperty("test1", 1);

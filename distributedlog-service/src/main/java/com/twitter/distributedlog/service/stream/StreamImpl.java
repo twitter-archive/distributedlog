@@ -16,17 +16,11 @@ import com.twitter.distributedlog.exceptions.StreamNotReadyException;
 import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.io.Abortables;
-import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
-import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.FatalErrorHandler;
 import com.twitter.distributedlog.service.ServerFeatureKeys;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
-import com.twitter.distributedlog.service.stream.limiter.BpsHardLimiter;
-import com.twitter.distributedlog.service.stream.limiter.BpsSoftLimiter;
-import com.twitter.distributedlog.service.stream.limiter.DynamicRequestLimiter;
-import com.twitter.distributedlog.service.stream.limiter.RpsHardLimiter;
-import com.twitter.distributedlog.service.stream.limiter.RpsSoftLimiter;
+import com.twitter.distributedlog.service.stream.limiter.StreamRequestLimiter;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.TimeSequencer;
 import com.twitter.util.Function0;
@@ -111,7 +105,7 @@ public class StreamImpl extends Thread implements Stream {
     // last acquire failure time
     private final Stopwatch lastAcquireFailureWatch = Stopwatch.createUnstarted();
     private final long nextAcquireWaitTimeMs;
-    private final DynamicRequestLimiter limiter;
+    private final StreamRequestLimiter limiter;
     private final DynamicDistributedLogConfiguration dynConf;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
@@ -170,16 +164,11 @@ public class StreamImpl extends Thread implements Stream {
         this.streamProbationTimeoutMs = dlConfig.getStreamProbationTimeoutMs();
         this.failFastOnStreamNotReady = dlConfig.getFailFastOnStreamNotReady();
         this.fatalErrorHandler = fatalErrorHandler;
+        this.dynConf = getDynConf(name, streamConfigProvider, dlConfig);
+        this.limiter = new StreamRequestLimiter(name, dynConf, streamOpStats, featureRateLimitDisabled);
         this.requestTimer = requestTimer;
 
-        Optional<DynamicDistributedLogConfiguration> dynDlConf =
-                streamConfigProvider.getDynamicStreamConfig(name);
-        if (dynDlConf.isPresent()) {
-            this.dynConf = dynDlConf.get();
-        } else {
-            this.dynConf = ConfUtils.getConstDynConf(dlConfig);
-        }
-
+        // Stats
         this.streamLogger = streamOpStats.streamRequestStatsLogger(name);
         this.limiterStatLogger = streamOpStats.baseScope("request_limiter");
         this.streamExceptionStatLogger = streamLogger.scope("exceptions");
@@ -190,25 +179,28 @@ public class StreamImpl extends Thread implements Stream {
         this.unexpectedExceptions = streamOpStats.baseCounter("unexpected_exceptions");
         this.exceptionStatLogger = streamOpStats.requestScope("exceptions");
 
-        this.limiter = new DynamicRequestLimiter<StreamOp>(dynConf, limiterStatLogger, featureRateLimitDisabled) {
-            @Override
-            public RequestLimiter<StreamOp> build() {
-                ChainedRequestLimiter.Builder<StreamOp> builder = new ChainedRequestLimiter.Builder<StreamOp>();
-                builder.addLimiter(new RpsSoftLimiter(dynConf.getRpsSoftWriteLimit(), streamLogger));
-                builder.addLimiter(new RpsHardLimiter(dynConf.getRpsHardWriteLimit(), streamLogger, name));
-                builder.addLimiter(new BpsSoftLimiter(dynConf.getBpsSoftWriteLimit(), streamLogger));
-                builder.addLimiter(new BpsHardLimiter(dynConf.getBpsHardWriteLimit(), streamLogger, name));
-                builder.statsLogger(limiterStatLogger);
-                return builder.build();
-            }
-        };
         setDaemon(true);
     }
 
+    private static DynamicDistributedLogConfiguration getDynConf(
+            String streamName,
+            StreamConfigProvider streamConfigProvider,
+            DistributedLogConfiguration dlConfig) {
+        Optional<DynamicDistributedLogConfiguration> dynDlConf =
+                streamConfigProvider.getDynamicStreamConfig(streamName);
+        if (dynDlConf.isPresent()) {
+            return dynDlConf.get();
+        } else {
+            return ConfUtils.getConstDynConf(dlConfig);
+        }
+    }
+
+    @Override
     public String getOwner() {
         return owner;
     }
 
+    @Override
     public String getStreamName() {
         return name;
     }
@@ -382,13 +374,14 @@ public class StreamImpl extends Thread implements Stream {
     }
 
     /**
-     * Wait for stream being re-acquired if needed. Otherwise, execute the <i>op</i> immediately.
+     * Execute the StreamOp. If reacquire is needed, this may initiate reacquire and queue the op for
+     * execution once complete.
      *
      * @param op
      *          stream operation to execute.
      */
     @Override
-    public void waitIfNeededAndWrite(StreamOp op) {
+    public void submit(StreamOp op) {
         // Let stream acquire thread know a write has been attempted.
         writeSinceLastAcquire = true;
 

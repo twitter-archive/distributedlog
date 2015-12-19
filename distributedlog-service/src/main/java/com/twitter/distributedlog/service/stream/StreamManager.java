@@ -85,16 +85,22 @@ public interface StreamManager {
     Map<String, String> getStreamOwnershipMap(Optional<String> regex);
 
     /**
-     * Just return cached all streams.
-     * @return map containing all cached streams
+     * Number of acquired streams.
+     * @return number of acquired streams
      */
-    ConcurrentHashMap<String, Stream> getCachedStreams();
+    int numAcquired();
 
     /**
-     * Just return cached all acquired streams.
-     * @return map containing all acquired streams
+     * Number of cached streams.
+     * @return number of cached streams
      */
-    ConcurrentHashMap<String, Stream> getAcquiredStreams();
+    int numCached();
+
+    /**
+     * Is the stream denoted by streamName in the acquired state.
+     * @return true if the stream is in the acquired state
+     */
+    boolean isAcquired(String streamName);
 
     /**
      * Close manager and disallow further activity.

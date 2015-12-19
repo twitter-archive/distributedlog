@@ -16,6 +16,7 @@ import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.routing.LocalRoutingService;
 import com.twitter.distributedlog.service.DistributedLogClient;
+import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
@@ -624,8 +625,10 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             assertEquals(existedInClient, localEntry.getValue().contains(name));
         }
 
-        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
-        Set<String> acquiredStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+
+        StreamManagerImpl streamManager = (StreamManagerImpl) dlServer.dlServer.getKey().getStreamManager();
+        Set<String> cachedStreams = streamManager.getCachedStreams().keySet();
+        Set<String> acquiredStreams = streamManager.getCachedStreams().keySet();
 
         assertEquals(expectedServerCacheSize, cachedStreams.size());
         assertEquals(existedInServer, cachedStreams.contains(name));

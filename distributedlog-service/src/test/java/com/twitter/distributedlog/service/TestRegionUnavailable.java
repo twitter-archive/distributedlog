@@ -87,13 +87,7 @@ public class TestRegionUnavailable extends DistributedLogServerTestCase {
 
         // check local region
         for (DLServer server : localCluster) {
-            Set<String> cachedStreams = server.dlServer.getKey().getCachedStreams().keySet();
-            Set<String> acquiredStreams = server.dlServer.getKey().getAcquiredStreams().keySet();
-
-            assertEquals(0, cachedStreams.size());
-            assertEquals(0, acquiredStreams.size());
+            checkStreams(0, server);
         }
     }
-
-
 }

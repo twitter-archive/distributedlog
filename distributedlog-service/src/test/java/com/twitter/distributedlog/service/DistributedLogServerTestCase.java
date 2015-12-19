@@ -7,6 +7,8 @@ import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.distributedlog.client.routing.LocalRoutingService;
 import com.twitter.distributedlog.client.routing.RegionsRoutingService;
 import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
+import com.twitter.distributedlog.service.stream.StreamManagerImpl;
+import com.twitter.distributedlog.service.stream.StreamManager;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.finagle.builder.ClientBuilder;
@@ -167,16 +169,15 @@ public abstract class DistributedLogServerTestCase {
     }
 
     protected static void checkStreams(int numExpectedStreams, DLServer dlServer) {
-        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
-        Set<String> acquiredStreams = dlServer.dlServer.getKey().getAcquiredStreams().keySet();
-
-        assertEquals(numExpectedStreams, cachedStreams.size());
-        assertEquals(numExpectedStreams, acquiredStreams.size());
+        StreamManager streamManager = dlServer.dlServer.getKey().getStreamManager();
+        assertEquals(numExpectedStreams, streamManager.numCached());
+        assertEquals(numExpectedStreams, streamManager.numAcquired());
     }
 
     protected static void checkStreams(Set<String> streams, DLServer dlServer) {
-        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
-        Set<String> acquiredStreams = dlServer.dlServer.getKey().getAcquiredStreams().keySet();
+        StreamManagerImpl streamManager = (StreamManagerImpl) dlServer.dlServer.getKey().getStreamManager();
+        Set<String> cachedStreams = streamManager.getCachedStreams().keySet();
+        Set<String> acquiredStreams = streamManager.getAcquiredStreams().keySet();
 
         assertEquals(streams.size(), cachedStreams.size());
         assertEquals(streams.size(), acquiredStreams.size());
@@ -198,8 +199,9 @@ public abstract class DistributedLogServerTestCase {
             assertEquals(existedInClient, localEntry.getValue().contains(name));
         }
 
-        Set<String> cachedStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
-        Set<String> acquiredStreams = dlServer.dlServer.getKey().getCachedStreams().keySet();
+        StreamManagerImpl streamManager = (StreamManagerImpl) dlServer.dlServer.getKey().getStreamManager();
+        Set<String> cachedStreams = streamManager.getCachedStreams().keySet();
+        Set<String> acquiredStreams = streamManager.getCachedStreams().keySet();
 
         assertEquals(expectedServerCacheSize, cachedStreams.size());
         assertEquals(existedInServer, cachedStreams.contains(name));

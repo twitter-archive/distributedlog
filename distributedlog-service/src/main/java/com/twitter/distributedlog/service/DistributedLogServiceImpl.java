@@ -7,6 +7,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.acl.AccessControlManager;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
@@ -27,6 +28,7 @@ import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.service.stream.StreamOpStats;
 import com.twitter.distributedlog.service.stream.TruncateOp;
 import com.twitter.distributedlog.service.stream.WriteOp;
+import com.twitter.distributedlog.service.stream.limiter.ServiceRequestLimiter;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -37,14 +39,20 @@ import com.twitter.distributedlog.thrift.service.ServerStatus;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.distributedlog.rate.MovingAverageRateFactory;
+import com.twitter.distributedlog.rate.MovingAverageRate;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
+import com.twitter.util.Timer;
+import com.twitter.util.ScheduledThreadPoolTimer;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -76,6 +84,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         MEM
     }
 
+    private final int MOVING_AVERAGE_WINDOW_SECS = 60;
     private final ServerConfiguration serverConfig;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
@@ -84,11 +93,24 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final ReentrantReadWriteLock closeLock =
             new ReentrantReadWriteLock();
     private final CountDownLatch keepAliveLatch;
+    private final byte dlsnVersion;
+    private final String clientId;
+    private final ScheduledExecutorService executorService;
+    private final AccessControlManager accessControlManager;
+    private final StreamConfigProvider streamConfigProvider;
+    private final StreamManager streamManager;
+    private final StreamFactory streamFactory;
+    private final MovingAverageRateFactory movingAvgFactory;
+    private final MovingAverageRate windowedRps;
+    private final ServiceRequestLimiter limiter;
+    private final Timer timer;
+    private final HashedWheelTimer requestTimer;
 
     // Features
     private final FeatureProvider featureProvider;
     private final Feature featureRegionStopAcceptNewStream;
     private final Feature featureChecksumDisabled;
+    private final Feature limiterDisabledFeature;
 
     // Stats
     private final StatsLogger statsLogger;
@@ -102,15 +124,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final ConcurrentHashMap<StatusCode, Counter> statusCodeCounters =
             new ConcurrentHashMap<StatusCode, Counter>();
     private final Counter statusCodeTotal;
-
-    private final byte dlsnVersion;
-    private final String clientId;
-    private final ScheduledExecutorService executorService;
-    private final AccessControlManager accessControlManager;
-    private final StreamConfigProvider streamConfigProvider;
-    private final StreamManager streamManager;
-    private final StreamFactory streamFactory;
-    private final HashedWheelTimer requestTimer;
 
     DistributedLogServiceImpl(ServerConfiguration serverConf,
                               DistributedLogConfiguration dlConf,
@@ -144,7 +157,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 .regionId(serverRegionId)
                 .build();
         this.accessControlManager = this.dlNamespace.createAccessControlManager();
-
         this.keepAliveLatch = keepAliveLatch;
         this.streamConfigProvider = streamConfigProvider;
 
@@ -155,6 +167,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.executorService = Executors.newScheduledThreadPool(numThreads,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
 
+        // Timer, kept separate to ensure reliability of timeouts.
         this.requestTimer = new HashedWheelTimer(
             new ThreadFactoryBuilder().setNameFormat("DLServiceTimer-%d").build(),
             dlConf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
@@ -172,11 +185,22 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 requestTimer);
         this.streamManager = new StreamManagerImpl(clientId, executorService, streamFactory);
 
-        // service features
+
+        // Service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
         this.featureChecksumDisabled = this.featureProvider.getFeature(
                 ServerFeatureKeys.SERVICE_CHECKSUM_DISABLED.name().toLowerCase());
+        this.limiterDisabledFeature = this.featureProvider.getFeature(
+                ServerFeatureKeys.SERVICE_GLOBAL_LIMITER_DISABLED.name().toLowerCase());
+
+        // Resource limiting
+        this.timer = new ScheduledThreadPoolTimer(1, "timer", true);
+        this.movingAvgFactory = new MovingAverageRateFactory(timer);
+        this.windowedRps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
+        DynamicDistributedLogConfiguration dynConf = ConfUtils.getConstDynConf(dlConfig);
+        this.limiter = new ServiceRequestLimiter(
+                dynConf, streamOpStats, windowedRps, streamManager, limiterDisabledFeature);
 
         // Stats
         this.statsLogger = statsLogger;
@@ -193,6 +217,18 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             public Number getSample() {
                 return ServerStatus.DOWN == serverStatus ? -1 : (featureRegionStopAcceptNewStream.isAvailable() ?
                         3 : (ServerStatus.WRITE_AND_ACCEPT == serverStatus ? 1 : 2));
+            }
+        });
+        // Global moving average rps
+        statsLogger.registerGauge("moving_avg_rps", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return windowedRps.get();
             }
         });
 
@@ -214,7 +250,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             @Override
             public Number getSample() {
-                return streamManager.getAcquiredStreams().size();
+                return streamManager.numAcquired();
             }
         });
         streamsStatsLogger.registerGauge("cached", new Gauge<Number>() {
@@ -225,7 +261,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
             @Override
             public Number getSample() {
-                return streamManager.getCachedStreams().size();
+                return streamManager.numCached();
             }
         });
 
@@ -310,7 +346,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         receivedRecordCounter.add(data.size());
         BulkWriteOp op = new BulkWriteOp(stream, data, statsLogger, perStreamStatsLogger, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
                 bulkWritePendingStat.dec();
@@ -328,7 +364,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     public Future<WriteResponse> heartbeat(String stream, WriteContext ctx) {
         HeartbeatOp op = new HeartbeatOp(stream, statsLogger, perStreamStatsLogger, dlsnVersion, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result();
     }
 
@@ -339,7 +375,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         if (options.isSendHeartBeatToReader()) {
             op.setWriteControlRecord(true);
         }
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result();
     }
 
@@ -347,7 +383,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     public Future<WriteResponse> truncate(String stream, String dlsn, WriteContext ctx) {
         TruncateOp op = new TruncateOp(stream, DLSN.deserialize(dlsn), statsLogger, perStreamStatsLogger, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result();
     }
 
@@ -355,7 +391,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     public Future<WriteResponse> delete(String stream, WriteContext ctx) {
         DeleteOp op = new DeleteOp(stream, statsLogger, perStreamStatsLogger, streamManager, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result();
     }
 
@@ -363,7 +399,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     public Future<WriteResponse> release(String stream, WriteContext ctx) {
         ReleaseOp op = new ReleaseOp(stream, statsLogger, perStreamStatsLogger, streamManager, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result();
     }
 
@@ -389,7 +425,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         writePendingStat.inc();
         receivedRecordCounter.inc();
         WriteOp op = newWriteOp(name, data, checksum);
-        doExecuteStreamOp(op);
+        executeStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
                 writePendingStat.dec();
@@ -402,7 +438,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return ctx.isSetCrc32() ? ctx.getCrc32() : null;
     }
 
-    private void doExecuteStreamOp(final StreamOp op) {
+    private void executeStreamOp(final StreamOp op) {
 
         // Must attach this as early as possible--returning before this point will cause us to
         // lose the status code.
@@ -420,7 +456,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         });
 
         try {
+            // Apply the request limiter
+            limiter.apply(op);
+
+            // Execute per-op pre-exec code
             op.preExecute();
+
         } catch (Exception e) {
             op.fail(e);
             return;
@@ -443,7 +484,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             return;
         }
 
-        stream.waitIfNeededAndWrite(op);
+        windowedRps.inc();
+        stream.submit(op);
     }
 
     void shutdown() {
@@ -459,6 +501,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             }
 
             streamManager.close();
+            movingAvgFactory.close();
+            limiter.close();
 
             Stopwatch closeStreamsStopwatch = Stopwatch.createStarted();
 
@@ -479,6 +523,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             logger.info("Closing distributedlog namespace ...");
             dlNamespace.close();
             logger.info("Closed distributedlog namespace .");
+
+            // Stop the timer.
+            timer.stop();
 
             // shutdown the executor after requesting closing streams.
             SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
@@ -547,12 +594,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     @VisibleForTesting
-    ConcurrentMap<String, Stream> getCachedStreams() {
-        return streamManager.getCachedStreams();
-    }
-
-    @VisibleForTesting
-    ConcurrentMap<String, Stream> getAcquiredStreams() {
-        return streamManager.getAcquiredStreams();
+    StreamManager getStreamManager() {
+        return streamManager;
     }
 }

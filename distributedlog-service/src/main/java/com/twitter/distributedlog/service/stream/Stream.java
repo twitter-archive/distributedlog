@@ -50,5 +50,5 @@ public interface Stream {
      * Execute the stream operation against this stream.
      * @param stream operation to execute
      */
-    void waitIfNeededAndWrite(StreamOp op);
+    void submit(StreamOp op);
 }

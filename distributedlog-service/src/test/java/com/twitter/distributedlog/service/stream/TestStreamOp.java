@@ -1,10 +1,11 @@
-package com.twitter.distributedlog.service;
+package com.twitter.distributedlog.service.stream;
 
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.InternalServerException;
+import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.thrift.service.StatusCode;

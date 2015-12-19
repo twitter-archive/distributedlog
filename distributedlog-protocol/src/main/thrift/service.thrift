@@ -74,6 +74,8 @@ enum StatusCode {
     LOG_EXISTS = 522,
     // Checksum failed on the request
     CHECKSUM_FAILED = 523,
+    // Overcapacity: too many streams
+    TOO_MANY_STREAMS = 524,
 
     // 6xx: unexpected
     UNEXPECTED = 600,
