@@ -25,6 +25,15 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * StreamManagerImpl is the default implementation responsible for creating, destroying, and keeping track
+ * of Streams.
+ *
+ * StreamFactory, supplied to StreamManagerImpl in the constructor below, is reposible simply for creating
+ * a stream object in isolation from the rest of the system. We pass a StreamFactory in instead of simply
+ * creating StreamImpl's ourselves in order to inject dependencies without bloating the StreamManagerImpl
+ * constructor.
+ */
 public class StreamManagerImpl implements StreamManager {
     static final Logger logger = LoggerFactory.getLogger(StreamManagerImpl.class);
 
@@ -36,7 +45,6 @@ public class StreamManagerImpl implements StreamManager {
     private final ScheduledExecutorService executorService;
     private final String clientId;
     private boolean closed = false;
-
     private final StreamFactory streamFactory;
 
     public StreamManagerImpl(String clientId, ScheduledExecutorService executorService, StreamFactory streamFactory) {
@@ -125,7 +133,7 @@ public class StreamManagerImpl implements StreamManager {
     }
 
     @Override
-    public Stream openStream(String streamName) throws IOException {
+    public Stream createStream(String streamName) throws IOException {
         Stream stream = streams.get(streamName);
         if (null == stream) {
             closeLock.readLock().lock();
@@ -216,7 +224,7 @@ public class StreamManagerImpl implements StreamManager {
     }
 
     private Stream newStream(String name) {
-        return streamFactory.newStream(name);
+        return streamFactory.create(name, this);
     }
 
     public Future<Void> doCloseAndRemoveAsync(final String streamName) {

@@ -9,6 +9,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
  * op stats consistently from different scopes.
  */
 public class StreamOpStats {
+    private final StatsLogger baseStatsLogger;
     private final StatsLogger requestStatsLogger;
     private final StatsLogger recordsStatsLogger;
     private final StatsLogger requestDeniedStatsLogger;
@@ -16,10 +17,19 @@ public class StreamOpStats {
 
     public StreamOpStats(StatsLogger statsLogger,
                          StatsLogger perStreamStatsLogger) {
+        this.baseStatsLogger = statsLogger;
         this.requestStatsLogger = statsLogger.scope("request");
         this.recordsStatsLogger = statsLogger.scope("records");
         this.requestDeniedStatsLogger = statsLogger.scope("denied");
         this.streamStatsLogger = perStreamStatsLogger;
+    }
+
+    public Counter baseCounter(String opName) {
+        return baseStatsLogger.getCounter(opName);
+    }
+
+    public StatsLogger baseScope(String opName) {
+        return baseStatsLogger.scope(opName);
     }
 
     public OpStatsLogger requestLatencyStat(String opName) {

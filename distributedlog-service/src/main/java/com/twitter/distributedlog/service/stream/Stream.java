@@ -3,6 +3,10 @@ package com.twitter.distributedlog.service.stream;
 import com.twitter.util.Future;
 import java.io.IOException;
 
+/**
+ * Stream is the per stream request handler in the DL service layer. The collection of Streams in
+ * the proxy are managed by StreamManager.
+ */
 public interface Stream {
 
     /**

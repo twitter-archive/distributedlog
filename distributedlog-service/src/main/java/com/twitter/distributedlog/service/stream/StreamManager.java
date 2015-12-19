@@ -9,6 +9,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manage lifecycle of streams.
+ *
+ * StreamManager is responsible for creating, destroying, and keeping track of Stream objects.
+ *
+ * Stream objects, which are managed by StreamManager and created by StreamFactory, are essentially the
+ * per stream request handlers, responsible fo dispatching ex. write requests to an underlying AsyncLogWriter,
+ * managing stream lock, interpreting exceptions, error conditions, and etc.
  */
 public interface StreamManager {
 
@@ -24,22 +30,22 @@ public interface StreamManager {
      * @param stream name
      * @return future satisfied once close complete
      */
-    Stream openStream(String stream) throws IOException;
+    Stream createStream(String stream) throws IOException;
 
     /**
-     * Asynchronous close method.
-     * @param stream being released
-     */
-    void notifyReleased(Stream stream);
-
-    /**
-     * Asynchronous close method.
+     * Notify the manager that a stream was acquired.
      * @param stream being acquired
      */
     void notifyAcquired(Stream stream);
 
     /**
-     * Asynchronous close method.
+     * Notify the manager that a stream was released.
+     * @param stream being released
+     */
+    void notifyReleased(Stream stream);
+
+    /**
+     * Notify the manager that a stream was completely removed.
      * @param stream being uncached
      * @return whether the stream existed or not
      */

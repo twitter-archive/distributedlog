@@ -1,28 +1,24 @@
 package com.twitter.distributedlog.service;
 
 import com.google.common.collect.Lists;
-import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamImpl;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl.StreamStatus;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
+import com.twitter.distributedlog.service.stream.StreamImpl.StreamStatus;
+import com.twitter.distributedlog.service.stream.StreamImpl;
 import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.util.FutureUtils;
-import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
-import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.After;
@@ -157,9 +153,9 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 StatusCode.SUCCESS, wr0.getHeader().getCode());
         assertEquals("Service 0 should acquire stream",
                 StreamStatus.INITIALIZED, s0.getStatus());
-        assertNotNull(s0.manager);
-        assertNotNull(s0.writer);
-        assertNull(s0.lastException);
+        assertNotNull(s0.getManager());
+        assertNotNull(s0.getWriter());
+        assertNull(s0.getLastException());
 
         // resume acquiring s1
         s1.resumeAcquiring();
@@ -168,10 +164,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 StatusCode.FOUND, wr1.getHeader().getCode());
         assertEquals("Service 1 should be in BACKOFF state",
                 StreamStatus.BACKOFF, s1.getStatus());
-        assertNotNull(s1.manager);
-        assertNull(s1.writer);
-        assertNotNull(s1.lastException);
-        assertTrue(s1.lastException instanceof OwnershipAcquireFailedException);
+        assertNotNull(s1.getManager());
+        assertNull(s1.getWriter());
+        assertNotNull(s1.getLastException());
+        assertTrue(s1.getLastException() instanceof OwnershipAcquireFailedException);
 
         service1.shutdown();
     }
@@ -327,8 +323,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         while (StreamStatus.CLOSING != s.getStatus()) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
-        assertNotNull("Writer should be initialized", s.writer);
-        assertNull("No exception should be thrown", s.lastException);
+        assertNotNull("Writer should be initialized", s.getWriter());
+        assertNull("No exception should be thrown", s.getLastException());
         for (int i = 0; i < numWrites; i++) {
             assertFalse("Write should not fail before closing",
                     futureList.get(i).isDefined());
@@ -614,7 +610,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         for (Stream s : localService.getAcquiredStreams().values()) {
             StreamImpl stream = (StreamImpl) s;
-            stream.status = StreamStatus.FAILED;
+            stream.setStatus(StreamStatus.FAILED);
         }
 
         Future<List<Void>> closeResult = localService.closeStreams();
