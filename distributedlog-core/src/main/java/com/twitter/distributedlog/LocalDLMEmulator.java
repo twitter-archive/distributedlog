@@ -174,7 +174,7 @@ public class LocalDLMEmulator {
 
     public void start() throws Exception {
         bkStartupThread.start();
-        if (!LocalBookKeeper.waitForServerUp(zkEnsemble, zkTimeoutSec)) {
+        if (!LocalBookKeeper.waitForServerUp(zkEnsemble, zkTimeoutSec*1000)) {
             throw new Exception("Error starting zookeeper/bookkeeper");
         }
         int bookiesUp = checkBookiesUp(numBookies, zkTimeoutSec);

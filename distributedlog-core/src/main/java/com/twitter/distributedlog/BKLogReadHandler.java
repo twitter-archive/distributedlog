@@ -933,7 +933,7 @@ class BKLogReadHandler extends BKLogHandler {
                 } else if (BKException.Code.ZKException == rc) {
                     encounteredException = true;
                     int numExceptions = bkcZkExceptions.incrementAndGet();
-                    LOG.info("ReadAhead Worker for {} encountered zookeeper exception : total exceptions are {}.",
+                    LOG.debug("ReadAhead Worker for {} encountered zookeeper exception : total exceptions are {}.",
                             fullyQualifiedName, numExceptions);
                 } else if (BKException.Code.OK != rc) {
                     encounteredException = true;
