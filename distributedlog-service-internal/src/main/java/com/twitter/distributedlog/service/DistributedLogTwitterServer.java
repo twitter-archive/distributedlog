@@ -1,11 +1,13 @@
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.twitter.app.Flag;
 import com.twitter.app.Flaggable;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.server.AbstractTwitterServer;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.twitter.finagle.FinagleStatsProvider;
 import org.slf4j.Logger;
@@ -13,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import scala.runtime.AbstractFunction0;
 import scala.runtime.BoxedUnit;
 
+import java.io.File;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 
@@ -34,26 +38,33 @@ public class DistributedLogTwitterServer extends AbstractTwitterServer {
     private final Flag<Boolean> muxFlag =
             flag().create("mx", false, "Is thriftmux enabled", Flaggable.ofJavaBoolean());
 
-    private final String[] dlArgs;
-
-    private DistributedLogTwitterServer(String[] args) {
-        List<String> argList = Lists.newArrayListWithExpectedSize(args.length);
-        // filter out twitter-server's flags
-        for (String arg : args) {
-            if (arg.contains(".") && arg.contains("=")) {
-                continue;
-            }
-            argList.add(arg);
+    private <T> Optional<T> getOptionalFlag(Flag<T> flag) {
+        if (flag.isDefined()) {
+            return Optional.of(flag.apply());
+        } else {
+            return Optional.absent();
         }
-        this.dlArgs = argList.toArray(new String[argList.size()]);
     }
 
     @Override
     public void main() throws Throwable {
+        runServer(getOptionalFlag(uriFlag));
+    }
+
+    public void runServer(Optional<String> optionalUri) throws Throwable {
         StatsReceiver statsReceiver = statsReceiver();
         StatsProvider statsProvider = new FinagleStatsProvider(statsReceiver);
-        final DistributedLogServer server =
-                DistributedLogServer.run(dlArgs, statsReceiver, statsProvider);
+        final DistributedLogServer server = DistributedLogServer.runServer(
+                optionalUri,
+                getOptionalFlag(confFlag),
+                getOptionalFlag(streamConfFlag),
+                getOptionalFlag(portFlag),
+                Optional.<Integer>absent(),
+                Optional.<Integer>absent(),
+                Optional.<String>absent(),
+                getOptionalFlag(muxFlag),
+                statsReceiver,
+                statsProvider);
 
         // register shutdown hook
         onExit(new AbstractFunction0<BoxedUnit>() {
@@ -80,56 +91,8 @@ public class DistributedLogTwitterServer extends AbstractTwitterServer {
     public static class Main {
 
         public static void main(String[] args) {
-            new DistributedLogTwitterServer(args).main(args);
+            new DistributedLogTwitterServer().main(args);
         }
 
-    }
-
-    /**
-     * Emulator to run DistributedLog Twitter Server
-     */
-    public static class Emulator {
-        private final DistributedLogCluster dlCluster;
-        private final String[] args;
-
-        public Emulator(String[] args) throws Exception {
-            this.dlCluster = DistributedLogCluster.newBuilder()
-                    .numBookies(3)
-                    .shouldStartZK(true)
-                    .zkServers("127.0.0.1")
-                    .shouldStartProxy(false)
-                    .dlConf(new DistributedLogConfiguration())
-                    .build();
-            this.args = args;
-        }
-
-        public void start() throws Exception {
-            dlCluster.start();
-
-            // Run the server with dl cluster info
-            String[] extendedArgs = new String[args.length + 2];
-            System.arraycopy(args, 0, extendedArgs, 0, args.length);
-            extendedArgs[extendedArgs.length - 2] = "-u";
-            extendedArgs[extendedArgs.length - 1] = dlCluster.getUri().toString();
-            logger.info("Using args {}", Arrays.toString(extendedArgs));
-            Main.main(extendedArgs);
-        }
-
-        public void stop() throws Exception {
-            dlCluster.stop();
-        }
-
-        public static void main(String[] args) throws Exception {
-            Emulator emulator = null;
-            try {
-                emulator = new Emulator(args);
-                emulator.start();
-            } catch (Exception ex) {
-                if (null != emulator) {
-                    emulator.stop();
-                }
-                System.out.println("Exception occurred running emulator " + ex);
-            }
-        }
     }
 }

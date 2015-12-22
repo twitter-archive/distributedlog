@@ -2,7 +2,7 @@ package com.twitter.distributedlog.example;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.service.DistributedLogCluster;
-import com.twitter.distributedlog.service.DistributedLogServer;
+import com.twitter.distributedlog.service.DistributedLogServerApp;
 
 import java.util.Arrays;
 
@@ -38,7 +38,7 @@ public class ProxyClusterEmulator {
         extendedArgs[extendedArgs.length - 2] = "-u";
         extendedArgs[extendedArgs.length - 1] = dlCluster.getUri().toString();
         LOG.debug("Using args {}", Arrays.toString(extendedArgs));
-        DistributedLogServer.main(extendedArgs);
+        DistributedLogServerApp.main(extendedArgs);
     }
 
     public void stop() throws Exception {

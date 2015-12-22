@@ -38,7 +38,7 @@ public class Benchmarker {
     int changeRate = 100;
     int changeRateSeconds = 1800;
     int concurrency = 10;
-    String streamPrefix = "dlog-loadtest-";
+    String streamPrefix = "dlog-loadtest";
     int shardId = -1;
     int numStreams = 10;
     List<String> serversetPaths = new ArrayList<String>();

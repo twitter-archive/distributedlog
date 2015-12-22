@@ -13,6 +13,9 @@ import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.net.BindException;
 import java.net.InetSocketAddress;
@@ -25,6 +28,8 @@ import java.util.concurrent.TimeUnit;
  * DistributedLog Cluster is an emulator to run distributedlog components.
  */
 public class DistributedLogCluster {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DistributedLogCluster.class);
 
     public static Builder newBuilder() {
         return new Builder();
@@ -194,6 +199,9 @@ public class DistributedLogCluster {
                     }
                 }
             }
+
+            LOG.info("Runnning DL on port {}", proxyPort);
+
             dlServer = serverPair;
             address = DLSocketAddress.getSocketAddress(proxyPort);
         }
