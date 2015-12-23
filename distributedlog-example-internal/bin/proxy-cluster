@@ -8,7 +8,7 @@ ADMIN_PORT=9000
 
 cd ${DISTRIBUTEDLOG_ROOT} &&\
 mvn clean install -pl distributedlog-example-internal -am -DskipTests &&\
-BUILT_JAR=`ls distributedlog-service-internal/target/distributedlog-*.jar 2> /dev/null | egrep -v 'tests|javadoc|sources' | tail -1` &&
+BUILT_JAR=`ls distributedlog-example-internal/target/distributedlog-*.jar 2> /dev/null | egrep -v 'tests|javadoc|sources' | tail -1` &&
 LOG4J_CONF="$(pwd)/distributedlog-example/conf/log4j.properties"
 DL_CLASSPATH=".:distributedlog-example-internal/lib/*:$BUILT_JAR:`dirname $LOG4J_CONF`"
 java -cp $DL_CLASSPATH \
