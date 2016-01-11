@@ -12,6 +12,7 @@ import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 
 import java.net.URI;
@@ -56,26 +57,41 @@ public class ZKLogMetadataStore implements LogMetadataStore {
         final Promise<Iterator<String>> promise = new Promise<Iterator<String>>();
         final String nsRootPath = namespace.getPath();
         try {
-            zkc.get().getChildren(nsRootPath, false, new AsyncCallback.Children2Callback() {
+            final ZooKeeper zk = zkc.get();
+            zk.sync(nsRootPath, new AsyncCallback.VoidCallback() {
                 @Override
-                public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
-                    if (KeeperException.Code.OK.intValue() == rc) {
-                        List<String> results = Lists.newArrayListWithExpectedSize(children.size());
-                        for (String child : children) {
-                            if (!isReservedStreamName(child)) {
-                                results.add(child);
+                public void processResult(int syncRc, String syncPath, Object ctx) {
+                    if (KeeperException.Code.OK.intValue() == syncRc) {
+                        zk.getChildren(nsRootPath, false, new AsyncCallback.Children2Callback() {
+                            @Override
+                            public void processResult(int rc, String path, Object ctx, List<String> children, Stat stat) {
+                                if (KeeperException.Code.OK.intValue() == rc) {
+                                    List<String> results = Lists.newArrayListWithExpectedSize(children.size());
+                                    for (String child : children) {
+                                        if (!isReservedStreamName(child)) {
+                                            results.add(child);
+                                        }
+                                    }
+                                    promise.setValue(results.iterator());
+                                } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                                    List<String> streams = Lists.newLinkedList();
+                                    promise.setValue(streams.iterator());
+                                } else {
+                                    promise.setException(new ZKException("Error reading namespace " + nsRootPath,
+                                            KeeperException.Code.get(rc)));
+                                }
                             }
-                        }
-                        promise.setValue(results.iterator());
-                    } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                        }, null);
+                    } else if (KeeperException.Code.NONODE.intValue() == syncRc) {
                         List<String> streams = Lists.newLinkedList();
                         promise.setValue(streams.iterator());
                     } else {
                         promise.setException(new ZKException("Error reading namespace " + nsRootPath,
-                                KeeperException.Code.get(rc)));
+                                KeeperException.Code.get(syncRc)));
                     }
                 }
             }, null);
+            zkc.get();
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
             promise.setException(e);
         } catch (InterruptedException e) {

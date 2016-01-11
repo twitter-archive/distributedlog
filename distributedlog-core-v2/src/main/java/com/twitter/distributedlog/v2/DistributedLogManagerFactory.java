@@ -10,6 +10,7 @@ import com.twitter.distributedlog.MetadataAccessor;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
@@ -23,7 +24,9 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
@@ -38,9 +41,11 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
@@ -627,6 +632,35 @@ public class DistributedLogManagerFactory {
         return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder, NullStatsLogger.INSTANCE);
     }
 
+    private static ZooKeeper sync(ZooKeeperClient zkc, String path) throws IOException {
+        ZooKeeper zk;
+        try {
+            zk = zkc.get();
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted checkIfLogExists  " + path, e);
+            throw new DLInterruptedException("Interrupted on checking if log " + path + " exists", e);
+        }
+        final CountDownLatch syncLatch = new CountDownLatch(1);
+        final AtomicInteger syncResult = new AtomicInteger(0);
+        zk.sync(path, new AsyncCallback.VoidCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx) {
+                syncResult.set(rc);
+                syncLatch.countDown();
+            }
+        }, null);
+        try {
+            syncLatch.await();
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on syncing zookeeper connection", e);
+        }
+        if (KeeperException.Code.OK.intValue() != syncResult.get()) {
+            throw new ZKException("Error syncing zookeeper connection ",
+                    KeeperException.Code.get(syncResult.get()));
+        }
+        return zk;
+    }
+
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
@@ -634,18 +668,14 @@ public class DistributedLogManagerFactory {
         return withZooKeeperClient(new ZooKeeperClientHandler<Boolean>() {
             @Override
             public Boolean handle(ZooKeeperClient zkc) throws IOException {
+                // check existence after syncing
                 try {
-                    if (null != zkc.get().exists(logRootPath, false)) {
-                        return true;
-                    }
-                } catch (InterruptedException ie) {
-                    LOG.error("Interrupted checkIfLogExists {}", logRootPath, ie);
-                    throw new DLInterruptedException("Interrupted checkIfLogExists " + logRootPath, ie);
-                } catch (KeeperException ke) {
-                    LOG.error("Error reading {} in zookeeper", logRootPath, ke);
-                    throw new IOException("Error reading " + logRootPath + " in zookeeper", ke);
+                    return null != sync(zkc, logRootPath).exists(logRootPath, false);
+                } catch (KeeperException e) {
+                    throw new ZKException("Error on checking if log " + logRootPath + " exists", e.code());
+                } catch (InterruptedException e) {
+                    throw new DLInterruptedException("Interrupted on checking if log " + logRootPath + " exists", e);
                 }
-                return false;
             }
         }, conf, uri);
     }
@@ -665,11 +695,12 @@ public class DistributedLogManagerFactory {
         validateConfAndURI(conf, uri);
         String namespaceRootPath = uri.getPath();
         try {
-            Stat currentStat = zkc.get().exists(namespaceRootPath, false);
+            ZooKeeper zk = sync(zkc, namespaceRootPath);
+            Stat currentStat = zk.exists(namespaceRootPath, false);
             if (currentStat == null) {
                 return new LinkedList<String>();
             }
-            return zkc.get().getChildren(namespaceRootPath, false);
+            return zk.getChildren(namespaceRootPath, false);
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while deleting " + namespaceRootPath, ie);
             throw new DLInterruptedException("Interrupted while deleting " + namespaceRootPath, ie);
@@ -696,18 +727,19 @@ public class DistributedLogManagerFactory {
         String namespaceRootPath = uri.getPath();
         HashMap<String, byte[]> result = new HashMap<String, byte[]>();
         try {
-            Stat currentStat = zkc.get().exists(namespaceRootPath, false);
+            ZooKeeper zk = sync(zkc, namespaceRootPath);
+            Stat currentStat = zk.exists(namespaceRootPath, false);
             if (currentStat == null) {
                 return result;
             }
-            List<String> children = zkc.get().getChildren(namespaceRootPath, false);
+            List<String> children = zk.getChildren(namespaceRootPath, false);
             for(String child: children) {
                 String zkPath = String.format("%s/%s", namespaceRootPath, child);
-                currentStat = zkc.get().exists(zkPath, false);
+                currentStat = zk.exists(zkPath, false);
                 if (currentStat == null) {
                     result.put(child, new byte[0]);
                 } else {
-                    result.put(child, zkc.get().getData(zkPath, false, currentStat));
+                    result.put(child, zk.getData(zkPath, false, currentStat));
                 }
             }
         } catch (InterruptedException ie) {
