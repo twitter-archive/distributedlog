@@ -243,6 +243,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
     private final DistributedReentrantLock lock;
+    private final boolean isDurableWriteEnabled;
     private LogRecord.Writer writer;
     private DLSN lastDLSN = DLSN.InvalidDLSN;
     private final long startTxId;
@@ -441,6 +442,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
+        this.isDurableWriteEnabled = conf.isDurableWriteEnabled();
 
         // Failure injection
         if (conf.getEIInjectWriteDelay()) {
@@ -747,6 +749,10 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 transmit(true);
             } else {
                 result = writeUserRecord(record);
+                if (!isDurableWriteEnabled) {
+                    // we have no idea about the DLSN if durability is turned off.
+                    result = Future.value(DLSN.InvalidDLSN);
+                }
                 if (flush) {
                     flushIfNeeded();
                 }

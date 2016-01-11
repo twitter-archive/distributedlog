@@ -373,7 +373,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 .setStreamProbationTimeoutMs(Integer.MAX_VALUE)
                 .setOutputBufferSize(Integer.MAX_VALUE)
                 .setImmediateFlushEnabled(false)
-                .setPeriodicFlushFrequencyMilliSeconds(0);
+                .setPeriodicFlushFrequencyMilliSeconds(0)
+                .setDurableWriteEnabled(false);
         ServerConfiguration serverConfLocal = new ServerConfiguration();
         serverConfLocal.addConfiguration(serverConf);
         serverConfLocal.enableDurableWrite(false);

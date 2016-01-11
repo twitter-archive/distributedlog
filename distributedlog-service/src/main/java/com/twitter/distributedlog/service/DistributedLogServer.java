@@ -129,6 +129,10 @@ public class DistributedLogServer {
         serverConf.loadConf(dlConf);
         serverConf.validate();
         this.gracefulShutdownMs = serverConf.getGracefulShutdownPeriodMs();
+        if (!serverConf.isDurableWriteEnabled()) {
+            dlConf.setDurableWriteEnabled(false);
+        }
+
         Pair<DistributedLogServiceImpl, Server>
             serverPair = runServer(serverConf, dlConf, dlUri, statsProvider, port.or(0),
                 keepAliveLatch, statsReceiver, thriftmux.isPresent(), streamConfProvider);

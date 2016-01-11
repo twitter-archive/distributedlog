@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.ConfUtils;
@@ -577,5 +579,117 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 0L, lh.getLastAddPushed());
         assertEquals("Only one entry is written for ledger " + lh.getId(),
                 0L, readLh.getLastAddConfirmed());
+    }
+
+    /**
+     * Non durable write should fail if writer is closed.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testNondurableWriteAfterWriterIsClosed() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setDurableWriteEnabled(false);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+
+        // close the writer
+        writer.close();
+
+        try {
+            Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(1)));
+            fail("Should fail the write if the writer is closed");
+        } catch (WriteException we) {
+            // expected
+        }
+    }
+
+    /**
+     * Non durable write should fail if writer is marked as end of stream.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testNondurableWriteAfterEndOfStream() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setDurableWriteEnabled(false);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+
+        writer.markEndOfStream();
+
+        try {
+            Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(1)));
+            fail("Should fail the write if the writer is marked as end of stream");
+        } catch (EndOfStreamException we) {
+            // expected
+        }
+    }
+
+    /**
+     * Non durable write should fail if the log segment is fenced.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testNondurableWriteAfterLedgerIsFenced() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setDurableWriteEnabled(false);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+
+        // fence the ledger
+        fenceLedger(writer.getLedgerHandle());
+
+        LogRecord record = DLMTestUtil.getLogRecordInstance(1);
+        record.setControl();
+        try {
+            Await.result(writer.asyncWrite(record));
+            fail("Should fail the writer if the log segment is already fenced");
+        } catch (BKTransmitException bkte) {
+            // expected
+            assertEquals(BKException.Code.LedgerFencedException, bkte.getBKResultCode());
+        }
+
+        try {
+            Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(2)));
+            fail("Should fail the writer if the log segment is already fenced");
+        } catch (WriteException we) {
+            // expected
+        }
+    }
+
+    /**
+     * Non durable write should fail if writer is marked as end of stream.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testNondurableWrite() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setDurableWriteEnabled(false);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+
+        assertEquals(DLSN.InvalidDLSN,
+                Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(2))));
+
+        assertEquals(-1L, writer.getLedgerHandle().getLastAddPushed());
     }
 }

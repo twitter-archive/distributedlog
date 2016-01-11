@@ -55,6 +55,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     // Controls when log records accumulated in the writer will be
     // transmitted to bookkeeper
+    public static final String BKDL_IS_DURABLE_WRITE_ENABLED = "isDurableWriteEnabled";
+    public static final boolean BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT = true;
+
     public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
     public static final int BKDL_OUTPUT_BUFFER_SIZE_DEFAULT = 1024;
 
@@ -572,6 +575,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setMaxLogSegmentBytes(long maxBytes) {
         setProperty(BKDL_MAX_LOGSEGMENT_BYTES, maxBytes);
+        return this;
+    }
+
+    /**
+     * Check whether the durable write is enabled.
+     * <p>It is enabled by default.
+     *
+     * @return true if durable write is enabled. otherwise, false.
+     */
+    public boolean isDurableWriteEnabled() {
+        return this.getBoolean(BKDL_IS_DURABLE_WRITE_ENABLED, BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable durable writes in writers.
+     *
+     * @param enabled
+     *          flag to enable/disable durable writes in writers.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setDurableWriteEnabled(boolean enabled) {
+        setProperty(BKDL_IS_DURABLE_WRITE_ENABLED, enabled);
         return this;
     }
 

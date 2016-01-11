@@ -9,7 +9,6 @@ import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.RequestDeniedException;
 import com.twitter.distributedlog.service.ResponseUtils;
-import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
@@ -44,7 +43,6 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     private final Counter writeBytes;
 
     private final byte dlsnVersion;
-    private final boolean isDurableWriteEnabled;
     private final AccessControlManager accessControlManager;
 
     public WriteOp(String stream,
@@ -70,7 +68,6 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         this.bytes = streamOpStats.streamRequestCounter(stream, "write", "bytes");
 
         this.dlsnVersion = dlsnVersion;
-        this.isDurableWriteEnabled = conf.isDurableWriteEnabled();
         this.accessControlManager = accessControlManager;
 
         final long size = getPayloadSize();
@@ -126,17 +123,13 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
             txnId = sequencer.nextId();
             writeResult = writer.write(new LogRecord(txnId, payload));
         }
-        if (isDurableWriteEnabled) {
-            return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
-                @Override
-                public WriteResponse apply(DLSN value) {
-                    successRecordCounter.inc();
-                    return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
-                }
-            });
-        } else {
-            return Future.value(ResponseUtils.writeSuccess().setDlsn(DLSN.InvalidDLSN.serialize(dlsnVersion)));
-        }
+        return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
+            @Override
+            public WriteResponse apply(DLSN value) {
+                successRecordCounter.inc();
+                return ResponseUtils.writeSuccess().setDlsn(value.serialize(dlsnVersion));
+            }
+        });
     }
 
     @Override
