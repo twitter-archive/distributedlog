@@ -1,7 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.collect.Sets;
-import com.twitter.distributedlog.feature.DeciderFeatureProvider;
+import com.twitter.distributedlog.feature.DefaultFeatureProvider;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.net.DNSResolverForRacks;
 import com.twitter.distributedlog.net.DNSResolverForRows;
@@ -351,12 +351,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
 
     public static final String BKDL_FEATURE_PROVIDER_CLASS = "featureProviderClass";
-    public static final String BKDL_DECIDER_BASE_CONFIG_PATH = "deciderBaseConfigPath";
-    public static final String BKDL_DECIDER_BASE_CONFIG_PATH_DEFAULT = "decider.yml";
-    public static final String BKDL_DECIDER_OVERLAY_CONFIG_PATH = "deciderOverlayConfigPath";
-    public static final String BKDL_DECIDER_OVERLAY_CONFIG_PATH_DEFAULT = null;
-    public static final String BKDL_DECIDER_ENVIRONMENT = "deciderEnvironment";
-    public static final String BKDL_DECIDER_ENVIRONMENT_DEFAULT = null;
 
     //
     // Settings for Namespaces
@@ -2759,7 +2753,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public Class<? extends FeatureProvider> getFeatureProviderClass()
             throws ConfigurationException {
-        return ReflectionUtils.getClass(this, BKDL_FEATURE_PROVIDER_CLASS, DeciderFeatureProvider.class,
+        return ReflectionUtils.getClass(this, BKDL_FEATURE_PROVIDER_CLASS, DefaultFeatureProvider.class,
                 FeatureProvider.class, FeatureProvider.class.getClassLoader());
     }
 
@@ -2772,68 +2766,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setFeatureProviderClass(Class<? extends FeatureProvider> providerClass) {
         setProperty(BKDL_FEATURE_PROVIDER_CLASS, providerClass.getName());
-        return this;
-    }
-
-    /**
-     * Get the base config path for decider.
-     *
-     * @return base config path for decider.
-     */
-    public String getDeciderBaseConfigPath() {
-        return getString(BKDL_DECIDER_BASE_CONFIG_PATH, BKDL_DECIDER_BASE_CONFIG_PATH_DEFAULT);
-    }
-
-    /**
-     * Set the base config path for decider.
-     *
-     * @param configPath
-     *          base config path for decider.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderBaseConfigPath(String configPath) {
-        setProperty(BKDL_DECIDER_BASE_CONFIG_PATH, configPath);
-        return this;
-    }
-
-    /**
-     * Get the overlay config path for decider.
-     *
-     * @return overlay config path for decider.
-     */
-    public String getDeciderOverlayConfigPath() {
-        return getString(BKDL_DECIDER_OVERLAY_CONFIG_PATH, BKDL_DECIDER_OVERLAY_CONFIG_PATH_DEFAULT);
-    }
-
-    /**
-     * Set the overlay config path for decider.
-     *
-     * @param configPath
-     *          overlay config path for decider.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderOverlayConfigPath(String configPath) {
-        setProperty(BKDL_DECIDER_OVERLAY_CONFIG_PATH, configPath);
-        return this;
-    }
-
-    /**
-     * Get the decider environment.
-     *
-     * @return decider environment
-     */
-    public String getDeciderEnvironment() {
-        return getString(BKDL_DECIDER_ENVIRONMENT, BKDL_DECIDER_ENVIRONMENT_DEFAULT);
-    }
-
-    /**
-     * Set the decider environment.
-     *
-     * @param environment decider environment
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderEnvironment(String environment) {
-        setProperty(BKDL_DECIDER_ENVIRONMENT, environment);
         return this;
     }
 

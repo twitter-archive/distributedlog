@@ -1,7 +1,12 @@
 package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.feature.DefaultFeatureProvider;
 import com.twitter.distributedlog.service.DistributedLogCluster.DLServer;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.SettableFeature;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,6 +23,28 @@ import static org.junit.Assert.*;
 
 public class TestRegionUnavailable extends DistributedLogServerTestCase {
 
+    public static class TestFeatureProvider extends DefaultFeatureProvider {
+
+        public TestFeatureProvider(String rootScope,
+                                   DistributedLogConfiguration conf,
+                                   StatsLogger statsLogger) {
+            super(rootScope, conf, statsLogger);
+        }
+
+        @Override
+        protected Feature makeFeature(String featureName) {
+            if (featureName.contains(ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase())) {
+                return new SettableFeature(featureName, 10000);
+            }
+            return super.makeFeature(featureName);
+        }
+
+        @Override
+        protected FeatureProvider makeProvider(String fullScopeName) {
+            return super.makeProvider(fullScopeName);
+        }
+    }
+
     private final int numServersPerDC = 3;
     private final List<DLServer> localCluster;
     private final List<DLServer> remoteCluster;
@@ -33,7 +60,7 @@ public class TestRegionUnavailable extends DistributedLogServerTestCase {
     public void setup() throws Exception {
         DistributedLogConfiguration localConf = new DistributedLogConfiguration();
         localConf.addConfiguration(conf);
-        localConf.setDeciderBaseConfigPath("server_decider_1.yml");
+        localConf.setFeatureProviderClass(TestFeatureProvider.class);
         DistributedLogConfiguration remoteConf = new DistributedLogConfiguration();
         remoteConf.addConfiguration(conf);
         super.setup();

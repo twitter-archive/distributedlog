@@ -128,10 +128,9 @@ public class DistributedLogServer {
         ServerConfiguration serverConf = new ServerConfiguration();
         serverConf.loadConf(dlConf);
         serverConf.validate();
-        this.gracefulShutdownMs = serverConf.getGracefulShutdownPeriodMs();
-        if (!serverConf.isDurableWriteEnabled()) {
-            dlConf.setDurableWriteEnabled(false);
-        }
+
+        // pre-run
+        preRun(dlConf, serverConf);
 
         Pair<DistributedLogServiceImpl, Server>
             serverPair = runServer(serverConf, dlConf, dlUri, statsProvider, port.or(0),
@@ -141,6 +140,13 @@ public class DistributedLogServer {
 
         // announce the service
         announcer.announce();
+    }
+
+    protected void preRun(DistributedLogConfiguration conf, ServerConfiguration serverConf) {
+        this.gracefulShutdownMs = serverConf.getGracefulShutdownPeriodMs();
+        if (!serverConf.isDurableWriteEnabled()) {
+            conf.setDurableWriteEnabled(false);
+        }
     }
 
     private StreamConfigProvider getStreamConfigProvider(DistributedLogConfiguration dlConf)

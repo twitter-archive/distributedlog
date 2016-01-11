@@ -9,14 +9,12 @@ import java.util.concurrent.TimeUnit;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-
-import java.io.File;
 
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.twitter.distributedlog.DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS;
 import static org.junit.Assert.*;
 
 public class TestStreamConfigProvider {
@@ -72,7 +70,7 @@ public class TestStreamConfigProvider {
     @Test
     public void testDefaultProvider() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
-        writer.setProperty("retention-size", "99");
+        writer.setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, "99");
         writer.save();
         StreamConfigProvider provider = getDefaultProvider(writer.getFile().getPath());
         Optional<DynamicDistributedLogConfiguration> config1 = provider.getDynamicStreamConfig("stream1");

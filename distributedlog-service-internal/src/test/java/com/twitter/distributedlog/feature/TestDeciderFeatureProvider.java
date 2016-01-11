@@ -49,7 +49,7 @@ public class TestDeciderFeatureProvider {
     @Test(timeout = 60000)
     public void testLoadDeciderFromBase() {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.setDeciderBaseConfigPath("test_decider.yml");
+        DeciderUtils.setDeciderBaseConfigPath(confLocal, "test_decider.yml");
         DeciderFeatureProvider provider = new DeciderFeatureProvider("", confLocal);
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());
@@ -68,8 +68,8 @@ public class TestDeciderFeatureProvider {
     @Test(timeout = 60000)
     public void testLoadDeciderFromOverlay() {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
-        confLocal.setDeciderBaseConfigPath("test_decider.yml");
-        confLocal.setDeciderOverlayConfigPath("test_overlay.yml");
+        DeciderUtils.setDeciderBaseConfigPath(confLocal, "test_decider.yml");
+        DeciderUtils.setDeciderOverlayConfigPath(confLocal, "test_overlay.yml");
         DeciderFeatureProvider provider = new DeciderFeatureProvider("", confLocal);
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());

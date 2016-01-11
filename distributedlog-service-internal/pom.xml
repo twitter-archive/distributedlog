@@ -33,6 +33,11 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
+      <artifactId>decider_2.11</artifactId>
+      <version>${birdcage.sha}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.twitter</groupId>
       <artifactId>twitter-server-internal_2.11</artifactId>
       <version>${birdcage.sha}</version>
       <exclusions>

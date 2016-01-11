@@ -25,8 +25,8 @@ public class DeciderFeatureProvider extends AbstractFeatureProvider<DeciderFeatu
     private final Decider decider;
 
     private static Decider initializeDecider(DistributedLogConfiguration conf) {
-        String baseConfigPath = conf.getDeciderBaseConfigPath();
-        String overlayConfigPath = conf.getDeciderOverlayConfigPath();
+        String baseConfigPath = DeciderUtils.getDeciderBaseConfigPath(conf);
+        String overlayConfigPath = DeciderUtils.getDeciderOverlayConfigPath(conf);
 
         logger.info("Initializing decider : base_config_path = {}, overlay_config_path = {}",
                 baseConfigPath, overlayConfigPath);
