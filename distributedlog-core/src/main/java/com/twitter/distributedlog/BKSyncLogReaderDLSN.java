@@ -39,7 +39,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
                         BKAsyncLogReaderDLSN reader,
                         ScheduledExecutorService executorService,
                         Optional<Long> startTransactionId) {
-        this.maxNumCachedRecords = conf.getReadAheadMaxEntries();
+        this.maxNumCachedRecords = conf.getReadAheadMaxRecords();
         this.maxReadAheadWaitTime = conf.getReadAheadWaitTime();
         this.reader = reader;
         this.executorService = executorService;

@@ -31,7 +31,7 @@ public class TestDistributedLogBase {
     protected static DistributedLogConfiguration conf =
         new DistributedLogConfiguration()
                 .setEnableReadAhead(true)
-                .setReadAheadMaxEntries(1000)
+                .setReadAheadMaxRecords(1000)
                 .setReadAheadBatchSize(10)
                 .setLockTimeout(1)
                 .setNumWorkerThreads(1)

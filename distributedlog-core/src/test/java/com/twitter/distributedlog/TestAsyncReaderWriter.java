@@ -400,7 +400,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setReadAheadWaitTime(10);
-        confLocal.setReadAheadMaxEntries(10000);
+        confLocal.setReadAheadMaxRecords(10000);
         confLocal.setReadAheadBatchSize(10);
 
         int numLogSegments = 3;
@@ -441,7 +441,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(1024000);
         confLocal.setReadAheadWaitTime(10);
-        confLocal.setReadAheadMaxEntries(10000);
+        confLocal.setReadAheadMaxRecords(10000);
         confLocal.setReadAheadBatchSize(10);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
@@ -933,7 +933,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setEnableReadAhead(true);
         confLocal.setReadAheadWaitTime(500);
         confLocal.setReadAheadBatchSize(10);
-        confLocal.setReadAheadMaxEntries(100);
+        confLocal.setReadAheadMaxRecords(100);
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
         confLocal.setReadLACOption(lacOption);
@@ -1411,7 +1411,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
         confLocal.setReaderIdleErrorThresholdMillis(idleReaderErrorThreshold);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
@@ -1554,7 +1554,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(0);
         confLocal.setImmediateFlushEnabled(true);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         confLocal.setReaderIdleErrorThresholdMillis(2000);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);

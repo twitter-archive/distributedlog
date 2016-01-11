@@ -35,7 +35,7 @@ public class BKDLConfig implements DLConfig {
 
     public static void propagateConfiguration(BKDLConfig bkdlConfig, DistributedLogConfiguration dlConf) {
         dlConf.setSanityCheckTxnID(bkdlConfig.getSanityCheckTxnID());
-        dlConf.setEncodeRegionIDInVersion(bkdlConfig.getEncodeRegionID());
+        dlConf.setEncodeRegionIDInLogSegmentMetadata(bkdlConfig.getEncodeRegionID());
         dlConf.setFirstLogSegmentSequenceNumber(bkdlConfig.getFirstLogSegmentSeqNo());
         if (bkdlConfig.isFederatedNamespace()) {
             dlConf.setCreateStreamIfNotExists(false);
@@ -43,7 +43,7 @@ public class BKDLConfig implements DLConfig {
         }
         LOG.info("Propagate BKDLConfig to DLConfig : sanityCheckTxnID = {}, encodeRegionID = {}," +
                         " firstLogSegmentSequenceNumber = {}, createStreamIfNotExists = {}, isFederated = {}.",
-                new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInVersion(),
+                new Object[] { dlConf.getSanityCheckTxnID(), dlConf.getEncodeRegionIDInLogSegmentMetadata(),
                         dlConf.getFirstLogSegmentSequenceNumber(), dlConf.getCreateStreamIfNotExists(),
                         bkdlConfig.isFederatedNamespace() });
     }

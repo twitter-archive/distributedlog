@@ -28,7 +28,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -61,7 +61,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(10);
-        confLocal.setReadAheadMaxEntries(10);
+        confLocal.setReadAheadMaxRecords(10);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
         try {
@@ -94,7 +94,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
         confLocal.setReaderIdleErrorThresholdMillis(100);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
@@ -135,7 +135,7 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(3);
+        confLocal.setReadAheadMaxRecords(3);
         confLocal.setReaderIdleWarnThresholdMillis(500);
         confLocal.setReaderIdleErrorThresholdMillis(30000);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);

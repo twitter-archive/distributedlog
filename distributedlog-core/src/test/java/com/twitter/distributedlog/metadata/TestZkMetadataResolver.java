@@ -93,7 +93,7 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
         meta1.create(uri);
         BKDLConfig read1 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read1, dlConf);
-        assertFalse(dlConf.getEncodeRegionIDInVersion());
+        assertFalse(dlConf.getEncodeRegionIDInLogSegmentMetadata());
 
         BKDLConfig.clearCachedDLConfigs();
 
@@ -101,7 +101,7 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
         meta2.update(uri);
         BKDLConfig read2 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read2, dlConf);
-        assertTrue(dlConf.getEncodeRegionIDInVersion());
+        assertTrue(dlConf.getEncodeRegionIDInLogSegmentMetadata());
 
         BKDLConfig.clearCachedDLConfigs();
 
@@ -109,7 +109,7 @@ public class TestZkMetadataResolver extends ZooKeeperClusterTestCase {
         meta3.update(uri);
         BKDLConfig read3 = BKDLConfig.resolveDLConfig(zkc, uri);
         BKDLConfig.propagateConfiguration(read3, dlConf);
-        assertFalse(dlConf.getEncodeRegionIDInVersion());
+        assertFalse(dlConf.getEncodeRegionIDInLogSegmentMetadata());
 
         BKDLConfig.clearCachedDLConfigs();
     }

@@ -48,6 +48,7 @@ public class TestDistributedLogConfiguration {
             DistributedLogConfiguration.BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT - 1);
     }
 
+    @SuppressWarnings("deprecation")
     @Test(timeout = 20000)
     public void loadStreamConfBadOverrideIgnored() throws Exception {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();

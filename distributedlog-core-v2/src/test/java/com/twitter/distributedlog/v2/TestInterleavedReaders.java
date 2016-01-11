@@ -393,7 +393,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
@@ -423,7 +423,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
@@ -454,7 +454,7 @@ public class TestInterleavedReaders {
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(16);
         confLocal.setReadAheadBatchSize(10);
-        confLocal.setReadAheadMaxEntries(10);
+        confLocal.setReadAheadMaxRecords(10);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
@@ -483,7 +483,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
@@ -514,7 +514,7 @@ public class TestInterleavedReaders {
         confLocal.loadConf(conf);
         confLocal.setOutputBufferSize(16);
         confLocal.setReadAheadBatchSize(10);
-        confLocal.setReadAheadMaxEntries(10);
+        confLocal.setReadAheadMaxRecords(10);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
 
@@ -544,7 +544,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(50);
         confLocal.setReaderIdleErrorThresholdMillis(100);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
@@ -581,7 +581,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(3);
+        confLocal.setReadAheadMaxRecords(3);
         confLocal.setReaderIdleWarnThresholdMillis(500);
         confLocal.setReaderIdleErrorThresholdMillis(30000);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
@@ -620,7 +620,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(15000);
         confLocal.setReaderIdleErrorThresholdMillis(30000);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
@@ -677,7 +677,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setOutputBufferSize(1024);
         confLocal.setReaderIdleWarnThresholdMillis(120000);
         confLocal.setReaderIdleErrorThresholdMillis(300000);
@@ -745,7 +745,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setOutputBufferSize(1024);
         confLocal.setReaderIdleWarnThresholdMillis(120000);
         confLocal.setReaderIdleErrorThresholdMillis(300000);
@@ -790,7 +790,7 @@ public class TestInterleavedReaders {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(500);
         confLocal.setReaderIdleErrorThresholdMillis(30000);
         final DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);

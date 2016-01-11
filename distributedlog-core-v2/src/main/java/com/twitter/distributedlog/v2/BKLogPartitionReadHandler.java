@@ -166,7 +166,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         fromTxId,
                                         executorService,
                                         handleCache,
-                                        Math.max(2, conf.getReadAheadMaxEntries())));
+                                        Math.max(2, conf.getReadAheadMaxRecords())));
                                 firstEntryId = record.isPresent() ? getEntryId(record.get().getDlsn()) : 0L;
                             } catch (IOException ioe) {
                                 LOG.warn("Failed to search transaction id {} in log segment {}, fall back to search from begin ...",
@@ -389,7 +389,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             this.ledgerDataAccessor = ledgerDataAccessor;
             this.conf = conf;
             this.readAheadBatchSize = conf.getReadAheadBatchSize();
-            this.readAheadMaxEntries = conf.getReadAheadMaxEntries();
+            this.readAheadMaxEntries = conf.getReadAheadMaxRecords();
             this.readAheadWaitTime = conf.getReadAheadWaitTime();
             this.noLedgerExceptionOnReadLACThreshold =
                     conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() / conf.getReadAheadWaitTime();

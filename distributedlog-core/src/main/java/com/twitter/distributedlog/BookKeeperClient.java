@@ -59,6 +59,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
     private Watcher sessionExpireWatcher = null;
     private AtomicBoolean zkSessionExpired = new AtomicBoolean(false);
 
+    @SuppressWarnings("deprecation")
     private synchronized void commonInitialization(
             DistributedLogConfiguration conf, String ledgersPath,
             ClientSocketChannelFactory channelFactory, StatsLogger statsLogger, HashedWheelTimer requestTimer,

@@ -3,6 +3,7 @@ package com.twitter.distributedlog.service.stream;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.FatalErrorHandler;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.StreamOpStats;
 import java.util.concurrent.ScheduledExecutorService;
@@ -12,6 +13,7 @@ import org.jboss.netty.util.HashedWheelTimer;
 public class StreamFactoryImpl implements StreamFactory {
     private final String clientId;
     private final StreamOpStats streamOpStats;
+    private final ServerConfiguration serverConfig;
     private final DistributedLogConfiguration dlConfig;
     private final FeatureProvider featureProvider;
     private final StreamConfigProvider streamConfigProvider;
@@ -22,6 +24,7 @@ public class StreamFactoryImpl implements StreamFactory {
 
     public StreamFactoryImpl(String clientId,
         StreamOpStats streamOpStats,
+        ServerConfiguration serverConfig,
         DistributedLogConfiguration dlConfig,
         FeatureProvider featureProvider,
         StreamConfigProvider streamConfigProvider,
@@ -32,6 +35,7 @@ public class StreamFactoryImpl implements StreamFactory {
 
         this.clientId = clientId;
         this.streamOpStats = streamOpStats;
+        this.serverConfig = serverConfig;
         this.dlConfig = dlConfig;
         this.featureProvider = featureProvider;
         this.streamConfigProvider = streamConfigProvider;
@@ -47,6 +51,7 @@ public class StreamFactoryImpl implements StreamFactory {
             clientId,
             streamManager,
             streamOpStats,
+            serverConfig,
             dlConfig,
             featureProvider,
             streamConfigProvider,

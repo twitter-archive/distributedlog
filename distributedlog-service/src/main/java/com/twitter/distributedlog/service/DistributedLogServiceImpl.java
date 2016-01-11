@@ -176,6 +176,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         // Creating and managing Streams
         this.streamFactory = new StreamFactoryImpl(clientId,
                 streamOpStats,
+                serverConf,
                 dlConf,
                 featureProvider,
                 streamConfigProvider,

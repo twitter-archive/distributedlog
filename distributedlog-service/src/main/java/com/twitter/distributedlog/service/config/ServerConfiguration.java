@@ -44,6 +44,16 @@ public class ServerConfiguration extends CompositeConfiguration {
     protected final static String SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS = "server_graceful_shutdown_period_ms";
     protected final static long SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS_DEFAULT = 0L;
 
+    // Server service timeout
+    public static final String SERVER_SERVICE_TIMEOUT_MS = "server_service_timeout_ms";
+    public static final String SERVER_SERVICE_TIMEOUT_MS_OLD = "serviceTimeoutMs";
+    public static final long SERVER_SERVICE_TIMEOUT_MS_DEFAULT = 0;
+
+    // Server stream probation timeout
+    public static final String SERVER_STREAM_PROBATION_TIMEOUT_MS = "server_stream_probation_timeout_ms";
+    public static final String SERVER_STREAM_PROBATION_TIMEOUT_MS_OLD = "streamProbationTimeoutMs";
+    public static final long SERVER_STREAM_PROBATION_TIMEOUT_MS_DEFAULT = 60*1000*5;
+
     public ServerConfiguration() {
         super();
         addConfiguration(new SystemConfiguration());
@@ -96,7 +106,7 @@ public class ServerConfiguration extends CompositeConfiguration {
     /**
      * Is durable write enabled?
      *
-     * @return true if waiting writes to be durable. otherwise false. 
+     * @return true if waiting writes to be durable. otherwise false.
      */
     public boolean isDurableWriteEnabled() {
         return getBoolean(SERVER_DURABLE_WRITE_ENABLED, SERVER_DURABLE_WRITE_ENABLED_DEFAULT);
@@ -228,6 +238,50 @@ public class ServerConfiguration extends CompositeConfiguration {
      */
     public long getGracefulShutdownPeriodMs() {
         return getLong(SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS, SERVER_GRACEFUL_SHUTDOWN_PERIOD_MS_DEFAULT);
+    }
+
+    /**
+     * Get timeout for stream op execution in proxy layer. 0 disables timeout.
+     *
+     * @return timeout for stream operation in proxy layer.
+     */
+    public long getServiceTimeoutMs() {
+        return getLong(SERVER_SERVICE_TIMEOUT_MS,
+                getLong(SERVER_SERVICE_TIMEOUT_MS_OLD, SERVER_SERVICE_TIMEOUT_MS_DEFAULT));
+    }
+
+    /**
+     * Set timeout for stream op execution in proxy layer. 0 disables timeout.
+     *
+     * @param timeoutMs
+     *          timeout for stream operation in proxy layer.
+     * @return dl configuration.
+     */
+    public ServerConfiguration setServiceTimeoutMs(long timeoutMs) {
+        setProperty(SERVER_SERVICE_TIMEOUT_MS, timeoutMs);
+        return this;
+    }
+
+    /**
+     * After service timeout, how long should stream be kept in cache in probationary state in order
+     * to prevent reacquire. In millisec.
+     *
+     * @return stream probation timeout in ms.
+     */
+    public long getStreamProbationTimeoutMs() {
+        return getLong(SERVER_STREAM_PROBATION_TIMEOUT_MS,
+                getLong(SERVER_STREAM_PROBATION_TIMEOUT_MS_OLD, SERVER_STREAM_PROBATION_TIMEOUT_MS_DEFAULT));
+    }
+
+    /**
+     * After service timeout, how long should stream be kept in cache in probationary state in order
+     * to prevent reacquire. In millisec.
+     *
+     * @param timeoutMs probation timeout in ms.
+     */
+    public ServerConfiguration setStreamProbationTimeoutMs(long timeoutMs) {
+        setProperty(SERVER_STREAM_PROBATION_TIMEOUT_MS, timeoutMs);
+        return this;
     }
 
     /**

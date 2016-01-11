@@ -19,6 +19,7 @@ import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.FatalErrorHandler;
 import com.twitter.distributedlog.service.ServerFeatureKeys;
+import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.limiter.StreamRequestLimiter;
 import com.twitter.distributedlog.util.ConfUtils;
@@ -140,6 +141,7 @@ public class StreamImpl extends Thread implements Stream {
                String clientId,
                StreamManager streamManager,
                StreamOpStats streamOpStats,
+               ServerConfiguration serverConfig,
                DistributedLogConfiguration dlConfig,
                FeatureProvider featureProvider,
                StreamConfigProvider streamConfigProvider,
@@ -160,8 +162,8 @@ public class StreamImpl extends Thread implements Stream {
         this.featureRateLimitDisabled = featureProvider.getFeature(
             ServerFeatureKeys.SERVICE_RATE_LIMIT_DISABLED.name().toLowerCase());
         this.executorService = executorService;
-        this.serviceTimeoutMs = dlConfig.getServiceTimeoutMs();
-        this.streamProbationTimeoutMs = dlConfig.getStreamProbationTimeoutMs();
+        this.serviceTimeoutMs = serverConfig.getServiceTimeoutMs();
+        this.streamProbationTimeoutMs = serverConfig.getStreamProbationTimeoutMs();
         this.failFastOnStreamNotReady = dlConfig.getFailFastOnStreamNotReady();
         this.fatalErrorHandler = fatalErrorHandler;
         this.dynConf = getDynConf(name, streamConfigProvider, dlConfig);

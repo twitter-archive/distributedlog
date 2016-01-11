@@ -290,14 +290,16 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testServiceTimeout() throws Exception {
         DistributedLogConfiguration confLocal = newLocalConf();
-        confLocal.setServiceTimeoutMs(200)
-                .setStreamProbationTimeoutMs(100)
-                .setOutputBufferSize(Integer.MAX_VALUE)
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE)
                 .setImmediateFlushEnabled(false)
                 .setPeriodicFlushFrequencyMilliSeconds(0);
+        ServerConfiguration serverConfLocal = newLocalServerConf();
+        serverConfLocal.addConfiguration(serverConf);
+        serverConfLocal.setServiceTimeoutMs(200)
+                .setStreamProbationTimeoutMs(100);
         String streamName = testName.getMethodName();
         // create a new service with 200ms timeout
-        DistributedLogServiceImpl localService = createService(serverConf, confLocal);
+        DistributedLogServiceImpl localService = createService(serverConfLocal, confLocal);
         StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
         final CountDownLatch deferCloseLatch = new CountDownLatch(1);
@@ -369,15 +371,15 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testNonDurableWrite() throws Exception {
         DistributedLogConfiguration confLocal = newLocalConf();
-        confLocal.setServiceTimeoutMs(Integer.MAX_VALUE)
-                .setStreamProbationTimeoutMs(Integer.MAX_VALUE)
-                .setOutputBufferSize(Integer.MAX_VALUE)
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE)
                 .setImmediateFlushEnabled(false)
                 .setPeriodicFlushFrequencyMilliSeconds(0)
                 .setDurableWriteEnabled(false);
         ServerConfiguration serverConfLocal = new ServerConfiguration();
         serverConfLocal.addConfiguration(serverConf);
         serverConfLocal.enableDurableWrite(false);
+        serverConfLocal.setServiceTimeoutMs(Integer.MAX_VALUE)
+                .setStreamProbationTimeoutMs(Integer.MAX_VALUE);
         String streamName = testName.getMethodName();
         DistributedLogServiceImpl localService =
                 createService(serverConfLocal, confLocal);

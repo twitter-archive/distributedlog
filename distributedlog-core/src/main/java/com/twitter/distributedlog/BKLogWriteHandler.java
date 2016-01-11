@@ -162,7 +162,7 @@ class BKLogWriteHandler extends BKLogHandler {
             ackQuorumSize = conf.getAckQuorumSize();
         }
 
-        if (conf.getEncodeRegionIDInVersion()) {
+        if (conf.getEncodeRegionIDInLogSegmentMetadata()) {
             this.regionId = regionId;
         } else {
             this.regionId = DistributedLogConstants.LOCAL_REGION_ID;

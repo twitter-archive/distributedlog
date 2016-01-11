@@ -18,8 +18,6 @@
 package com.twitter.distributedlog.v2;
 
 import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
-import com.twitter.distributedlog.AppendOnlyStreamReader;
-import com.twitter.distributedlog.AppendOnlyStreamWriter;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogEmptyException;
@@ -50,7 +48,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -1130,7 +1127,7 @@ public class TestBookKeeperDistributedLogManager {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setReadAheadBatchSize(1);
-        confLocal.setReadAheadMaxEntries(1);
+        confLocal.setReadAheadMaxRecords(1);
         confLocal.setRetentionPeriodHours(24 * 7);
 
         BKDistributedLogManager dlmwrite = DLMTestUtil.createNewDLM(confLocal, name);

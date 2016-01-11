@@ -5,18 +5,17 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.config.PropertiesWriter;
+import java.io.File;
 import java.util.concurrent.TimeUnit;
-
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-
-import java.io.File;
 
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.twitter.distributedlog.DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS;
+import static com.twitter.distributedlog.DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT;
 import static org.junit.Assert.*;
 
 public class TestStreamConfigProvider {
@@ -50,10 +49,10 @@ public class TestStreamConfigProvider {
         tempDir.mkdir();
         PropertiesWriter writer = null;
         writer = new PropertiesWriter(new File(tempDir, "stream1.conf"));
-        writer.setProperty("retention-size", "66");
+        writer.setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, "66");
         writer.save();
         writer = new PropertiesWriter(new File(tempDir, "stream2.conf"));
-        writer.setProperty("retention-size", "88");
+        writer.setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, "88");
         writer.save();
         StreamConfigProvider provider = getServiceProvider(EventbusPartitionConfigRouter.class.getName(), tempDir.getPath());
         Optional<DynamicDistributedLogConfiguration> config1 = provider.getDynamicStreamConfig("stream1");
@@ -64,7 +63,7 @@ public class TestStreamConfigProvider {
         assertTrue(config3.isPresent());
         assertEquals(66, config1.get().getRetentionPeriodHours());
         assertEquals(88, config2.get().getRetentionPeriodHours());
-        assertEquals(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT,
+        assertEquals(BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT,
                 config3.get().getRetentionPeriodHours());
     }
 }

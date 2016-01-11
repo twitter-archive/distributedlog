@@ -616,8 +616,8 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 .requestTimer(requestTimer)
                 .featureProvider(featureProviderOptional)
                 .statsLogger(statsLogger);
-        LOG.info("Created shared client builder {} : zkServers = {}, ledgersPath = {}, numIOThreads = {}, numWorkerThreads = {}",
-                 new Object[] { bkcName, zkServers, ledgersPath, conf.getBKClientNumberIOThreads(), conf.getBKClientNumberWorkerThreads() });
+        LOG.info("Created shared client builder {} : zkServers = {}, ledgersPath = {}, numIOThreads = {}",
+                 new Object[] { bkcName, zkServers, ledgersPath, conf.getBKClientNumberIOThreads() });
         return builder;
     }
 

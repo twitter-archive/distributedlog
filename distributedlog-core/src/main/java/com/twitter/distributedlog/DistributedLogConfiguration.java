@@ -5,6 +5,7 @@ import com.twitter.distributedlog.feature.DeciderFeatureProvider;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.net.DNSResolverForRacks;
 import com.twitter.distributedlog.net.DNSResolverForRows;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -27,6 +28,41 @@ import java.util.Set;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
+/**
+ * DistributedLog Configuration.
+ * <p>
+ * DistributedLog configuration is basically a properties based configuration, which extends from
+ * Apache commons {@link CompositeConfiguration}. All the DL settings are in camel case and prefixed
+ * with a meaningful component name. for example, `zkSessionTimeoutSeconds` means <i>SessionTimeoutSeconds</i>
+ * for component `zk`.
+ *
+ * <h3>BookKeeper Configuration</h3>
+ *
+ * BookKeeper client configuration settings could be loaded via DistributedLog configuration. All those
+ * settings are prefixed with <i>`bkc.`</i>. For example, <i>bkc.zkTimeout</i> in distributedlog configuration
+ * will be applied as <i>`zkTimeout`</i> in bookkeeper client configuration.
+ *
+ * <h3>How to load configuration</h3>
+ *
+ * The default distributedlog configuration is constructed by instantiated a new instance. This
+ * distributedlog configuration will automatically load the settings that specified via
+ * {@link SystemConfiguration}.
+ *
+ * <pre>
+ *      DistributedLogConfiguration conf = new DistributedLogConfiguration();
+ * </pre>
+ *
+ * The recommended way is to load configuration from URL that points to a configuration file
+ * ({@link #loadConf(URL)}).
+ *
+ * <pre>
+ *      String configFile = "/path/to/distributedlog/conf/file";
+ *      DistributedLogConfiguration conf = new DistributedLogConfiguration();
+ *      conf.loadConf(new File(configFile).toURI().toURL());
+ * </pre>
+ *
+ * @see org.apache.bookkeeper.conf.ClientConfiguration
+ */
 public class DistributedLogConfiguration extends CompositeConfiguration {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogConfiguration.class);
 
@@ -39,305 +75,132 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         }
     }
 
+    //
+    // ZooKeeper Related Settings
+    //
+
     public static final String BKDL_ZK_ACL_ID = "zkAclId";
     public static final String BKDL_ZK_ACL_ID_DEFAULT = null;
+    public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
+    public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
+    public static final String BKDL_ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
+    public static final double BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
+    public static final String BKDL_ZK_NUM_RETRIES = "zkNumRetries";
+    public static final int BKDL_ZK_NUM_RETRIES_DEFAULT = 3;
+    public static final String BKDL_ZK_RETRY_BACKOFF_START_MILLIS = "zkRetryStartBackoffMillis";
+    public static final int BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
+    public static final String BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS = "zkRetryMaxBackoffMillis";
+    public static final int BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
+    public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
+    public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
 
-    public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledger-metadata-layout";
-    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT =
-            LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value;
+    //
+    // BookKeeper Related Settings
+    //
 
-    public static final String BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK = "ledgerMetadataSkipMinVersionCheck";
-    public static final boolean BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT = false;
+    // BookKeeper zookeeper settings
+    public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
+    public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
+    public static final String BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT = "bkcZKRequestRateLimit";
+    public static final double BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
+    public static final String BKDL_BKCLIENT_ZK_NUM_RETRIES = "bkcZKNumRetries";
+    public static final int BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT = 3;
+    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS = "bkcZKRetryStartBackoffMillis";
+    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
+    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS = "bkcZKRetryMaxBackoffMillis";
+    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
 
-    public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER = "first-logsegment-sequence-number";
-    public static final long BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT = DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
-
-    // Name for the default (non-partitioned) stream
-    public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
-    public static final String BKDL_UNPARTITIONED_STREAM_NAME_DEFAULT = "<default>";
-
-    // Controls when log records accumulated in the writer will be
-    // transmitted to bookkeeper
-    public static final String BKDL_IS_DURABLE_WRITE_ENABLED = "isDurableWriteEnabled";
-    public static final boolean BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT = true;
-
-    public static final String BKDL_OUTPUT_BUFFER_SIZE = "output-buffer-size";
-    public static final int BKDL_OUTPUT_BUFFER_SIZE_DEFAULT = 1024;
-
-    public static final String BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS = "periodicFlushFrequencyMilliSeconds";
-    public static final int BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT = 0;
-
-    public static final String BKDL_ENABLE_IMMEDIATE_FLUSH = "enableImmediateFlush";
-    public static final boolean BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT = false;
-
-    public static final String BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS = "minimumDelayBetweenImmediateFlushMilliSeconds";
-    public static final int BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT = 0;
-
-    // Controls the retention period after which old ledgers are deleted
-    public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "retention-size";
-    public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
-
-    public static final String BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION = "explicitTruncationByApp";
-    public static final boolean BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT = false;
-
-    // The time after which the a given log stream switches to a new ledger
-    public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES = "rolling-interval";
-    public static final int BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT = 120;
-
-    // Max LogSegment Bytes
-    public static final String BKDL_MAX_LOGSEGMENT_BYTES = "maxLogSegmentBytes";
-    public static final int BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT = 256 * 1024 * 1024; // default 256MB
-
-    public static final String BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT = "row-aware-ensemble-placement";
+    // Bookkeeper ensemble placement settings
+    // Bookkeeper ensemble size
+    public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "bkcEnsembleSize";
+    // @Deprecated
+    public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD = "ensemble-size";
+    public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
+    // Bookkeeper write quorum size
+    public static final String BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE = "bkcWriteQuorumSize";
+    // @Deprecated
+    public static final String BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD = "write-quorum-size";
+    public static final int BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT = 3;
+    // Bookkeeper ack quorum size
+    public static final String BKDL_BOOKKEEPER_ACK_QUORUM_SIZE = "bkcAckQuorumSize";
+    // @Deprecated
+    public static final String BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD = "ack-quorum-size";
+    public static final int BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT = 2;
+    public static final String BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT = "bkRowAwareEnsemblePlacement";
+    public static final String BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_OLD = "row-aware-ensemble-placement";
     public static final boolean BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT = false;
-
     public static final String BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS = "bkEnsemblePlacementDnsResolverClass";
     public static final String BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS_DEFAULT =
             DNSResolverForRacks.class.getName();
+    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES = "dnsResolverOverrides";
+    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
 
-    // Bookkeeper ensemble size
-    public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
-    public static final int BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT = 3;
-
-    // Bookkeeper write quorum size
-    public static final String BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE = "write-quorum-size";
-    public static final int BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT = 2;
-
-    // Bookkeeper ack quorum size
-    public static final String BKDL_BOOKKEEPER_ACK_QUORUM_SIZE = "ack-quorum-size";
-    public static final int BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT = 2;
-
-    // Bookkeeper digest
+    // General Settings
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
+    public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
+    public static final String BKDL_TIMEOUT_TIMER_TICK_DURATION_MS = "timerTickDuration";
+    public static final long BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT = 100;
+    public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
+    public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
+
+    //
+    // Deprecated BookKeeper Settings (in favor of "bkc." style bookkeeper settings)
+    //
+
+    public static final String BKDL_BKCLIENT_READ_TIMEOUT = "bkcReadTimeoutSeconds";
+    public static final int BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT = 10;
+    public static final String BKDL_BKCLIENT_WRITE_TIMEOUT = "bkcWriteTimeoutSeconds";
+    public static final int BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT = 10;
+    public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
+    public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
+
+    //
+    // DL General Settings
+    //
 
     // Executor Parameters
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
     public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
     public static final String BKDL_NUM_LOCKSTATE_THREADS = "numLockStateThreads";
-
-    // Reader parameters
-    public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
-    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 120000;
-
-    public static final String BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS = "readerIdleErrorThresholdMillis";
-    public static final int BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT = Integer.MAX_VALUE;
-
-    public static final String BKDL_READER_IGNORE_TRUNCATION_STATUS = "ignoreTruncationStatus";
-    public static final boolean BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT = false;
-
-    public static final String BKDL_READER_ALERT_POSITION_ON_TRUNCATED = "alertPositionOnTruncated";
-    public static final boolean BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT = true;
-
-    public static final String BKDL_READER_POSITION_GAP_DETECTION_ENABLED = "positionGapDetectionEnabled";
-    public static final boolean BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT = false;
-
-    // Read ahead related parameters
-    public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
-    public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
-
-    public static final String BKDL_ENABLE_FORCEREAD = "enableForceRead";
-    public static final boolean BKDL_ENABLE_FORCEREAD_DEFAULT = true;
-
-    public static final String BKDL_READAHEAD_MAX_ENTRIES = "ReadAheadMaxEntries";
-    public static final int BKDL_READAHEAD_MAX_ENTRIES_DEFAULT = 10;
-
-    public static final String BKDL_READAHEAD_BATCHSIZE = "ReadAheadBatchSize";
-    public static final int BKDL_READAHEAD_BATCHSIZE_DEFAULT = 2;
-
-    public static final String BKDL_READAHEAD_WAITTIME = "ReadAheadWaitTime";
-    public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
-
-    public static final String BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM = "ReadAheadWaitTimeOnEndOfStream";
-    public static final int BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT = 10000;
-
-    public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
-            "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
-    public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
-
-    public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
-    public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
-
-    public static final String BKDL_ZK_SESSION_TIMEOUT_SECONDS = "zkSessionTimeoutSeconds";
-    public static final int BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT = 30;
-
-    public static final String BKDL_ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
-    public static final double BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
-
-    public static final String BKDL_ZK_NUM_RETRIES = "zkNumRetries";
-    public static final int BKDL_ZK_NUM_RETRIES_DEFAULT = 3;
-
-    public static final String BKDL_ZK_RETRY_BACKOFF_START_MILLIS = "zkRetryStartBackoffMillis";
-    public static final int BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
-
-    public static final String BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS = "zkRetryMaxBackoffMillis";
-    public static final int BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
-
-    public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
-    public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
-
-    // Various timeouts - names are self explanatory
-    public static final String BKDL_LOG_FLUSH_TIMEOUT = "logFlushTimeoutSeconds";
-    public static final int BKDL_LOG_FLUSH_TIMEOUT_DEFAULT = 30;
-
-    public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
-    public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
-
-    // Advanced/internal lock timeouts
-    public static final String BKDL_LOCK_REACQUIRE_TIMEOUT = "lockReacquireTimeoutSeconds";
-    public static final long BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT;
-
-    public static final String BKDL_LOCK_OP_TIMEOUT = "lockOpTimeoutSeconds";
-    public static final long BKDL_LOCK_OP_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT;
-
-    // Bkc config
-    public static final String BKDL_BKCLIENT_ZK_SESSION_TIMEOUT = "bkcZKSessionTimeoutSeconds";
-    public static final int BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT = 30;
-
-    public static final String BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT = "bkcZKRequestRateLimit";
-    public static final double BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT = 0;
-
-    public static final String BKDL_BKCLIENT_ZK_NUM_RETRIES = "bkcZKNumRetries";
-    public static final int BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT = 3;
-
-    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS = "bkcZKRetryStartBackoffMillis";
-    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT = 5000;
-
-    public static final String BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS = "bkcZKRetryMaxBackoffMillis";
-    public static final int BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT = 30000;
-
-    public static final String BKDL_BKCLIENT_READ_TIMEOUT = "bkcReadTimeoutSeconds";
-    public static final int BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT = 10;
-
-    public static final String BKDL_BKCLIENT_WRITE_TIMEOUT = "bkcWriteTimeoutSeconds";
-    public static final int BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT = 10;
-
-    public static final String BKDL_BKCLIENT_NUM_WORKER_THREADS = "bkcNumWorkerThreads";
-    public static final int BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT = 1;
-
-    public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
-    public static final int BKDL_BKCLIENT_NUM_IO_THREADS_DEFAULT = Runtime.getRuntime().availableProcessors() * 2;
-
-    public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
-    public static final boolean BKDL_MAXID_SANITYCHECK_DEFAULT = true;
-
-    public static final String BKDL_ENABLE_LEDGER_ALLOCATOR_POOL = "enableLedgerAllocatorPool";
-    public static final boolean BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT = false;
-
-    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH = "ledgerAllocatorPoolPath";
-    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT = DistributedLogConstants.ALLOCATION_POOL_NODE;
-
-    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME = "ledgerAllocatorPoolName";
-    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT = null;
-
-    public static final String BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE = "ledgerAllocatorPoolCoreSize";
-    public static final int BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT = 20;
-
-    public static final String BKDL_CREATE_STREAM_IF_NOT_EXISTS = "createStreamIfNotExists";
-    public static final boolean BKDL_CREATE_STREAM_IF_NOT_EXISTS_DEFAULT = true;
-
-    public static final String BKDL_LOGSEGMENT_ROLLING_CONCURRENCY = "logSegmentRollingConcurrency";
-    public static final int BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT = 1;
-
-    public static final String BKDL_ENCODE_REGION_ID_IN_VERSION = "encodeRegionIDInVersion";
-    public static final boolean BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT = false;
-
-    public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
-    public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
-
-    public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
-    public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
-
-    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES = "dnsResolverOverrides";
-    public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
-
-    public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
-    public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
-
-    public static final String BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS = "metadataLatencyWarnThresholdMs";
-    public static final long BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
-
-    public static final String BKDL_DATA_LATENCY_WARN_THRESHOLD_MS = "dataLatencyWarnThresholdMs";
-    public static final long BKDL_DATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
-
-    public static final String BKDL_TRACE_READAHEAD_METADATA_CHANGES = "traceReadAheadMetadataChanges";
-    public static final boolean BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT = false;
-
-    public final static String BKDL_ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
-    public final static boolean BKDL_ENABLE_TASK_EXECUTION_STATS_DEFAULT = false;
-
-    public final static String BKDL_TASK_EXECUTION_WARN_TIME_MICROS = "taskExecutionWarnTimeMicros";
-    public final static long BKDL_TASK_EXECUTION_WARN_TIME_MICROS_DEFAULT = 100000;
-
-    public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
-    public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
-
-    public static final String BKDL_ZKCLIENT_NUM_RETRY_THREADS = "zkcNumRetryThreads";
-    public static final int BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT = 1;
-
-    public static final String BKDL_TIMEOUT_TIMER_TICK_DURATION_MS = "timerTickDuration";
-    public static final long BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT = 100;
-
-    public static final String BKDL_TIMEOUT_TIMER_NUM_TICKS = "timerNumTicks";
-    public static final int BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT = 1024;
-
-    public static final String BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "firstNumEntriesEachPerLastRecordScan";
-    public static final int BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 2;
-    public static final String BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "maxNumEntriesPerReadLastRecordScan";
-    public static final int BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 16;
-
-    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS = "checkLogExistenceBackoffStartMillis";
-    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT = 200;
-
-    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS = "checkLogExistenceBackoffMaxMillis";
-    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT = 1000;
-
-    public static final String BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT = "perWriterOutstandingWriteLimit";
-    public static final int BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
-
-    public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT = "globalOutstandingWriteLimit";
-    public static final int BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
-
-    public static final String BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE = "outstandingWriteLimitDarkmode";
-    public static final boolean BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
-
-    public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
-    public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
-
-    public static final String BKDL_SERVICE_TIMEOUT_MS = "serviceTimeoutMs";
-    public static final long BKDL_SERVICE_TIMEOUT_MS_DEFAULT = 0;
-
-    public static final String BKDL_STREAM_PROBATION_TIMEOUT_MS = "streamProbationTimeoutMs";
-    public static final long BKDL_STREAM_PROBATION_TIMEOUT_MS_DEFAULT = 60*1000*5;
-
     public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
     public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
-
     public static final String BKDL_USE_DAEMON_THREAD = "useDaemonThread";
     public static final boolean BKDL_USE_DAEMON_THREAD_DEFAULT = false;
 
-    // Settings for Error Injection
-    public static final String BKDL_EI_INJECT_WRITE_DELAY = "eiInjectWriteDelay";
-    public static final boolean BKDL_EI_INJECT_WRITE_DELAY_DEFAULT = false;
+    // Metadata Parameters
+    public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION = "ledgerMetadataLayoutVersion";
+    public static final String BKDL_LEDGER_METADATA_LAYOUT_VERSION_OLD = "ledger-metadata-layout";
+    public static final int BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT =
+            LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V5_SEQUENCE_ID.value;
+    public static final String BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK = "ledgerMetadataSkipMinVersionCheck";
+    public static final boolean BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT = false;
+    public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER = "firstLogsegmentSequenceNumber";
+    public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_OLD = "first-logsegment-sequence-number";
+    public static final long BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT =
+            DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
+    public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
+    public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
+    public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
+    public static final boolean BKDL_MAXID_SANITYCHECK_DEFAULT = true;
+    public static final String BKDL_ENCODE_REGION_ID_IN_VERSION = "encodeRegionIDInVersion";
+    public static final boolean BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT = false;
+    // (@Deprecated)
+    public static final String BKDL_LOGSEGMENT_NAME_VERSION = "logSegmentNameVersion";
+    public static final int BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT = DistributedLogConstants.LOGSEGMENT_NAME_VERSION;
+    // (@Derepcated) Name for the default (non-partitioned) stream
+    public static final String BKDL_UNPARTITIONED_STREAM_NAME = "unpartitionedStreamName";
+    public static final String BKDL_UNPARTITIONED_STREAM_NAME_DEFAULT = "<default>";
 
-    public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
-    public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
+    //
+    // DL Writer Settings
+    //
 
-    public static final String BKDL_EI_INJECTED_WRITE_DELAY_MS = "eiInjectedWriteDelayMs";
-    public static final int BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT = 0;
-
-    public static final String BKDL_EI_INJECT_READAHEAD_STALL = "eiInjectReadAheadStall";
-    public static final boolean BKDL_EI_INJECT_READAHEAD_STALL_DEFAULT = false;
-
-    public static final String BKDL_EI_INJECT_READAHEAD_DELAY = "eiInjectReadAheadDelay";
-    public static final boolean BKDL_EI_INJECT_READAHEAD_DELAY_DEFAULT = false;
-
-    public static final String BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS = "eiInjectMaxReadAheadDelayMs";
-    public static final int BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT = 0;
-
-    public static final String BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT = "eiInjectReadAheadDelayPercent";
-    public static final int BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT = 10;
-
+    // General Settings
+    public static final String BKDL_CREATE_STREAM_IF_NOT_EXISTS = "createStreamIfNotExists";
+    public static final boolean BKDL_CREATE_STREAM_IF_NOT_EXISTS_DEFAULT = true;
+    public static final String BKDL_LOG_FLUSH_TIMEOUT = "logFlushTimeoutSeconds";
+    public static final int BKDL_LOG_FLUSH_TIMEOUT_DEFAULT = 30;
     /**
      *  CompressionCodec.Type     String to use (See CompressionUtils)
      *  ---------------------     ------------------------------------
@@ -347,8 +210,145 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public static final String BKDL_COMPRESSION_TYPE = "compressionType";
     public static final String BKDL_COMPRESSION_TYPE_DEFAULT = "none";
+    public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
+    public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
 
-    // Settings for Deciders
+    // Durability Settings
+    public static final String BKDL_IS_DURABLE_WRITE_ENABLED = "isDurableWriteEnabled";
+    public static final boolean BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT = true;
+
+    // Transmit Settings
+    public static final String BKDL_OUTPUT_BUFFER_SIZE = "writerOutputBufferSize";
+    public static final String BKDL_OUTPUT_BUFFER_SIZE_OLD = "output-buffer-size";
+    public static final int BKDL_OUTPUT_BUFFER_SIZE_DEFAULT = 1024;
+    public static final String BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS = "periodicFlushFrequencyMilliSeconds";
+    public static final int BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT = 0;
+    public static final String BKDL_ENABLE_IMMEDIATE_FLUSH = "enableImmediateFlush";
+    public static final boolean BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT = false;
+    public static final String BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS = "minimumDelayBetweenImmediateFlushMilliSeconds";
+    public static final int BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT = 0;
+
+    // Retention/Truncation Settings
+    public static final String BKDL_RETENTION_PERIOD_IN_HOURS = "logSegmentRetentionHours";
+    public static final String BKDL_RETENTION_PERIOD_IN_HOURS_OLD = "retention-size";
+    public static final int BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT = 72;
+    public static final String BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION = "explicitTruncationByApp";
+    public static final boolean BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT = false;
+
+    // Log Segment Rolling Settings
+    public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES = "logSegmentRollingMinutes";
+    public static final String BKDL_ROLLING_INTERVAL_IN_MINUTES_OLD = "rolling-interval";
+    public static final int BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT = 120;
+    public static final String BKDL_MAX_LOGSEGMENT_BYTES = "maxLogSegmentBytes";
+    public static final int BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT = 256 * 1024 * 1024; // default 256MB
+    public static final String BKDL_LOGSEGMENT_ROLLING_CONCURRENCY = "logSegmentRollingConcurrency";
+    public static final int BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT = 1;
+
+    // Lock Settings
+    public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
+    public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
+    public static final String BKDL_LOCK_REACQUIRE_TIMEOUT = "lockReacquireTimeoutSeconds";
+    public static final long BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT;
+    public static final String BKDL_LOCK_OP_TIMEOUT = "lockOpTimeoutSeconds";
+    public static final long BKDL_LOCK_OP_TIMEOUT_DEFAULT = DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT;
+
+    // Ledger Allocator Settings
+    public static final String BKDL_ENABLE_LEDGER_ALLOCATOR_POOL = "enableLedgerAllocatorPool";
+    public static final boolean BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT = false;
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH = "ledgerAllocatorPoolPath";
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT = DistributedLogConstants.ALLOCATION_POOL_NODE;
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME = "ledgerAllocatorPoolName";
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT = null;
+    public static final String BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE = "ledgerAllocatorPoolCoreSize";
+    public static final int BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT = 20;
+
+    // Write Limit Settings
+    public static final String BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT = "perWriterOutstandingWriteLimit";
+    public static final int BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT = "globalOutstandingWriteLimit";
+    public static final int BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE = "outstandingWriteLimitDarkmode";
+    public static final boolean BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT = true;
+
+    //
+    // DL Reader Settings
+    //
+
+    // General Settings
+    public static final String BKDL_READLAC_OPTION = "readLACLongPoll";
+    public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
+    public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
+    public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
+
+    // Idle reader settings
+    public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
+    public static final int BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT = 120000;
+    public static final String BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS = "readerIdleErrorThresholdMillis";
+    public static final int BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT = Integer.MAX_VALUE;
+
+    // Reader constraint settings
+    public static final String BKDL_READER_IGNORE_TRUNCATION_STATUS = "ignoreTruncationStatus";
+    public static final boolean BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT = false;
+    public static final String BKDL_READER_ALERT_POSITION_ON_TRUNCATED = "alertPositionOnTruncated";
+    public static final boolean BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT = true;
+    public static final String BKDL_READER_POSITION_GAP_DETECTION_ENABLED = "positionGapDetectionEnabled";
+    public static final boolean BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT = false;
+
+    // Read ahead related parameters
+    public static final String BKDL_ENABLE_READAHEAD = "enableReadAhead";
+    public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
+    public static final String BKDL_ENABLE_FORCEREAD = "enableForceRead";
+    public static final boolean BKDL_ENABLE_FORCEREAD_DEFAULT = true;
+    public static final String BKDL_READAHEAD_MAX_ENTRIES = "readAheadMaxRecords";
+    public static final String BKDL_READAHEAD_MAX_ENTRIES_OLD = "ReadAheadMaxEntries";
+    public static final int BKDL_READAHEAD_MAX_ENTRIES_DEFAULT = 10;
+    public static final String BKDL_READAHEAD_BATCHSIZE = "readAheadBatchSize";
+    public static final String BKDL_READAHEAD_BATCHSIZE_OLD = "ReadAheadBatchSize";
+    public static final int BKDL_READAHEAD_BATCHSIZE_DEFAULT = 2;
+    public static final String BKDL_READAHEAD_WAITTIME = "readAheadWaitTime";
+    public static final String BKDL_READAHEAD_WAITTIME_OLD = "ReadAheadWaitTime";
+    public static final int BKDL_READAHEAD_WAITTIME_DEFAULT = 200;
+    public static final String BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM = "readAheadWaitTimeOnEndOfStream";
+    public static final String BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_OLD = "ReadAheadWaitTimeOnEndOfStream";
+    public static final int BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT = 10000;
+    public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
+            "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
+    public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
+
+    // Scan Settings
+    public static final String BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "firstNumEntriesEachPerLastRecordScan";
+    public static final int BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 2;
+    public static final String BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "maxNumEntriesPerReadLastRecordScan";
+    public static final int BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT = 16;
+
+    // Log Existence Settings
+    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS = "checkLogExistenceBackoffStartMillis";
+    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT = 200;
+    public static final String BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS = "checkLogExistenceBackoffMaxMillis";
+    public static final int BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT = 1000;
+
+    //
+    // Tracing/Stats Settings
+    //
+
+    public static final String BKDL_TRACE_READAHEAD_DELIVERY_LATENCY = "traceReadAheadDeliveryLatency";
+    public static final boolean BKDL_TRACE_READAHEAD_DELIVERY_LATENCY_DEFAULT = false;
+    public static final String BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS = "metadataLatencyWarnThresholdMs";
+    public static final long BKDL_METADATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
+    public static final String BKDL_DATA_LATENCY_WARN_THRESHOLD_MS = "dataLatencyWarnThresholdMs";
+    public static final long BKDL_DATA_LATENCY_WARN_THRESHOLD_MS_DEFAULT = 2 * DistributedLogConstants.LATENCY_WARN_THRESHOLD_IN_MILLIS;
+    public static final String BKDL_TRACE_READAHEAD_METADATA_CHANGES = "traceReadAheadMetadataChanges";
+    public static final boolean BKDL_TRACE_READAHEAD_MEATDATA_CHANGES_DEFAULT = false;
+    public final static String BKDL_ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
+    public final static boolean BKDL_ENABLE_TASK_EXECUTION_STATS_DEFAULT = false;
+    public final static String BKDL_TASK_EXECUTION_WARN_TIME_MICROS = "taskExecutionWarnTimeMicros";
+    public final static long BKDL_TASK_EXECUTION_WARN_TIME_MICROS_DEFAULT = 100000;
+    public static final String BKDL_ENABLE_PERSTREAM_STAT = "enablePerStreamStat";
+    public static final boolean BKDL_ENABLE_PERSTREAM_STAT_DEFAULT = false;
+
+    //
+    // Settings for Feature Providers
+    //
 
     public static final String BKDL_FEATURE_PROVIDER_CLASS = "featureProviderClass";
     public static final String BKDL_DECIDER_BASE_CONFIG_PATH = "deciderBaseConfigPath";
@@ -358,7 +358,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_DECIDER_ENVIRONMENT = "deciderEnvironment";
     public static final String BKDL_DECIDER_ENVIRONMENT_DEFAULT = null;
 
+    //
     // Settings for Namespaces
+    //
 
     public static final String BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE = "federatedMaxLogsPerSubnamespace";
     public static final int BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT = 15000;
@@ -372,7 +374,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS = "streamConfigRouterClass";
     public static final String BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT = "com.twitter.distributedlog.service.config.IdentityConfigRouter";
 
-    // Rate limits: per stream
+    // Settings for RateLimit (used by distributedlog-service)
 
     public static final String BKDL_BPS_SOFT_WRITE_LIMIT = "bpsSoftWriteLimit";
     public static final int BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT = -1;
@@ -392,6 +394,24 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT = "rpsStreamAcquireServiceLimit";
     public static final int BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT = -1;
 
+    //
+    // Settings for Error Injection
+    //
+    public static final String BKDL_EI_INJECT_WRITE_DELAY = "eiInjectWriteDelay";
+    public static final boolean BKDL_EI_INJECT_WRITE_DELAY_DEFAULT = false;
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_PERCENT = "eiInjectedWriteDelayPercent";
+    public static final double BKDL_EI_INJECTED_WRITE_DELAY_PERCENT_DEFAULT = 0.0;
+    public static final String BKDL_EI_INJECTED_WRITE_DELAY_MS = "eiInjectedWriteDelayMs";
+    public static final int BKDL_EI_INJECTED_WRITE_DELAY_MS_DEFAULT = 0;
+    public static final String BKDL_EI_INJECT_READAHEAD_STALL = "eiInjectReadAheadStall";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_STALL_DEFAULT = false;
+    public static final String BKDL_EI_INJECT_READAHEAD_DELAY = "eiInjectReadAheadDelay";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_DELAY_DEFAULT = false;
+    public static final String BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS = "eiInjectMaxReadAheadDelayMs";
+    public static final int BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT = 0;
+    public static final String BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT = "eiInjectReadAheadDelayPercent";
+    public static final int BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT = 10;
+
     // Whitelisted stream-level configuration settings.
     private static final Set<String> streamSettings = Sets.newHashSet(
         BKDL_READER_POSITION_GAP_DETECTION_ENABLED,
@@ -401,6 +421,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         BKDL_ENABLE_IMMEDIATE_FLUSH
     );
 
+    /**
+     * Construct distributedlog configuration with default settings.
+     * It also loads the settings from system properties.
+     */
     public DistributedLogConfiguration() {
         super();
         // add configuration for system properties
@@ -440,7 +464,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * Load whitelisted stream configuration from another configuration object
      *
      * @param streamConfiguration stream configuration overrides
-     * @return stream configuration
      */
     public void loadStreamConf(Optional<DistributedLogConfiguration> streamConfiguration) {
         if (!streamConfiguration.isPresent()) {
@@ -462,6 +485,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
                 StringUtils.join(ignoredSettings, ";"));
         }
     }
+
+    //
+    // ZooKeeper Related Settings
+    //
 
     /**
      * Get all properties as a string.
@@ -497,13 +524,988 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * Set digest id to use for ZK acl.
      *
      * @param zkAclId acl id.
+     * @return distributedlog configuration
+     * @see #getZkAclId()
      */
-    public void setZkAclId(String zkAclId) {
+    public DistributedLogConfiguration setZkAclId(String zkAclId) {
         setProperty(BKDL_ZK_ACL_ID, zkAclId);
+        return this;
     }
 
     /**
-     * Get name of the unpartitioned stream
+     * Get ZK Session timeout in seconds.
+     * <p>
+     * This is the session timeout applied for zookeeper client used by distributedlog.
+     * Use {@link #getBKClientZKSessionTimeoutMilliSeconds()} for zookeeper client used
+     * by bookkeeper client.
+     *
+     * @return zookeeeper session timeout in seconds.
+     * @deprecated use {@link #getZKSessionTimeoutMilliseconds()}
+     */
+    public int getZKSessionTimeoutSeconds() {
+        return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT);
+    }
+
+    /**
+     * Get ZK Session timeout in milliseconds.
+     * <p>
+     * This is the session timeout applied for zookeeper client used by distributedlog.
+     * Use {@link #getBKClientZKSessionTimeoutMilliSeconds()} for zookeeper client used
+     * by bookkeeper client.
+     *
+     * @return zk session timeout in milliseconds.
+     */
+    public int getZKSessionTimeoutMilliseconds() {
+        return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set ZK Session Timeout in seconds.
+     *
+     * @param zkSessionTimeoutSeconds session timeout in seconds.
+     * @return distributed log configuration
+     * @see #getZKSessionTimeoutMilliseconds()
+     */
+    public DistributedLogConfiguration setZKSessionTimeoutSeconds(int zkSessionTimeoutSeconds) {
+        setProperty(BKDL_ZK_SESSION_TIMEOUT_SECONDS, zkSessionTimeoutSeconds);
+        return this;
+    }
+
+    /**
+     * Get zookeeper access rate limit.
+     * <p>The rate limiter is basically a guava {@link com.google.common.util.concurrent.RateLimiter}.
+     * It is rate limiting the requests that sent by zookeeper client. If the value is non-positive,
+     * the rate limiting is disable. By default it is disable (value = 0).
+     *
+     * @return zookeeper access rate, by default it is 0.
+     */
+    public double getZKRequestRateLimit() {
+        return this.getDouble(BKDL_ZK_REQUEST_RATE_LIMIT, BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set zookeeper access rate limit (rps).
+     *
+     * @param requestRateLimit
+     *          zookeeper access rate limit
+     * @return distributedlog configuration
+     * @see #getZKRequestRateLimit()
+     */
+    public DistributedLogConfiguration setZKRequestRateLimit(double requestRateLimit) {
+        setProperty(BKDL_ZK_REQUEST_RATE_LIMIT, requestRateLimit);
+        return this;
+    }
+
+    /**
+     * Get num of retries per request for zookeeper client.
+     * <p>Retries only happen on retryable failures like session expired,
+     * session moved. for permanent failures, the request will fail immediately.
+     * The default value is 3.
+     *
+     * @return num of retries per request of zookeeper client.
+     */
+    public int getZKNumRetries() {
+        return this.getInt(BKDL_ZK_NUM_RETRIES, BKDL_ZK_NUM_RETRIES_DEFAULT);
+    }
+
+    /**
+     * Set num of retries per request for zookeeper client.
+     *
+     * @param zkNumRetries num of retries per request of zookeeper client.
+     * @return distributed log configuration
+     * @see #getZKNumRetries()
+     */
+    public DistributedLogConfiguration setZKNumRetries(int zkNumRetries) {
+        setProperty(BKDL_ZK_NUM_RETRIES, zkNumRetries);
+        return this;
+    }
+
+    /**
+     * Get the start backoff time of zookeeper operation retries, in milliseconds.
+     * <p>The retry time will increase in bound exponential way, and become flat
+     * after hit max backoff time ({@link #getZKRetryBackoffMaxMillis()}).
+     * The default start backoff time is 5000 milliseconds.
+     *
+     * @return start backoff time of zookeeper operation retries, in milliseconds.
+     * @see #getZKRetryBackoffMaxMillis()
+     */
+    public int getZKRetryBackoffStartMillis() {
+        return this.getInt(BKDL_ZK_RETRY_BACKOFF_START_MILLIS,
+                           BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the start backoff time of zookeeper operation retries, in milliseconds.
+     *
+     * @param zkRetryBackoffStartMillis start backoff time of zookeeper operation retries,
+     *                                  in milliseconds.
+     * @return distributed log configuration
+     * @see #getZKRetryBackoffStartMillis()
+     */
+    public DistributedLogConfiguration setZKRetryBackoffStartMillis(int zkRetryBackoffStartMillis) {
+        setProperty(BKDL_ZK_RETRY_BACKOFF_START_MILLIS, zkRetryBackoffStartMillis);
+        return this;
+    }
+
+    /**
+     * Get the max backoff time of zookeeper operation retries, in milliseconds.
+     * <p>The retry time will increase in bound exponential way starting from
+     * {@link #getZKRetryBackoffStartMillis()}, and become flat after hit this max
+     * backoff time.
+     * The default max backoff time is 30000 milliseconds.
+     *
+     * @return max backoff time of zookeeper operation retries, in milliseconds.
+     * @see #getZKRetryBackoffStartMillis()
+     */
+    public int getZKRetryBackoffMaxMillis() {
+        return this.getInt(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS,
+                           BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the max backoff time of zookeeper operation retries, in milliseconds.
+     *
+     * @param zkRetryBackoffMaxMillis max backoff time of zookeeper operation retries,
+     *                                in milliseconds.
+     * @return distributed log configuration
+     * @see #getZKRetryBackoffMaxMillis()
+     */
+    public DistributedLogConfiguration setZKRetryBackoffMaxMillis(int zkRetryBackoffMaxMillis) {
+        setProperty(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS, zkRetryBackoffMaxMillis);
+        return this;
+    }
+
+    /**
+     * Get ZK client number of retry executor threads.
+     * By default it is 1.
+     *
+     * @return number of bookkeeper client worker threads.
+     */
+    public int getZKClientNumberRetryThreads() {
+        return this.getInt(BKDL_ZKCLIENT_NUM_RETRY_THREADS, BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT);
+    }
+
+    /**
+     * Set ZK client number of retry executor threads.
+     *
+     * @param numThreads
+     *          number of retry executor threads.
+     * @return distributedlog configuration.
+     * @see #getZKClientNumberRetryThreads()
+     */
+    public DistributedLogConfiguration setZKClientNumberRetryThreads(int numThreads) {
+        setProperty(BKDL_ZKCLIENT_NUM_RETRY_THREADS, numThreads);
+        return this;
+    }
+
+    //
+    // BookKeeper ZooKeeper Client Settings
+    //
+
+    /**
+     * Get BK's zookeeper session timout in milliseconds.
+     * <p>
+     * This is the session timeout applied for zookeeper client used by bookkeeper client.
+     * Use {@link #getZKSessionTimeoutMilliseconds()} for zookeeper client used
+     * by distributedlog.
+     *
+     * @return Bk's zookeeper session timeout in milliseconds
+     */
+    public int getBKClientZKSessionTimeoutMilliSeconds() {
+        return this.getInt(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set BK's zookeeper session timeout in seconds.
+     *
+     * @param sessionTimeout session timeout for the ZK Client used by BK Client, in seconds.
+     * @return distributed log configuration
+     * @see #getBKClientZKSessionTimeoutMilliSeconds()
+     */
+    public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
+        setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
+        return this;
+    }
+
+    /**
+     * Get zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     * <p>The rate limiter is basically a guava {@link com.google.common.util.concurrent.RateLimiter}.
+     * It is rate limiting the requests that sent by zookeeper client. If the value is non-positive,
+     * the rate limiting is disable. By default it is disable (value = 0).
+     *
+     * @return zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     * By default it is 0.
+     */
+    public double getBKClientZKRequestRateLimit() {
+        return this.getDouble(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT,
+                BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set zookeeper access rate limit for zookeeper client used in bookkeeper client.
+     *
+     * @param rateLimit
+     *          zookeeper access rate limit
+     * @return distributedlog configuration.
+     * @see #getBKClientZKRequestRateLimit()
+     */
+    public DistributedLogConfiguration setBKClientZKRequestRateLimit(double rateLimit) {
+        setProperty(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT, rateLimit);
+        return this;
+    }
+
+    /**
+     * Get num of retries for zookeeper client that used by bookkeeper client.
+     * <p>Retries only happen on retryable failures like session expired,
+     * session moved. for permanent failures, the request will fail immediately.
+     * The default value is 3.
+     *
+     * @return num of retries of zookeeper client used by bookkeeper client.
+     */
+    public int getBKClientZKNumRetries() {
+        return this.getInt(BKDL_BKCLIENT_ZK_NUM_RETRIES, BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT);
+    }
+
+    /**
+     * Get the start backoff time of zookeeper operation retries, in milliseconds.
+     * <p>The retry time will increase in bound exponential way, and become flat
+     * after hit max backoff time ({@link #getBKClientZKRetryBackoffMaxMillis()}.
+     * The default start backoff time is 5000 milliseconds.
+     *
+     * @return start backoff time of zookeeper operation retries, in milliseconds.
+     * @see #getBKClientZKRetryBackoffMaxMillis()
+     */
+    public int getBKClientZKRetryBackoffStartMillis() {
+        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS,
+                           BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Get the max backoff time of zookeeper operation retries, in milliseconds.
+     * <p>The retry time will increase in bound exponential way starting from
+     * {@link #getBKClientZKRetryBackoffStartMillis()}, and become flat after
+     * hit this max backoff time.
+     * The default max backoff time is 30000 milliseconds.
+     *
+     * @return max backoff time of zookeeper operation retries, in milliseconds.
+     * @see #getBKClientZKRetryBackoffStartMillis()
+     */
+    public int getBKClientZKRetryBackoffMaxMillis() {
+        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS,
+                BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
+    }
+
+    //
+    // BookKeeper Ensemble Placement Settings
+    //
+
+    /**
+     * Get ensemble size of each log segment (ledger) will use.
+     * By default it is 3.
+     * <p>
+     * A log segment's data is stored in an ensemble of bookies in
+     * a stripping way. Each entry will be added in a <code>write-quorum</code>
+     * size of bookies. The add operation will complete once it receives
+     * responses from a <code>ack-quorum</code> size of bookies. The stripping
+     * is done in a round-robin way in bookkeeper.
+     * <p>
+     * For example, we configure the ensemble-size to 5, write-quorum-size to 3,
+     * and ack-quorum-size to 2. The data will be stored in following stripping way.
+     * <pre>
+     * | entry id | bk1 | bk2 | bk3 | bk4 | bk5 |
+     * |     0    |  x  |  x  |  x  |     |     |
+     * |     1    |     |  x  |  x  |  x  |     |
+     * |     2    |     |     |  x  |  x  |  x  |
+     * |     3    |  x  |     |     |  x  |  x  |
+     * |     4    |  x  |  x  |     |     |  x  |
+     * |     5    |  x  |  x  |  x  |     |     |
+     * </pre>
+     * <p>
+     * We don't recommend stripping within a log segment to increase bandwidth.
+     * We'd recommend to strip by `partition` in higher level of distributedlog
+     * to increase performance. so typically the ensemble size will set to be
+     * the same value as write quorum size.
+     *
+     * @return ensemble size
+     * @see #getWriteQuorumSize()
+     * @see #getAckQuorumSize()
+     */
+    public int getEnsembleSize() {
+        return this.getInt(BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
+                getInt(BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD,
+                        BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT));
+    }
+
+    /**
+     * Set ensemble size of each log segment (ledger) will use.
+     *
+     * @param ensembleSize ensemble size.
+     * @return distributed log configuration
+     * @see #getEnsembleSize()
+     */
+    public DistributedLogConfiguration setEnsembleSize(int ensembleSize) {
+        setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, ensembleSize);
+        return this;
+    }
+
+    /**
+     * Get write quorum size of each log segment (ledger) will use.
+     * By default it is 3.
+     *
+     * @return write quorum size
+     * @see #getEnsembleSize()
+     */
+    public int getWriteQuorumSize() {
+        return this.getInt(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
+                getInt(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD,
+                        BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT));
+    }
+
+    /**
+     * Set write quorum size of each log segment (ledger) will use.
+     *
+     * @param quorumSize
+     *          quorum size.
+     * @return distributedlog configuration.
+     * @see #getWriteQuorumSize()
+     */
+    public DistributedLogConfiguration setWriteQuorumSize(int quorumSize) {
+        setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE, quorumSize);
+        return this;
+    }
+
+    /**
+     * Get ack quorum size of each log segment (ledger) will use.
+     * By default it is 2.
+     *
+     * @return ack quorum size
+     * @see #getEnsembleSize()
+     */
+    public int getAckQuorumSize() {
+        return this.getInt(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
+                getInt(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD,
+                        BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT));
+    }
+
+    /**
+     * Set ack quorum size of each log segment (ledger) will use.
+     *
+     * @param quorumSize
+     *          quorum size.
+     * @return distributedlog configuration.
+     * @see #getAckQuorumSize()
+     */
+    public DistributedLogConfiguration setAckQuorumSize(int quorumSize) {
+        setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, quorumSize);
+        return this;
+    }
+
+    /**
+     * Get if row aware ensemble placement is enabled.
+     * <p>If enabled, {@link DNSResolverForRows} will be used for dns resolution
+     * rather than {@link DNSResolverForRacks}, if no other dns resolver set via
+     * {@link #setEnsemblePlacementDnsResolverClass(Class)}.
+     * By default it is disable.
+     *
+     * @return true if row aware ensemble placement is enabled, otherwise false.
+     * @see #getEnsemblePlacementDnsResolverClass()
+     */
+    public boolean getRowAwareEnsemblePlacementEnabled() {
+        return getBoolean(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT,
+                getBoolean(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_OLD,
+                        BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT));
+    }
+
+    /**
+     * Set if we should enable row aware ensemble placement.
+     *
+     * @param enableRowAwareEnsemblePlacement
+     *          enableRowAwareEnsemblePlacement
+     * @return distributedlog configuration.
+     * @see #getRowAwareEnsemblePlacementEnabled()
+     */
+    public DistributedLogConfiguration setRowAwareEnsemblePlacementEnabled(boolean enableRowAwareEnsemblePlacement) {
+        setProperty(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, enableRowAwareEnsemblePlacement);
+        return this;
+    }
+
+    /**
+     * Get the DNS resolver class for bookkeeper ensemble placement.
+     * <p>By default, {@link DNSResolverForRacks} will be used if
+     * {@link #getRowAwareEnsemblePlacementEnabled()} is disabled and
+     * {@link DNSResolverForRows} will be used if {@link #getRowAwareEnsemblePlacementEnabled()}
+     * is enabled.
+     *
+     * @return dns resolver class for bookkeeper ensemble placement.
+     * @throws ConfigurationException
+     * @see #getRowAwareEnsemblePlacementEnabled()
+     */
+    public Class<? extends DNSToSwitchMapping> getEnsemblePlacementDnsResolverClass()
+            throws ConfigurationException {
+        Class<? extends DNSToSwitchMapping> defaultResolverCls;
+        if (getRowAwareEnsemblePlacementEnabled()) {
+            defaultResolverCls = DNSResolverForRows.class;
+        } else {
+            defaultResolverCls = DNSResolverForRacks.class;
+        }
+        return ReflectionUtils.getClass(this, BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS,
+                defaultResolverCls, DNSToSwitchMapping.class, defaultLoader);
+    }
+
+    /**
+     * Set the DNS resolver class for bookkeeper ensemble placement.
+     *
+     * @param dnsResolverClass
+     *          dns resolver class for bookkeeper ensemble placement.
+     * @return distributedlog configuration
+     * @see #getEnsemblePlacementDnsResolverClass()
+     */
+    public DistributedLogConfiguration setEnsemblePlacementDnsResolverClass(
+            Class<? extends DNSToSwitchMapping> dnsResolverClass) {
+        setProperty(BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS, dnsResolverClass.getName());
+        return this;
+    }
+
+    /**
+     * Get mapping used to override the region mapping derived by the default resolver.
+     * <p>It is a string of pairs of host-region mappings (host:region) separated by semicolon.
+     * By default it is empty string.
+     *
+     * @return dns resolver overrides.
+     * @see #getEnsemblePlacementDnsResolverClass()
+     * @see DNSResolverForRacks
+     * @see DNSResolverForRows
+     */
+    public String getBkDNSResolverOverrides() {
+        return getString(BKDL_BK_DNS_RESOLVER_OVERRIDES, BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT);
+    }
+
+    /**
+     * Set mapping used to override the region mapping derived by the default resolver
+     * <p>It is a string of pairs of host-region mappings (host:region) separated by semicolon.
+     * By default it is empty string.
+     *
+     * @param overrides
+     *          dns resolver overrides
+     * @return dl configuration.
+     * @see #getBkDNSResolverOverrides()
+     */
+    public DistributedLogConfiguration setBkDNSResolverOverrides(String overrides) {
+        setProperty(BKDL_BK_DNS_RESOLVER_OVERRIDES, overrides);
+        return this;
+    }
+
+    //
+    // BookKeeper General Settings
+    //
+
+    /**
+     * Set password used by bookkeeper client for digestion.
+     * <p>
+     * NOTE: not recommend to change. will be derepcated in future.
+     *
+     * @param bkDigestPW BK password digest
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setBKDigestPW(String bkDigestPW) {
+        setProperty(BKDL_BOOKKEEPER_DIGEST_PW, bkDigestPW);
+        return this;
+    }
+
+    /**
+     * Get password used by bookkeeper client for digestion.
+     * <p>
+     * NOTE: not recommend to change. will be deprecated in future.
+     *
+     * @return password used by bookkeeper client for digestion
+     * @see #setBKDigestPW(String)
+     */
+    public String getBKDigestPW() {
+        return getString(BKDL_BOOKKEEPER_DIGEST_PW, BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT);
+    }
+
+    /**
+     * Get BK client number of i/o threads used by Netty.
+     * The default value equals DL's number worker threads.
+     *
+     * @return number of bookkeeper netty i/o threads.
+     * @see #getNumWorkerThreads()
+     */
+    public int getBKClientNumberIOThreads() {
+        return this.getInt(BKDL_BKCLIENT_NUM_IO_THREADS, getNumWorkerThreads());
+    }
+
+    /**
+     * Set BK client number of i/o threads used by netty.
+     *
+     * @param numThreads
+     *          number io threads.
+     * @return distributedlog configuration.
+     * @see #getBKClientNumberIOThreads()
+     */
+    public DistributedLogConfiguration setBKClientNumberIOThreads(int numThreads) {
+        setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
+        return this;
+    }
+
+    /**
+     * Get the tick duration in milliseconds that used for timeout timer in bookkeeper client.
+     * By default it is 100.
+     *
+     * @return tick duration in milliseconds
+     * @see org.jboss.netty.util.HashedWheelTimer
+     */
+    public long getTimeoutTimerTickDurationMs() {
+        return getLong(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT);
+    }
+
+    /**
+     * Set the tick duration in milliseconds that used for timeout timer in bookkeeper client.
+     *
+     * @param tickDuration
+     *          tick duration in milliseconds.
+     * @return distributed log configuration.
+     * @see #getTimeoutTimerTickDurationMs()
+     */
+    public DistributedLogConfiguration setTimeoutTimerTickDurationMs(long tickDuration) {
+        setProperty(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, tickDuration);
+        return this;
+    }
+
+    /**
+     * Get number of ticks that used for timeout timer in bookkeeper client.
+     * By default is 1024.
+     *
+     * @return number of ticks that used for timeout timer.
+     * @see org.jboss.netty.util.HashedWheelTimer
+     */
+    public int getTimeoutTimerNumTicks() {
+        return getInt(BKDL_TIMEOUT_TIMER_NUM_TICKS, BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT);
+    }
+
+    /**
+     * Set number of ticks that used for timeout timer in bookkeeper client.
+     *
+     * @param numTicks
+     *          number of ticks that used for timeout timer.
+     * @return distributed log configuration.
+     * @see #getTimeoutTimerNumTicks()
+     */
+    public DistributedLogConfiguration setTimeoutTimerNumTicks(int numTicks) {
+        setProperty(BKDL_TIMEOUT_TIMER_NUM_TICKS, numTicks);
+        return this;
+    }
+
+    //
+    // Deprecated BookKeeper Settings
+    //
+
+    /**
+     * Get BK client read timeout in seconds.
+     * <p>
+     * Please use {@link ClientConfiguration#getReadEntryTimeout()}
+     * instead of this setting.
+     *
+     * @return read timeout in seconds
+     * @deprecated
+     * @see ClientConfiguration#getReadEntryTimeout()
+     */
+    public int getBKClientReadTimeout() {
+        return this.getInt(BKDL_BKCLIENT_READ_TIMEOUT,
+                BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT);
+    }
+
+    /**
+     * Set BK client read timeout in seconds.
+     *
+     * @param readTimeout read timeout in seconds.
+     * @return distributed log configuration
+     * @deprecated
+     * @see #getBKClientReadTimeout()
+     */
+    public DistributedLogConfiguration setBKClientReadTimeout(int readTimeout) {
+        setProperty(BKDL_BKCLIENT_READ_TIMEOUT, readTimeout);
+        return this;
+    }
+
+    /**
+     * Get BK client write timeout in seconds.
+     * <p>
+     * Please use {@link ClientConfiguration#getAddEntryTimeout()}
+     * instead of this setting.
+     *
+     * @return write timeout in seconds.
+     * @deprecated
+     * @see ClientConfiguration#getAddEntryTimeout()
+     */
+    public int getBKClientWriteTimeout() {
+        return this.getInt(BKDL_BKCLIENT_WRITE_TIMEOUT, BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT);
+    }
+
+    /**
+     * Set BK client write timeout in seconds
+     *
+     * @param writeTimeout write timeout in seconds.
+     * @return distributed log configuration
+     * @deprecated
+     * @see #getBKClientWriteTimeout()
+     */
+    public DistributedLogConfiguration setBKClientWriteTimeout(int writeTimeout) {
+        setProperty(BKDL_BKCLIENT_WRITE_TIMEOUT, writeTimeout);
+        return this;
+    }
+
+    /**
+     * Get BK client number of worker threads.
+     * <p>
+     * Please use {@link ClientConfiguration#getNumWorkerThreads()}
+     * instead of this setting.
+     *
+     * @return number of bookkeeper client worker threads.
+     * @deprecated
+     * @see ClientConfiguration#getNumWorkerThreads()
+     */
+    public int getBKClientNumberWorkerThreads() {
+        return this.getInt(BKDL_BKCLIENT_NUM_WORKER_THREADS, BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT);
+    }
+
+    /**
+     * Set BK client number of worker threads.
+     *
+     * @param numThreads
+     *          number worker threads.
+     * @return distributedlog configuration.
+     * @deprecated
+     * @see #getBKClientNumberWorkerThreads()
+     */
+    public DistributedLogConfiguration setBKClientNumberWorkerThreads(int numThreads) {
+        setProperty(BKDL_BKCLIENT_NUM_WORKER_THREADS, numThreads);
+        return this;
+    }
+
+    //
+    // DL Executor Settings
+    //
+
+    /**
+     * Get the number of worker threads used by distributedlog namespace.
+     * By default it is the number of available processors.
+     *
+     * @return number of worker threads used by distributedlog namespace.
+     */
+    public int getNumWorkerThreads() {
+        return getInt(BKDL_NUM_WORKER_THREADS, Runtime.getRuntime().availableProcessors());
+    }
+
+    /**
+     * Set the number of worker threads used by distributedlog namespace.
+     *
+     * @param numWorkerThreads
+     *          number of worker threads used by distributedlog namespace.
+     * @return configuration
+     * @see #getNumWorkerThreads()
+     */
+    public DistributedLogConfiguration setNumWorkerThreads(int numWorkerThreads) {
+        setProperty(BKDL_NUM_WORKER_THREADS, numWorkerThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of dedicated readahead worker threads used by distributedlog namespace.
+     * <p>If this value is non-positive, it would share the normal executor (see {@link #getNumWorkerThreads()}
+     * for readahead. otherwise, it would use a dedicated executor for readhead. By default,
+     * it is 0.
+     *
+     * @return number of dedicated readahead worker threads.
+     * @see #getNumWorkerThreads()
+     */
+    public int getNumReadAheadWorkerThreads() {
+        return getInt(BKDL_NUM_READAHEAD_WORKER_THREADS, 0);
+    }
+
+    /**
+     * Set the number of dedicated readahead worker threads used by distributedlog namespace.
+     *
+     * @param numWorkerThreads
+     *          number of dedicated readahead worker threads.
+     * @return configuration
+     * @see #getNumReadAheadWorkerThreads()
+     */
+    public DistributedLogConfiguration setNumReadAheadWorkerThreads(int numWorkerThreads) {
+        setProperty(BKDL_NUM_READAHEAD_WORKER_THREADS, numWorkerThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of lock state threads used by distributedlog namespace.
+     * By default it is 1.
+     *
+     * @return number of lock state threads used by distributedlog namespace.
+     */
+    public int getNumLockStateThreads() {
+        return getInt(BKDL_NUM_LOCKSTATE_THREADS, 1);
+    }
+
+    /**
+     * Set the number of lock state threads used by distributedlog manager factory.
+     *
+     * @param numLockStateThreads
+     *          number of lock state threads used by distributedlog manager factory.
+     * @return configuration
+     * @see #getNumLockStateThreads()
+     */
+    public DistributedLogConfiguration setNumLockStateThreads(int numLockStateThreads) {
+        setProperty(BKDL_NUM_LOCKSTATE_THREADS, numLockStateThreads);
+        return this;
+    }
+
+    /**
+     * Get timeout for shutting down schedulers in dl manager, in milliseconds.
+     * By default, it is 5 seconds.
+     *
+     * @return timeout for shutting down schedulers in dl manager, in miliseconds.
+     */
+    public int getSchedulerShutdownTimeoutMs() {
+        return getInt(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT);
+    }
+
+    /**
+     * Set timeout for shutting down schedulers in dl manager, in milliseconds.
+     *
+     * @param timeoutMs
+     *         timeout for shutting down schedulers in dl manager, in milliseconds.
+     * @return dl configuration.
+     * @see #getSchedulerShutdownTimeoutMs()
+     */
+    public DistributedLogConfiguration setSchedulerShutdownTimeoutMs(int timeoutMs) {
+        setProperty(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, timeoutMs);
+        return this;
+    }
+
+    /**
+     * Whether to use daemon thread for DL threads.
+     * By default it is false.
+     *
+     * @return true if use daemon threads, otherwise false.
+     */
+    public boolean getUseDaemonThread() {
+        return getBoolean(BKDL_USE_DAEMON_THREAD, BKDL_USE_DAEMON_THREAD_DEFAULT);
+    }
+
+    /**
+     * Set whether to use daemon thread for DL threads.
+     *
+     * @param daemon
+     *          whether to use daemon thread for DL threads.
+     * @return distributedlog configuration
+     * @see #getUseDaemonThread()
+     */
+    public DistributedLogConfiguration setUseDaemonThread(boolean daemon) {
+        setProperty(BKDL_USE_DAEMON_THREAD, daemon);
+        return this;
+    }
+
+    //
+    // Metadata Settings
+    //
+
+    /**
+     * Get DL ledger metadata output layout version.
+     *
+     * @return layout version
+     * @see com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion
+     */
+    public int getDLLedgerMetadataLayoutVersion() {
+        return this.getInt(BKDL_LEDGER_METADATA_LAYOUT_VERSION,
+                getInt(BKDL_LEDGER_METADATA_LAYOUT_VERSION_OLD,
+                        BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT));
+    }
+
+    /**
+     * Set DL ledger metadata output layout version.
+     *
+     * @param layoutVersion layout version
+     * @return distributed log configuration
+     * @throws IllegalArgumentException if setting an unknown layout version.
+     * @see #getDLLedgerMetadataLayoutVersion()
+     */
+    public DistributedLogConfiguration setDLLedgerMetadataLayoutVersion(int layoutVersion)
+            throws IllegalArgumentException {
+        if ((layoutVersion <= 0) ||
+            (layoutVersion > LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
+            // Incorrect version specified
+            throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
+        }
+        setProperty(BKDL_LEDGER_METADATA_LAYOUT_VERSION, layoutVersion);
+        return this;
+    }
+
+    /**
+     * Get the setting for whether we should enforce the min ledger metadata version check.
+     * By default it is false.
+     *
+     * @return whether we should enforce the min ledger metadata version check
+     * @see com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion
+     */
+    public boolean getDLLedgerMetadataSkipMinVersionCheck() {
+        return this.getBoolean(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK,
+                BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT);
+    }
+
+    /**
+     * Set if we should skip the enforcement of min ledger metadata version.
+     * <p>NOTE: please be aware the side effects of skipping min ledger metadata
+     * version checking.
+     *
+     * @param skipMinVersionCheck whether we should enforce the min ledger metadata version check
+     * @return distributed log configuration
+     * @see #getDLLedgerMetadataSkipMinVersionCheck()
+     */
+    public DistributedLogConfiguration setDLLedgerMetadataSkipMinVersionCheck(boolean skipMinVersionCheck) throws IllegalArgumentException {
+        setProperty(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK, skipMinVersionCheck);
+        return this;
+    }
+
+    /**
+     * Get the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams. By default, it is 1.
+     * <p>In most of the cases this value should not be changed. It is useful for backfilling
+     * in the case of migrating log segments whose metadata don't have log segment sequence number.
+     *
+     * @return first ledger sequence number
+     */
+    public long getFirstLogSegmentSequenceNumber() {
+        return this.getLong(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER,
+                getLong(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_OLD,
+                        BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT));
+    }
+
+    /**
+     * Set the value at which ledger sequence number should start for streams that are being
+     * upgraded and did not have ledger sequence number to start with or for newly created
+     * streams
+     *
+     * @param firstLogSegmentSequenceNumber first ledger sequence number
+     * @return distributed log configuration
+     * @see #getFirstLogSegmentSequenceNumber()
+     */
+    public DistributedLogConfiguration setFirstLogSegmentSequenceNumber(long firstLogSegmentSequenceNumber)
+            throws IllegalArgumentException {
+        if (firstLogSegmentSequenceNumber <= 0) {
+            // Incorrect ledger sequence number specified
+            throw new IllegalArgumentException("Incorrect value for ledger sequence number");
+        }
+        setProperty(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, firstLogSegmentSequenceNumber);
+        return this;
+    }
+
+    /**
+     * Whether we should publish record counts in the log records and metadata.
+     * <p>By default it is true. This is a legacy setting for log segment version 1. It
+     * should be considered removed.
+     *
+     * @return if record counts should be persisted
+     */
+    public boolean getEnableRecordCounts() {
+        return getBoolean(BKDL_ENABLE_RECORD_COUNTS, BKDL_ENABLE_RECORD_COUNTS_DEFAULT);
+    }
+
+    /**
+     * Set if we should publish record counts in the log records and metadata.
+     *
+     * @param enableRecordCounts enable record counts
+     * @return distributed log configuration
+     * @see #getEnableRecordCounts()
+     */
+    public DistributedLogConfiguration setEnableRecordCounts(boolean enableRecordCounts) {
+        setProperty(BKDL_ENABLE_RECORD_COUNTS, enableRecordCounts);
+        return this;
+    }
+
+    /**
+     * Whether sanity check txn id on starting log segments.
+     * <p>If it is enabled, DL writer would throw
+     * {@link com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException}
+     * when it received a smaller transaction id than current maximum transaction id.
+     *
+     * @return true if should check txn id with max txn id, otherwise false.
+     */
+    public boolean getSanityCheckTxnID() {
+        return getBoolean(BKDL_MAXID_SANITYCHECK, BKDL_MAXID_SANITYCHECK_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable sanity check txn id.
+     *
+     * @param enabled
+     *          enable/disable sanity check txn id.
+     * @return configuration.
+     * @see #getSanityCheckTxnID()
+     */
+    public DistributedLogConfiguration setSanityCheckTxnID(boolean enabled) {
+        setProperty(BKDL_MAXID_SANITYCHECK, enabled);
+        return this;
+    }
+
+    /**
+     * Whether encode region id in log segment metadata.
+     * <p>In global DL use case, encoding region id in log segment medata would
+     * help understanding what region that a log segment is created. The region
+     * id field in log segment metadata would help for moniotring and troubleshooting.
+     *
+     * @return whether to encode region id in log segment metadata.
+     */
+    public boolean getEncodeRegionIDInLogSegmentMetadata() {
+        return getBoolean(BKDL_ENCODE_REGION_ID_IN_VERSION, BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable encoding region id in log segment metadata.
+     *
+     * @param enabled
+     *          flag to enable/disable encoding region id in log segment metadata.
+     * @return configuration instance.
+     * @see #getEncodeRegionIDInLogSegmentMetadata()
+     */
+    public DistributedLogConfiguration setEncodeRegionIDInLogSegmentMetadata(boolean enabled) {
+        setProperty(BKDL_ENCODE_REGION_ID_IN_VERSION, enabled);
+        return this;
+    }
+
+    /**
+     * Get log segment name version.
+     * <p>
+     * <ul>
+     * <li>version 0: inprogress_(start_txid) |
+     * logrecs_(start_txid)_(end_txid)</li>
+     * <li>version 1: inprogress_(logsegment_sequence_number) |
+     * logrecs_(logsegment_sequence_number)</li>
+     * </ul>
+     * By default it is 1.
+     *
+     * @return log segment name verison.
+     */
+    public int getLogSegmentNameVersion() {
+        return getInt(BKDL_LOGSEGMENT_NAME_VERSION, BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT);
+    }
+
+    /**
+     * Set log segment name version.
+     *
+     * @param version
+     *          log segment name version.
+     * @return configuration object.
+     * @see #getLogSegmentNameVersion()
+     */
+    public DistributedLogConfiguration setLogSegmentNameVersion(int version) {
+        setProperty(BKDL_LOGSEGMENT_NAME_VERSION, version);
+        return this;
+    }
+
+    /**
+     * Get name of the unpartitioned stream.
+     * <p>It is a legacy setting. consider removing it in future.
      *
      * @return unpartitioned stream
      */
@@ -515,75 +1517,117 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * Set name of the unpartitioned stream
      *
      * @param streamName name of the unpartitioned stream
+     * @return distributedlog configuration
+     * @see #getUnpartitionedStreamName()
      */
-    public void setUnpartitionedStreamName(String streamName) {
+    public DistributedLogConfiguration setUnpartitionedStreamName(String streamName) {
         setProperty(BKDL_UNPARTITIONED_STREAM_NAME, streamName);
+        return this;
     }
 
+    //
+    // DL Writer General Settings
+    //
+
     /**
-     * Get retention period in hours
+     * Whether to create stream if not exists. By default it is true.
      *
-     * @return retention period in hours
+     * @return true if it is abled to create stream if not exists.
      */
-    public int getRetentionPeriodHours() {
-        return this.getInt(BKDL_RETENTION_PERIOD_IN_HOURS, BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT);
+    public boolean getCreateStreamIfNotExists() {
+        return getBoolean(BKDL_CREATE_STREAM_IF_NOT_EXISTS,
+                BKDL_CREATE_STREAM_IF_NOT_EXISTS_DEFAULT);
     }
 
     /**
-     * Set retention period in hours
+     * Enable/Disable creating stream if not exists.
      *
-     * @param retentionHours retention period in hours.
+     * @param enabled
+     *          enable/disable sanity check txn id.
+     * @return distributed log configuration.
+     * @see #getCreateStreamIfNotExists()
+     */
+    public DistributedLogConfiguration setCreateStreamIfNotExists(boolean enabled) {
+        setProperty(BKDL_CREATE_STREAM_IF_NOT_EXISTS, enabled);
+        return this;
+    }
+
+    /**
+     * Get Log Flush timeout in seconds.
+     * <p>This is a setting used by DL writer on flushing data. It is typically used
+     * by synchronous writer and log segment writer. By default it is 30 seconds.
+     *
+     * @return log flush timeout in seconds.
+     */
+    public int getLogFlushTimeoutSeconds() {
+        return this.getInt(BKDL_LOG_FLUSH_TIMEOUT, BKDL_LOG_FLUSH_TIMEOUT_DEFAULT);
+    }
+
+    /**
+     * Set Log Flush Timeout in seconds.
+     *
+     * @param logFlushTimeoutSeconds log flush timeout.
      * @return distributed log configuration
+     * @see #getLogFlushTimeoutSeconds()
      */
-    public DistributedLogConfiguration setRetentionPeriodHours(int retentionHours) {
-        setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, retentionHours);
+    public DistributedLogConfiguration setLogFlushTimeoutSeconds(int logFlushTimeoutSeconds) {
+        setProperty(BKDL_LOG_FLUSH_TIMEOUT, logFlushTimeoutSeconds);
         return this;
     }
 
     /**
-     * Get rolling interval in minutes
+     * The compression type to use while sending data to bookkeeper.
      *
-     * @return buffer size
+     * @return compression type to use
+     * @see com.twitter.distributedlog.util.CompressionCodec
      */
-    public int getLogSegmentRollingIntervalMinutes() {
-        return this.getInt(BKDL_ROLLING_INTERVAL_IN_MINUTES, BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT);
+    public String getCompressionType() {
+        return getString(BKDL_COMPRESSION_TYPE, BKDL_COMPRESSION_TYPE_DEFAULT);
     }
 
     /**
-     * Set rolling interval in minutes.
+     * Set the compression type to use while sending data to bookkeeper.
      *
-     * @param rollingMinutes rolling interval in minutes.
-     * @return distributed log configuration
+     * @param compressionType compression type
+     * @return distributedlog configuration
+     * @see #getCompressionType()
      */
-    public DistributedLogConfiguration setLogSegmentRollingIntervalMinutes(int rollingMinutes) {
-        setProperty(BKDL_ROLLING_INTERVAL_IN_MINUTES, rollingMinutes);
+    public DistributedLogConfiguration setCompressionType(String compressionType) {
+        Preconditions.checkArgument(null != compressionType && !compressionType.isEmpty());
+        setProperty(BKDL_COMPRESSION_TYPE, compressionType);
         return this;
     }
 
     /**
-     * Get Max LogSegment Size in Bytes.
+     * Whether to fail immediately if the stream is not ready rather than queueing the request.
+     * <p>If it is enabled, it would fail the write request immediately if the stream isn't ready.
+     * Consider turning it on for the use cases that could retry writing to other streams
+     * (aka non-strict ordering guarantee). It would result fast failure hence the client would
+     * retry immediately.
      *
-     * @return max logsegment size in bytes.
+     * @return true if should fail fast. otherwise, false.
      */
-    public long getMaxLogSegmentBytes() {
-        long maxBytes = this.getLong(BKDL_MAX_LOGSEGMENT_BYTES, BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT);
-        if (maxBytes <= 0) {
-            maxBytes = BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT;
-        }
-        return maxBytes;
+    public boolean getFailFastOnStreamNotReady() {
+        return getBoolean(BKDL_FAILFAST_ON_STREAM_NOT_READY,
+                BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT);
     }
 
     /**
-     * Set Max LogSegment Size in Bytes.
+     * Set the failfast on stream not ready flag.
      *
-     * @param maxBytes
-     *          max logsegment size in bytes.
-     * @return configuration.
+     * @param failFastOnStreamNotReady
+     *        set failfast flag
+     * @return dl configuration.
+     * @see #getFailFastOnStreamNotReady()
      */
-    public DistributedLogConfiguration setMaxLogSegmentBytes(long maxBytes) {
-        setProperty(BKDL_MAX_LOGSEGMENT_BYTES, maxBytes);
+    public DistributedLogConfiguration setFailFastOnStreamNotReady(boolean failFastOnStreamNotReady) {
+        setProperty(BKDL_FAILFAST_ON_STREAM_NOT_READY, failFastOnStreamNotReady);
         return this;
     }
+
+    //
+    // DL Durability Settings
+    //
 
     /**
      * Check whether the durable write is enabled.
@@ -607,20 +1651,31 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    //
+    // DL Writer Transmit Settings
+    //
+
     /**
-     * Get output buffer size
+     * Get output buffer size for DL writers, in bytes.
+     * <p>Large buffer will result in higher compression ratio and
+     * it would use the bandwidth more efficiently and improve throughput.
+     * Set it to 0 would ask DL writers to transmit the data immediately,
+     * which it could achieve low latency.
+     * <p>The default value is 1KB.
      *
-     * @return buffer size
+     * @return buffer size in byes.
      */
     public int getOutputBufferSize() {
-        return this.getInt(BKDL_OUTPUT_BUFFER_SIZE, BKDL_OUTPUT_BUFFER_SIZE_DEFAULT);
+        return this.getInt(BKDL_OUTPUT_BUFFER_SIZE,
+                getInt(BKDL_OUTPUT_BUFFER_SIZE_OLD, BKDL_OUTPUT_BUFFER_SIZE_DEFAULT));
     }
 
     /**
-     * Set output buffer size.
+     * Set output buffer size for DL writers, in bytes.
      *
      * @param opBufferSize output buffer size.
      * @return distributed log configuration
+     * @see #getOutputBufferSize()
      */
     public DistributedLogConfiguration setOutputBufferSize(int opBufferSize) {
         setProperty(BKDL_OUTPUT_BUFFER_SIZE, opBufferSize);
@@ -628,221 +1683,586 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Set if we should enable row aware ensemble placement
+     * Get Periodic Log Flush Frequency in milliseconds.
+     * <p>If the setting is set with a positive value, the data in output buffer
+     * will be flushed in this provided interval. The default value is 0.
      *
-     * @param enableRowAwareEnsemblePlacement
-     *          enableRowAwareEnsemblePlacement
+     * @return periodic flush frequency in milliseconds.
+     * @see #getOutputBufferSize()
      */
-    public DistributedLogConfiguration setRowAwareEnsemblePlacementEnabled(boolean enableRowAwareEnsemblePlacement) {
-        setProperty(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, enableRowAwareEnsemblePlacement);
+    public int getPeriodicFlushFrequencyMilliSeconds() {
+        return this.getInt(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
+                BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT);
+    }
+
+    /**
+     * Set Periodic Log Flush Frequency in milliseconds.
+     *
+     * @param flushFrequencyMs periodic flush frequency in milliseconds.
+     * @return distributed log configuration
+     * @see #getPeriodicFlushFrequencyMilliSeconds()
+     */
+    public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
+        setProperty(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, flushFrequencyMs);
         return this;
     }
 
     /**
-     * Get if row aware ensemble placement is enabled
+     * Is immediate flush enabled.
+     * <p>If it is enabled, it would flush control record immediately after adding
+     * data completed. The default value is false.
      *
-     * @return if row aware ensemble placement is enabled
+     * @return whether immediate flush is enabled
      */
-    public boolean getRowAwareEnsemblePlacementEnabled() {
-        return getBoolean(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT);
+    public boolean getImmediateFlushEnabled() {
+        return getBoolean(BKDL_ENABLE_IMMEDIATE_FLUSH, BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT);
     }
 
     /**
-     * Get the DNS resolver class for bookkeeper ensemble placement.
+     * Enable/Disable immediate flush
      *
-     * @return dns resolver class for bookkeeper ensemble placement.
-     * @throws ConfigurationException
+     * @param enabled
+     *          flag to enable/disable immediate flush.
+     * @return configuration instance.
+     * @see #getImmediateFlushEnabled()
      */
-    public Class<? extends DNSToSwitchMapping> getEnsemblePlacementDnsResolverClass()
-            throws ConfigurationException {
-        Class<? extends DNSToSwitchMapping> defaultResolverCls;
-        if (getRowAwareEnsemblePlacementEnabled()) {
-            defaultResolverCls = DNSResolverForRows.class;
-        } else {
-            defaultResolverCls = DNSResolverForRacks.class;
-        }
-        return ReflectionUtils.getClass(this, BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS,
-                defaultResolverCls, DNSToSwitchMapping.class, defaultLoader);
-    }
-
-    /**
-     * Set the DNS resolver class for bookkeeper ensemble placement.
-     *
-     * @param dnsResolverClass
-     *          dns resolver class for bookkeeper ensemble placement.
-     * @return distributedlog configuration
-     */
-    public DistributedLogConfiguration setEnsemblePlacementDnsResolverClass(
-            Class<? extends DNSToSwitchMapping> dnsResolverClass) {
-        setProperty(BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS, dnsResolverClass.getName());
+    public DistributedLogConfiguration setImmediateFlushEnabled(boolean enabled) {
+        setProperty(BKDL_ENABLE_IMMEDIATE_FLUSH, enabled);
         return this;
     }
 
     /**
-     * Get ensemble size
+     * Get minimum delay between immediate flushes in milliseconds.
+     * <p>This setting only takes effects when {@link #getImmediateFlushEnabled()}
+     * is enabled. It torelants the bursty of traffic when immediate flush is enabled,
+     * which prevents sending too many control records to the bookkeeper.
      *
-     * @return ensemble size
+     * @return minimum delay between immediate flushes in milliseconds
+     * @see #getImmediateFlushEnabled()
      */
-    public int getEnsembleSize() {
-        return this.getInt(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT);
+    public int getMinDelayBetweenImmediateFlushMs() {
+        return this.getInt(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT);
     }
 
     /**
-     * Set ensemble size.
+     * Set minimum delay between immediate flushes in milliseconds
      *
-     * @param ensembleSize ensemble size.
+     * @param minDelayMs minimum delay between immediate flushes in milliseconds.
+     * @return distributed log configuration
+     * @see #getMinDelayBetweenImmediateFlushMs()
+     */
+    public DistributedLogConfiguration setMinDelayBetweenImmediateFlushMs(int minDelayMs) {
+        setProperty(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, minDelayMs);
+        return this;
+    }
+
+    //
+    // DL Retention/Truncation Settings
+    //
+
+    /**
+     * Get log segment retention period in hours.
+     * The default value is 3 days.
+     *
+     * @return log segment retention period in hours
+     */
+    public int getRetentionPeriodHours() {
+        return this.getInt(BKDL_RETENTION_PERIOD_IN_HOURS,
+                getInt(BKDL_RETENTION_PERIOD_IN_HOURS_OLD,
+                        BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT));
+    }
+
+    /**
+     * Set log segment retention period in hours.
+     *
+     * @param retentionHours retention period in hours.
      * @return distributed log configuration
      */
-    public DistributedLogConfiguration setEnsembleSize(int ensembleSize) {
-        setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, ensembleSize);
+    public DistributedLogConfiguration setRetentionPeriodHours(int retentionHours) {
+        setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, retentionHours);
         return this;
     }
 
     /**
-     * Get write quorum size.
+     * Is truncation managed explicitly by the application.
+     * <p>If this is set then time based retention is only a hint to perform
+     * deferred cleanup. However we never remove a segment that has not been
+     * already marked truncated.
+     * <p>It is disabled by default.
      *
-     * @return write quorum size
+     * @return whether truncation managed explicitly by the application
+     * @see com.twitter.distributedlog.LogSegmentMetadata.TruncationStatus
      */
-    public int getWriteQuorumSize() {
-        return this.getInt(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE, BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT);
+    public boolean getExplicitTruncationByApplication() {
+        return getBoolean(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION,
+                BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT);
     }
 
     /**
-     * Set write quorum size.
+     * Enable/Disable whether truncation is managed explicitly by the application.
      *
-     * @param quorumSize
-     *          quorum size.
-     * @return distributedlog configuration.
+     * @param enabled
+     *          flag to enable/disable whether truncation is managed explicitly by the application.
+     * @return configuration instance.
      */
-    public DistributedLogConfiguration setWriteQuorumSize(int quorumSize) {
-        setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE, quorumSize);
+    public DistributedLogConfiguration setExplicitTruncationByApplication(boolean enabled) {
+        setProperty(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION, enabled);
+        return this;
+    }
+
+    //
+    // Log Segment Rolling Settings
+    //
+
+    /**
+     * Get log segment rolling interval in minutes.
+     * <p>If the setting is set to a positive value, DL writer will roll log segments
+     * based on time. Otherwise, it will roll log segments based on size.
+     * <p>The default value is 2 hours.
+     *
+     * @return log segment rolling interval in minutes
+     * @see #getMaxLogSegmentBytes()
+     */
+    public int getLogSegmentRollingIntervalMinutes() {
+        return this.getInt(BKDL_ROLLING_INTERVAL_IN_MINUTES,
+                getInt(BKDL_ROLLING_INTERVAL_IN_MINUTES_OLD,
+                        BKDL_ROLLING_INTERVAL_IN_MINUTES_DEFAULT));
+    }
+
+    /**
+     * Set log segment rolling interval in minutes.
+     *
+     * @param rollingMinutes rolling interval in minutes.
+     * @return distributed log configuration
+     * @see #getLogSegmentRollingIntervalMinutes()
+     */
+    public DistributedLogConfiguration setLogSegmentRollingIntervalMinutes(int rollingMinutes) {
+        setProperty(BKDL_ROLLING_INTERVAL_IN_MINUTES, rollingMinutes);
         return this;
     }
 
     /**
-     * Get ack quorum size.
+     * Get Max LogSegment Size in Bytes.
+     * <p>This setting only takes effects when time based rolling is disabled.
+     * DL writer will roll into a new log segment only after current one reaches
+     * this threshold.
+     * <p>The default value is 256MB.
      *
-     * @return ack quorum size
+     * @return max logsegment size in bytes.
+     * @see #getLogSegmentRollingIntervalMinutes()
      */
-    public int getAckQuorumSize() {
-        return this.getInt(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+    public long getMaxLogSegmentBytes() {
+        long maxBytes = this.getLong(BKDL_MAX_LOGSEGMENT_BYTES, BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT);
+        if (maxBytes <= 0) {
+            maxBytes = BKDL_MAX_LOGSEGMENT_BYTES_DEFAULT;
+        }
+        return maxBytes;
     }
 
     /**
-     * Set ack quorum size.
+     * Set Max LogSegment Size in Bytes.
      *
-     * @param quorumSize
-     *          quorum size.
-     * @return distributedlog configuration.
+     * @param maxBytes
+     *          max logsegment size in bytes.
+     * @return configuration.
+     * @see #getMaxLogSegmentBytes()
      */
-    public DistributedLogConfiguration setAckQuorumSize(int quorumSize) {
-        setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, quorumSize);
+    public DistributedLogConfiguration setMaxLogSegmentBytes(long maxBytes) {
+        setProperty(BKDL_MAX_LOGSEGMENT_BYTES, maxBytes);
         return this;
     }
 
     /**
-     * Set BK password digest
+     * Get log segment rolling concurrency.
+     * <p>It limits how many writers could roll log segments concurrently.
+     * The default value is 1.
      *
-     * @param bkDigestPW BK password digest
-     * @return distributedlog configuration
+     * @return log segment rolling concurrency.
+     * @see #setLogSegmentRollingConcurrency(int)
      */
-    public DistributedLogConfiguration setBKDigestPW(String bkDigestPW) {
-        setProperty(BKDL_BOOKKEEPER_DIGEST_PW, bkDigestPW);
+    public int getLogSegmentRollingConcurrency() {
+        return getInt(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT);
+    }
+
+    /**
+     * Set log segment rolling concurrency. <i>0</i> means disable rolling concurrency.
+     * <i>larger than 0</i> means how many log segment could be rolled at the same time.
+     * <i>less than 0</i> means unlimited concurrency on rolling log segments.
+     *
+     * @param concurrency
+     *          log segment rolling concurrency.
+     * @return distributed log configuration.
+     * @see #getLogSegmentRollingConcurrency()
+     */
+    public DistributedLogConfiguration setLogSegmentRollingConcurrency(int concurrency) {
+        setProperty(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, concurrency);
+        return this;
+    }
+
+    //
+    // Lock Settings
+    //
+
+    /**
+     * Get lock timeout in milliseconds. The default value is 30.
+     *
+     * @return lock timeout in milliseconds
+     */
+    public long getLockTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_TIMEOUT, BKDL_LOCK_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set lock timeout in seconds.
+     *
+     * @param lockTimeout lock timeout in seconds.
+     * @return distributed log configuration
+     * @see #getLockTimeoutMilliSeconds()
+     */
+    public DistributedLogConfiguration setLockTimeout(long lockTimeout) {
+        setProperty(BKDL_LOCK_TIMEOUT, lockTimeout);
         return this;
     }
 
     /**
-     * Get BK password digest.
+     * Get lock reacquire timeout in milliseconds. The default value is 120 seconds.
      *
-     * @return zk ledgers root path
+     * @return lock reacquire timeout in milliseconds
      */
-    public String getBKDigestPW() {
-        return getString(BKDL_BOOKKEEPER_DIGEST_PW, BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT);
+    public long getLockReacquireTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_REACQUIRE_TIMEOUT, BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT) * 1000;
     }
 
     /**
-     * Set the number of worker threads used by distributedlog manager factory.
+     * Set lock reacquire timeout in seconds.
      *
-     * @param numWorkerThreads
-     *          number of worker threads used by distributedlog manager factory.
+     * @param lockReacquireTimeout lock reacquire timeout in seconds.
+     * @return distributed log configuration
+     * @see #getLockReacquireTimeoutMilliSeconds()
+     */
+    public DistributedLogConfiguration setLockReacquireTimeoutSeconds(long lockReacquireTimeout) {
+        setProperty(BKDL_LOCK_REACQUIRE_TIMEOUT, lockReacquireTimeout);
+        return this;
+    }
+
+    /**
+     * Get lock internal operation timeout in milliseconds.
+     * The default value is 120 seconds.
+     *
+     * @return lock internal operation timeout in milliseconds.
+     */
+    public long getLockOpTimeoutMilliSeconds() {
+        return this.getLong(BKDL_LOCK_OP_TIMEOUT, BKDL_LOCK_OP_TIMEOUT_DEFAULT) * 1000;
+    }
+
+    /**
+     * Set lock internal operation timeout in seconds.
+     *
+     * @param lockOpTimeout lock internal operation timeout in seconds.
+     * @return distributed log configuration
+     * @see #getLockOpTimeoutMilliSeconds()
+     */
+    public DistributedLogConfiguration setLockOpTimeoutSeconds(long lockOpTimeout) {
+        setProperty(BKDL_LOCK_OP_TIMEOUT, lockOpTimeout);
+        return this;
+    }
+
+    //
+    // Ledger Allocator Settings
+    //
+
+    /**
+     * Whether to enable ledger allocator pool or not.
+     * It is disabled by default.
+     *
+     * @return whether using ledger allocator pool or not.
+     */
+    public boolean getEnableLedgerAllocatorPool() {
+        return getBoolean(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT);
+    }
+
+    /**
+     * Enable/Disable ledger allocator pool.
+     *
+     * @param enabled
+     *          enable/disable ledger allocator pool.
+     * @return configuration.
+     * @see #getEnableLedgerAllocatorPool()
+     */
+    public DistributedLogConfiguration setEnableLedgerAllocatorPool(boolean enabled) {
+        setProperty(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, enabled);
+        return this;
+    }
+
+    /**
+     * Get the path of ledger allocator pool.
+     * The default value is ".allocation_pool".
+     *
+     * @return path of ledger allocator pool.
+     */
+    public String getLedgerAllocatorPoolPath() {
+        return getString(BKDL_LEDGER_ALLOCATOR_POOL_PATH, BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the root path of ledger allocator pool
+     *
+     * @param path
+     *          path of ledger allocator pool.
      * @return configuration
+     * @see #getLedgerAllocatorPoolPath()
      */
-    public DistributedLogConfiguration setNumWorkerThreads(int numWorkerThreads) {
-        setProperty(BKDL_NUM_WORKER_THREADS, numWorkerThreads);
+    public DistributedLogConfiguration setLedgerAllocatorPoolPath(String path) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_PATH, path);
         return this;
     }
 
     /**
-     * Get the number of worker threads used by distributedlog manager factory.
+     * Get the name of ledger allocator pool.
      *
-     * @return number of worker threads used by distributedlog manager factory.
+     * @return name of ledger allocator pool.
      */
-    public int getNumWorkerThreads() {
-        return getInt(BKDL_NUM_WORKER_THREADS, Runtime.getRuntime().availableProcessors());
+    public String getLedgerAllocatorPoolName() {
+        return getString(BKDL_LEDGER_ALLOCATOR_POOL_NAME, BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT);
     }
 
     /**
-     * Set the number of dedicated readahead worker threads used by distributedlog manager factory.
-     * If it is set to zero or any negative number, it would use the normal executor for readahead.
+     * Set name of ledger allocator pool.
      *
-     * @param numWorkerThreads
-     *          number of dedicated readahead worker threads.
-     * @return configuration
+     * @param name
+     *          name of ledger allocator pool.
+     * @return configuration.
      */
-    public DistributedLogConfiguration setNumReadAheadWorkerThreads(int numWorkerThreads) {
-        setProperty(BKDL_NUM_READAHEAD_WORKER_THREADS, numWorkerThreads);
+    public DistributedLogConfiguration setLedgerAllocatorPoolName(String name) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_NAME, name);
         return this;
     }
 
     /**
-     * Get the number of dedicated readahead worker threads used by distributedlog manager factory.
+     * Get the core size of ledger allocator pool.
+     * The default value is 20.
      *
-     * @return number of dedicated readahead worker threads.
+     * @return core size of ledger allocator pool.
      */
-    public int getNumReadAheadWorkerThreads() {
-        return getInt(BKDL_NUM_READAHEAD_WORKER_THREADS, 0);
+    public int getLedgerAllocatorPoolCoreSize() {
+        return getInt(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT);
     }
 
     /**
-     * Set the number of lock state threads used by distributedlog manager factory.
+     * Set core size of ledger allocator pool.
      *
-     * @param numLockStateThreads
-     *          number of lock state threads used by distributedlog manager factory.
-     * @return configuration
-     */
-    public DistributedLogConfiguration setNumLockStateThreads(int numLockStateThreads) {
-        setProperty(BKDL_NUM_LOCKSTATE_THREADS, numLockStateThreads);
-        return this;
-    }
-
-    /**
-     * Get the number of lock state threads used by distributedlog manager factory.
-     *
-     * @return number of lock state threads used by distributedlog manager factory.
-     */
-    public int getNumLockStateThreads() {
-        return getInt(BKDL_NUM_LOCKSTATE_THREADS, 1);
-    }
-
-    /**
-     * Get BK client number of i/o threads.
-     *
-     * @return number of bookkeeper netty i/o threads.
-     */
-    public int getBKClientNumberIOThreads() {
-        return this.getInt(BKDL_BKCLIENT_NUM_IO_THREADS, getNumWorkerThreads());
-    }
-
-    /**
-     * Set BK client number of i/o threads.
-     *
-     * @param numThreads
-     *          number io threads.
+     * @param poolSize
+     *          core size of ledger allocator pool.
      * @return distributedlog configuration.
+     * @see #getLedgerAllocatorPoolCoreSize()
      */
-    public DistributedLogConfiguration setBKClientNumberIOThreads(int numThreads) {
-        setProperty(BKDL_BKCLIENT_NUM_IO_THREADS, numThreads);
+    public DistributedLogConfiguration setLedgerAllocatorPoolCoreSize(int poolSize) {
+        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, poolSize);
         return this;
+    }
+
+    //
+    // Write Limit Settings
+    //
+
+    /**
+     * Get the per stream outstanding write limit for dl.
+     * <p>If the setting is set with a positive value, the per stream
+     * write limiting is enabled. By default it is disabled.
+     *
+     * @return the per stream outstanding write limit for dl
+     * @see #getGlobalOutstandingWriteLimit()
+     */
+    public int getPerWriterOutstandingWriteLimit() {
+        return getInt(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT,
+                BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set the per stream outstanding write limit for dl.
+     *
+     * @param limit
+     *          per stream outstanding write limit for dl
+     * @return dl configuration
+     * @see #getPerWriterOutstandingWriteLimit()
+     */
+    public DistributedLogConfiguration setPerWriterOutstandingWriteLimit(int limit) {
+        setProperty(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT, limit);
+        return this;
+    }
+
+    /**
+     * Get the global write limit for dl.
+     * <p>If the setting is set with a positive value, the global
+     * write limiting is enabled. By default it is disabled.
+     *
+     * @return the global write limit for dl
+     * @see #getPerWriterOutstandingWriteLimit()
+     */
+    public int getGlobalOutstandingWriteLimit() {
+        return getInt(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT);
+    }
+
+    /**
+     * Set the global write limit for dl.
+     *
+     * @param limit
+     *          global write limit for dl
+     * @return dl configuration
+     * @see #getGlobalOutstandingWriteLimit()
+     */
+    public DistributedLogConfiguration setGlobalOutstandingWriteLimit(int limit) {
+        setProperty(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, limit);
+        return this;
+    }
+
+    /**
+     * Whether to darkmode outstanding writes limit.
+     * <p>If it is running in darkmode, it would not reject requests when
+     * it is over limit, but just record them in the stats.
+     * <p>By default, it is in darkmode.
+     *
+     * @return flag to darmkode pending write limit.
+     */
+    public boolean getOutstandingWriteLimitDarkmode() {
+        return getBoolean(BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE,
+                BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT);
+    }
+
+    /**
+     * Set the flag to darkmode outstanding writes limit.
+     *
+     * @param darkmoded
+     *          flag to darmkode pending write limit
+     * @return dl configuration.
+     * @see #getOutstandingWriteLimitDarkmode()
+     */
+    public DistributedLogConfiguration setOutstandingWriteLimitDarkmode(boolean darkmoded) {
+        setProperty(BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE, darkmoded);
+        return this;
+    }
+
+    //
+    // DL Reader General Settings
+    //
+
+    /**
+     * Should read ahead use long polling or piggyback for read last confirmed.
+     * <p>The options are
+     * <ul>
+     * <li>0: polling read last add confirmed</li>
+     * <li>1: long polling read last add confirmed</li>
+     * <li>2: long polling and piggyback entries (parallel)</li>
+     * <li>3: long polling and piggyback entries (sequential)</li>
+     * <li>4: invalid</li>
+     * </ul>
+     * The default value is <code>3</code>.
+     *
+     * @return whether read ahead should use long polling or piggyback for read last confirmed.
+     */
+    public int getReadLACOption() {
+        return getInt(BKDL_READLAC_OPTION, BKDL_READLAC_OPTION_DEFAULT);
+    }
+
+    /**
+     * Set the method that read-ahead's should use to get read last confirmed.
+     *
+     * @param option
+     *          flag to set the read-ahead's option for read last confirmed.
+     * @return configuration instance.
+     * @see #getReadLACOption()
+     */
+    public DistributedLogConfiguration setReadLACOption(int option) {
+        setProperty(BKDL_READLAC_OPTION, option);
+        return this;
+    }
+
+    /**
+     * Get the long poll time out for read last add confirmed requests, in milliseconds.
+     * The default value is 1 second.
+     *
+     * @return long poll timeout in milliseconds
+     * @see #getReadLACLongPollTimeout()
+     */
+    public int getReadLACLongPollTimeout() {
+        return this.getInt(BKDL_READLACLONGPOLL_TIMEOUT, BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT);
+    }
+
+    /**
+     * Set the long poll time out for read last add confirmed requests, in milliseconds.
+     *
+     * @param readAheadLongPollTimeout long poll timeout in milliseconds
+     * @return distributed log configuration
+     * @see #getReadLACLongPollTimeout()
+     */
+    public DistributedLogConfiguration setReadLACLongPollTimeout(int readAheadLongPollTimeout) {
+        setProperty(BKDL_READLACLONGPOLL_TIMEOUT, readAheadLongPollTimeout);
+        return this;
+    }
+
+    //
+    // Idle reader settings
+    //
+
+    /**
+     * Get the time in milliseconds as the threshold for when an idle reader should dump warnings
+     * <p>The default value is 2 minutes.
+     *
+     * @return reader idle warn threshold in millis.
+     * @see #getReaderIdleErrorThresholdMillis()
+     */
+    public int getReaderIdleWarnThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS,
+                BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should dump warnings
+     *
+     * @param warnThreshold time after which we should dump the read ahead state
+     * @return distributed log configuration
+     * @see #getReaderIdleWarnThresholdMillis()
+     */
+    public DistributedLogConfiguration setReaderIdleWarnThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
+    /**
+     * Get the time in milliseconds as the threshold for when an idle reader should throw errors
+     * <p>The default value is <i>Integer.MAX_VALUE</i>.
+     *
+     * @return reader idle error threshold in millis
+     * @see #getReaderIdleWarnThresholdMillis()
+     */
+    public int getReaderIdleErrorThresholdMillis() {
+        return getInt(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS,
+                BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT);
+    }
+
+    /**
+     * Set the time in milliseconds as the threshold for when an idle reader should throw errors
+     *
+     * @param warnThreshold time after which we should throw idle reader errors
+     * @return distributed log configuration
+     * @see #getReaderIdleErrorThresholdMillis()
+     */
+    public DistributedLogConfiguration setReaderIdleErrorThresholdMillis(int warnThreshold) {
+        setProperty(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, warnThreshold);
+        return this;
+    }
+
+    //
+    // Reader Constraint Settings
+    //
+
+    /**
+     * Get if we should ignore truncation status when reading the records
+     *
+     * @return if we should ignore truncation status
+     */
+    public boolean getIgnoreTruncationStatus() {
+        return getBoolean(BKDL_READER_IGNORE_TRUNCATION_STATUS, BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT);
     }
 
     /**
@@ -857,12 +2277,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get if we should ignore truncation status when reading the records
+     * Get if we should alert when reader is positioned on a truncated segment
      *
-     * @return if we should ignore truncation status
+     * @return if we should alert when reader is positioned on a truncated segment
      */
-    public boolean getIgnoreTruncationStatus() {
-        return getBoolean(BKDL_READER_IGNORE_TRUNCATION_STATUS, BKDL_READER_IGNORE_TRUNCATION_STATUS_DEFAULT);
+    public boolean getAlertWhenPositioningOnTruncated() {
+        return getBoolean(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
     }
 
     /**
@@ -870,6 +2290,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @param alertWhenPositioningOnTruncated
      *          if we should alert when reader is positioned on a truncated segment
+     * @return distributedlog configuration
      */
     public DistributedLogConfiguration setAlertWhenPositioningOnTruncated(boolean alertWhenPositioningOnTruncated) {
         setProperty(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, alertWhenPositioningOnTruncated);
@@ -877,12 +2298,11 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get if we should alert when reader is positioned on a truncated segment
-     *
-     * @return if we should alert when reader is positioned on a truncated segment
+     * Get whether position gap detection for reader enabled.
+     * @return whether position gap detection for reader enabled.
      */
-    public boolean getAlertWhenPositioningOnTruncated() {
-        return getBoolean(BKDL_READER_ALERT_POSITION_ON_TRUNCATED, BKDL_READER_ALERT_POSITION_ON_TRUNCATED_DEFAULT);
+    public boolean getPositionGapDetectionEnabled() {
+        return getBoolean(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT);
     }
 
     /**
@@ -897,19 +2317,17 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
-    /**
-     * Get whether position gap detection for reader enabled.
-     * @return whether position gap detection for reader enabled.
-     */
-    public boolean getPositionGapDetectionEnabled() {
-        return getBoolean(BKDL_READER_POSITION_GAP_DETECTION_ENABLED, BKDL_READER_POSITION_GAP_DETECTION_ENABLED_DEFAULT);
-    }
+    //
+    // ReadAhead Settings
+    //
 
     /**
-     * Set if we should enable read ahead
+     * Set if we should enable read ahead.
+     * By default is it enabled.
      *
      * @param enableReadAhead
      *          Enable read ahead
+     * @return distributedlog configuration
      */
     public DistributedLogConfiguration setEnableReadAhead(boolean enableReadAhead) {
         setProperty(BKDL_ENABLE_READAHEAD, enableReadAhead);
@@ -946,236 +2364,50 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get ZK Session timeout
+     * Get the max records cached by readahead cache.
+     * <p>The default value is 10. Increase this value to improve throughput,
+     * but be careful about the memory.
      *
-     * @return ensemble size
+     * @return max records cached by readahead cache.
      */
-    public int getZKSessionTimeoutSeconds() {
-        return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT);
+    public int getReadAheadMaxRecords() {
+        return this.getInt(BKDL_READAHEAD_MAX_ENTRIES,
+                getInt(BKDL_READAHEAD_MAX_ENTRIES_OLD,
+                        BKDL_READAHEAD_MAX_ENTRIES_DEFAULT));
     }
 
     /**
-     * Get ZK Session timeout in milliseconds.
+     * Set the maximum records allowed to be cached by read ahead worker.
      *
-     * @return zk session timeout in milliseconds.
-     */
-    public int getZKSessionTimeoutMilliseconds() {
-        return this.getInt(BKDL_ZK_SESSION_TIMEOUT_SECONDS, BKDL_ZK_SESSION_TIMEOUT_SECONDS_DEFAULT) * 1000;
-    }
-
-    /**
-     * Set ZK Session Timeout.
-     *
-     * @param zkSessionTimeoutSeconds session timeout.
+     * @param readAheadMaxEntries max records to cache.
      * @return distributed log configuration
+     * @see #getReadAheadMaxRecords()
      */
-    public DistributedLogConfiguration setZKSessionTimeoutSeconds(int zkSessionTimeoutSeconds) {
-        setProperty(BKDL_ZK_SESSION_TIMEOUT_SECONDS, zkSessionTimeoutSeconds);
+    public DistributedLogConfiguration setReadAheadMaxRecords(int readAheadMaxEntries) {
+        setProperty(BKDL_READAHEAD_MAX_ENTRIES, readAheadMaxEntries);
         return this;
     }
 
     /**
-     * Get zookeeper access rate limit.
+     * Get number of entries read as a batch by readahead worker.
+     * <p>The default value is 2. Increase the value to increase the concurrency
+     * of reading entries from bookkeeper.
      *
-     * @return zookeeper access rate limit.
-     */
-    public double getZKRequestRateLimit() {
-        return this.getDouble(BKDL_ZK_REQUEST_RATE_LIMIT, BKDL_ZK_REQUEST_RATE_LIMIT_DEFAULT);
-    }
-
-    /**
-     * Get num of retries for zookeeper client.
-     *
-     * @return num of retries of zookeeper client.
-     */
-    public int getZKNumRetries() {
-        return this.getInt(BKDL_ZK_NUM_RETRIES, BKDL_ZK_NUM_RETRIES_DEFAULT);
-    }
-
-    /**
-     * Get the start backoff time of zookeeper operation retries, in seconds.
-     *
-     * @return start backoff time of zookeeper operation retries.
-     */
-    public int getZKRetryBackoffStartMillis() {
-        return this.getInt(BKDL_ZK_RETRY_BACKOFF_START_MILLIS,
-                           BKDL_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Get the max backoff time of zookeeper operation retries, in seconds.
-     *
-     * @return max backoff time of zookeeper operation retries.
-     */
-    public int getZKRetryBackoffMaxMillis() {
-        return this.getInt(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS,
-                           BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Set zookeeper access rate limit
-     *
-     * @param requestRateLimit
-     *          zookeeper access rate limit
-     */
-    public DistributedLogConfiguration setZKRequestRateLimit(double requestRateLimit) {
-        setProperty(BKDL_ZK_REQUEST_RATE_LIMIT, requestRateLimit);
-        return this;
-    }
-
-    /**
-     * Set num of retries for zookeeper client.
-     *
-     * @param zkNumRetries num of retries of zookeeper client.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setZKNumRetries(int zkNumRetries) {
-        setProperty(BKDL_ZK_NUM_RETRIES, zkNumRetries);
-        return this;
-    }
-
-    /**
-     * Set the start backoff time of zookeeper operation retries, in seconds.
-     *
-     * @param zkRetryBackoffStartMillis start backoff time of zookeeper operation retries.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setZKRetryBackoffStartMillis(int zkRetryBackoffStartMillis) {
-        setProperty(BKDL_ZK_RETRY_BACKOFF_START_MILLIS, zkRetryBackoffStartMillis);
-        return this;
-    }
-
-    /**
-     * Set the max backoff time of zookeeper operation retries, in seconds.
-     *
-     * @param zkRetryBackoffMaxMillis max backoff time of zookeeper operation retries.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setZKRetryBackoffMaxMillis(int zkRetryBackoffMaxMillis) {
-        setProperty(BKDL_ZK_RETRY_BACKOFF_MAX_MILLIS, zkRetryBackoffMaxMillis);
-        return this;
-    }
-
-
-    /**
-     * Get Log Flush timeout
-     *
-     * @return ensemble size
-     */
-    public int getLogFlushTimeoutSeconds() {
-        return this.getInt(BKDL_LOG_FLUSH_TIMEOUT, BKDL_LOG_FLUSH_TIMEOUT_DEFAULT);
-    }
-
-    /**
-     * Set Log Flush Timeout.
-     *
-     * @param logFlushTimeoutSeconds log flush timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setLogFlushTimeoutSeconds(int logFlushTimeoutSeconds) {
-        setProperty(BKDL_LOG_FLUSH_TIMEOUT, logFlushTimeoutSeconds);
-        return this;
-    }
-
-    /**
-     * Get Periodic Log Flush Frequency in seconds
-     *
-     * @return periodic flush frequency
-     */
-    public int getPeriodicFlushFrequencyMilliSeconds() {
-        return this.getInt(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT);
-    }
-
-    /**
-     * Set Periodic Log Flush Frequency in seconds.
-     *
-     * @param flushFrequencyMs periodic flush frequency in milliseconds.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setPeriodicFlushFrequencyMilliSeconds(int flushFrequencyMs) {
-        setProperty(BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS, flushFrequencyMs);
-        return this;
-    }
-
-    /**
-     * Get minimum delay between immediate flushes in milliseconds
-     *
-     * @return minimum delay between immediate flushes in milliseconds
-     */
-    public int getMinDelayBetweenImmediateFlushMs() {
-        return this.getInt(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS_DEFAULT);
-    }
-
-    /**
-     * Set minimum delay between immediate flushes in milliseconds
-     *
-     * @param minDelayMs minimum delay between immediate flushes in milliseconds.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setMinDelayBetweenImmediateFlushMs(int minDelayMs) {
-        setProperty(BKDL_MINIMUM_DELAY_BETWEEN_IMMEDIATE_FLUSH_MILLISECONDS, minDelayMs);
-        return this;
-    }
-
-    /**
-     * Is immediate flush enabled
-     *
-     * @return whether immediate flush is enabled
-     */
-    public boolean getImmediateFlushEnabled() {
-        return getBoolean(BKDL_ENABLE_IMMEDIATE_FLUSH, BKDL_ENABLE_IMMEDIATE_FLUSH_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable immediate flush
-     *
-     * @param enabled
-     *          flag to enable/disable immediate flush.
-     * @return configuration instance.
-     */
-    public DistributedLogConfiguration setImmediateFlushEnabled(boolean enabled) {
-        setProperty(BKDL_ENABLE_IMMEDIATE_FLUSH, enabled);
-        return this;
-    }
-
-    /**
-     * Is truncation managed explicitly by the application. If this is set then
-     * time based retention is only a hint to perform deferred cleanup. However
-     * we never remove a segment that has not been already marked truncated
-     *
-     * @return whether truncation managed explicitly by the application
-     */
-    public boolean getExplicitTruncationByApplication() {
-        return getBoolean(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION, BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable whether truncation is managed explicitly by the application.
-     *
-     * @param enabled
-     *          flag to enable/disable whether truncation is managed explicitly by the application.
-     * @return configuration instance.
-     */
-    public DistributedLogConfiguration setExplicitTruncationByApplication(boolean enabled) {
-        setProperty(BKDL_EXPLICIT_TRUNCATION_BY_APPLICATION, enabled);
-        return this;
-    }
-
-    /**
-     * Get ZK Session timeout
-     *
-     * @return ensemble size
+     * @return number of entries read as a batch.
      */
     public int getReadAheadBatchSize() {
-        return this.getInt(BKDL_READAHEAD_BATCHSIZE, BKDL_READAHEAD_BATCHSIZE_DEFAULT);
+        return this.getInt(BKDL_READAHEAD_BATCHSIZE,
+                getInt(BKDL_READAHEAD_BATCHSIZE_OLD,
+                        BKDL_READAHEAD_BATCHSIZE_DEFAULT));
     }
 
     /**
-     * Set Read Ahead Batch Size.
+     * Set number of entries read as a batch by readahead worker.
      *
      * @param readAheadBatchSize
      *          Read ahead batch size.
      * @return distributed log configuration
+     * @see #getReadAheadBatchSize()
      */
     public DistributedLogConfiguration setReadAheadBatchSize(int readAheadBatchSize) {
         setProperty(BKDL_READAHEAD_BATCHSIZE, readAheadBatchSize);
@@ -1183,19 +2415,22 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get the wait time between successive attempts to poll for new log records
+     * Get the wait time between successive attempts to poll for new log records, in milliseconds.
+     * The default value is 200 ms.
      *
      * @return read ahead wait time
      */
     public int getReadAheadWaitTime() {
-        return this.getInt(BKDL_READAHEAD_WAITTIME, BKDL_READAHEAD_WAITTIME_DEFAULT);
+        return this.getInt(BKDL_READAHEAD_WAITTIME,
+                getInt(BKDL_READAHEAD_WAITTIME_OLD, BKDL_READAHEAD_WAITTIME_DEFAULT));
     }
 
     /**
-     * Set the wait time between successive attempts to poll for new log records
+     * Set the wait time between successive attempts to poll for new log records, in milliseconds
      *
      * @param readAheadWaitTime read ahead wait time
      * @return distributed log configuration
+     * @see #getReadAheadWaitTime()
      */
     public DistributedLogConfiguration setReadAheadWaitTime(int readAheadWaitTime) {
         setProperty(BKDL_READAHEAD_WAITTIME, readAheadWaitTime);
@@ -1203,22 +2438,29 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
-     * Get the wait time if it reaches end of stream and <b>there isn't any inprogress logsegment in the stream</b>, in millis.
+     * Get the wait time if it reaches end of stream and
+     * <b>there isn't any inprogress logsegment in the stream</b>, in millis.
+     * <p>The default value is 10 seconds.
      *
      * @see #setReadAheadWaitTimeOnEndOfStream(int)
-     * @return the wait time if it reaches end of stream and there isn't any inprogress logsegment in the stream, in millis.
+     * @return the wait time if it reaches end of stream and there isn't
+     * any inprogress logsegment in the stream, in millis.
      */
     public int getReadAheadWaitTimeOnEndOfStream() {
-        return this.getInt(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM, BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT);
+        return this.getInt(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM,
+                getInt(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_OLD,
+                        BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM_DEFAULT));
     }
 
     /**
-     * Set the wait time that would be used for readahead to backoff polling logsegments from zookeeper when it reaches end of stream
-     * and there isn't any inprogress logsegment in the stream. The unit is millis.
+     * Set the wait time that would be used for readahead to backoff polling
+     * logsegments from zookeeper when it reaches end of stream and there isn't
+     * any inprogress logsegment in the stream. The unit is millis.
      *
      * @param waitTime
      *          wait time that readahead used to backoff when reaching end of stream.
      * @return distributedlog configuration
+     * @see #getReadAheadWaitTimeOnEndOfStream()
      */
     public DistributedLogConfiguration setReadAheadWaitTimeOnEndOfStream(int waitTime) {
         setProperty(BKDL_READAHEAD_WAITTIME_ON_ENDOFSTREAM, waitTime);
@@ -1229,6 +2471,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * If readahead keeps receiving {@link org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException} on
      * reading last add confirmed in given period, it would stop polling last add confirmed and re-initialize the ledger
      * handle and retry. The threshold is specified in milliseconds.
+     * <p>The default value is 10 seconds.
      *
      * @return error threshold in milliseconds, that readahead will reinitialize ledger handle after keeping receiving
      * no such ledger exceptions.
@@ -1252,647 +2495,101 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    //
+    // DL Reader Scan Settings
+    //
+
     /**
-     * Get the long poll time out for read last add confirmed requests
+     * Number of entries to scan for first scan of reading last record.
      *
-     * @return long poll timeout
+     * @return number of entries to scan for first scan of reading last record.
      */
-    public int getReadLACLongPollTimeout() {
-        return this.getInt(BKDL_READLACLONGPOLL_TIMEOUT, BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT);
+    public int getFirstNumEntriesPerReadLastRecordScan() {
+        return getInt(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
     }
 
     /**
-     * Set the long poll time out for read last add confirmed requests
+     * Set number of entries to scan for first scan of reading last record.
      *
-     * @param readAheadLongPollTimeout long poll timeout
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setReadLACLongPollTimeout(int readAheadLongPollTimeout) {
-        setProperty(BKDL_READLACLONGPOLL_TIMEOUT, readAheadLongPollTimeout);
-        return this;
-    }
-
-
-    /**
-     * Get ZK Session timeout
-     *
-     * @return ensemble size
-     */
-    public int getReadAheadMaxEntries() {
-        return this.getInt(BKDL_READAHEAD_MAX_ENTRIES, BKDL_READAHEAD_MAX_ENTRIES_DEFAULT);
-    }
-
-    /**
-     * Set the maximum outstanding read ahead entries
-     *
-     * @param readAheadMaxEntries session timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setReadAheadMaxEntries(int readAheadMaxEntries) {
-        setProperty(BKDL_READAHEAD_MAX_ENTRIES, readAheadMaxEntries);
-        return this;
-    }
-
-    /**
-     * Get lock timeout
-     *
-     * @return lock timeout
-     */
-    public long getLockTimeoutMilliSeconds() {
-        return this.getLong(BKDL_LOCK_TIMEOUT, BKDL_LOCK_TIMEOUT_DEFAULT) * 1000;
-    }
-
-    /**
-     * Set lock timeout
-     *
-     * @param lockTimeout lock timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setLockTimeout(long lockTimeout) {
-        setProperty(BKDL_LOCK_TIMEOUT, lockTimeout);
-        return this;
-    }
-
-    /**
-     * Get lock reacquire timeout
-     *
-     * @return lock reacquire timeout
-     */
-    public long getLockReacquireTimeoutMilliSeconds() {
-        return this.getLong(BKDL_LOCK_REACQUIRE_TIMEOUT, BKDL_LOCK_REACQUIRE_TIMEOUT_DEFAULT) * 1000;
-    }
-
-    /**
-     * Set lock reacquire timeout
-     *
-     * @param lockReacquireTimeout lock reacquire timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setLockReacquireTimeoutMilliSeconds(long lockReacquireTimeout) {
-        setProperty(BKDL_LOCK_REACQUIRE_TIMEOUT, lockReacquireTimeout);
-        return this;
-    }
-
-    /**
-     * Get lock internal operation timeout
-     *
-     * @return lock internal operation timeout
-     */
-    public long getLockOpTimeoutMilliSeconds() {
-        return this.getLong(BKDL_LOCK_OP_TIMEOUT, BKDL_LOCK_OP_TIMEOUT_DEFAULT) * 1000;
-    }
-
-    /**
-     * Set lock internal operation timeout
-     *
-     * @param lockOpTimeout lock internal operation timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setLockOpTimeoutMilliSeconds(long lockOpTimeout) {
-        setProperty(BKDL_LOCK_OP_TIMEOUT, lockOpTimeout);
-        return this;
-    }
-
-    /**
-     * Get BK client read timeout
-     *
-     * @return read timeout
-     */
-    public int getBKClientReadTimeout() {
-        return this.getInt(BKDL_BKCLIENT_READ_TIMEOUT, BKDL_BKCLIENT_READ_TIMEOUT_DEFAULT);
-    }
-
-    /**
-     * Set BK client read timeout
-     *
-     * @param readTimeout read timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setBKClientReadTimeout(int readTimeout) {
-        setProperty(BKDL_BKCLIENT_READ_TIMEOUT, readTimeout);
-        return this;
-    }
-
-    /**
-     * Get BK client number of worker threads.
-     *
-     * @return number of bookkeeper client worker threads.
-     */
-    public int getBKClientNumberWorkerThreads() {
-        return this.getInt(BKDL_BKCLIENT_NUM_WORKER_THREADS, BKDL_BKCLEINT_NUM_WORKER_THREADS_DEFAULT);
-    }
-
-    /**
-     * Set BK client number of worker threads.
-     *
-     * @param numThreads
-     *          number worker threads.
+     * @param numEntries
+     *          number of entries to scan
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setBKClientNumberWorkerThreads(int numThreads) {
-        setProperty(BKDL_BKCLIENT_NUM_WORKER_THREADS, numThreads);
+    public DistributedLogConfiguration setFirstNumEntriesPerReadLastRecordScan(int numEntries) {
+        setProperty(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
         return this;
     }
 
     /**
-     * Get ZK client number of retry executor threads.
+     * Max number of entries for each scan to read last record.
      *
-     * @return number of bookkeeper client worker threads.
+     * @return max number of entries for each scan to read last record.
      */
-    public int getZKClientNumberRetryThreads() {
-        return this.getInt(BKDL_ZKCLIENT_NUM_RETRY_THREADS, BKDL_ZKCLIENT_NUM_RETRY_THREADS_DEFAULT);
+    public int getMaxNumEntriesPerReadLastRecordScan() {
+        return getInt(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
     }
 
     /**
-     * Set ZK client number of retry executor threads.
+     * Set max number of entries for each scan to read last record.
      *
-     * @param numThreads
-     *          number of retry executor threads.
+     * @param numEntries
+     *          number of entries to scan
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setZKClientNumberRetryThreads(int numThreads) {
-        setProperty(BKDL_ZKCLIENT_NUM_RETRY_THREADS, numThreads);
+    public DistributedLogConfiguration setMaxNumEntriesPerReadLastRecordScan(int numEntries) {
+        setProperty(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
         return this;
     }
 
+    //
+    // DL Reader Log Existence Checking Settings
+    //
 
     /**
-     * Get BK client read timeout
+     * Get the backoff start time to check log existence if the log doesn't exist.
      *
-     * @return session timeout in milliseconds
+     * @return the backoff start time to check log existence if the log doesn't exist.
      */
-    public int getBKClientZKSessionTimeoutMilliSeconds() {
-        return this.getInt(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, BKDL_BKCLIENT_ZK_SESSION_TIMEOUT_DEFAULT) * 1000;
+    public long getCheckLogExistenceBackoffStartMillis() {
+        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT);
     }
 
     /**
-     * Set the ZK Session Timeout used by the BK Client
+     * Set the backoff start time to check log existence if the log doesn't exist.
      *
-     * @param sessionTimeout session timeout for the ZK Client used by BK Client
-     * @return distributed log configuration
+     * @param backoffMillis
+     *          backoff time in millis
+     * @return dl configuration
      */
-    public DistributedLogConfiguration setBKClientZKSessionTimeout(int sessionTimeout) {
-        setProperty(BKDL_BKCLIENT_ZK_SESSION_TIMEOUT, sessionTimeout);
-        return this;
-    }
-
-    /**
-     * Get zookeeper access rate limit for zookeeper client used in bookkeeper client.
-     * @return zookeeper access rate limit for zookeeper client used in bookkeeper client.
-     */
-    public double getBKClientZKRequestRateLimit() {
-        return this.getDouble(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT,
-                BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT_DEFAULT);
-    }
-
-    /**
-     * Set zookeeper access rate limit for zookeeper client used in bookkeeper client.
-     *
-     * @param rateLimit
-     *          zookeeper access rate limit
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setBKClientZKRequestRateLimit(double rateLimit) {
-        setProperty(BKDL_BKCLIENT_ZK_REQUEST_RATE_LIMIT, rateLimit);
+    public DistributedLogConfiguration setCheckLogExistenceBackoffStartMillis(long backoffMillis) {
+        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, backoffMillis);
         return this;
     }
 
     /**
-     * Get num of retries for zookeeper client.
+     * Get the backoff max time to check log existence if the log doesn't exist.
      *
-     * @return num of retries of zookeeper client.
+     * @return the backoff max time to check log existence if the log doesn't exist.
      */
-    public int getBKClientZKNumRetries() {
-        return this.getInt(BKDL_BKCLIENT_ZK_NUM_RETRIES, BKDL_BKCLIENT_ZK_NUM_RETRIES_DEFAULT);
+    public long getCheckLogExistenceBackoffMaxMillis() {
+        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT);
     }
 
     /**
-     * Get the start backoff time of zookeeper operation retries, in seconds.
+     * Set the backoff max time to check log existence if the log doesn't exist.
      *
-     * @return start backoff time of zookeeper operation retries.
+     * @param backoffMillis
+     *          backoff time in millis
+     * @return dl configuration
      */
-    public int getBKClientZKRetryBackoffStartMillis() {
-        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS,
-                           BKDL_BKCLIENT_ZK_RETRY_BACKOFF_START_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Get the max backoff time of zookeeper operation retries, in seconds.
-     *
-     * @return max backoff time of zookeeper operation retries.
-     */
-    public int getBKClientZKRetryBackoffMaxMillis() {
-        return this.getInt(BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS,
-                BKDL_BKCLIENT_ZK_RETRY_BACKOFF_MAX_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Get BK client read timeout
-     *
-     * @return read timeout
-     */
-    public int getBKClientWriteTimeout() {
-        return this.getInt(BKDL_BKCLIENT_WRITE_TIMEOUT, BKDL_BKCLIENT_WRITE_TIMEOUT_DEFAULT);
-    }
-
-    /**
-     * Set BK client read timeout
-     *
-     * @param writeTimeout write timeout.
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setBKClientWriteTimeout(int writeTimeout) {
-        setProperty(BKDL_BKCLIENT_WRITE_TIMEOUT, writeTimeout);
+    public DistributedLogConfiguration setCheckLogExistenceBackoffMaxMillis(long backoffMillis) {
+        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, backoffMillis);
         return this;
     }
 
-    /**
-    * Whether we should publish record counts in the log records and metadata
-    *
-    * @return if record counts should be persisted
-    */
-    public boolean getEnableRecordCounts() {
-        return getBoolean(BKDL_ENABLE_RECORD_COUNTS, BKDL_ENABLE_RECORD_COUNTS_DEFAULT);
-    }
-
-    /**
-     * Set if we should publish record counts in the log records and metadata
-     *
-     * @param enableRecordCounts enable record counts
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setEnableRecordCounts(boolean enableRecordCounts) {
-        setProperty(BKDL_ENABLE_RECORD_COUNTS, enableRecordCounts);
-        return this;
-    }
-
-    /**
-     * Get DL ledger metadata output layout version
-     *
-     * @return layout version
-     */
-    public int getDLLedgerMetadataLayoutVersion() {
-        return this.getInt(BKDL_LEDGER_METADATA_LAYOUT_VERSION, BKDL_LEDGER_METADATA_LAYOUT_VERSION_DEFAULT);
-    }
-
-    /**
-     * Set DL ledger metadata output layout version
-     *
-     * @param layoutVersion layout version
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setDLLedgerMetadataLayoutVersion(int layoutVersion) throws IllegalArgumentException {
-        if ((layoutVersion <= 0) ||
-            (layoutVersion > LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION)) {
-            // Incorrect version specified
-            throw new IllegalArgumentException("Incorrect value for ledger metadata layout version");
-        }
-        setProperty(BKDL_LEDGER_METADATA_LAYOUT_VERSION, layoutVersion);
-        return this;
-    }
-
-    /**
-     * Get the setting for whether we should enforce the min ledger metadata version check
-     *
-     * @return whether we should enforce the min ledger metadata version check
-     */
-    public boolean getDLLedgerMetadataSkipMinVersionCheck() {
-        return this.getBoolean(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK, BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK_DEFAULT);
-    }
-
-    /**
-     * Set if we should skip the enforcement of min ledger metadata version
-     *
-     * @param skipMinVersionCheck whether we should enforce the min ledger metadata version check
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setDLLedgerMetadataSkipMinVersionCheck(boolean skipMinVersionCheck) throws IllegalArgumentException {
-        setProperty(BKDL_LEDGER_METADATA_SKIP_MIN_VERSION_CHECK, skipMinVersionCheck);
-        return this;
-    }
-
-    /**
-     * Get the value at which ledger sequence number should start for streams that are being
-     * upgraded and did not have ledger sequence number to start with or for newly created
-     * streams
-     *
-     * @return first ledger sequence number
-     */
-    public long getFirstLogSegmentSequenceNumber() {
-        return this.getLong(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT);
-    }
-
-    /**
-     * Set the value at which ledger sequence number should start for streams that are being
-     * upgraded and did not have ledger sequence number to start with or for newly created
-     * streams
-     *
-     * @param firstLogSegmentSequenceNumber first ledger sequence number
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setFirstLogSegmentSequenceNumber(long firstLogSegmentSequenceNumber)
-            throws IllegalArgumentException {
-        if (firstLogSegmentSequenceNumber <= 0) {
-            // Incorrect ledger sequence number specified
-            throw new IllegalArgumentException("Incorrect value for ledger sequence number");
-        }
-        setProperty(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, firstLogSegmentSequenceNumber);
-        return this;
-    }
-
-    /**
-     * Get the time in milliseconds as the threshold for when an idle reader should dump warnings
-     *
-     * @return if record counts should be persisted
-     */
-    public int getReaderIdleWarnThresholdMillis() {
-        return getInt(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Set the time in milliseconds as the threshold for when an idle reader should dump warnings
-     *
-     * @param warnThreshold time after which we should dump the read ahead state
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setReaderIdleWarnThresholdMillis(int warnThreshold) {
-        setProperty(BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS, warnThreshold);
-        return this;
-    }
-
-    /**
-     * Whether sanity check txn id.
-     *
-     * @return true if should check txn id with max txn id.
-     */
-    public boolean getSanityCheckTxnID() {
-        return getBoolean(BKDL_MAXID_SANITYCHECK, BKDL_MAXID_SANITYCHECK_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable sanity check txn id.
-     *
-     * @param enabled
-     *          enable/disable sanity check txn id.
-     * @return configuration.
-     */
-    public DistributedLogConfiguration setSanityCheckTxnID(boolean enabled) {
-        setProperty(BKDL_MAXID_SANITYCHECK, enabled);
-        return this;
-    }
-
-    /**
-     * Whether to enable ledger allocator pool or not.
-     *
-     * @return whether using ledger allocator pool or not.
-     */
-    public boolean getEnableLedgerAllocatorPool() {
-        return getBoolean(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable ledger allocator pool.
-     *
-     * @param enabled
-     *          enable/disable ledger allocator pool.
-     * @return configuration.
-     */
-    public DistributedLogConfiguration setEnableLedgerAllocatorPool(boolean enabled) {
-        setProperty(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL, enabled);
-        return this;
-    }
-
-    /**
-     * The path of ledger allocator pool.
-     *
-     * @return path of ledger allocator pool.
-     */
-    public String getLedgerAllocatorPoolPath() {
-        return getString(BKDL_LEDGER_ALLOCATOR_POOL_PATH, BKDL_LEDGER_ALLOCATOR_POOL_PATH_DEFAULT);
-    }
-
-    /**
-     * Set the root path of ledger allocator pool
-     *
-     * @param path
-     *          path of ledger allocator pool.
-     * @return configuration
-     */
-    public DistributedLogConfiguration setLedgerAllocatorPoolPath(String path) {
-        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_PATH, path);
-        return this;
-    }
-
-    /**
-     * The name of ledger allocator pool.
-     *
-     * @return name of ledger allocator pool.
-     */
-    public String getLedgerAllocatorPoolName() {
-        return getString(BKDL_LEDGER_ALLOCATOR_POOL_NAME, BKDL_LEDGER_ALLOCATOR_POOL_NAME_DEFAULT);
-    }
-
-    /**
-     * Set name of ledger allocator pool.
-     *
-     * @param name
-     *          name of ledger allocator pool.
-     * @return configuration.
-     */
-    public DistributedLogConfiguration setLedgerAllocatorPoolName(String name) {
-        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_NAME, name);
-        return this;
-    }
-
-    /**
-     * Core size of ledger allocator pool.
-     *
-     * @return core size of ledger allocator pool.
-     */
-    public int getLedgerAllocatorPoolCoreSize() {
-        return getInt(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE_DEFAULT);
-    }
-
-    /**
-     * Set core size of ledger allocator pool.
-     *
-     * @param poolSize
-     *          core size of ledger allocator pool.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setLedgerAllocatorPoolCoreSize(int poolSize) {
-        setProperty(BKDL_LEDGER_ALLOCATOR_POOL_CORE_SIZE, poolSize);
-        return this;
-    }
-
-    /**
-     * Whether to create stream if not exists.
-     *
-     * @return true if it is abled to create stream if not exists.
-     */
-    public boolean getCreateStreamIfNotExists() {
-        return getBoolean(BKDL_CREATE_STREAM_IF_NOT_EXISTS, BKDL_CREATE_STREAM_IF_NOT_EXISTS_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable creating stream if not exists.
-     *
-     * @param enabled
-     *          enable/disable sanity check txn id.
-     * @return distributed log configuration.
-     */
-    public DistributedLogConfiguration setCreateStreamIfNotExists(boolean enabled) {
-        setProperty(BKDL_CREATE_STREAM_IF_NOT_EXISTS, enabled);
-        return this;
-    }
-    /*
-     * Get the time in milliseconds as the threshold for when an idle reader should throw errors
-     *
-     * @return if record counts should be persisted
-     */
-    public int getReaderIdleErrorThresholdMillis() {
-        return getInt(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS_DEFAULT);
-    }
-
-    /**
-     * Set the time in milliseconds as the threshold for when an idle reader should throw errors
-     *
-     * @param warnThreshold time after which we should throw idle reader errors
-     * @return distributed log configuration
-     */
-    public DistributedLogConfiguration setReaderIdleErrorThresholdMillis(int warnThreshold) {
-        setProperty(BKDL_READER_IDLE_ERROR_THRESHOLD_MILLIS, warnThreshold);
-        return this;
-    }
-
-    /**
-     * Get the tick duration in milliseconds that used for timeout timer.
-     *
-     * @return tick duration in milliseconds
-     */
-    public long getTimeoutTimerTickDurationMs() {
-        return getLong(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, BKDL_TIMEOUT_TIMER_TICK_DURATION_MS_DEFAULT);
-    }
-
-    /**
-     * Set the tick duration in milliseconds that used for timeout timer.
-     *
-     * @param tickDuration
-     *          tick duration in milliseconds.
-     * @return distributed log configuration.
-     */
-    public DistributedLogConfiguration setTimeoutTimerTickDurationMs(long tickDuration) {
-        setProperty(BKDL_TIMEOUT_TIMER_TICK_DURATION_MS, tickDuration);
-        return this;
-    }
-
-    /**
-     * Get log segment rolling concurrency.
-     *
-     * @return log segment rolling concurrency.
-     */
-    public int getLogSegmentRollingConcurrency() {
-        return getInt(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT);
-    }
-
-    /**
-     * Set log segment rolling concurrency. <i>0</i> means disable rolling concurrency.
-     * <i>larger than 0</i> means how many log segment could be rolled at the same time.
-     * <i>less than 0</i> means unlimited concurrency on rolling log segments.
-     *
-     * @param concurrency
-     *          log segment rolling concurrency.
-     * @return distributed log configuration.
-     */
-    public DistributedLogConfiguration setLogSegmentRollingConcurrency(int concurrency) {
-        setProperty(BKDL_LOGSEGMENT_ROLLING_CONCURRENCY, concurrency);
-        return this;
-    }
-
-    /**
-     * Could encode region id in version?
-     *
-     * @return whether to encode region id in version.
-     */
-    public boolean getEncodeRegionIDInVersion() {
-        return getBoolean(BKDL_ENCODE_REGION_ID_IN_VERSION, BKDL_ENCODE_REGION_ID_IN_VERSION_DEFAULT);
-    }
-
-    /**
-     * Enable/Disable encoding region id in version.
-     *
-     * @param enabled
-     *          flag to enable/disable encoding region id in version.
-     * @return configuration instance.
-     */
-    public DistributedLogConfiguration setEncodeRegionIDInVersion(boolean enabled) {
-        setProperty(BKDL_ENCODE_REGION_ID_IN_VERSION, enabled);
-        return this;
-    }
-
-    /**
-     * Get log segment name version.
-     *
-     * @return log segment name verison.
-     */
-    public int getLogSegmentNameVersion() {
-        return getInt(BKDL_LOGSEGMENT_NAME_VERSION, BKDL_LOGSEGMENT_NAME_VERSION_DEFAULT);
-    }
-
-    /**
-     * Set log segment name version.
-     *
-     * @param version
-     *          log segment name version.
-     * @return configuration object.
-     */
-    public DistributedLogConfiguration setLogSegmentNameVersion(int version) {
-        setProperty(BKDL_LOGSEGMENT_NAME_VERSION, version);
-        return this;
-    }
-
-
-    /**
-     * Should read ahead use long polling or piggyback for read last confirmed
-     *
-     * @return whether read ahead should use long polling or piggyback for read last confirmed.
-     */
-    public int getReadLACOption() {
-        return getInt(BKDL_READLAC_OPTION, BKDL_READLAC_OPTION_DEFAULT);
-    }
-
-    /**
-     * Set the method that read-ahead's should use to get read last confirmed.
-     *
-     * @param option
-     *          flag to set the read-ahead's option for read last confirmed.
-     * @return configuration instance.
-     */
-    public DistributedLogConfiguration setReadLACOption(int option) {
-        setProperty(BKDL_READLAC_OPTION, option);
-        return this;
-    }
-
-    /**
-     * Get mapping used to override the region mapping derived by the default resolver.
-     *
-     * @return dns resolver overrides.
-     */
-    public String getBkDNSResolverOverrides() {
-        return getString(BKDL_BK_DNS_RESOLVER_OVERRIDES, BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT);
-    }
-
-    /**
-     * Set mapping used to override the region mapping derived by the default resolver
-     *
-     * @param overrides
-     *          dns resolver overrides
-     * @return dl configuration.
-     */
-    public DistributedLogConfiguration setBkDNSResolverOverrides(String overrides) {
-        setProperty(BKDL_BK_DNS_RESOLVER_OVERRIDES, overrides);
-        return this;
-    }
+    //
+    // Tracing/Stats Settings
+    //
 
     /**
      * Whether to trace read ahead delivery latency or not?
@@ -2027,7 +2724,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
-
     /**
      * Whether to enable per stream stat or not.
      *
@@ -2051,217 +2747,230 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    //
+    // Settings for Feature Providers
+    //
+
     /**
-     * Get number of ticks that used for timeout timer.
+     * Get feature provider class.
      *
-     * @return number of ticks that used for timeout timer.
+     * @return feature provider class.
+     * @throws ConfigurationException
      */
-    public int getTimeoutTimerNumTicks() {
-        return getInt(BKDL_TIMEOUT_TIMER_NUM_TICKS, BKDL_TIMEOUT_TIMER_NUM_TICKS_DEFAULT);
+    public Class<? extends FeatureProvider> getFeatureProviderClass()
+            throws ConfigurationException {
+        return ReflectionUtils.getClass(this, BKDL_FEATURE_PROVIDER_CLASS, DeciderFeatureProvider.class,
+                FeatureProvider.class, FeatureProvider.class.getClassLoader());
     }
 
     /**
-     * Set number of ticks that used for timeout timer.
+     * Set feature provider class.
      *
-     * @param numTicks
-     *          number of ticks that used for timeout timer.
-     * @return distributed log configuration.
+     * @param providerClass
+     *          feature provider class.
+     * @return distributedlog configuration
      */
-    public DistributedLogConfiguration setTimeoutTimerNumTicks(int numTicks) {
-        setProperty(BKDL_TIMEOUT_TIMER_NUM_TICKS, numTicks);
+    public DistributedLogConfiguration setFeatureProviderClass(Class<? extends FeatureProvider> providerClass) {
+        setProperty(BKDL_FEATURE_PROVIDER_CLASS, providerClass.getName());
         return this;
     }
 
     /**
-     * Number of entries to scan for first scan of reading last record.
+     * Get the base config path for decider.
      *
-     * @return number of entries to scan for first scan of reading last record.
+     * @return base config path for decider.
      */
-    public int getFirstNumEntriesPerReadLastRecordScan() {
-        return getInt(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
+    public String getDeciderBaseConfigPath() {
+        return getString(BKDL_DECIDER_BASE_CONFIG_PATH, BKDL_DECIDER_BASE_CONFIG_PATH_DEFAULT);
     }
 
     /**
-     * Set number of entries to scan for first scan of reading last record.
+     * Set the base config path for decider.
      *
-     * @param numEntries
-     *          number of entries to scan
+     * @param configPath
+     *          base config path for decider.
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setFirstNumEntriesPerReadLastRecordScan(int numEntries) {
-        setProperty(BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
+    public DistributedLogConfiguration setDeciderBaseConfigPath(String configPath) {
+        setProperty(BKDL_DECIDER_BASE_CONFIG_PATH, configPath);
         return this;
     }
 
     /**
-     * Max number of entries for each scan to read last record.
+     * Get the overlay config path for decider.
      *
-     * @return max number of entries for each scan to read last record.
+     * @return overlay config path for decider.
      */
-    public int getMaxNumEntriesPerReadLastRecordScan() {
-        return getInt(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN_DEFAULT);
+    public String getDeciderOverlayConfigPath() {
+        return getString(BKDL_DECIDER_OVERLAY_CONFIG_PATH, BKDL_DECIDER_OVERLAY_CONFIG_PATH_DEFAULT);
     }
 
     /**
-     * Set max number of entries for each scan to read last record.
+     * Set the overlay config path for decider.
      *
-     * @param numEntries
-     *          number of entries to scan
+     * @param configPath
+     *          overlay config path for decider.
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setMaxNumEntriesPerReadLastRecordScan(int numEntries) {
-        setProperty(BKDL_MAX_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN, numEntries);
+    public DistributedLogConfiguration setDeciderOverlayConfigPath(String configPath) {
+        setProperty(BKDL_DECIDER_OVERLAY_CONFIG_PATH, configPath);
         return this;
     }
 
     /**
-     * Get the backoff start time to check log existence if the log doesn't exist.
+     * Get the decider environment.
      *
-     * @return the backoff start time to check log existence if the log doesn't exist.
+     * @return decider environment
      */
-    public long getCheckLogExistenceBackoffStartMillis() {
-        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS_DEFAULT);
+    public String getDeciderEnvironment() {
+        return getString(BKDL_DECIDER_ENVIRONMENT, BKDL_DECIDER_ENVIRONMENT_DEFAULT);
     }
 
     /**
-     * Set the backoff start time to check log existence if the log doesn't exist.
+     * Set the decider environment.
      *
-     * @param backoffMillis
-     *          backoff time in millis
-     * @return dl configuration
+     * @param environment decider environment
+     * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setCheckLogExistenceBackoffStartMillis(long backoffMillis) {
-        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_START_MS, backoffMillis);
+    public DistributedLogConfiguration setDeciderEnvironment(String environment) {
+        setProperty(BKDL_DECIDER_ENVIRONMENT, environment);
+        return this;
+    }
+
+    //
+    // Settings for Namespaces
+    //
+
+    /**
+     * Get the max logs per sub namespace for federated namespace.
+     *
+     * @return max logs per sub namespace
+     */
+    public int getFederatedMaxLogsPerSubnamespace() {
+        return getInt(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT);
+    }
+
+    /**
+     * Set the max logs per sub namespace for federated namespace.
+     *
+     * @param maxLogs
+     *          max logs per sub namespace
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setFederatedMaxLogsPerSubnamespace(int maxLogs) {
+        setProperty(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, maxLogs);
         return this;
     }
 
     /**
-     * Get the backoff max time to check log existence if the log doesn't exist.
+     * Whether check the existence of a log if querying local cache of a federated namespace missed.
+     * Enabling it will issue zookeeper queries to check all sub namespaces under a federated namespace.
      *
-     * @return the backoff max time to check log existence if the log doesn't exist.
+     * NOTE: by default it is on for all admin related tools. for write proxies, consider turning off for
+     * performance.
+     *
+     * @return true if it needs to check existence of a log when querying local cache misses. otherwise false.
      */
-    public long getCheckLogExistenceBackoffMaxMillis() {
-        return getLong(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS_DEFAULT);
+    public boolean getFederatedCheckExistenceWhenCacheMiss() {
+        return getBoolean(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS,
+                BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS_DEFAULT);
     }
 
     /**
-     * Set the backoff max time to check log existence if the log doesn't exist.
+     * Enable check existence of a log if quering local cache of a federated namespace missed.
      *
-     * @param backoffMillis
-     *          backoff time in millis
-     * @return dl configuration
+     * @param enabled
+     *          flag to enable/disable this feature.
+     * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setCheckLogExistenceBackoffMaxMillis(long backoffMillis) {
-        setProperty(BKDL_CHECK_LOG_EXISTENCE_BACKOFF_MAX_MS, backoffMillis);
+    public DistributedLogConfiguration setFederatedCheckExistenceWhenCacheMiss(boolean enabled) {
+        setProperty(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS, enabled);
+        return this;
+    }
+
+    //
+    // Settings for Configurations
+    //
+
+    /**
+     * Get dynamic configuration reload interval in seconds.
+     *
+     * @return dynamic configuration reload interval
+     */
+    public int getDynamicConfigReloadIntervalSec() {
+        return getInt(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT);
+    }
+
+    /**
+     * Get dynamic configuration reload interval in seconds.
+     *
+     * @param intervalSec dynamic configuration reload interval in seconds
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
+        setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
         return this;
     }
 
     /**
-     * Get the per stream outstanding write limit for dl.
+     * Get config router class which determines how stream name is mapped to configuration.
      *
-     * @return the per stream outstanding write limit for dl
+     * @return config router class.
      */
-    public int getPerWriterOutstandingWriteLimit() {
-        return getInt(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT, BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT_DEFAULT);
+    public String getStreamConfigRouterClass() {
+        return getString(BKDL_STREAM_CONFIG_ROUTER_CLASS, BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT);
     }
 
     /**
-     * Set the per stream outstanding write limit for dl.
+     * Set config router class.
      *
-     * @param limit
-     *          per stream outstanding write limit for dl
-     * @return dl configuration
+     * @param routerClass
+     *          config router class.
+     * @return distributedlog configuration
      */
-    public DistributedLogConfiguration setPerWriterOutstandingWriteLimit(int limit) {
-        setProperty(BKDL_PER_WRITER_OUTSTANDING_WRITE_LIMIT, limit);
+    public DistributedLogConfiguration setStreamConfigRouterClass(String routerClass) {
+        setProperty(BKDL_STREAM_CONFIG_ROUTER_CLASS, routerClass);
         return this;
     }
 
+    //
+    // Settings for RateLimit
+    //
+
     /**
-     * Get the global write limit for dl.
+     * A lower threshold bytes per second limit on writes to the distributedlog proxy.
      *
-     * @return the global write limit for dl
+     * @return Bytes per second write limit
      */
-    public int getGlobalOutstandingWriteLimit() {
-        return getInt(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT_DEFAULT);
+    public int getBpsSoftWriteLimit() {
+        return getInt(BKDL_BPS_SOFT_WRITE_LIMIT, BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT);
     }
 
     /**
-     * Set the global write limit for dl.
+     * An upper threshold bytes per second limit on writes to the distributedlog proxy.
      *
-     * @param limit
-     *          global write limit for dl
-     * @return dl configuration
+     * @return Bytes per second write limit
      */
-    public DistributedLogConfiguration setGlobalOutstandingWriteLimit(int limit) {
-        setProperty(BKDL_GLOBAL_OUTSTANDING_WRITE_LIMIT, limit);
-        return this;
+    public int getBpsHardWriteLimit() {
+        return getInt(BKDL_BPS_HARD_WRITE_LIMIT, BKDL_BPS_HARD_WRITE_LIMIT_DEFAULT);
     }
 
     /**
-     * Whether to darkmode outstanding writes limit.
+     * A lower threshold requests per second limit on writes to the distributedlog proxy.
      *
-     * @return flag to darmkode pending write limit.
+     * @return Requests per second write limit
      */
-    public boolean getOutstandingWriteLimitDarkmode() {
-        return getBoolean(BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE, BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE_DEFAULT);
+    public int getRpsSoftWriteLimit() {
+        return getInt(BKDL_RPS_SOFT_WRITE_LIMIT, BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT);
     }
 
     /**
-     * Set the flag to darkmode outstanding writes limit.
+     * An upper threshold requests per second limit on writes to the distributedlog proxy.
      *
-     * @param darkmoded
-     *          flag to darmkode pending write limit
-     * @return dl configuration.
+     * @return Requests per second write limit
      */
-    public DistributedLogConfiguration setOutstandingWriteLimitDarkmode(boolean darkmoded) {
-        setProperty(BKDL_OUTSTANDING_WRITE_LIMIT_DARKMODE, darkmoded);
-        return this;
-    }
-
-    /**
-     * Whether to fail immediately if the stream is not ready rather than queueing the request.
-     *
-     * @return should failfast.
-     */
-    public boolean getFailFastOnStreamNotReady() {
-        return getBoolean(BKDL_FAILFAST_ON_STREAM_NOT_READY, BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT);
-    }
-
-    /**
-     * Set the failfast on stream not ready flag.
-     *
-     * @param failFastOnStreamNotReady
-     *        set failfast flag
-     * @return dl configuration.
-     */
-    public DistributedLogConfiguration setFailFastOnStreamNotReady(boolean failFastOnStreamNotReady) {
-        setProperty(BKDL_FAILFAST_ON_STREAM_NOT_READY, failFastOnStreamNotReady);
-        return this;
-    }
-
-    /**
-     * The compression type to use while sending data to bookkeeper.
-     * @return
-     */
-    public String getCompressionType() {
-        return getString(BKDL_COMPRESSION_TYPE, BKDL_COMPRESSION_TYPE_DEFAULT);
-    }
-
-    /**
-     * Set the compression type to use while sending data to bookkeeper.
-     * @param compressionType
-     *          CompressionCodec.Type     String to use (see CompressionUtils)
-     *          ---------------------     ------------------------------------
-     *                  NONE               none
-     *                  LZ4                lz4
-     *                  UNKNOWN            any other instance of String.class
-     * @return
-     */
-    public DistributedLogConfiguration setCompressionType(String compressionType) {
-        Preconditions.checkArgument(null != compressionType && !compressionType.isEmpty());
-        setProperty(BKDL_COMPRESSION_TYPE, compressionType);
-        return this;
+    public int getRpsHardWriteLimit() {
+        return getInt(BKDL_RPS_HARD_WRITE_LIMIT, BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT);
     }
 
     // Error Injection Settings
@@ -2400,299 +3109,5 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setEIInjectReadAheadDelayPercent(int percent) {
         setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, percent);
         return this;
-    }
-
-    /**
-     * Get timeout for stream op execution in proxy layer. 0 disables timeout.
-     *
-     * @return timeout for stream operation in proxy layer.
-     */
-    public long getServiceTimeoutMs() {
-        return getLong(BKDL_SERVICE_TIMEOUT_MS, BKDL_SERVICE_TIMEOUT_MS_DEFAULT);
-    }
-
-    /**
-     * Set timeout for stream op execution in proxy layer. 0 disables timeout.
-     *
-     * @param timeoutMs
-     *          timeout for stream operation in proxy layer.
-     * @return dl configuration.
-     */
-    public DistributedLogConfiguration setServiceTimeoutMs(long timeoutMs) {
-        setProperty(BKDL_SERVICE_TIMEOUT_MS, timeoutMs);
-        return this;
-    }
-
-    /**
-     * After service timeout, how long should stream be kept in cache in probationary state in order
-     * to prevent reacquire. In millisec.
-     *
-     * @return stream probation timeout in ms.
-     */
-    public long getStreamProbationTimeoutMs() {
-        return getLong(BKDL_STREAM_PROBATION_TIMEOUT_MS, BKDL_STREAM_PROBATION_TIMEOUT_MS_DEFAULT);
-    }
-
-    /**
-     * After service timeout, how long should stream be kept in cache in probationary state in order
-     * to prevent reacquire. In millisec.
-     *
-     * @param stream probation timeout in ms.
-     */
-    public DistributedLogConfiguration setStreamProbationTimeoutMs(long timeoutMs) {
-        setProperty(BKDL_STREAM_PROBATION_TIMEOUT_MS, timeoutMs);
-        return this;
-    }
-
-    /**
-     * Get timeout for shutting down schedulers in dl manager.
-     *
-     * @return timeout for shutting down schedulers in dl manager.
-     */
-    public int getSchedulerShutdownTimeoutMs() {
-        return getInt(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT);
-    }
-
-    /**
-     * Set timeout for shutting down schedulers in dl manager.
-     *
-     * @param timeoutMs
-     *         timeout for shutting down schedulers in dl manager.
-     * @return dl configuration.
-     */
-    public DistributedLogConfiguration setSchedulerShutdownTimeoutMs(int timeoutMs) {
-        setProperty(BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS, timeoutMs);
-        return this;
-    }
-
-    /**
-     * Get feature provider class.
-     *
-     * @return feature provider class.
-     * @throws ConfigurationException
-     */
-    public Class<? extends FeatureProvider> getFeatureProviderClass()
-            throws ConfigurationException {
-        return ReflectionUtils.getClass(this, BKDL_FEATURE_PROVIDER_CLASS, DeciderFeatureProvider.class,
-                FeatureProvider.class, FeatureProvider.class.getClassLoader());
-    }
-
-    /**
-     * Set feature provider class.
-     *
-     * @param providerClass
-     *          feature provider class.
-     * @return distributedlog configuration
-     */
-    public DistributedLogConfiguration setFeatureProviderClass(Class<? extends FeatureProvider> providerClass) {
-        setProperty(BKDL_FEATURE_PROVIDER_CLASS, providerClass.getName());
-        return this;
-    }
-
-    /**
-     * Get the base config path for decider.
-     *
-     * @return base config path for decider.
-     */
-    public String getDeciderBaseConfigPath() {
-        return getString(BKDL_DECIDER_BASE_CONFIG_PATH, BKDL_DECIDER_BASE_CONFIG_PATH_DEFAULT);
-    }
-
-    /**
-     * Set the base config path for decider.
-     *
-     * @param configPath
-     *          base config path for decider.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderBaseConfigPath(String configPath) {
-        setProperty(BKDL_DECIDER_BASE_CONFIG_PATH, configPath);
-        return this;
-    }
-
-    /**
-     * Get the overlay config path for decider.
-     *
-     * @return overlay config path for decider.
-     */
-    public String getDeciderOverlayConfigPath() {
-        return getString(BKDL_DECIDER_OVERLAY_CONFIG_PATH, BKDL_DECIDER_OVERLAY_CONFIG_PATH_DEFAULT);
-    }
-
-    /**
-     * Set the overlay config path for decider.
-     *
-     * @param configPath
-     *          overlay config path for decider.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderOverlayConfigPath(String configPath) {
-        setProperty(BKDL_DECIDER_OVERLAY_CONFIG_PATH, configPath);
-        return this;
-    }
-
-    /**
-     * Get the decider environment.
-     *
-     * @return decider environment
-     */
-    public String getDeciderEnvironment() {
-        return getString(BKDL_DECIDER_ENVIRONMENT, BKDL_DECIDER_ENVIRONMENT_DEFAULT);
-    }
-
-    /**
-     * Set the decider environment.
-     *
-     * @param environment decider environment
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDeciderEnvironment(String environment) {
-        setProperty(BKDL_DECIDER_ENVIRONMENT, environment);
-        return this;
-    }
-
-    /**
-     * Get the max logs per sub namespace for federated namespace.
-     *
-     * @return max logs per sub namespace
-     */
-    public int getFederatedMaxLogsPerSubnamespace() {
-        return getInt(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT);
-    }
-
-    /**
-     * Set the max logs per sub namespace for federated namespace.
-     *
-     * @param maxLogs
-     *          max logs per sub namespace
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setFederatedMaxLogsPerSubnamespace(int maxLogs) {
-        setProperty(BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE, maxLogs);
-        return this;
-    }
-
-    /**
-     * Whether check the existence of a log if querying local cache of a federated namespace missed.
-     * Enabling it will issue zookeeper queries to check all sub namespaces under a federated namespace.
-     *
-     * NOTE: by default it is on for all admin related tools. for write proxies, consider turning off for
-     * performance.
-     *
-     * @return true if it needs to check existence of a log when querying local cache misses. otherwise false.
-     */
-    public boolean getFederatedCheckExistenceWhenCacheMiss() {
-        return getBoolean(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS,
-                BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS_DEFAULT);
-    }
-
-    /**
-     * Enable check existence of a log if quering local cache of a federated namespace missed.
-     *
-     * @param enabled
-     *          flag to enable/disable this feature.
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setFederatedCheckExistenceWhenCacheMiss(boolean enabled) {
-        setProperty(BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS, enabled);
-        return this;
-    }
-
-    /**
-     * Get dynamic configuration reload interval in seconds.
-     *
-     * @return dynamic configuration reload interval
-     */
-    public int getDynamicConfigReloadIntervalSec() {
-        return getInt(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC_DEFAULT);
-    }
-
-    /**
-     * Get dynamic configuration reload interval in seconds.
-     *
-     * @param intervalSec dynamic configuration reload interval in seconds
-     * @return distributedlog configuration.
-     */
-    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
-        setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
-        return this;
-    }
-
-    /**
-     * Get config router class which determines how stream name is mapped to configuration.
-     *
-     * @return config router class.
-     */
-    public String getStreamConfigRouterClass() {
-        return getString(BKDL_STREAM_CONFIG_ROUTER_CLASS, BKDL_STREAM_CONFIG_ROUTER_CLASS_DEFAULT);
-    }
-
-    /**
-     * Set config router class.
-     *
-     * @param routerClass
-     *          config router class.
-     * @return distributedlog configuration
-     */
-    public DistributedLogConfiguration setStreamConfigRouterClass(String routerClass) {
-        setProperty(BKDL_STREAM_CONFIG_ROUTER_CLASS, routerClass);
-        return this;
-    }
-
-    /**
-     * Whether to use daemon thread for DL threads.
-     *
-     * @return true if use daemon threads, otherwise false.
-     */
-    public boolean getUseDaemonThread() {
-        return getBoolean(BKDL_USE_DAEMON_THREAD, BKDL_USE_DAEMON_THREAD_DEFAULT);
-    }
-
-    /**
-     * Set whether to use daemon thread for DL threads.
-     *
-     * @param daemon
-     *          whether to use daemon thread for DL threads.
-     * @return distributedlog configuration
-     */
-    public DistributedLogConfiguration setUseDaemonThread(boolean daemon) {
-        setProperty(BKDL_USE_DAEMON_THREAD, daemon);
-        return this;
-    }
-
-    /**
-     * A lower threshold bytes per second limit on writes to the distributedlog proxy.
-     *
-     * @return Bytes per second write limit
-     */
-    public int getBpsSoftWriteLimit() {
-        return getInt(BKDL_BPS_SOFT_WRITE_LIMIT, BKDL_BPS_SOFT_WRITE_LIMIT_DEFAULT);
-    }
-
-    /**
-     * An upper threshold bytes per second limit on writes to the distributedlog proxy.
-     *
-     * @return Bytes per second write limit
-     */
-    public int getBpsHardWriteLimit() {
-        return getInt(BKDL_BPS_HARD_WRITE_LIMIT, BKDL_BPS_HARD_WRITE_LIMIT_DEFAULT);
-    }
-
-    /**
-     * A lower threshold requests per second limit on writes to the distributedlog proxy.
-     *
-     * @return Requests per second write limit
-     */
-    public int getRpsSoftWriteLimit() {
-        return getInt(BKDL_RPS_SOFT_WRITE_LIMIT, BKDL_RPS_SOFT_WRITE_LIMIT_DEFAULT);
-    }
-
-    /**
-     * An upper threshold requests per second limit on writes to the distributedlog proxy.
-     *
-     * @return Requests per second write limit
-     */
-    public int getRpsHardWriteLimit() {
-        return getInt(BKDL_RPS_HARD_WRITE_LIMIT, BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT);
     }
 }
