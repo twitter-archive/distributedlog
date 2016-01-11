@@ -3,7 +3,10 @@ package com.twitter.distributedlog;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.feature.DeciderFeatureProvider;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.net.DNSResolverForRacks;
+import com.twitter.distributedlog.net.DNSResolverForRows;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.CompositeConfiguration;
@@ -87,6 +90,10 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
 
     public static final String BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT = "row-aware-ensemble-placement";
     public static final boolean BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT = false;
+
+    public static final String BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS = "bkEnsemblePlacementDnsResolverClass";
+    public static final String BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS_DEFAULT =
+            DNSResolverForRacks.class.getName();
 
     // Bookkeeper ensemble size
     public static final String BKDL_BOOKKEEPER_ENSEMBLE_SIZE = "ensemble-size";
@@ -640,7 +647,36 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return getBoolean(BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT, BKDL_ROW_AWARE_ENSEMBLE_PLACEMENT_DEFAULT);
     }
 
+    /**
+     * Get the DNS resolver class for bookkeeper ensemble placement.
+     *
+     * @return dns resolver class for bookkeeper ensemble placement.
+     * @throws ConfigurationException
+     */
+    public Class<? extends DNSToSwitchMapping> getEnsemblePlacementDnsResolverClass()
+            throws ConfigurationException {
+        Class<? extends DNSToSwitchMapping> defaultResolverCls;
+        if (getRowAwareEnsemblePlacementEnabled()) {
+            defaultResolverCls = DNSResolverForRows.class;
+        } else {
+            defaultResolverCls = DNSResolverForRacks.class;
+        }
+        return ReflectionUtils.getClass(this, BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS,
+                defaultResolverCls, DNSToSwitchMapping.class, defaultLoader);
+    }
 
+    /**
+     * Set the DNS resolver class for bookkeeper ensemble placement.
+     *
+     * @param dnsResolverClass
+     *          dns resolver class for bookkeeper ensemble placement.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setEnsemblePlacementDnsResolverClass(
+            Class<? extends DNSToSwitchMapping> dnsResolverClass) {
+        setProperty(BKDL_ENSEMBLE_PLACEMENT_DNS_RESOLVER_CLASS, dnsResolverClass.getName());
+        return this;
+    }
 
     /**
      * Get ensemble size

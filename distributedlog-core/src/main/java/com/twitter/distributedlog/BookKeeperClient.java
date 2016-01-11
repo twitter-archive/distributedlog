@@ -4,8 +4,7 @@ import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.net.TwitterDNSResolverForRacks;
-import com.twitter.distributedlog.net.TwitterDNSResolverForRows;
+import com.twitter.distributedlog.net.NetUtils;
 import com.twitter.distributedlog.util.ConfUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -16,6 +15,7 @@ import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
+import org.apache.commons.configuration.ConfigurationException;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -76,12 +76,16 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
                 DistributedLogConstants.DISALLOW_PLACEMENT_IN_REGION_FEATURE_NAME);
         // reload configuration from dl configuration with settings prefixed with 'bkc.'
         ConfUtils.loadConfiguration(bkConfig, conf, "bkc.");
-        final DNSToSwitchMapping dnsResolver;
-        if (conf.getRowAwareEnsemblePlacementEnabled()) {
-            dnsResolver = new TwitterDNSResolverForRows(conf.getBkDNSResolverOverrides());
-        } else {
-            dnsResolver = new TwitterDNSResolverForRacks(conf.getBkDNSResolverOverrides());
+
+        Class<? extends DNSToSwitchMapping> dnsResolverCls;
+        try {
+            dnsResolverCls = conf.getEnsemblePlacementDnsResolverClass();
+        } catch (ConfigurationException e) {
+            LOG.error("Failed to load bk dns resolver : ", e);
+            throw new IOException("Failed to load bk dns resolver : ", e);
         }
+        final DNSToSwitchMapping dnsResolver =
+                NetUtils.getDNSResolver(dnsResolverCls, conf.getBkDNSResolverOverrides());
 
         this.bkc = BookKeeper.newBuilder()
             .config(bkConfig)
