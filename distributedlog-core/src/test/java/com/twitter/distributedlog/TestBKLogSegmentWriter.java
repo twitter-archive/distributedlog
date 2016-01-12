@@ -565,7 +565,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         //       which is incorrect. it should be updated when adds completed.
         //       this is a legacy behavior left from 0.2. we should address it with refactor later.
         assertEquals("Last acked tx id should become " + (numRecords - 1),
-                - 1, writer.getLastTxIdAcknowledged());
+                -1, writer.getLastTxIdAcknowledged());
         assertEquals("Last DLSN should become " + futureList.get(futureList.size() - 1),
                 dlsns.get(futureList.size() - 1), writer.getLastDLSN());
         assertEquals("Position should become " + 2 * numRecords,
@@ -579,6 +579,69 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 0L, lh.getLastAddPushed());
         assertEquals("Only one entry is written for ledger " + lh.getId(),
                 0L, readLh.getLastAddConfirmed());
+    }
+
+    /**
+     * Log Segment Writer should only update last tx id only for user records.
+     */
+    @Test(timeout = 60000)
+    public void testUpdateLastTxIdForUserRecords() throws Exception {
+        DistributedLogConfiguration confLocal = newLocalConf();
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setOutputBufferSize(Integer.MAX_VALUE);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        BKLogSegmentWriter writer =
+                createLogSegmentWriter(confLocal, 0L, -1L, lock);
+        // add 10 records
+        int numRecords = 10;
+        List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
+        for (int i = 0; i < numRecords; i++) {
+            futureList.add(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(i)));
+        }
+        LogRecord controlRecord = DLMTestUtil.getLogRecordInstance(9999L);
+        controlRecord.setControl();
+        futureList.add(writer.asyncWrite(controlRecord));
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
+                DLSN.InvalidDLSN, writer.getLastDLSN());
+        assertEquals("Position should be " + numRecords,
+                numRecords, writer.getPositionWithinLogSegment());
+
+        // close the writer to flush the output buffer
+        writer.close();
+
+        List<DLSN> dlsns = Await.result(Future.collect(futureList));
+        assertEquals("All 11 records should be written",
+                numRecords + 1, dlsns.size());
+        for (int i = 0; i < numRecords; i++) {
+            DLSN dlsn = dlsns.get(i);
+            assertEquals("Incorrent ledger sequence number",
+                    0L, dlsn.getLogSegmentSequenceNo());
+            assertEquals("Incorrent entry id",
+                    0L, dlsn.getEntryId());
+            assertEquals("Inconsistent slot id",
+                    i, dlsn.getSlotId());
+        }
+        DLSN dlsn = dlsns.get(numRecords);
+        assertEquals("Incorrent ledger sequence number",
+                0L, dlsn.getLogSegmentSequenceNo());
+        assertEquals("Incorrent entry id",
+                1L, dlsn.getEntryId());
+        assertEquals("Inconsistent slot id",
+                0L, dlsn.getSlotId());
+
+        assertEquals("Last tx id should be " + (numRecords - 1),
+                numRecords - 1, writer.getLastTxId());
+        assertEquals("Last acked tx id should be -1",
+                numRecords - 1, writer.getLastTxIdAcknowledged());
+        assertEquals("Position should be " + numRecords,
+                numRecords, writer.getPositionWithinLogSegment());
+        assertEquals("Last DLSN should be " + dlsn,
+                dlsns.get(numRecords - 1), writer.getLastDLSN());
     }
 
     /**

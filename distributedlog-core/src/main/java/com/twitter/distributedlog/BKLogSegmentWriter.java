@@ -745,6 +745,13 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         Future<DLSN> result = null;
         try {
             if (record.isControl()) {
+                // we don't pack control records with user records together
+                // so transmit current output buffer if possible
+                try {
+                    transmit(false);
+                } catch (IOException ioe) {
+                    return Future.exception(new WriteCancelledException(fullyQualifiedLogSegment, ioe));
+                }
                 result = writeControlLogRecord(record);
                 transmit(true);
             } else {
@@ -877,8 +884,9 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             LOG.info("Log Segment {} TxId decreased Last: {} Record: {}",
                     new Object[] {fullyQualifiedLogSegment, lastTxId, record.getTransactionId()});
         }
-        lastTxId = record.getTransactionId();
         if (!record.isControl()) {
+            // only update last tx id for user records
+            lastTxId = record.getTransactionId();
             outstandingBytes += (20 + record.getPayload().length);
         }
         return dlsn;
