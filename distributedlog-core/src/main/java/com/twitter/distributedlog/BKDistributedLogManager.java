@@ -457,6 +457,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 logMetadata,
                 subscriberId,
                 conf,
+                dynConf,
                 readerZKCBuilder,
                 readerBKCBuilder,
                 scheduler,
@@ -697,7 +698,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromTxnId,
                 scheduler,
                 handleCache,
-                Math.max(2, conf.getReadAheadBatchSize())
+                Math.max(2, dynConf.getReadAheadBatchSize())
         ).flatMap(new AbstractFunction1<Optional<LogRecordWithDLSN>, Future<DLSN>>() {
             @Override
             public Future<DLSN> apply(Optional<LogRecordWithDLSN> foundRecord) {

@@ -149,4 +149,26 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
             defaultConfig.getInt(DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS,
                 DistributedLogConfiguration.BKDL_PERIODIC_FLUSH_FREQUENCY_MILLISECONDS_DEFAULT));
     }
+
+    /**
+     * Get the number of entries that readahead worker reads as a batch from bookkeeper
+     *
+     * @return the batch size
+     */
+    public int getReadAheadBatchSize() {
+        return getInt(DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE,
+                DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE_DEFAULT));
+    }
+
+    /**
+     * Get the maximum number of {@link com.twitter.distributedlog.LogRecord } that readahead worker will cache.
+     *
+     * @return the maximum number
+     */
+    public int getReadAheadMaxRecords() {
+        return getInt(DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS,
+            defaultConfig.getInt(DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS,
+                DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS_DEFAULT));
+    }
 }

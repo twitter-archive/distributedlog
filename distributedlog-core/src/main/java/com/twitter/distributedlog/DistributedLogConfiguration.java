@@ -299,9 +299,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final boolean BKDL_ENABLE_READAHEAD_DEFAULT = true;
     public static final String BKDL_ENABLE_FORCEREAD = "enableForceRead";
     public static final boolean BKDL_ENABLE_FORCEREAD_DEFAULT = true;
-    public static final String BKDL_READAHEAD_MAX_ENTRIES = "readAheadMaxRecords";
-    public static final String BKDL_READAHEAD_MAX_ENTRIES_OLD = "ReadAheadMaxEntries";
-    public static final int BKDL_READAHEAD_MAX_ENTRIES_DEFAULT = 10;
+    public static final String BKDL_READAHEAD_MAX_RECORDS = "readAheadMaxRecords";
+    public static final String BKDL_READAHEAD_MAX_RECORDS_OLD = "ReadAheadMaxEntries";
+    public static final int BKDL_READAHEAD_MAX_RECORDS_DEFAULT = 10;
     public static final String BKDL_READAHEAD_BATCHSIZE = "readAheadBatchSize";
     public static final String BKDL_READAHEAD_BATCHSIZE_OLD = "ReadAheadBatchSize";
     public static final int BKDL_READAHEAD_BATCHSIZE_DEFAULT = 2;
@@ -2365,9 +2365,9 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @return max records cached by readahead cache.
      */
     public int getReadAheadMaxRecords() {
-        return this.getInt(BKDL_READAHEAD_MAX_ENTRIES,
-                getInt(BKDL_READAHEAD_MAX_ENTRIES_OLD,
-                        BKDL_READAHEAD_MAX_ENTRIES_DEFAULT));
+        return this.getInt(BKDL_READAHEAD_MAX_RECORDS,
+                getInt(BKDL_READAHEAD_MAX_RECORDS_OLD,
+                        BKDL_READAHEAD_MAX_RECORDS_DEFAULT));
     }
 
     /**
@@ -2378,7 +2378,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @see #getReadAheadMaxRecords()
      */
     public DistributedLogConfiguration setReadAheadMaxRecords(int readAheadMaxEntries) {
-        setProperty(BKDL_READAHEAD_MAX_ENTRIES, readAheadMaxEntries);
+        setProperty(BKDL_READAHEAD_MAX_RECORDS, readAheadMaxEntries);
         return this;
     }
 

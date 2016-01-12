@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.base.Optional;
 import com.google.common.base.Ticker;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
@@ -114,6 +115,7 @@ class BKLogReadHandler extends BKLogHandler {
     protected final LedgerHandleCache handleCache;
 
     protected final ScheduledExecutorService readAheadExecutor;
+    protected final DynamicDistributedLogConfiguration dynConf;
     protected ReadAheadWorker readAheadWorker = null;
     private volatile boolean logDeleted = false;
     private volatile boolean readAheadError = false;
@@ -162,6 +164,7 @@ class BKLogReadHandler extends BKLogHandler {
     public BKLogReadHandler(ZKLogMetadataForReader logMetadata,
                             Optional<String> subscriberId,
                             DistributedLogConfiguration conf,
+                            DynamicDistributedLogConfiguration dynConf,
                             ZooKeeperClientBuilder zkcBuilder,
                             BookKeeperClientBuilder bkcBuilder,
                             OrderedScheduler scheduler,
@@ -176,6 +179,7 @@ class BKLogReadHandler extends BKLogHandler {
                             boolean isHandleForReading) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
+        this.dynConf = dynConf;
         this.readAheadExecutor = readAheadExecutor;
         this.alertStatsLogger = alertStatsLogger;
         this.readAheadPerStreamStatsLogger =
@@ -1614,10 +1618,11 @@ class BKLogReadHandler extends BKLogHandler {
                     LOG.trace("Reading entry {} for {} of {}.",
                             new Object[] {nextReadAheadPosition, currentMetadata, fullyQualifiedName });
                 }
+                int readAheadBatchSize = dynConf.getReadAheadBatchSize();
                 long startEntryId = nextReadAheadPosition.getEntryId();
-                long endEntryId = Math.min(lastAddConfirmed, (nextReadAheadPosition.getEntryId() + conf.getReadAheadBatchSize() - 1));
+                long endEntryId = Math.min(lastAddConfirmed, (nextReadAheadPosition.getEntryId() + readAheadBatchSize - 1));
 
-                if (endEntryId <= conf.getReadAheadBatchSize() && conf.getTraceReadAheadMetadataChanges()) {
+                if (endEntryId <= readAheadBatchSize && conf.getTraceReadAheadMetadataChanges()) {
                     // trace first read batch
                     LOG.info("Reading entries ({} - {}) for {} at {} : lac = {}, nextReadAheadPosition = {}.",
                              new Object[] { startEntryId, endEntryId, fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
@@ -1667,7 +1672,7 @@ class BKLogReadHandler extends BKLogHandler {
                             }
                         }
                         readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
-                        if (ledgerDataAccessor.getNumCachedRecords() >= conf.getReadAheadMaxRecords()) {
+                        if (ledgerDataAccessor.getNumCachedRecords() >= dynConf.getReadAheadMaxRecords()) {
                             cacheFull = true;
                             complete();
                         } else {
@@ -1682,7 +1687,7 @@ class BKLogReadHandler extends BKLogHandler {
                     LOG.trace("Cache for {} is full. Backoff reading until notified", fullyQualifiedName);
                     readAheadCacheFullCounter.inc();
                     resumeStopWatch.reset().start();
-                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, conf.getReadAheadMaxRecords());
+                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, dynConf.getReadAheadMaxRecords());
                 } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
