@@ -18,6 +18,7 @@ import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
@@ -104,8 +105,14 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             DistributedLogConfiguration dlConf,
             CountDownLatch latch) throws Exception {
         return new DistributedLogServiceImpl(
-                serverConf, dlConf, new NullStreamConfigProvider(),
-                uri, NullStatsLogger.INSTANCE, NullStatsLogger.INSTANCE, latch);
+                serverConf,
+                dlConf,
+                ConfUtils.getConstDynConf(dlConf),
+                new NullStreamConfigProvider(),
+                uri,
+                NullStatsLogger.INSTANCE,
+                NullStatsLogger.INSTANCE,
+                latch);
     }
 
     private StreamImpl createStream(DistributedLogServiceImpl service,

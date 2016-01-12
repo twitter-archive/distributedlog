@@ -3,6 +3,8 @@ package com.twitter.distributedlog.service;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.config.DynamicConfigurationFactory;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.service.announcer.Announcer;
 import com.twitter.distributedlog.service.announcer.NOPAnnouncer;
 import com.twitter.distributedlog.service.announcer.ServerSetAnnouncer;
@@ -12,6 +14,7 @@ import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.ServiceStreamConfigProvider;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.finagle.Stack;
 import com.twitter.finagle.ThriftMuxServer$;
@@ -59,7 +62,7 @@ public class DistributedLogServer {
     private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
     private final Optional<String> uri;
     private final Optional<String> conf;
-    private final Optional<String> stringConf;
+    private final Optional<String> streamConf;
     private final Optional<Integer> port;
     private final Optional<Integer> statsPort;
     private final Optional<Integer> shardId;
@@ -68,7 +71,7 @@ public class DistributedLogServer {
 
     DistributedLogServer(Optional<String> uri,
                          Optional<String> conf,
-                         Optional<String> stringConf,
+                         Optional<String> streamConf,
                          Optional<Integer> port,
                          Optional<Integer> statsPort,
                          Optional<Integer> shardId,
@@ -78,7 +81,7 @@ public class DistributedLogServer {
                          StatsProvider statsProvider) {
         this.uri = uri;
         this.conf = conf;
-        this.stringConf = stringConf;
+        this.streamConf = streamConf;
         this.port = port;
         this.statsPort = statsPort;
         this.shardId = shardId;
@@ -118,23 +121,35 @@ public class DistributedLogServer {
             announcer = new NOPAnnouncer();
         }
 
-        configExecutorService = Executors.newScheduledThreadPool(1,
+        this.configExecutorService = Executors.newScheduledThreadPool(1,
                 new ThreadFactoryBuilder()
                         .setNameFormat("DistributedLogService-Dyncfg-%d")
                         .setDaemon(true)
                         .build());
+
         StreamConfigProvider streamConfProvider = getStreamConfigProvider(dlConf);
 
         ServerConfiguration serverConf = new ServerConfiguration();
         serverConf.loadConf(dlConf);
         serverConf.validate();
 
+        DynamicDistributedLogConfiguration dynDlConf = getServiceDynConf(dlConf);
+
         // pre-run
         preRun(dlConf, serverConf);
 
-        Pair<DistributedLogServiceImpl, Server>
-            serverPair = runServer(serverConf, dlConf, dlUri, statsProvider, port.or(0),
-                keepAliveLatch, statsReceiver, thriftmux.isPresent(), streamConfProvider);
+        Pair<DistributedLogServiceImpl, Server> serverPair = runServer(
+                serverConf,
+                dlConf,
+                dynDlConf,
+                dlUri,
+                statsProvider,
+                port.or(0),
+                keepAliveLatch,
+                statsReceiver,
+                thriftmux.isPresent(),
+                streamConfProvider);
+
         this.dlService = serverPair.getLeft();
         this.server = serverPair.getRight();
 
@@ -149,11 +164,25 @@ public class DistributedLogServer {
         }
     }
 
+    private DynamicDistributedLogConfiguration getServiceDynConf(DistributedLogConfiguration dlConf) throws ConfigurationException {
+        Optional<DynamicDistributedLogConfiguration> dynConf = Optional.absent();
+        if (conf.isPresent()) {
+            DynamicConfigurationFactory configFactory = new DynamicConfigurationFactory(
+                    configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
+            dynConf = configFactory.getDynamicConfiguration(conf.get());
+        }
+        if (dynConf.isPresent()) {
+            return dynConf.get();
+        } else {
+            return ConfUtils.getConstDynConf(dlConf);
+        }
+    }
+
     private StreamConfigProvider getStreamConfigProvider(DistributedLogConfiguration dlConf)
             throws ConfigurationException {
         StreamConfigProvider streamConfProvider = new NullStreamConfigProvider();
-        if (stringConf.isPresent() && conf.isPresent()) {
-            String dynConfigPath = stringConf.get();
+        if (streamConf.isPresent() && conf.isPresent()) {
+            String dynConfigPath = streamConf.get();
             String defaultConfigFile = conf.get();
             streamConfProvider = new ServiceStreamConfigProvider(dynConfigPath, defaultConfigFile, dlConf.getStreamConfigRouterClass(),
                     configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
@@ -171,13 +200,23 @@ public class DistributedLogServer {
             URI dlUri,
             StatsProvider provider,
             int port) throws IOException {
-        return runServer(serverConf, dlConf, dlUri, provider, port,
-                         new CountDownLatch(0), new NullStatsReceiver(), false, new NullStreamConfigProvider());
+
+        return runServer(serverConf,
+                dlConf,
+                ConfUtils.getConstDynConf(dlConf),
+                dlUri,
+                provider,
+                port,
+                new CountDownLatch(0),
+                new NullStatsReceiver(),
+                false,
+                new NullStreamConfigProvider());
     }
 
     static Pair<DistributedLogServiceImpl, Server> runServer(
             ServerConfiguration serverConf,
             DistributedLogConfiguration dlConf,
+            DynamicDistributedLogConfiguration dynDlConf,
             URI dlUri,
             StatsProvider provider,
             int port,
@@ -196,8 +235,15 @@ public class DistributedLogServer {
         }
 
         // dl service
-        DistributedLogServiceImpl dlService =
-                new DistributedLogServiceImpl(serverConf, dlConf, streamConfProvider, dlUri, provider.getStatsLogger(""), perStreamStatsLogger, keepAliveLatch);
+        DistributedLogServiceImpl dlService = new DistributedLogServiceImpl(
+                serverConf,
+                dlConf,
+                dynDlConf,
+                streamConfProvider,
+                dlUri,
+                provider.getStatsLogger(""),
+                perStreamStatsLogger,
+                keepAliveLatch);
 
         StatsReceiver serviceStatsReceiver = statsReceiver.scope("service");
         StatsLogger serviceStatsLogger = provider.getStatsLogger("service");
@@ -286,7 +332,7 @@ public class DistributedLogServer {
     public static DistributedLogServer runServer(
                Optional<String> uri,
                Optional<String> conf,
-               Optional<String> stringConf,
+               Optional<String> streamConf,
                Optional<Integer> port,
                Optional<Integer> statsPort,
                Optional<Integer> shardId,
@@ -299,7 +345,7 @@ public class DistributedLogServer {
         final DistributedLogServer server = new DistributedLogServer(
                 uri,
                 conf,
-                stringConf,
+                streamConf,
                 port,
                 statsPort,
                 shardId,

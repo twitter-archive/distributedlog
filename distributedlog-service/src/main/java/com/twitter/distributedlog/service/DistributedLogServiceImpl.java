@@ -131,6 +131,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     DistributedLogServiceImpl(ServerConfiguration serverConf,
                               DistributedLogConfiguration dlConf,
+                              DynamicDistributedLogConfiguration dynDlConf,
                               StreamConfigProvider streamConfigProvider,
                               URI uri,
                               StatsLogger statsLogger,
@@ -203,9 +204,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.movingAvgFactory = new MovingAverageRateFactory(timer);
         this.windowedRps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
         this.windowedBps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
-        DynamicDistributedLogConfiguration dynConf = ConfUtils.getConstDynConf(dlConfig);
         this.limiter = new ServiceRequestLimiter(
-                dynConf, streamOpStats, windowedRps, windowedBps, streamManager, limiterDisabledFeature);
+                dynDlConf, streamOpStats, windowedRps, windowedBps, streamManager, limiterDisabledFeature);
 
         // Stats
         this.statsLogger = statsLogger;
