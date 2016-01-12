@@ -88,6 +88,11 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
         return currentReader;
     }
 
+    @VisibleForTesting
+    synchronized long getLastTxId() {
+        return lastTxId;
+    }
+
     /**
      * Close the stream.
      *

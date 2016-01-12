@@ -156,7 +156,8 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                         LOG.info("Search transaction id {} in log segment {} : from tx id = {}, last tx id = {}, last record = {}",
                                 new Object[] { fromTxId, l, fromTxId, lastTxId, lastRecord });
                         long firstEntryId;
-                        if (fromTxId < l.getFirstTxId() || null == lastRecord || getEntryId(lastRecord.getDlsn()) == 0) {
+                        if (fromTxId < l.getFirstTxId() ||
+                                (l.isInProgress() && (null == lastRecord || getEntryId(lastRecord.getDlsn()) == 0))) {
                             firstEntryId = 0L;
                         } else {
                             try {

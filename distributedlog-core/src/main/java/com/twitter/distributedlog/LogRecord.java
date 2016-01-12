@@ -24,6 +24,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -104,8 +105,8 @@ public class LogRecord {
         return (int) ret;
     }
 
-
-    void setControl() {
+    @VisibleForTesting
+    public void setControl() {
         metadata = metadata | LOGRECORD_FLAGS_CONTROL_MESSAGE;
     }
 
@@ -265,22 +266,22 @@ public class LogRecord {
             return null;
         }
 
-        public boolean skipTo(long txId) throws IOException {
-            return skipTo(txId, null);
+        public boolean skipTo(long txId, boolean skipControl) throws IOException {
+            return skipTo(txId, null, skipControl);
         }
 
         public boolean skipTo(DLSN dlsn) throws IOException {
-            return skipTo(null, dlsn);
+            return skipTo(null, dlsn, false);
         }
 
-        private boolean skipTo(Long txId, DLSN dlsn) throws IOException {
+        private boolean skipTo(Long txId, DLSN dlsn, boolean skipControl) throws IOException {
             LOG.debug("SkipTo");
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
                 in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
                 try {
-                    in.readLong();
+                    long flags = in.readLong();
                     if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
@@ -291,12 +292,14 @@ public class LogRecord {
                     }
                     long currTxId = in.readLong();
                     if ((null != txId) && (currTxId >= txId)) {
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Found position {} beyond {}", currTxId, txId);
+                        if (!skipControl || !isControl(flags)) {
+                            if (LOG.isTraceEnabled()) {
+                                LOG.trace("Found position {} beyond {}", currTxId, txId);
+                            }
+                            in.reset();
+                            found = true;
+                            break;
                         }
-                        in.reset();
-                        found = true;
-                        break;
                     }
                     int length = in.readInt();
                     if (length < 0) {

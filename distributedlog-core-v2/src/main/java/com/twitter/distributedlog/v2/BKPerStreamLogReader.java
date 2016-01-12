@@ -166,7 +166,7 @@ class BKPerStreamLogReader {
      * with a binary search over bk entries
      */
     public synchronized boolean skipTo(long txId) throws IOException {
-        isExhausted = !reader.skipTo(txId);
+        isExhausted = !reader.skipTo(txId, true);
         return !isExhausted;
     }
 

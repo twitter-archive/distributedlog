@@ -53,9 +53,9 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static com.twitter.distributedlog.DLSNUtil.*;
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -1754,5 +1754,52 @@ public class TestBookKeeperDistributedLogManager {
         assertEquals(txid - 1, dlm.getLogRecordCount());
 
         dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testReadOnLastControlRecord() throws Exception {
+        String name = "distrlog-read-on-last-control-record";
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(conf, name);
+        long txid = 1L;
+        BKUnPartitionedSyncLogWriter out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+        for (int i = 0; i < 10; i++) {
+            LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
+            out.write(op);
+            out.setReadyToFlush();
+            out.flushAndSync();
+        }
+
+        BKContinuousLogReader reader = (BKContinuousLogReader) dlm.getInputStream(1L);
+        for (long i = 1L; i <= 10L; i++) {
+            LogRecord record = reader.readNext(false);
+            assertEquals(i, record.getTransactionId());
+            DLMTestUtil.verifyLogRecord(record);
+        }
+
+        while(reader.getLastTxId() < (txid - 1)) {
+            TimeUnit.MILLISECONDS.sleep(20);
+        }
+
+        LogRecord controlRecord = DLMTestUtil.getLogRecordInstance(999L);
+        controlRecord.setControl();
+        out.write(controlRecord);
+        out.setReadyToFlush();
+        out.flushAndSync();
+
+        assertEquals(999L, out.getCachedLogWriter(conf.getUnpartitionedStreamName()).getLastTxId());
+
+        out.closeAndComplete();
+
+        out = (BKUnPartitionedSyncLogWriter)dlm.startLogSegmentNonPartitioned();
+        LogRecord op2 = DLMTestUtil.getLogRecordInstance(1000L);
+        out.write(op2);
+        out.closeAndComplete();
+
+        LogRecord record;
+        while((record = reader.readNext(false)) == null) {
+            // no-op
+        }
+        assertEquals(1000L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
     }
 }
