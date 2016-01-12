@@ -1,9 +1,11 @@
 package com.twitter.distributedlog.service;
 
+import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
@@ -23,6 +25,7 @@ import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.thrift.ClientId$;
@@ -416,8 +419,13 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         Thread.sleep(1000);
 
         DistributedLogManager dlm101 = DLMTestUtil.createNewDLM(name, conf, getUri());
-        LogReader reader101 = dlm101.getInputStream(1);
-        assertNull(reader101.readNext(false));
+        AsyncLogReader reader101 = FutureUtils.result(dlm101.openAsyncLogReader(DLSN.InitialDLSN));
+        try {
+            FutureUtils.result(reader101.readNext());
+            fail("Should fail with LogNotFoundException since the stream is deleted");
+        } catch (LogNotFoundException lnfe) {
+            // expected
+        }
         reader101.close();
         dlm101.close();
 

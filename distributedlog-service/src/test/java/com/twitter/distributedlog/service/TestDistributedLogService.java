@@ -579,7 +579,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             WriteResponse response = Await.result(future);
             assertTrue("Op should succeed or be rejected : " + response.getHeader().getCode(),
                     StatusCode.SUCCESS == response.getHeader().getCode() ||
-                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode());
+                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode() ||
+                    StatusCode.STREAM_UNAVAILABLE == response.getHeader().getCode());
         }
         assertTrue("There should be no streams in the cache",
                 streamManager.getCachedStreams().isEmpty());
