@@ -1,6 +1,8 @@
 package com.twitter.distributedlog.service.stream.limiter;
 
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.exceptions.OverCapacityException;
+import com.twitter.distributedlog.limiter.ComposableRequestLimiter.OverlimitFunction;
 import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
 import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.service.stream.StreamOpStats;
@@ -29,11 +31,36 @@ public class StreamRequestLimiter extends DynamicRequestLimiter<StreamOp> {
 
     @Override
     public RequestLimiter<StreamOp> build() {
+
+        // RPS hard, soft limits
+        RequestLimiterBuilder rpsHardLimiterBuilder = RequestLimiterBuilder.newRpsLimiterBuilder()
+            .limit(dynConf.getRpsHardWriteLimit())
+            .overlimit(new OverlimitFunction<StreamOp>() {
+                @Override
+                public void apply(StreamOp op) throws OverCapacityException {
+                    throw new OverCapacityException("RPS limit exceeded for stream " + streamName);
+                }
+            });
+        RequestLimiterBuilder rpsSoftLimiterBuilder = RequestLimiterBuilder.newRpsLimiterBuilder()
+            .limit(dynConf.getRpsSoftWriteLimit());
+
+        // BPS hard, soft limits
+        RequestLimiterBuilder bpsHardLimiterBuilder = RequestLimiterBuilder.newBpsLimiterBuilder()
+            .limit(dynConf.getBpsHardWriteLimit())
+            .overlimit(new OverlimitFunction<StreamOp>() {
+                @Override
+                public void apply(StreamOp op) throws OverCapacityException {
+                    throw new OverCapacityException("BPS limit exceeded for stream " + streamName);
+                }
+            });
+        RequestLimiterBuilder bpsSoftLimiterBuilder = RequestLimiterBuilder.newBpsLimiterBuilder()
+            .limit(dynConf.getBpsSoftWriteLimit());
+
         ChainedRequestLimiter.Builder<StreamOp> builder = new ChainedRequestLimiter.Builder<StreamOp>();
-        builder.addLimiter(new RpsSoftLimiter(dynConf.getRpsSoftWriteLimit(), streamLogger));
-        builder.addLimiter(new RpsHardLimiter(dynConf.getRpsHardWriteLimit(), streamLogger, streamName));
-        builder.addLimiter(new BpsSoftLimiter(dynConf.getBpsSoftWriteLimit(), streamLogger));
-        builder.addLimiter(new BpsHardLimiter(dynConf.getBpsHardWriteLimit(), streamLogger, streamName));
+        builder.addLimiter(rpsSoftLimiterBuilder.build());
+        builder.addLimiter(rpsHardLimiterBuilder.build());
+        builder.addLimiter(bpsSoftLimiterBuilder.build());
+        builder.addLimiter(bpsHardLimiterBuilder.build());
         builder.statsLogger(limiterStatLogger);
         return builder.build();
     }

@@ -31,7 +31,7 @@ public class TestDynamicConfigurationFactory {
         String streamConfigPath = configFile.getParent();
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
         ConcurrentBaseConfiguration defaultConf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
-        return new DynamicConfigurationFactory(executorService, 100, TimeUnit.MILLISECONDS, defaultConf);
+        return new DynamicConfigurationFactory(executorService, 100, TimeUnit.MILLISECONDS);
     }
 
     private String getNamePart(File configFile) {

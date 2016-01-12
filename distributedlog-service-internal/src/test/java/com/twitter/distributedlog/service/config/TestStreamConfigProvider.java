@@ -21,12 +21,15 @@ import static org.junit.Assert.*;
 public class TestStreamConfigProvider {
     private static final Logger LOG = LoggerFactory.getLogger(TestStreamConfigProvider.class);
     private static final String DEFAULT_CONFIG_PATH = "conf";
-    private static final DistributedLogConfiguration DEFAULT_CONFIG = new DistributedLogConfiguration();
+    private final String defaultConfigFile;
     private final ScheduledExecutorService configExecutorService;
 
-    public TestStreamConfigProvider() {
+    public TestStreamConfigProvider() throws Exception {
         this.configExecutorService = Executors.newScheduledThreadPool(1,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Dyncfg-%d").build());
+        PropertiesWriter writer = new PropertiesWriter();
+        writer.save();
+        this.defaultConfigFile = writer.getFile().getPath();
     }
 
     StreamConfigProvider getServiceProvider(String routerName) throws Exception {
@@ -34,7 +37,7 @@ public class TestStreamConfigProvider {
     }
 
     StreamConfigProvider getServiceProvider(String routerName, String configPath) throws Exception {
-        return new ServiceStreamConfigProvider(configPath, routerName, DEFAULT_CONFIG,
+        return new ServiceStreamConfigProvider(configPath, defaultConfigFile, routerName,
                                                configExecutorService, 1, TimeUnit.SECONDS);
     }
 

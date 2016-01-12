@@ -152,10 +152,11 @@ public class DistributedLogServer {
     private StreamConfigProvider getStreamConfigProvider(DistributedLogConfiguration dlConf)
             throws ConfigurationException {
         StreamConfigProvider streamConfProvider = new NullStreamConfigProvider();
-        if (stringConf.isPresent()) {
-            String configPath = stringConf.get();
-            streamConfProvider = new ServiceStreamConfigProvider(configPath, dlConf.getStreamConfigRouterClass(),
-                    dlConf, configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
+        if (stringConf.isPresent() && conf.isPresent()) {
+            String dynConfigPath = stringConf.get();
+            String defaultConfigFile = conf.get();
+            streamConfProvider = new ServiceStreamConfigProvider(dynConfigPath, defaultConfigFile, dlConf.getStreamConfigRouterClass(),
+                    configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
         } else if (conf.isPresent()) {
             String configFile = conf.get();
             streamConfProvider = new DefaultStreamConfigProvider(configFile, configExecutorService,

@@ -11,9 +11,12 @@ import com.google.common.base.Preconditions;
 public class GuavaRateLimiter implements RateLimiter {
     com.google.common.util.concurrent.RateLimiter limiter;
 
-    public static class Builder extends RateLimiter.Builder {
-        @Override
-        public RateLimiter build() {
+    public static RateLimiter of(int limit) {
+        if (limit == 0) {
+            return RateLimiter.REJECT;
+        } else if (limit < 0) {
+            return RateLimiter.ACCEPT;
+        } else {
             return new GuavaRateLimiter(limit);
         }
     }

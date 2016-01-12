@@ -15,6 +15,7 @@ public class StreamAcquireLimiter implements RequestLimiter<StreamOp> {
     public StreamAcquireLimiter(StreamManager streamManager,
                                 MovingAverageRate serviceRps,
                                 double serviceRpsLimit) {
+
         this.streamManager = streamManager;
         this.serviceRps = serviceRps;
         this.serviceRpsLimit = serviceRpsLimit;

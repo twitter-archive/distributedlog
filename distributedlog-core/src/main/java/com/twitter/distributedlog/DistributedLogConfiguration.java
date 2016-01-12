@@ -387,6 +387,12 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_RPS_HARD_SERVICE_LIMIT_DEFAULT = -1;
     public static final String BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT = "rpsStreamAcquireServiceLimit";
     public static final int BKDL_RPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_BPS_SOFT_SERVICE_LIMIT = "bpsSoftServiceLimit";
+    public static final int BKDL_BPS_SOFT_SERVICE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_BPS_HARD_SERVICE_LIMIT = "bpsHardServiceLimit";
+    public static final int BKDL_BPS_HARD_SERVICE_LIMIT_DEFAULT = -1;
+    public static final String BKDL_BPS_STREAM_ACQUIRE_SERVICE_LIMIT = "bpsStreamAcquireServiceLimit";
+    public static final int BKDL_BPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT = -1;
 
     //
     // Settings for Error Injection

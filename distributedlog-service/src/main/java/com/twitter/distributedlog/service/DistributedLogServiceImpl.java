@@ -27,6 +27,7 @@ import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.service.stream.StreamOpStats;
 import com.twitter.distributedlog.service.stream.TruncateOp;
+import com.twitter.distributedlog.service.stream.WriteOpWithPayload;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.service.stream.limiter.ServiceRequestLimiter;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
@@ -77,6 +78,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DistributedLogServiceImpl implements DistributedLogService.ServiceIface,
                                                   FatalErrorHandler {
+
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
 
     public static enum ServerMode {
@@ -85,6 +87,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     }
 
     private final int MOVING_AVERAGE_WINDOW_SECS = 60;
+
     private final ServerConfiguration serverConfig;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
@@ -102,6 +105,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final StreamFactory streamFactory;
     private final MovingAverageRateFactory movingAvgFactory;
     private final MovingAverageRate windowedRps;
+    private final MovingAverageRate windowedBps;
     private final ServiceRequestLimiter limiter;
     private final Timer timer;
     private final HashedWheelTimer requestTimer;
@@ -186,7 +190,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 requestTimer);
         this.streamManager = new StreamManagerImpl(clientId, executorService, streamFactory);
 
-
         // Service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
                 ServerFeatureKeys.REGION_STOP_ACCEPT_NEW_STREAM.name().toLowerCase());
@@ -199,9 +202,10 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.timer = new ScheduledThreadPoolTimer(1, "timer", true);
         this.movingAvgFactory = new MovingAverageRateFactory(timer);
         this.windowedRps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
+        this.windowedBps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
         DynamicDistributedLogConfiguration dynConf = ConfUtils.getConstDynConf(dlConfig);
         this.limiter = new ServiceRequestLimiter(
-                dynConf, streamOpStats, windowedRps, streamManager, limiterDisabledFeature);
+                dynConf, streamOpStats, windowedRps, windowedBps, streamManager, limiterDisabledFeature);
 
         // Stats
         this.statsLogger = statsLogger;
@@ -230,6 +234,18 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             @Override
             public Number getSample() {
                 return windowedRps.get();
+            }
+        });
+        // Global moving average bps
+        statsLogger.registerGauge("moving_avg_bps", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return windowedBps.get();
             }
         });
 
@@ -485,7 +501,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             return;
         }
 
-        windowedRps.inc();
+        if (op instanceof WriteOpWithPayload) {
+            WriteOpWithPayload writeOp = (WriteOpWithPayload) op;
+            windowedBps.add(writeOp.getPayloadSize());
+            windowedRps.inc();
+        }
+
         stream.submit(op);
     }
 

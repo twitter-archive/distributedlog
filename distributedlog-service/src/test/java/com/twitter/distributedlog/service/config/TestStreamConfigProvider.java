@@ -19,22 +19,29 @@ import static org.junit.Assert.*;
 
 public class TestStreamConfigProvider {
     private static final Logger LOG = LoggerFactory.getLogger(TestStreamConfigProvider.class);
-    private static final String DEFAULT_CONFIG_PATH = "conf";
-    private static final DistributedLogConfiguration DEFAULT_CONFIG = new DistributedLogConfiguration();
+    private static final String DEFAULT_CONFIG_DIR = "conf";
+    private final String defaultConfigPath;
     private final ScheduledExecutorService configExecutorService;
 
-    public TestStreamConfigProvider() {
+    public TestStreamConfigProvider() throws Exception {
         this.configExecutorService = Executors.newScheduledThreadPool(1,
                 new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Dyncfg-%d").build());
+        PropertiesWriter writer = new PropertiesWriter();
+        writer.save();
+        this.defaultConfigPath = writer.getFile().getPath();
     }
 
     StreamConfigProvider getServiceProvider(String routerName) throws Exception {
-        return getServiceProvider(routerName, DEFAULT_CONFIG_PATH);
+        return getServiceProvider(routerName, DEFAULT_CONFIG_DIR);
+    }
+
+    StreamConfigProvider getServiceProvider(String routerName, String configPath, String defaultPath) throws Exception {
+        return new ServiceStreamConfigProvider(configPath, defaultPath, routerName,
+                                               configExecutorService, 1, TimeUnit.SECONDS);
     }
 
     StreamConfigProvider getServiceProvider(String routerName, String configPath) throws Exception {
-        return new ServiceStreamConfigProvider(configPath, routerName, DEFAULT_CONFIG,
-                                               configExecutorService, 1, TimeUnit.SECONDS);
+        return getServiceProvider(routerName, configPath, defaultConfigPath);
     }
 
     StreamConfigProvider getDefaultProvider(String configFile) throws Exception {
@@ -56,6 +63,27 @@ public class TestStreamConfigProvider {
         StreamConfigProvider provider = getServiceProvider(IdentityConfigRouter.class.getName());
         Optional<DynamicDistributedLogConfiguration> config = provider.getDynamicStreamConfig("stream1");
         assertTrue(config.isPresent());
+    }
+
+    @Test
+    public void testServiceProviderWithDefaultConfigPath() throws Exception {
+        // Default config with property set.
+        PropertiesWriter writer1 = new PropertiesWriter();
+        writer1.setProperty("rpsStreamAcquireServiceLimit", "191919");
+        writer1.save();
+        String fallbackConfPath1 = writer1.getFile().getPath();
+        StreamConfigProvider provider1 = getServiceProvider(IdentityConfigRouter.class.getName(), DEFAULT_CONFIG_DIR, fallbackConfPath1);
+        Optional<DynamicDistributedLogConfiguration> config1 = provider1.getDynamicStreamConfig("stream1");
+
+        // Empty default config.
+        PropertiesWriter writer2 = new PropertiesWriter();
+        writer2.save();
+        String fallbackConfPath2 = writer2.getFile().getPath();
+        StreamConfigProvider provider2 = getServiceProvider(IdentityConfigRouter.class.getName(), DEFAULT_CONFIG_DIR, fallbackConfPath2);
+        Optional<DynamicDistributedLogConfiguration> config2 = provider2.getDynamicStreamConfig("stream1");
+
+        assertEquals(191919, config1.get().getRpsStreamAcquireServiceLimit());
+        assertEquals(-1, config2.get().getRpsStreamAcquireServiceLimit());
     }
 
     @Test

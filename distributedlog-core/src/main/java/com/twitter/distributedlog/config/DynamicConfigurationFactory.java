@@ -31,23 +31,21 @@ public class DynamicConfigurationFactory {
 
     private final Map<String, DynamicDistributedLogConfiguration> dynamicConfigs;
     private final List<ConfigurationSubscription> subscriptions;
-    private final ConcurrentBaseConfiguration defaultConf;
     private final ScheduledExecutorService executorService;
     private final int reloadPeriod;
     private final TimeUnit reloadUnit;
 
-    public DynamicConfigurationFactory(ScheduledExecutorService executorService, int reloadPeriod, TimeUnit reloadUnit,
-                                       ConcurrentBaseConfiguration defaultConf) {
+    public DynamicConfigurationFactory(ScheduledExecutorService executorService, int reloadPeriod, TimeUnit reloadUnit) {
         this.executorService = executorService;
         this.reloadPeriod = reloadPeriod;
         this.reloadUnit = reloadUnit;
         this.dynamicConfigs = new HashMap<String, DynamicDistributedLogConfiguration>();
-        this.defaultConf = defaultConf;
         this.subscriptions = new LinkedList<ConfigurationSubscription>();
     }
 
-    public synchronized Optional<DynamicDistributedLogConfiguration> getDynamicConfiguration(String configPath)
-            throws ConfigurationException {
+    public synchronized Optional<DynamicDistributedLogConfiguration> getDynamicConfiguration(
+            String configPath,
+            ConcurrentBaseConfiguration defaultConf) throws ConfigurationException {
         Preconditions.checkNotNull(configPath);
         try {
             if (!dynamicConfigs.containsKey(configPath)) {
@@ -64,5 +62,9 @@ public class DynamicConfigurationFactory {
         } catch (MalformedURLException ex) {
             throw new ConfigurationException(ex);
         }
+    }
+
+    public synchronized Optional<DynamicDistributedLogConfiguration> getDynamicConfiguration(String configPath) throws ConfigurationException {
+        return getDynamicConfiguration(configPath, new ConcurrentConstConfiguration(new DistributedLogConfiguration()));
     }
 }

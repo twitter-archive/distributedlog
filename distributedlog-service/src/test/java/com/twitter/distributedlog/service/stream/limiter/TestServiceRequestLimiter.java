@@ -4,9 +4,12 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
-import com.twitter.distributedlog.limiter.RateLimiter;
-import com.twitter.distributedlog.limiter.AbstractRequestLimiter;
+import com.twitter.distributedlog.limiter.ComposableRequestLimiter.CostFunction;
+import com.twitter.distributedlog.limiter.ComposableRequestLimiter.OverlimitFunction;
+import com.twitter.distributedlog.limiter.ComposableRequestLimiter;
 import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
+import com.twitter.distributedlog.limiter.GuavaRateLimiter;
+import com.twitter.distributedlog.limiter.RateLimiter;
 import com.twitter.distributedlog.limiter.RequestLimiter;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,13 +47,6 @@ public class TestServiceRequestLimiter {
         final int limit;
         int count;
 
-        public static class Builder extends RateLimiter.Builder {
-            @Override
-            public RateLimiter build() {
-                return new CounterLimiter(limit);
-            }
-        }
-
         public CounterLimiter(int limit) {
             this.limit = limit;
             this.count = 0;
@@ -65,23 +61,34 @@ public class TestServiceRequestLimiter {
         }
     }
 
-    class MockServiceRequestLimiter extends AbstractRequestLimiter<MockRequest> {
+    class MockHardRequestLimiter implements RequestLimiter<MockRequest> {
+
+        RequestLimiter<MockRequest> limiter;
         int limitHitCount;
-        int limit;
 
-        MockServiceRequestLimiter(int limit) {
-            super(limit);
-            this.limit = limit;
+        MockHardRequestLimiter(int limit) {
+            this(GuavaRateLimiter.of(limit));
+        }
+
+        MockHardRequestLimiter(RateLimiter limiter) {
+            this.limiter = new ComposableRequestLimiter<MockRequest>(
+                limiter,
+                new OverlimitFunction<MockRequest>() {
+                    public void apply(MockRequest request) throws OverCapacityException {
+                        limitHitCount++;
+                        throw new OverCapacityException("Limit exceeded");
+                    }
+                },
+                new CostFunction<MockRequest>() {
+                    public int apply(MockRequest request) {
+                        return request.getSize();
+                    }
+                });
         }
 
         @Override
-        protected int cost(MockRequest request) {
-            return request.getSize();
-        }
-
-        @Override
-        protected void overlimit() throws OverCapacityException {
-            limitHitCount++;
+        public void apply(MockRequest op) throws OverCapacityException {
+            limiter.apply(op);
         }
 
         public int getLimitHitCount() {
@@ -89,23 +96,37 @@ public class TestServiceRequestLimiter {
         }
     }
 
-    class MockHardRequestLimiter extends MockServiceRequestLimiter {
+    class MockSoftRequestLimiter implements RequestLimiter<MockRequest> {
 
-        MockHardRequestLimiter(int limit) {
-            super(limit);
+        RequestLimiter<MockRequest> limiter;
+        int limitHitCount;
+
+        MockSoftRequestLimiter(int limit) {
+            this(GuavaRateLimiter.of(limit));
+        }
+
+        MockSoftRequestLimiter(RateLimiter limiter) {
+            this.limiter = new ComposableRequestLimiter<MockRequest>(
+                limiter,
+                new OverlimitFunction<MockRequest>() {
+                    public void apply(MockRequest request) throws OverCapacityException {
+                        limitHitCount++;
+                    }
+                },
+                new CostFunction<MockRequest>() {
+                    public int apply(MockRequest request) {
+                        return request.getSize();
+                    }
+                });
         }
 
         @Override
-        protected void overlimit() throws OverCapacityException {
-            super.overlimit();
-            throw new OverCapacityException("Limit exceeded");
+        public void apply(MockRequest op) throws OverCapacityException {
+            limiter.apply(op);
         }
-    }
 
-    class MockSoftRequestLimiter extends MockServiceRequestLimiter {
-
-        MockSoftRequestLimiter(int limit) {
-            super(limit);
+        public int getLimitHitCount() {
+            return limitHitCount;
         }
     }
 
@@ -183,8 +204,7 @@ public class TestServiceRequestLimiter {
 
     @Test(timeout = 60000)
     public void testServiceRequestLimiter() throws Exception {
-        MockHardRequestLimiter limiter = new MockHardRequestLimiter(1);
-        limiter.setRateLimiter(new CounterLimiter.Builder());
+        MockHardRequestLimiter limiter = new MockHardRequestLimiter(new CounterLimiter(1));
         limiter.apply(new MockRequest());
         try {
             limiter.apply(new MockRequest());
@@ -214,10 +234,8 @@ public class TestServiceRequestLimiter {
 
     @Test(timeout = 60000)
     public void testChainedServiceRequestLimiter() throws Exception {
-        MockSoftRequestLimiter softLimiter = new MockSoftRequestLimiter(1);
-        softLimiter.setRateLimiter(new CounterLimiter.Builder());
-        MockHardRequestLimiter hardLimiter = new MockHardRequestLimiter(3);
-        hardLimiter.setRateLimiter(new CounterLimiter.Builder());
+        MockSoftRequestLimiter softLimiter = new MockSoftRequestLimiter(new CounterLimiter(1));
+        MockHardRequestLimiter hardLimiter = new MockHardRequestLimiter(new CounterLimiter(3));
 
         RequestLimiter<MockRequest> limiter =
                 new ChainedRequestLimiter.Builder<MockRequest>()
