@@ -33,6 +33,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.twitter.distributedlog.BKDistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
@@ -2392,8 +2394,19 @@ public class DistributedLogTool extends Tool {
 
     public static class AuditDLSpaceCommand extends PerDLCommand {
 
+        private String regex = null;
+
         AuditDLSpaceCommand() {
             super("audit_dl_space", "Audit stream space usage for a given dl uri");
+            options.addOption("groupByRegex", true, "Group by the result of applying the regex to stream name");
+        }
+
+        @Override
+        protected void parseCommandLine(CommandLine cmdline) throws ParseException {
+            super.parseCommandLine(cmdline);
+            if (cmdline.hasOption("groupByRegex")) {
+                regex = cmdline.getOptionValue("groupByRegex");
+            }
         }
 
         @Override
@@ -2401,8 +2414,10 @@ public class DistributedLogTool extends Tool {
             DLAuditor dlAuditor = new DLAuditor(getConf());
             try {
                 Map<String, Long> streamSpaceMap = dlAuditor.calculateStreamSpaceUsage(getUri());
-                for (Map.Entry<String, Long> entry : streamSpaceMap.entrySet()) {
-                    System.out.println(entry.getKey() + " " + entry.getValue());
+                if (null != regex) {
+                    printGroupByRegexSpaceUsage(streamSpaceMap, regex);
+                } else {
+                    printSpaceUsage(streamSpaceMap);
                 }
             } finally {
                 dlAuditor.close();
@@ -2413,6 +2428,31 @@ public class DistributedLogTool extends Tool {
         @Override
         protected String getUsage() {
             return "audit_dl_space [options]";
+        }
+
+        private void printSpaceUsage(Map<String, Long> spaceMap) throws Exception {
+            for (Map.Entry<String, Long> entry : spaceMap.entrySet()) {
+                System.out.println(entry.getKey() + "\t" + entry.getValue());
+            }
+        }
+
+        private void printGroupByRegexSpaceUsage(Map<String, Long> streamSpaceMap, String regex) throws Exception {
+            Pattern pattern = Pattern.compile(regex);
+            Map<String, Long> groupedUsageMap = new HashMap<String, Long>();
+            for (Map.Entry<String, Long> entry : streamSpaceMap.entrySet()) {
+                Matcher matcher = pattern.matcher(entry.getKey());
+                String key = entry.getKey();
+                boolean matches = matcher.matches();
+                if (matches) {
+                    key = matcher.group(1);
+                }
+                Long value = entry.getValue();
+                if (groupedUsageMap.containsKey(key)) {
+                    value += groupedUsageMap.get(key);
+                }
+                groupedUsageMap.put(key, value);
+            }
+            printSpaceUsage(groupedUsageMap);
         }
     }
 
