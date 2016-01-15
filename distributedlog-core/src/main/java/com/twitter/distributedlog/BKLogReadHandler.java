@@ -197,6 +197,7 @@ class BKLogReadHandler extends BKLogHandler {
                 handlerStatsLogger,
                 alertStatsLogger,
                 notification,
+                dynConf.getReadAheadMaxRecords(),
                 conf.getTraceReadAheadDeliveryLatency(),
                 conf.getDataLatencyWarnThresholdMillis(),
                 Ticker.systemTicker());
@@ -1672,7 +1673,7 @@ class BKLogReadHandler extends BKLogHandler {
                             }
                         }
                         readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
-                        if (ledgerDataAccessor.getNumCachedRecords() >= dynConf.getReadAheadMaxRecords()) {
+                        if (ledgerDataAccessor.isCacheFull()) {
                             cacheFull = true;
                             complete();
                         } else {
@@ -1687,7 +1688,7 @@ class BKLogReadHandler extends BKLogHandler {
                     LOG.trace("Cache for {} is full. Backoff reading until notified", fullyQualifiedName);
                     readAheadCacheFullCounter.inc();
                     resumeStopWatch.reset().start();
-                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, dynConf.getReadAheadMaxRecords());
+                    ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this);
                 } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
                     if (LOG.isTraceEnabled()) {
                         LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",

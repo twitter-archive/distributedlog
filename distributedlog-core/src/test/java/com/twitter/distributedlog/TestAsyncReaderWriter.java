@@ -1636,4 +1636,52 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
                 numRecords - 1, recoverWriter.getLastTxId());
     }
 
+    @Test(timeout = 60000)
+    public void testMaxReadAheadRecords() throws Exception {
+        int maxRecords = 1;
+        int batchSize = 8;
+        int maxAllowedCachedRecords = maxRecords + batchSize - 1;
+
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(Integer.MAX_VALUE);
+        confLocal.setReadAheadMaxRecords(maxRecords);
+        confLocal.setReadAheadBatchSize(batchSize);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+
+        int numRecords = 40;
+        for (int i = 1; i <= numRecords; i++) {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(i)));
+            assertEquals("last tx id should become " + i,
+                    i, writer.getLastTxId());
+        }
+        LogRecord record = DLMTestUtil.getLogRecordInstance(numRecords);
+        record.setControl();
+        Await.result(writer.write(record));
+
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        record = Await.result(reader.readNext());
+        LOG.info("Read record {}", record);
+        assertEquals(1L, record.getTransactionId());
+
+        assertNotNull(reader.bkLedgerManager.readAheadWorker);
+        assertTrue(reader.bkLedgerManager.ledgerDataAccessor.getNumCachedRecords() <= maxAllowedCachedRecords);
+
+        for (int i = 2; i <= numRecords; i++) {
+            record = Await.result(reader.readNext());
+            LOG.info("Read record {}", record);
+            assertEquals((long) i, record.getTransactionId());
+            TimeUnit.MILLISECONDS.sleep(20);
+            int numCachedRecords = reader.bkLedgerManager.ledgerDataAccessor.getNumCachedRecords();
+            assertTrue("Should cache less than " + batchSize + " records but already found "
+                    + numCachedRecords + " records when reading " + i + "th record",
+                    numCachedRecords <= maxAllowedCachedRecords);
+        }
+    }
+
 }

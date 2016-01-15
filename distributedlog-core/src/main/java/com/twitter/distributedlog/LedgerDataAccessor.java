@@ -22,6 +22,7 @@ class LedgerDataAccessor {
 
     private final String streamName;
     private final LinkedBlockingQueue<LogRecordWithDLSN> readAheadRecords;
+    private final int maxCachedRecords;
     private final AtomicReference<DLSN> minActiveDLSN = new AtomicReference<DLSN>(DLSN.NonInclusiveLowerBound);
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
     private final AtomicReference<IOException> lastException = new AtomicReference<IOException>();
@@ -48,10 +49,12 @@ class LedgerDataAccessor {
                        StatsLogger statsLogger,
                        AlertStatsLogger alertStatsLogger,
                        AsyncNotification notification,
+                       int maxCachedRecords,
                        boolean traceDeliveryLatencyEnabled,
                        long deliveryLatencyWarnThresholdMillis,
                        Ticker ticker) {
         this.streamName = streamName;
+        this.maxCachedRecords = maxCachedRecords;
         this.notification = notification;
 
         // create the readahead queue
@@ -91,13 +94,10 @@ class LedgerDataAccessor {
      *
      * @param readAheadCallback
      *          read ahead callback
-     * @param maxCachedRecords
-     *          max number of records allowed to cache
      */
-    synchronized void setReadAheadCallback(ReadAheadCallback readAheadCallback,
-                                           long maxCachedRecords) {
+    synchronized void setReadAheadCallback(ReadAheadCallback readAheadCallback) {
         this.readAheadCallback = readAheadCallback;
-        if (getNumCachedRecords() < maxCachedRecords) {
+        if (!isCacheFull()) {
             invokeReadAheadCallback();
         }
     }
@@ -121,7 +121,9 @@ class LedgerDataAccessor {
 
         if (null != record) {
             cacheBytes.addAndGet(-record.getPayload().length);
-            invokeReadAheadCallback();
+            if (!isCacheFull()) {
+                invokeReadAheadCallback();
+            }
         }
 
         return record;
@@ -170,6 +172,10 @@ class LedgerDataAccessor {
         if (null != n) {
             n.notifyOnOperationComplete();
         }
+    }
+
+    boolean isCacheFull() {
+        return getNumCachedRecords() >= maxCachedRecords;
     }
 
     /**
