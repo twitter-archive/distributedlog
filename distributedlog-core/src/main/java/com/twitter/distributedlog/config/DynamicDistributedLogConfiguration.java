@@ -2,19 +2,24 @@ package com.twitter.distributedlog.config;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static com.twitter.distributedlog.DistributedLogConfiguration.*;
 
 /**
  * Whitelist dynamic configuration by adding an accessor to this class.
  */
 public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfiguration {
-    static final Logger LOG = LoggerFactory.getLogger(DynamicDistributedLogConfiguration.class);
 
     private final ConcurrentBaseConfiguration defaultConfig;
 
     public DynamicDistributedLogConfiguration(ConcurrentBaseConfiguration defaultConfig) {
         this.defaultConfig = defaultConfig;
+    }
+
+    private static int getInt(ConcurrentBaseConfiguration configuration,
+                              String newKey,
+                              String oldKey,
+                              int defaultValue) {
+        return configuration.getInt(newKey, configuration.getInt(oldKey, defaultValue));
     }
 
     /**
@@ -23,9 +28,15 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
      * @return retention period in hours
      */
     public int getRetentionPeriodHours() {
-        return getInt(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS,
-                DistributedLogConfiguration.BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT));
+        return getInt(
+                this,
+                BKDL_RETENTION_PERIOD_IN_HOURS,
+                BKDL_RETENTION_PERIOD_IN_HOURS_OLD,
+                getInt(defaultConfig,
+                        BKDL_RETENTION_PERIOD_IN_HOURS,
+                        BKDL_RETENTION_PERIOD_IN_HOURS_OLD,
+                        BKDL_RETENTION_PERIOD_IN_HOURS_DEFAULT)
+        );
     }
 
     /**
@@ -168,9 +179,15 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
      * @return buffer size
      */
     public int getOutputBufferSize() {
-        return getInt(DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE,
-                DistributedLogConfiguration.BKDL_OUTPUT_BUFFER_SIZE_DEFAULT));
+        return getInt(
+                this,
+                BKDL_OUTPUT_BUFFER_SIZE,
+                BKDL_OUTPUT_BUFFER_SIZE_OLD,
+                getInt(defaultConfig,
+                        BKDL_OUTPUT_BUFFER_SIZE,
+                        BKDL_OUTPUT_BUFFER_SIZE_OLD,
+                        BKDL_OUTPUT_BUFFER_SIZE_DEFAULT)
+        );
     }
 
     /**
@@ -190,9 +207,15 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
      * @return the batch size
      */
     public int getReadAheadBatchSize() {
-        return getInt(DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE,
-                DistributedLogConfiguration.BKDL_READAHEAD_BATCHSIZE_DEFAULT));
+        return getInt(
+                this,
+                BKDL_READAHEAD_BATCHSIZE,
+                BKDL_READAHEAD_BATCHSIZE_OLD,
+                getInt(defaultConfig,
+                        BKDL_READAHEAD_BATCHSIZE,
+                        BKDL_READAHEAD_BATCHSIZE_OLD,
+                        BKDL_READAHEAD_BATCHSIZE_DEFAULT)
+        );
     }
 
     /**
@@ -201,8 +224,14 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
      * @return the maximum number
      */
     public int getReadAheadMaxRecords() {
-        return getInt(DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS,
-            defaultConfig.getInt(DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS,
-                DistributedLogConfiguration.BKDL_READAHEAD_MAX_RECORDS_DEFAULT));
+        return getInt(
+                this,
+                BKDL_READAHEAD_MAX_RECORDS,
+                BKDL_READAHEAD_MAX_RECORDS_OLD,
+                getInt(defaultConfig,
+                        BKDL_READAHEAD_MAX_RECORDS,
+                        BKDL_READAHEAD_MAX_RECORDS_OLD,
+                        BKDL_READAHEAD_MAX_RECORDS_DEFAULT)
+        );
     }
 }
