@@ -11,6 +11,40 @@
     <name>DistributedLog Core Library V2</name>
     <dependencies>
         <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper-client</artifactId>
+            <version>10.0.19-20151024005404-f119572</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper-server</artifactId>
+            <version>10.0.19-20151024005404-f119572</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>zookeeper</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>com.twitter</groupId>
             <artifactId>distributedlog-protocol</artifactId>
             <version>${project.parent.version}</version>
@@ -31,12 +65,6 @@
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>16.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bookkeeper.shims</groupId>
-            <artifactId>zookeeper-shim-3.4</artifactId>
-            <version>${bookkeeper.version}</version>
-            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -85,13 +113,13 @@
                     <groupId>com.google.guava</groupId>
                     <artifactId>guava</artifactId>
                 </exclusion>
-		        <exclusion>
+		<exclusion>
                     <groupId>org.jboss.netty</groupId>
                     <artifactId>netty</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.bookkeeper.shims</groupId>
-                    <artifactId>zookeeper-shim-3.4</artifactId>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>zookeeper</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>commons-cli</groupId>

@@ -5,7 +5,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.ImmutableList;
 
-import org.apache.bookkeeper.shims.Version;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.ACL;
 
@@ -41,10 +40,6 @@ public class DistributedLogConstants {
     // log segment prefix
     public static final String INPROGRESS_LOGSEGMENT_PREFIX = "inprogress";
     public static final String COMPLETED_LOGSEGMENT_PREFIX = "logrecs";
-    // ZK Version
-    public static final Version ZK_VERSION = new Version("zk");
-    public static final String ZK33 = "3.3";
-    public static final String ZK34 = "3.4";
     public static final String DISALLOW_PLACEMENT_IN_REGION_FEATURE_NAME = "disallow_bookie_placement";
 
     // An ACL that gives all permissions to node creators and read permissions only to everyone else.

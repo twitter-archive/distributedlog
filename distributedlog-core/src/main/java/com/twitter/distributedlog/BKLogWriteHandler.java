@@ -57,7 +57,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
-import static com.twitter.distributedlog.DistributedLogConstants.ZK_VERSION;
 import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
 
 /**
@@ -357,25 +356,22 @@ class BKLogWriteHandler extends BKLogHandler {
             }
         }
 
-        if (!ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33)) {
-            if (ignoreMaxLogSegmentSeqNo ||
-                (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber())) {
-                // no ledger seqno stored in /ledgers before
-                LOG.info("No max ledger sequence number found while creating log segment {} for {}.",
-                    logSegmentSeqNo, getFullyQualifiedName());
-            } else if (maxLogSegmentSequenceNo.getSequenceNumber() + 1 != logSegmentSeqNo) {
-                LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
-                    new Object[]{maxLogSegmentSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
-                        getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
-                // there is max log segment number recorded there and it isn't match. throw exception.
-                throw new DLIllegalStateException("Unexpected max log segment sequence number "
-                    + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
-                    + ", expected " + (logSegmentSeqNo - 1));
-            }
+        if (ignoreMaxLogSegmentSeqNo ||
+            (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber())) {
+            // no ledger seqno stored in /ledgers before
+            LOG.info("No max ledger sequence number found while creating log segment {} for {}.",
+                logSegmentSeqNo, getFullyQualifiedName());
+        } else if (maxLogSegmentSequenceNo.getSequenceNumber() + 1 != logSegmentSeqNo) {
+            LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
+                new Object[]{maxLogSegmentSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
+                    getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
+            // there is max log segment number recorded there and it isn't match. throw exception.
+            throw new DLIllegalStateException("Unexpected max log segment sequence number "
+                + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
+                + ", expected " + (logSegmentSeqNo - 1));
         }
 
         return logSegmentSeqNo;
-
     }
 
     protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {

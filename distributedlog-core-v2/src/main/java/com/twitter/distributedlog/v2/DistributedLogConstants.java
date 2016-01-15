@@ -1,7 +1,6 @@
 package com.twitter.distributedlog.v2;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.bookkeeper.shims.Version;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.ZooDefs.Ids;
 
@@ -21,7 +20,7 @@ public class DistributedLogConstants {
     public static final long LOCK_TIMEOUT_INFINITE = -1;
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";
     public static final int INPUTSTREAM_MARK_LIMIT = 16;
-    
+
     // An ACL that gives all permissions to node creators and read permissions only to everyone else.
     public static final List<ACL> EVERYONE_READ_CREATOR_ALL =
         ImmutableList.<ACL>builder()

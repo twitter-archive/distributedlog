@@ -50,20 +50,11 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
         writer2.write(DLMTestUtil.getLogRecordInstance(numSegments));
         writer2.closeAndComplete();
 
-        LOG.info("ZK Version : {}", DistributedLogConstants.ZK_VERSION.getVersion());
-
-        boolean isZK33 = DistributedLogConstants.ZK_VERSION.getVersion().equals(DistributedLogConstants.ZK33);
-
         try {
             Await.result(writer1.write(DLMTestUtil.getLogRecordInstance(numSegments + 1)));
-            if (!isZK33) {
-                fail("Should fail on zk34 version.");
-            }
+            fail("Should fail on writing new log records.");
         } catch (Throwable t) {
             LOG.error("Failed to write entry : ", t);
-            if (isZK33) {
-                fail("Shouldn't fail on zk33 version.");
-            }
         }
 
         segments = dlm.getLogSegments();
@@ -82,15 +73,9 @@ public class TestLogSegmentCreation extends TestDistributedLogBase {
                 hasInprogress = true;
             }
         }
-        if (isZK33) {
-            assertEquals(5, segments.size());
-            assertTrue(hasInprogress);
-            assertTrue(hasDuplicatedSegment);
-        } else {
-            assertEquals(4, segments.size());
-            assertFalse(hasInprogress);
-            assertFalse(hasDuplicatedSegment);
-        }
+        assertEquals(4, segments.size());
+        assertFalse(hasInprogress);
+        assertFalse(hasDuplicatedSegment);
 
         LOG.info("Segments : duplicated = {}, inprogress = {}, {}",
                  new Object[] { hasDuplicatedSegment, hasInprogress, segments });
