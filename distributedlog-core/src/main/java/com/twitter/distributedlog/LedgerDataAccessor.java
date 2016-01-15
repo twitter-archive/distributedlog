@@ -25,6 +25,7 @@ class LedgerDataAccessor {
     private final int maxCachedRecords;
     private final AtomicReference<DLSN> minActiveDLSN = new AtomicReference<DLSN>(DLSN.NonInclusiveLowerBound);
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
+    private DLSN lastReadAheadUserDLSN = DLSN.InvalidDLSN;
     private final AtomicReference<IOException> lastException = new AtomicReference<IOException>();
     // callbacks
     private final AsyncNotification notification;
@@ -74,6 +75,10 @@ class LedgerDataAccessor {
                 readAheadStatsLogger.getOpStatsLogger("delivery_latency");
         this.negativeReadAheadDeliveryLatencyStat =
                 readAheadStatsLogger.getOpStatsLogger("negative_delivery_latency");
+    }
+
+    DLSN getLastReadAheadUserDLSN() {
+        return lastReadAheadUserDLSN;
     }
 
     /**
@@ -242,6 +247,7 @@ class LedgerDataAccessor {
                 if (record.isControl()) {
                     continue;
                 }
+                lastReadAheadUserDLSN = lastReadAheadDLSN;
 
                 if (minActiveDLSN.get().compareTo(record.getDlsn()) > 0) {
                     continue;

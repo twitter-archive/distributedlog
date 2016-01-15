@@ -38,6 +38,7 @@ import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.FutureEventListener;
 
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -773,7 +774,24 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public Future<AsyncLogReader> openAsyncLogReader(long fromTxnId) {
-        return getDLSNNotLessThanTxId(fromTxnId).flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
+        final Promise<DLSN> dlsnPromise = new Promise<DLSN>();
+        getDLSNNotLessThanTxId(fromTxnId).addEventListener(new FutureEventListener<DLSN>() {
+
+            @Override
+            public void onSuccess(DLSN dlsn) {
+                dlsnPromise.setValue(dlsn);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                if (cause instanceof LogEmptyException) {
+                    dlsnPromise.setValue(DLSN.InitialDLSN);
+                } else {
+                    dlsnPromise.setException(cause);
+                }
+            }
+        });
+        return dlsnPromise.flatMap(new AbstractFunction1<DLSN, Future<AsyncLogReader>>() {
             @Override
             public Future<AsyncLogReader> apply(DLSN dlsn) {
                 return openAsyncLogReader(dlsn);
@@ -871,12 +889,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     public LogReader getInputStreamInternal(String streamIdentifier, long fromTxnId)
         throws IOException {
-        DLSN fromDLSN = FutureUtils.result(getDLSNNotLessThanTxId(fromTxnId));
+        DLSN fromDLSN;
+        try {
+            fromDLSN = FutureUtils.result(getDLSNNotLessThanTxId(fromTxnId));
+        } catch (LogEmptyException lee) {
+            fromDLSN = DLSN.InitialDLSN;
+        }
         return getInputStreamInternal(streamIdentifier, fromDLSN, Optional.of(fromTxnId));
     }
 
     LogReader getInputStreamInternal(String streamIdentifier, DLSN fromDLSN, Optional<Long> fromTxnId)
             throws IOException {
+        LOG.info("Create async reader starting from {}", fromDLSN);
         checkClosedOrInError("getInputStream");
         Optional<String> subscriberId = Optional.absent();
         BKAsyncLogReaderDLSN asyncReader = new BKAsyncLogReaderDLSN(
