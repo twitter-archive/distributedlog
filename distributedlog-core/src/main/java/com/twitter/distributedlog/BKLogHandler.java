@@ -1184,26 +1184,36 @@ abstract class BKLogHandler implements Watcher {
                     final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (final String segment: segmentsAdded) {
-                        LogSegmentMetadata.read(zooKeeperClient, logMetadata.getLogSegmentPath(segment), conf.getDLLedgerMetadataSkipMinVersionCheck(),
-                                new GenericCallback<LogSegmentMetadata>() {
+                        LogSegmentMetadata.read(zooKeeperClient, logMetadata.getLogSegmentPath(segment))
+                                .addEventListener(new FutureEventListener<LogSegmentMetadata>() {
+
                                     @Override
-                                    public void operationComplete(int rc, LogSegmentMetadata result) {
+                                    public void onSuccess(LogSegmentMetadata result) {
+                                        addedSegments.put(segment, result);
+                                        complete();
+                                    }
+
+                                    @Override
+                                    public void onFailure(Throwable cause) {
                                         // NONODE exception is possible in two cases
                                         // 1. A log segment was deleted by truncation between the call to getChildren and read
                                         // attempt on the znode corresponding to the segment
                                         // 2. In progress segment has been completed => inprogress ZNode does not exist
-                                        if (KeeperException.Code.NONODE.intValue() == rc) {
+                                        if (cause instanceof KeeperException &&
+                                                KeeperException.Code.NONODE ==((KeeperException) cause).code()) {
                                             removedSegments.add(segment);
-                                        } else if (KeeperException.Code.OK.intValue() != rc) {
+                                            complete();
+                                        } else {
                                             // fail fast
                                             if (1 == numFailures.incrementAndGet()) {
                                                 // :( properly we need dlog related response code.
                                                 callback.operationComplete(rc, null);
                                                 return;
                                             }
-                                        } else {
-                                            addedSegments.put(segment, result);
                                         }
+                                    }
+
+                                    private void complete() {
                                         if (0 == numChildren.decrementAndGet() && numFailures.get() == 0) {
                                             // update the cache only when fetch completed
                                             logSegmentCache.update(removedSegments, addedSegments);

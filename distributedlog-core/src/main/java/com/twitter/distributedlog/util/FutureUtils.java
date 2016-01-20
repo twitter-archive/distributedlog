@@ -1,6 +1,9 @@
 package com.twitter.distributedlog.util;
 
+import com.twitter.distributedlog.BKTransmitException;
+import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
@@ -155,13 +158,27 @@ public class FutureUtils {
         try {
             return Await.result(result);
         } catch (KeeperException ke) {
-            throw new ZKException("Encountred zookeeper exception on waiting result", ke);
+            throw new ZKException("Encountered zookeeper exception on waiting result", ke);
+        } catch (BKException bke) {
+            throw new BKTransmitException("Encountered bookkeeper exception on waiting result", bke.getCode());
         } catch (IOException ioe) {
             throw ioe;
         } catch (InterruptedException ie) {
             throw new DLInterruptedException("Interrupted on waiting result", ie);
         } catch (Exception e) {
             throw new IOException("Encountered exception on waiting result", e);
+        }
+    }
+
+    public static Throwable zkException(Throwable throwable, String path) {
+        if (throwable instanceof KeeperException) {
+            return throwable;
+        } else if (throwable instanceof ZooKeeperClient.ZooKeeperConnectionException) {
+            return KeeperException.create(KeeperException.Code.CONNECTIONLOSS, path);
+        } else if (throwable instanceof InterruptedException) {
+            return new DLInterruptedException("Interrupted on operating " + path, throwable);
+        } else {
+            return new UnexpectedException("Encountered unexpected exception on operatiing " + path, throwable);
         }
     }
 

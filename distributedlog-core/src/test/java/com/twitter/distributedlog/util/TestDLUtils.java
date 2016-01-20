@@ -84,7 +84,6 @@ public class TestDLUtils {
         );
         assertEquals(1, DLUtils.findLogSegmentNotLessThanTxnId(list3, txnId));
 
-
         List<LogSegmentMetadata> list4 = Lists.newArrayList(
                 completedLogSegment(1L, 0L, 990L),
                 completedLogSegment(2L, 1000L, 2000L)
@@ -136,7 +135,7 @@ public class TestDLUtils {
         assertEquals(1, DLUtils.findLogSegmentNotLessThanTxnId(list12, txnId));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNextLogSegmentSequenceNumber() throws Exception {
         List<LogSegmentMetadata> v1List = Lists.newArrayList(
                 completedLogSegment(2L, 100L, 199L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value),

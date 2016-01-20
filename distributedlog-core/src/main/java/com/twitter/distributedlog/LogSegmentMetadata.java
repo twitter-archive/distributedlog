@@ -23,8 +23,10 @@ import java.util.Comparator;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Utils;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -587,61 +589,35 @@ public class LogSegmentMetadata {
                 .build();
     }
 
-    public static LogSegmentMetadata read(ZooKeeperClient zkc, String path)
-        throws IOException, KeeperException.NoNodeException {
+    public static Future<LogSegmentMetadata> read(ZooKeeperClient zkc, String path) {
         return read(zkc, path, false);
     }
 
-    public static LogSegmentMetadata read(ZooKeeperClient zkc, String path, boolean skipMinVersionCheck)
-        throws IOException, KeeperException.NoNodeException {
-        try {
-            Stat stat = new Stat();
-            byte[] data = zkc.get().getData(path, false, stat);
-            LogSegmentMetadata metadata = parseData(path, data, skipMinVersionCheck);
-            return metadata;
-        } catch (KeeperException.NoNodeException nne) {
-            throw nne;
-        } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted on reading log segment metadata from " + path, ie);
-        } catch (ZooKeeperClient.ZooKeeperConnectionException zce) {
-            throw new IOException("Encountered zookeeper connection issue when reading log segment metadata from "
-                    + path, zce);
-        } catch (KeeperException ke) {
-            throw new IOException("Encountered zookeeper issue when reading log segment metadata from " + path, ke);
-        }
-    }
-
-    public static void read(ZooKeeperClient zkc, String path,
-                            final BookkeeperInternalCallbacks.GenericCallback<LogSegmentMetadata> callback) {
-        read(zkc, path, false, callback);
-    }
-
-    public static void read(ZooKeeperClient zkc, String path, final boolean skipMinVersionCheck,
-                            final BookkeeperInternalCallbacks.GenericCallback<LogSegmentMetadata> callback) {
+    public static Future<LogSegmentMetadata> read(ZooKeeperClient zkc, String path, final boolean skipMinVersionCheck) {
+        final Promise<LogSegmentMetadata> result = new Promise<LogSegmentMetadata>();
         try {
             zkc.get().getData(path, false, new AsyncCallback.DataCallback() {
                 @Override
                 public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
                     if (KeeperException.Code.OK.intValue() != rc) {
-                        callback.operationComplete(rc, null);
+                        result.setException(KeeperException.create(KeeperException.Code.get(rc)));
                         return;
                     }
                     try {
                         LogSegmentMetadata metadata = parseData(path, data, skipMinVersionCheck);
-                        callback.operationComplete(KeeperException.Code.OK.intValue(), metadata);
+                        result.setValue(metadata);
                     } catch (IOException ie) {
                         LOG.error("Error on parsing log segment metadata from {} : ", path, ie);
-                        // as we don't have return code for distributedlog. for now, we leveraged zk
-                        // exception code.
-                        callback.operationComplete(KeeperException.Code.BADARGUMENTS.intValue(), null);
+                        result.setException(ie);
                     }
                 }
             }, null);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            callback.operationComplete(KeeperException.Code.OPERATIONTIMEOUT.intValue(), null);
+            result.setException(FutureUtils.zkException(e, path));
         } catch (InterruptedException e) {
-            callback.operationComplete(DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE, null);
+            result.setException(FutureUtils.zkException(e, path));
         }
+        return result;
     }
 
     static LogSegmentMetadata parseDataV1(String path, byte[] data, String[] parts)
@@ -1005,7 +981,7 @@ public class LogSegmentMetadata {
 
     boolean checkEquivalence(ZooKeeperClient zkc, String path) {
         try {
-            LogSegmentMetadata other = read(zkc, path);
+            LogSegmentMetadata other = FutureUtils.result(read(zkc, path));
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Verifying {} against {}", this, other);
             }

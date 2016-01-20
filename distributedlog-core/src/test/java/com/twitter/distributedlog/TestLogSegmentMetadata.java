@@ -5,6 +5,7 @@ import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
 import com.twitter.distributedlog.LogSegmentMetadata.TruncationStatus;
 import com.twitter.distributedlog.exceptions.UnsupportedMetadataVersionException;
 
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.zookeeper.KeeperException;
@@ -49,28 +50,9 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
         LogSegmentMetadata metadata1 = new LogSegmentMetadataBuilder("/metadata1",
             LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc);
-        // synchronous read
-        LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata1");
+        LogSegmentMetadata read1 = FutureUtils.result(LogSegmentMetadata.read(zkc, "/metadata1"));
         assertEquals(metadata1, read1);
         assertEquals(TEST_REGION_ID, read1.getRegionId());
-        final AtomicReference<LogSegmentMetadata> resultHolder =
-                new AtomicReference<LogSegmentMetadata>(null);
-        final CountDownLatch latch = new CountDownLatch(1);
-        // asynchronous read
-        LogSegmentMetadata.read(zkc, "/metadata1",
-                new BookkeeperInternalCallbacks.GenericCallback<LogSegmentMetadata>() {
-                    @Override
-                    public void operationComplete(int rc, LogSegmentMetadata result) {
-                        if (KeeperException.Code.OK.intValue() != rc) {
-                            LOG.error("Fail to read LogSegmentLedgerMetadata : ", BKException.create(rc));
-                        }
-                        resultHolder.set(result);
-                        latch.countDown();
-                    }
-                });
-        latch.await();
-        assertEquals(metadata1, resultHolder.get());
-        assertEquals(TEST_REGION_ID, resultHolder.get().getRegionId());
     }
 
     @Test(timeout = 60000)
@@ -79,7 +61,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
             1, 1000, 1).setRegionId(TEST_REGION_ID).build();
         metadata1.write(zkc);
         // synchronous read
-        LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata2", true);
+        LogSegmentMetadata read1 = FutureUtils.result(LogSegmentMetadata.read(zkc, "/metadata2", true));
         assertEquals(read1.getLedgerId(), metadata1.getLedgerId());
         assertEquals(read1.getFirstTxId(), metadata1.getFirstTxId());
         assertEquals(read1.getLastTxId(), metadata1.getLastTxId());
@@ -94,7 +76,7 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
         metadata1.write(zkc);
         // synchronous read
         try {
-            LogSegmentMetadata read1 = LogSegmentMetadata.read(zkc, "/metadata-failure");
+            LogSegmentMetadata read1 = FutureUtils.result(LogSegmentMetadata.read(zkc, "/metadata-failure"));
             fail("The previous statement should throw an exception");
         } catch (UnsupportedMetadataVersionException e) {
             // Expected

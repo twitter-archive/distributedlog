@@ -23,6 +23,7 @@ import com.twitter.distributedlog.metadata.DLMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -73,7 +74,8 @@ public class DLMTestUtil {
         Map<Long, LogSegmentMetadata> segments =
             new HashMap<Long, LogSegmentMetadata>(children.size());
         for (String child : children) {
-            LogSegmentMetadata segment = LogSegmentMetadata.read(zkc, ledgerPath + "/" + child);
+            LogSegmentMetadata segment =
+                    FutureUtils.result(LogSegmentMetadata.read(zkc, ledgerPath + "/" + child));
             LOG.info("Read segment {} : {}", child, segment);
             segments.put(segment.getLogSegmentSequenceNumber(), segment);
         }

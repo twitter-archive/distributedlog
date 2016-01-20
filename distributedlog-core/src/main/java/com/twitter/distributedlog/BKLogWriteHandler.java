@@ -231,8 +231,6 @@ class BKLogWriteHandler extends BKLogHandler {
 
     // Transactional operations for logsegment
     void tryWrite(Transaction txn, List<ACL> acl, LogSegmentMetadata metadata, String path) {
-        int writeVersion = getCompleteLogSegmentVersion(metadata);
-
         byte[] finalisedData = metadata.getFinalisedData().getBytes(UTF_8);
         txn.create(path, finalisedData, acl, CreateMode.PERSISTENT);
     }
@@ -676,18 +674,6 @@ class BKLogWriteHandler extends BKLogHandler {
         }
 
         return startSequenceId;
-    }
-
-    protected int getCompleteLogSegmentVersion(LogSegmentMetadata metadata) {
-        int writeVersion;
-        if (!metadata.supportsSequenceId() &&
-                LogSegmentMetadata.supportsSequenceId(conf.getDLLedgerMetadataLayoutVersion())) {
-            // we don't want to complete a log segment from non-sequence-id support to sequence id support
-            writeVersion = metadata.getVersion();
-        } else {
-            writeVersion = conf.getDLLedgerMetadataLayoutVersion();
-        }
-        return writeVersion;
     }
 
     /**

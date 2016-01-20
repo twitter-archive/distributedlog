@@ -437,4 +437,12 @@ public class OrderedScheduler implements ScheduledExecutorService {
     public <T> com.twitter.util.Future<T> apply(Function0<T> function) {
         return chooseFuturePool().apply(function);
     }
+
+    public ScheduledFuture<?> schedule(Object key, Runnable command, long delay, TimeUnit unit) {
+        return chooseExecutor(key).schedule(command, delay, unit);
+    }
+
+    public Future<?> submit(Object key, Runnable command) {
+        return chooseExecutor(key).submit(command);
+    }
 }
