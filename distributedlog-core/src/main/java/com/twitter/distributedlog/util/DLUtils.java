@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.util;
 
 import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,5 +100,36 @@ public class DLUtils {
             nextLogSegmentSeqNo = lastAssignedLogSegmentSeqNo + lastAssignedLogSegmentIdx + 1;
         }
         return nextLogSegmentSeqNo;
+    }
+
+    /**
+     * Compute the start sequence id for <code>segment</code>, based on previous segment list
+     * <code>segmentListDesc</code>.
+     *
+     * @param logSegmentDescList
+     *          list of segments in descending order
+     * @param segment
+     *          segment to compute start sequence id for
+     * @return start sequence id
+     */
+    public static long computeStartSequenceId(List<LogSegmentMetadata> logSegmentDescList,
+                                              LogSegmentMetadata segment)
+            throws UnexpectedException {
+        long startSequenceId = 0L;
+        for (LogSegmentMetadata metadata : logSegmentDescList) {
+            if (metadata.getLogSegmentSequenceNumber() >= segment.getLogSegmentSequenceNumber()) {
+                continue;
+            } else if (metadata.getLogSegmentSequenceNumber() < (segment.getLogSegmentSequenceNumber() - 1)) {
+                break;
+            }
+            if (metadata.isInProgress()) {
+                throw new UnexpectedException("Should not complete log segment " + segment.getLogSegmentSequenceNumber()
+                        + " since it's previous log segment is still inprogress : " + logSegmentDescList);
+            }
+            if (metadata.supportsSequenceId()) {
+                startSequenceId = metadata.getStartSequenceId() + metadata.getRecordCount();
+            }
+        }
+        return startSequenceId;
     }
 }

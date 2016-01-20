@@ -166,7 +166,7 @@ public class LogSegmentMetadata {
             return this;
         }
 
-        LogSegmentMetadataBuilder setRecordCount(int recordCount) {
+        public LogSegmentMetadataBuilder setRecordCount(int recordCount) {
             this.recordCount = recordCount;
             return this;
         }

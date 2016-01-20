@@ -659,22 +659,7 @@ class BKLogWriteHandler extends BKLogHandler {
         if (LogSegmentMetadata.supportsSequenceId(conf.getDLLedgerMetadataLayoutVersion())
                 && segment.supportsSequenceId()) {
             List<LogSegmentMetadata> logSegmentDescList = getFilteredLedgerListDesc(false, false);
-            startSequenceId = 0L;
-            for (LogSegmentMetadata metadata : logSegmentDescList) {
-                if (metadata.getLogSegmentSequenceNumber() >= segment.getLogSegmentSequenceNumber()) {
-                    continue;
-                } else if (metadata.getLogSegmentSequenceNumber() < (segment.getLogSegmentSequenceNumber() - 1)) {
-                    break;
-                }
-                if (metadata.isInProgress()) {
-
-                    throw new UnexpectedException("Should not complete log segment " + segment.getLogSegmentSequenceNumber()
-                            + " since it's previous log segment is still inprogress : " + logSegmentDescList);
-                }
-                if (metadata.supportsSequenceId()) {
-                    startSequenceId = metadata.getStartSequenceId() + metadata.getRecordCount();
-                }
-            }
+            startSequenceId = DLUtils.computeStartSequenceId(logSegmentDescList, segment);
         }
 
         return startSequenceId;

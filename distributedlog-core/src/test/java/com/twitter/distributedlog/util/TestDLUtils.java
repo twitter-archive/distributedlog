@@ -4,6 +4,7 @@ import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import org.junit.Test;
 
 import java.util.List;
@@ -156,6 +157,51 @@ public class TestDLUtils {
                 completedLogSegment(2L, 100L, 199L),
                 completedLogSegment(1L, 0L, 99L, LogSegmentMetadataVersion.VERSION_V1_ORIGINAL.value));
         assertEquals((Long) 3L, DLUtils.nextLogSegmentSequenceNumber(mixList2));
+    }
+
+    @Test(timeout = 60000, expected = UnexpectedException.class)
+    public void testUnexpectedExceptionOnComputeStartSequenceId() throws Exception {
+        List<LogSegmentMetadata> segments = Lists.newArrayList(
+                inprogressLogSegment(3L, 201L),
+                inprogressLogSegment(2L, 101L),
+                completedLogSegment(1L, 1L, 100L).mutator().setStartSequenceId(1L).build()
+        );
+        DLUtils.computeStartSequenceId(segments, segments.get(0));
+    }
+
+    @Test(timeout = 60000)
+    public void testComputeStartSequenceIdOnEmptyList() throws Exception {
+        List<LogSegmentMetadata> emptyList = Lists.newArrayList();
+        assertEquals(0L, DLUtils.computeStartSequenceId(emptyList, inprogressLogSegment(1L, 1L)));
+    }
+
+    @Test(timeout = 60000)
+    public void testComputeStartSequenceIdOnLowerSequenceNumberSegment() throws Exception {
+        List<LogSegmentMetadata> segments = Lists.newArrayList(
+                completedLogSegment(3L, 201L, 300L).mutator().setStartSequenceId(201L).build(),
+                completedLogSegment(2L, 101L, 200L).mutator().setStartSequenceId(101L).build()
+        );
+        assertEquals(0L, DLUtils.computeStartSequenceId(segments, inprogressLogSegment(1L, 1L)));
+    }
+
+    @Test(timeout = 60000)
+    public void testComputeStartSequenceIdOnHigherSequenceNumberSegment() throws Exception {
+        List<LogSegmentMetadata> segments = Lists.newArrayList(
+                completedLogSegment(3L, 201L, 300L).mutator().setStartSequenceId(201L).build(),
+                completedLogSegment(2L, 101L, 200L).mutator().setStartSequenceId(101L).build()
+        );
+        assertEquals(0L, DLUtils.computeStartSequenceId(segments, inprogressLogSegment(5L, 401L)));
+    }
+
+    @Test(timeout = 60000)
+    public void testComputeStartSequenceId() throws Exception {
+        List<LogSegmentMetadata> segments = Lists.newArrayList(
+                completedLogSegment(3L, 201L, 300L).mutator()
+                        .setStartSequenceId(201L).setRecordCount(100).build(),
+                completedLogSegment(2L, 101L, 200L).mutator()
+                        .setStartSequenceId(101L).setRecordCount(100).build()
+        );
+        assertEquals(301L, DLUtils.computeStartSequenceId(segments, inprogressLogSegment(4L, 301L)));
     }
 
 }
