@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
@@ -13,19 +14,19 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.logsegment.RollingPolicy;
 import com.twitter.distributedlog.logsegment.SizeBasedRollingPolicy;
 import com.twitter.distributedlog.logsegment.TimeBasedRollingPolicy;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.distributedlog.util.Transaction;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
-import com.twitter.util.Await;
-import com.twitter.util.ExceptionalFunction0;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -41,13 +42,13 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
-import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.ACL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -93,6 +94,7 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final PermitLimiter writeLimiter;
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
+    protected final MetadataUpdater metadataUpdater;
 
     // Stats
     private final StatsLogger perLogStatsLogger;
@@ -120,6 +122,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       DistributedLogConfiguration conf,
                       ZooKeeperClientBuilder zkcBuilder,
                       BookKeeperClientBuilder bkcBuilder,
+                      LogSegmentMetadataStore metadataStore,
                       OrderedScheduler scheduler,
                       FuturePool orderedFuturePool,
                       LedgerAllocator allocator,
@@ -133,7 +136,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       DynamicDistributedLogConfiguration dynConf,
                       DistributedReentrantLock lock, /** owned by handler **/
                       DistributedReentrantLock deleteLock /** owned by handler **/) {
-        super(logMetadata, conf, zkcBuilder, bkcBuilder,
+        super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.perLogStatsLogger = perLogStatsLogger;
         this.orderedFuturePool = orderedFuturePool;
@@ -143,6 +146,7 @@ class BKLogWriteHandler extends BKLogHandler {
         this.ledgerAllocator = allocator;
         this.lock = lock;
         this.deleteLock = deleteLock;
+        this.metadataUpdater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, metadataStore);
 
         ensembleSize = conf.getEnsembleSize();
 
@@ -197,7 +201,7 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     // Transactional operations for MaxLogSegmentSequenceNo
-    void tryStore(Transaction txn, MaxLogSegmentSequenceNo maxSeqNo, long seqNo) {
+    void tryStore(org.apache.zookeeper.Transaction txn, MaxLogSegmentSequenceNo maxSeqNo, long seqNo) {
         byte[] data = MaxLogSegmentSequenceNo.toBytes(seqNo);
         txn.setData(logMetadata.getLogSegmentsPath(), data, maxSeqNo.getZkVersion());
     }
@@ -213,7 +217,7 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     // Transactional operations for MaxTxId
-    void tryStore(Transaction txn, MaxTxId maxTxId, long txId) throws IOException {
+    void tryStore(org.apache.zookeeper.Transaction txn, MaxTxId maxTxId, long txId) throws IOException {
         byte[] data = maxTxId.couldStore(txId);
         if (null != data) {
             txn.setData(maxTxId.getZkPath(), data, -1);
@@ -230,7 +234,7 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     // Transactional operations for logsegment
-    void tryWrite(Transaction txn, List<ACL> acl, LogSegmentMetadata metadata, String path) {
+    void tryWrite(org.apache.zookeeper.Transaction txn, List<ACL> acl, LogSegmentMetadata metadata, String path) {
         byte[] finalisedData = metadata.getFinalisedData().getBytes(UTF_8);
         txn.create(path, finalisedData, acl, CreateMode.PERSISTENT);
     }
@@ -402,7 +406,7 @@ class BKLogWriteHandler extends BKLogHandler {
             }
             ledgerAllocator.allocate();
             // Obtain a transaction for zookeeper
-            Transaction txn;
+            org.apache.zookeeper.Transaction txn;
             try {
                 txn = zooKeeperClient.get().transaction();
             } catch (InterruptedException e) {
@@ -712,7 +716,7 @@ class BKLogWriteHandler extends BKLogHandler {
                     + inprogressLogSegment.getFirstTxId() + " found, " + firstTxId + " expected");
             }
 
-            Transaction txn = zooKeeperClient.get().transaction();
+            org.apache.zookeeper.Transaction txn = zooKeeperClient.get().transaction();
 
             String nameForCompletedLedger = completedLedgerZNodeName(firstTxId, lastTxId, logSegmentSeqNo);
             String pathForCompletedLedger = completedLedgerZNode(firstTxId, lastTxId, logSegmentSeqNo);
@@ -959,7 +963,7 @@ class BKLogWriteHandler extends BKLogHandler {
         }
 
         try {
-            purgeAllLogs();
+            FutureUtils.result(purgeLogSegmentsOlderThanTxnId(-1));
         } finally {
             deleteLock.release(DistributedReentrantLock.LockReason.DELETELOG);
         }
@@ -982,35 +986,25 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
-    public void purgeAllLogs()
-        throws IOException {
-        purgeLogsOlderThanInternal(-1);
-    }
-
-    public void purgeLogsOlderThan(long minTxIdToKeep)
-        throws IOException {
-        assert (minTxIdToKeep > 0);
-        purgeLogsOlderThanInternal(minTxIdToKeep);
-    }
-
-    com.twitter.util.Future<Boolean> setLogsOlderThanDLSNTruncatedAsync(final DLSN dlsn) {
-        // truncation status should be updated in order
-        return scheduler.apply(logMetadata.getLogName(), new ExceptionalFunction0<Boolean>() {
-            @Override
-            public Boolean applyE() throws Throwable {
-                return setLogsOlderThanDLSNTruncated(dlsn);
-            }
-        });
-    }
-
-    boolean setLogsOlderThanDLSNTruncated(final DLSN dlsn) throws IOException {
+    Future<List<LogSegmentMetadata>> setLogSegmentsOlderThanDLSNTruncated(final DLSN dlsn) {
         if (DLSN.InvalidDLSN == dlsn) {
-            return true;
+            List<LogSegmentMetadata> emptyList = new ArrayList<LogSegmentMetadata>(0);
+            return Future.value(emptyList);
         }
         scheduleGetAllLedgersTaskIfNeeded();
-        List<LogSegmentMetadata> logSegments = getFullLedgerList(false, false);
+        return asyncGetFullLedgerList(false, false).flatMap(
+                new AbstractFunction1<List<LogSegmentMetadata>, Future<List<LogSegmentMetadata>>>() {
+                    @Override
+                    public Future<List<LogSegmentMetadata>> apply(List<LogSegmentMetadata> logSegments) {
+                        return setLogSegmentsOlderThanDLSNTruncated(logSegments, dlsn);
+                    }
+                });
+    }
+
+    private Future<List<LogSegmentMetadata>> setLogSegmentsOlderThanDLSNTruncated(List<LogSegmentMetadata> logSegments,
+                                                                                  final DLSN dlsn) {
         LOG.debug("Setting truncation status on logs older than {} from {} for {}",
-            new Object[] { dlsn, logSegments, getFullyQualifiedName() });
+                new Object[]{dlsn, logSegments, getFullyQualifiedName()});
         List<LogSegmentMetadata> truncateList = new ArrayList<LogSegmentMetadata>(logSegments.size());
         LogSegmentMetadata partialTruncate = null;
         LOG.info("{}: Truncating log segments older than {}", getFullyQualifiedName(), dlsn);
@@ -1026,7 +1020,7 @@ class BKLogWriteHandler extends BKLogHandler {
                     if (null != partialTruncate) {
                         String logMsg = String.format("Potential metadata inconsistency for stream %s at segment %s", getFullyQualifiedName(), l);
                         LOG.error(logMsg);
-                        throw new DLIllegalStateException(logMsg);
+                        return Future.exception(new DLIllegalStateException(logMsg));
                     }
                     LOG.info("{}: Partially truncating log segment {} older than {}.", new Object[] {getFullyQualifiedName(), l, dlsn});
                     partialTruncate = l;
@@ -1037,8 +1031,7 @@ class BKLogWriteHandler extends BKLogHandler {
                 break;
             }
         }
-        setTruncationStatus(truncateList, partialTruncate, dlsn);
-        return true;
+        return setLogSegmentTruncationStatus(truncateList, partialTruncate, dlsn);
     }
 
     private int getNumCandidateLogSegmentsToTruncate(List<LogSegmentMetadata> logSegments) {
@@ -1059,7 +1052,7 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
-    Future<List<LogSegmentMetadata>> purgeLogsOlderThanTimestamp(final long minTimestampToKeep) {
+    Future<List<LogSegmentMetadata>> purgeLogSegmentsOlderThanTimestamp(final long minTimestampToKeep) {
         if (minTimestampToKeep >= Utils.nowInMillis()) {
             return Future.exception(new IllegalArgumentException(
                     "Invalid timestamp " + minTimestampToKeep + " to purge logs for " + getFullyQualifiedName()));
@@ -1087,64 +1080,79 @@ class BKLogWriteHandler extends BKLogHandler {
                 }
                 LOG.info("Deleting log segments older than {} for {} : {}",
                         new Object[] { minTimestampToKeep, getFullyQualifiedName(), purgeList });
-                return asyncPurgeLogs(purgeList);
+                return deleteLogSegments(purgeList);
             }
         });
     }
 
-    public void purgeLogsOlderThanInternal(long minTxIdToKeep)
-        throws IOException {
-        List<LogSegmentMetadata> ledgerList = getFullLedgerList(true, false);
+    Future<List<LogSegmentMetadata>> purgeLogSegmentsOlderThanTxnId(final long minTxIdToKeep) {
+        return asyncGetFullLedgerList(true, false).flatMap(
+            new AbstractFunction1<List<LogSegmentMetadata>, Future<List<LogSegmentMetadata>>>() {
+                @Override
+                public Future<List<LogSegmentMetadata>> apply(List<LogSegmentMetadata> logSegments) {
+                    int numLogSegmentsToProcess;
 
-        int numLogSegmentsToProcess;
-
-        if (minTxIdToKeep < 0) {
-            // we are deleting the log, we can remove whole log segments
-            numLogSegmentsToProcess = ledgerList.size();
-        } else {
-            numLogSegmentsToProcess = getNumCandidateLogSegmentsToTruncate(ledgerList);
-        }
-
-        for (int iterator = 0; iterator < numLogSegmentsToProcess; iterator++) {
-            LogSegmentMetadata l = ledgerList.get(iterator);
-            if ((minTxIdToKeep < 0) ||
-                ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
-                !l.isInProgress() && (l.getLastTxId() < minTxIdToKeep))) {
-                deleteLedgerAndMetadata(l);
-            } else {
-                // stop truncating log segments if we find either an inprogress or a partially
-                // truncated log segment
-                break;
-            }
-        }
+                    if (minTxIdToKeep < 0) {
+                        // we are deleting the log, we can remove whole log segments
+                        numLogSegmentsToProcess = logSegments.size();
+                    } else {
+                        numLogSegmentsToProcess = getNumCandidateLogSegmentsToTruncate(logSegments);
+                    }
+                    List<LogSegmentMetadata> purgeList = Lists.newArrayListWithExpectedSize(numLogSegmentsToProcess);
+                    for (int iterator = 0; iterator < numLogSegmentsToProcess; iterator++) {
+                        LogSegmentMetadata l = logSegments.get(iterator);
+                        if ((minTxIdToKeep < 0) ||
+                            ((l.isTruncated() || !conf.getExplicitTruncationByApplication()) &&
+                            !l.isInProgress() && (l.getLastTxId() < minTxIdToKeep))) {
+                            purgeList.add(l);
+                        } else {
+                            // stop truncating log segments if we find either an inprogress or a partially
+                            // truncated log segment
+                            break;
+                        }
+                    }
+                    return deleteLogSegments(purgeList);
+                }
+            });
     }
 
-    private void setTruncationStatus(final List<LogSegmentMetadata> truncateList,
-                                     LogSegmentMetadata partialTruncate,
-                                     DLSN minActiveDLSN) throws IOException {
+    private Future<List<LogSegmentMetadata>> setLogSegmentTruncationStatus(
+            final List<LogSegmentMetadata> truncateList,
+            LogSegmentMetadata partialTruncate,
+            DLSN minActiveDLSN) {
+        final List<LogSegmentMetadata> listToTruncate = Lists.newArrayListWithCapacity(truncateList.size() + 1);
+        final List<LogSegmentMetadata> listAfterTruncated = Lists.newArrayListWithCapacity(truncateList.size() + 1);
+        Transaction<Object> updateTxn = metadataUpdater.transaction();
         for(LogSegmentMetadata l : truncateList) {
             if (!l.isTruncated()) {
-                MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
-                LogSegmentMetadata newSegment = updater.setLogSegmentTruncated(l);
-                removeLogSegmentFromCache(l.getSegmentName());
-                addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
+                LogSegmentMetadata newSegment = metadataUpdater.setLogSegmentTruncated(updateTxn, l);
+                listToTruncate.add(l);
+                listAfterTruncated.add(newSegment);
             }
         }
 
-        if (null == partialTruncate) {
-            return;
+        if (null != partialTruncate && (partialTruncate.isNonTruncated() ||
+                (partialTruncate.isPartiallyTruncated() && (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0)))) {
+            LogSegmentMetadata newSegment = metadataUpdater.setLogSegmentPartiallyTruncated(
+                    updateTxn, partialTruncate, minActiveDLSN);
+            listToTruncate.add(partialTruncate);
+            listAfterTruncated.add(newSegment);
         }
 
-        if (partialTruncate.isNonTruncated() ||
-                (partialTruncate.isPartiallyTruncated() && (partialTruncate.getMinActiveDLSN().compareTo(minActiveDLSN) < 0))) {
-            MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(conf, zooKeeperClient);
-            LogSegmentMetadata newSegment = updater.setLogSegmentPartiallyTruncated(partialTruncate, minActiveDLSN);
-            removeLogSegmentFromCache(partialTruncate.getSegmentName());
-            addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
-        }
+        return updateTxn.execute().map(new AbstractFunction1<Void, List<LogSegmentMetadata>>() {
+            @Override
+            public List<LogSegmentMetadata> apply(Void value) {
+                for (int i = 0; i < listToTruncate.size(); i++) {
+                    removeLogSegmentFromCache(listToTruncate.get(i).getSegmentName());
+                    LogSegmentMetadata newSegment = listAfterTruncated.get(i);
+                    addLogSegmentToCache(newSegment.getSegmentName(), newSegment);
+                }
+                return listAfterTruncated;
+            }
+        });
     }
 
-    private Future<List<LogSegmentMetadata>> asyncPurgeLogs(
+    private Future<List<LogSegmentMetadata>> deleteLogSegments(
             final List<LogSegmentMetadata> logs) {
         if (LOG.isTraceEnabled()) {
             LOG.trace("Purging logs for {} : {}", getFullyQualifiedName(), logs);
@@ -1153,12 +1161,12 @@ class BKLogWriteHandler extends BKLogHandler {
                 new Function<LogSegmentMetadata, Future<LogSegmentMetadata>>() {
             @Override
             public Future<LogSegmentMetadata> apply(LogSegmentMetadata segment) {
-                return asyncDeleteLedgerAndMetadata(segment);
+                return deleteLogSegment(segment);
             }
         }, scheduler);
     }
 
-    private Future<LogSegmentMetadata> asyncDeleteLedgerAndMetadata(
+    private Future<LogSegmentMetadata> deleteLogSegment(
             final LogSegmentMetadata ledgerMetadata) {
         LOG.info("Deleting ledger {} for {}", ledgerMetadata, getFullyQualifiedName());
         final Promise<LogSegmentMetadata> promise = new Promise<LogSegmentMetadata>();
@@ -1168,6 +1176,7 @@ class BKLogWriteHandler extends BKLogHandler {
             public void onSuccess(LogSegmentMetadata segment) {
                 deleteOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
+
             @Override
             public void onFailure(Throwable cause) {
                 deleteOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -1184,7 +1193,7 @@ class BKLogWriteHandler extends BKLogHandler {
                     } else if (BKException.Code.OK != rc) {
                         BKException bke = BKException.create(rc);
                         LOG.error("Couldn't delete ledger {} from bookkeeper for {} : ",
-                                new Object[] { ledgerMetadata.getLedgerId(), getFullyQualifiedName(), bke });
+                                new Object[]{ledgerMetadata.getLedgerId(), getFullyQualifiedName(), bke});
                         promise.setException(bke);
                         return;
                     }
@@ -1192,7 +1201,7 @@ class BKLogWriteHandler extends BKLogHandler {
                     scheduler.submit(new Runnable() {
                         @Override
                         public void run() {
-                            asyncDeleteMetadata(ledgerMetadata, promise);
+                            deleteLogSegmentMetadata(ledgerMetadata, promise);
                         }
                     });
                 }
@@ -1203,51 +1212,36 @@ class BKLogWriteHandler extends BKLogHandler {
         return promise;
     }
 
-    private void asyncDeleteMetadata(final LogSegmentMetadata ledgerMetadata,
-                                     final Promise<LogSegmentMetadata> promise) {
-        try {
-            zooKeeperClient.get().delete(ledgerMetadata.getZkPath(), -1,
-                new org.apache.zookeeper.AsyncCallback.VoidCallback() {
-                    @Override
-                    public void processResult(int rc, String path, Object ctx) {
-                        if (KeeperException.Code.NONODE.intValue() == rc) {
-                            LOG.error("No log segment {} found for {}.",
-                                    ledgerMetadata, getFullyQualifiedName());
-                        } else if (KeeperException.Code.OK.intValue() != rc) {
-                            LOG.error("Couldn't purge {} for {}: with error {}",
-                                    new Object[]{ledgerMetadata, getFullyQualifiedName(),
-                                            KeeperException.Code.get(rc)});
-                            promise.setException(BKException.create(BKException.Code.ZKException));
-                            return;
-                        }
-                        // purge log segment
-                        removeLogSegmentFromCache(ledgerMetadata.getZNodeName());
-                        promise.setValue(ledgerMetadata);
-                    }
-                }, null);
-        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
-            LOG.error("Encountered zookeeper connection issue when purging {} for {}: ",
-                    new Object[]{ledgerMetadata, getFullyQualifiedName(), e});
-            promise.setException(BKException.create(BKException.Code.ZKException));
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted when purging {} for {} : ",
-                    new Object[]{ledgerMetadata, getFullyQualifiedName(), e});
-            promise.setException(BKException.create(BKException.Code.ZKException));
-        }
-    }
-
-    private void deleteLedgerAndMetadata(LogSegmentMetadata ledgerMetadata)
-            throws IOException {
-        try {
-            Await.result(asyncDeleteLedgerAndMetadata(ledgerMetadata));
-        } catch (Exception e) {
-            if (e instanceof IOException) {
-                throw (IOException) e;
-            } else {
-                throw new IOException("Failed to purge " + ledgerMetadata
-                        + " for " + getFullyQualifiedName(), e);
+    private void deleteLogSegmentMetadata(final LogSegmentMetadata segmentMetadata,
+                                          final Promise<LogSegmentMetadata> promise) {
+        Transaction<Object> deleteTxn = metadataStore.transaction();
+        metadataStore.deleteLogSegment(deleteTxn, segmentMetadata);
+        deleteTxn.execute().addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                // purge log segment
+                removeLogSegmentFromCache(segmentMetadata.getZNodeName());
+                promise.setValue(segmentMetadata);
             }
-        }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                if (cause instanceof ZKException) {
+                    ZKException zke = (ZKException) cause;
+                    if (KeeperException.Code.NONODE == zke.getKeeperExceptionCode()) {
+                        LOG.error("No log segment {} found for {}.",
+                                segmentMetadata, getFullyQualifiedName());
+                        // purge log segment
+                        removeLogSegmentFromCache(segmentMetadata.getZNodeName());
+                        promise.setValue(segmentMetadata);
+                        return;
+                    }
+                }
+                LOG.error("Couldn't purge {} for {}: with error {}",
+                        new Object[]{ segmentMetadata, getFullyQualifiedName(), cause });
+                promise.setException(cause);
+            }
+        });
     }
 
     public void close() {
@@ -1281,7 +1275,7 @@ class BKLogWriteHandler extends BKLogHandler {
      */
     String completedLedgerZNode(long firstTxId, long lastTxId, long logSegmentSeqNo) {
         return String.format("%s/%s", logMetadata.getLogSegmentsPath(),
-            completedLedgerZNodeName(firstTxId, lastTxId, logSegmentSeqNo));
+                completedLedgerZNodeName(firstTxId, lastTxId, logSegmentSeqNo));
     }
 
     /**

@@ -3,13 +3,20 @@ package com.twitter.distributedlog.metadata;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentMetadata;
-
-import java.io.IOException;
+import com.twitter.distributedlog.util.Transaction;
+import com.twitter.util.Future;
 
 /**
- * An updater to update metadata.
+ * An updater to update metadata. It contains utility functions on mutating metadata.
  */
 public interface MetadataUpdater {
+
+    /**
+     * Start a transaction on metadata updates
+     *
+     * @return transaction
+     */
+    Transaction<Object> transaction();
 
     /**
      * Update the log segment metadata with correct last <i>record</i>.
@@ -19,10 +26,9 @@ public interface MetadataUpdater {
      * @param record
      *          correct last record.
      * @return new log segment
-     * @throws IOException
      */
-    LogSegmentMetadata updateLastRecord(LogSegmentMetadata segment, LogRecordWithDLSN record)
-            throws IOException;
+    Future<LogSegmentMetadata> updateLastRecord(LogSegmentMetadata segment,
+                                                LogRecordWithDLSN record);
 
     /**
      * Change ledger sequence number of <i>segment</i> to given <i>logSegmentSeqNo</i>.
@@ -32,10 +38,9 @@ public interface MetadataUpdater {
      * @param logSegmentSeqNo
      *          ledger sequence number to change.
      * @return new log segment
-     * @throws IOException
      */
-    LogSegmentMetadata changeSequenceNumber(LogSegmentMetadata segment, long logSegmentSeqNo)
-            throws IOException;
+    Future<LogSegmentMetadata> changeSequenceNumber(LogSegmentMetadata segment,
+                                                    long logSegmentSeqNo);
 
     /**
      * Change the truncation status of a <i>log segment</i> to be active
@@ -43,10 +48,8 @@ public interface MetadataUpdater {
      * @param segment
      *          log segment to change truncation status to active.
      * @return new log segment
-     * @throws IOException
      */
-    LogSegmentMetadata setLogSegmentActive(LogSegmentMetadata segment)
-            throws IOException;
+    Future<LogSegmentMetadata> setLogSegmentActive(LogSegmentMetadata segment);
 
     /**
      * Change the truncation status of a <i>log segment</i> to truncated
@@ -54,10 +57,20 @@ public interface MetadataUpdater {
      * @param segment
      *          log segment to change truncation status to truncated.
      * @return new log segment
-     * @throws IOException
      */
-    LogSegmentMetadata setLogSegmentTruncated(LogSegmentMetadata segment)
-        throws IOException;
+    Future<LogSegmentMetadata> setLogSegmentTruncated(LogSegmentMetadata segment);
+
+    /**
+     * Change the truncation status of a <i>log segment</i> to truncated. The operation won't be executed
+     * immediately. The update only happens after {@link Transaction#execute()}.
+     *
+     * @param txn
+     *          transaction used to set the log segment status
+     * @param segment
+     *          segment to set truncation status to truncated
+     * @return log segment that truncation status is set to truncated.
+     */
+    LogSegmentMetadata setLogSegmentTruncated(Transaction<Object> txn, LogSegmentMetadata segment);
 
     /**
      * Change the truncation status of a <i>log segment</i> to partially truncated
@@ -67,9 +80,24 @@ public interface MetadataUpdater {
      * @param minActiveDLSN
      *          DLSN within the log segment before which log has been truncated
      * @return new log segment
-     * @throws IOException
      */
-    LogSegmentMetadata setLogSegmentPartiallyTruncated(LogSegmentMetadata segment, DLSN minActiveDLSN)
-        throws IOException;
+    Future<LogSegmentMetadata> setLogSegmentPartiallyTruncated(LogSegmentMetadata segment,
+                                                               DLSN minActiveDLSN);
+
+    /**
+     * Change the truncation status of a <i>log segment</i> to partially truncated. The operation won't be
+     * executed until {@link Transaction#execute()}.
+     *
+     * @param txn
+     *          transaction used to set the log segment status
+     * @param segment
+     *          segment to set truncation status to partially truncated
+     * @param minActiveDLSN
+     *          DLSN within the log segment before which log has been truncated
+     * @return log segment that truncation status has been set to partially truncated
+     */
+    LogSegmentMetadata setLogSegmentPartiallyTruncated(Transaction<Object> txn,
+                                                       LogSegmentMetadata segment,
+                                                       DLSN minActiveDLSN);
 
 }

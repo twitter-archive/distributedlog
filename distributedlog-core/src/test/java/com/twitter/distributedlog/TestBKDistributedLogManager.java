@@ -26,6 +26,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -42,7 +46,7 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
@@ -1082,10 +1086,16 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             .uri(uri)
             .zkAclId(null)
             .sessionTimeoutMs(10000).build();
+        OrderedScheduler scheduler = OrderedScheduler.newBuilder()
+                .name("test-truncation-validation")
+                .corePoolSize(1)
+                .build();
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
         confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION);
         confLocal.setOutputBufferSize(0);
+
+        LogSegmentMetadataStore metadataStore = new ZKLogSegmentMetadataStore(confLocal, zookeeperClient, scheduler);
 
         BKDistributedLogManager dlm = createNewDLM(confLocal, name);
         DLSN truncDLSN = DLSN.InitialDLSN;
@@ -1124,8 +1134,9 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
 
         LOG.info("Read segments before truncating first segment : {}", segmentList);
 
-        MetadataUpdater updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
-        updater.setLogSegmentTruncated(segmentList.get(1L));
+        MetadataUpdater updater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(
+                confLocal, metadataStore);
+        FutureUtils.result(updater.setLogSegmentTruncated(segmentList.get(1L)));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
                 ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
@@ -1146,16 +1157,16 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             reader.close();
         }
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
-        updater.setLogSegmentActive(segmentList.get(1L));
+        updater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(confLocal, metadataStore);
+        FutureUtils.result(updater.setLogSegmentActive(segmentList.get(1L)));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
                 ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
 
         LOG.info("Read segments after marked first segment as active : {}", segmentList);
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(confLocal, zookeeperClient);
-        updater.setLogSegmentTruncated(segmentList.get(2L));
+        updater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(confLocal, metadataStore);
+        FutureUtils.result(updater.setLogSegmentTruncated(segmentList.get(2L)));
 
         segmentList = DLMTestUtil.readLogSegments(zookeeperClient,
                 ZKLogMetadata.getLogSegmentsPath(uri, name, confLocal.getUnpartitionedStreamName()));
@@ -1180,8 +1191,8 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             reader.close();
         }
 
-        updater = ZkMetadataUpdater.createMetadataUpdater(conf, zookeeperClient);
-        updater.setLogSegmentActive(segmentList.get(2L));
+        updater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, metadataStore);
+        FutureUtils.result(updater.setLogSegmentActive(segmentList.get(2L)));
 
         BKAsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
         Assert.assertTrue(Await.result(writer.truncate(truncDLSN)));

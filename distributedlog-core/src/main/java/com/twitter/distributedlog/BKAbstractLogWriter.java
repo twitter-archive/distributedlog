@@ -350,7 +350,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             LOG.info("Try to purge logs older than {} for {}.",
                      minTimestampToKeep, ledgerManager.getFullyQualifiedName());
             running = true;
-            ledgerManager.purgeLogsOlderThanTimestamp(minTimestampToKeep)
+            ledgerManager.purgeLogSegmentsOlderThanTimestamp(minTimestampToKeep)
                          .addEventListener(this);
         }
 

@@ -20,8 +20,8 @@ import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.DryrunLogSegmentMetadataStoreUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -102,7 +102,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Dryrun
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                new DryrunZkMetadataUpdater(conf, getZooKeeperClient(factory)), streamName, false, false);
+                new DryrunLogSegmentMetadataStoreUpdater(conf, getLogSegmentMetadataStore(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -120,7 +120,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Actual run
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                ZkMetadataUpdater.createMetadataUpdater(conf, getZooKeeperClient(factory)), streamName, false, false);
+                LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, getLogSegmentMetadataStore(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);

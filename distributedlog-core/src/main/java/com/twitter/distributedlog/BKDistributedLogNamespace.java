@@ -19,7 +19,9 @@ import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.impl.ZKLogMetadataStore;
+import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.LogMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
@@ -34,6 +36,7 @@ import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
@@ -273,6 +276,9 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     private final PermitManager logSegmentRollingPermitManager;
     // log metadata store
     private final LogMetadataStore metadataStore;
+    // log segment metadata store
+    private final LogSegmentMetadataStore writerSegmentMetadataStore;
+    private final LogSegmentMetadataStore readerSegmentMetadataStore;
 
     // feature provider
     private final FeatureProvider featureProvider;
@@ -422,6 +428,12 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         } else {
             this.metadataStore = new ZKLogMetadataStore(conf, namespace, sharedReaderZKCForDL, scheduler);
         }
+
+        // create log segment metadata store
+        this.writerSegmentMetadataStore =
+                new ZKLogSegmentMetadataStore(conf, sharedWriterZKCForDL, scheduler);
+        this.readerSegmentMetadataStore =
+                new ZKLogSegmentMetadataStore(conf, sharedReaderZKCForDL, scheduler);
 
         LOG.info("Constructed BK DistributedLogNamespace : clientId = {}, regionId = {}, federated = {}.",
                 new Object[] { clientId, regionId, bkdlConfig.isFederatedNamespace() });
@@ -631,6 +643,11 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         return readerBKC;
     }
 
+    @VisibleForTesting
+    public LogSegmentMetadataStore getWriterSegmentMetadataStore() {
+        return writerSegmentMetadataStore;
+    }
+
     /**
      * Run given <i>handler</i> by providing an available zookeeper client.
      *
@@ -817,6 +834,8 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 readerZKCForBK,                     /* ZKC for BookKeeper for DL Readers */
                 writerBKCBuilder,                   /* BookKeeper Builder for DL Writers */
                 readerBKCBuilder,                   /* BookKeeper Builder for DL Readers */
+                writerSegmentMetadataStore,         /* Log Segment Metadata Store for DL Writers */
+                readerSegmentMetadataStore,         /* Log Segment Metadata Store for DL Readers */
                 scheduler,                          /* DL scheduler */
                 readAheadExecutor,                  /* Read Aheader Executor */
                 lockStateExecutor,                  /* Lock State Executor */
@@ -1007,6 +1026,10 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             acm.close();
             LOG.info("Access Control Manager Stopped.");
         }
+
+        // Shutdown log segment metadata stores
+        Utils.close(writerSegmentMetadataStore);
+        Utils.close(readerSegmentMetadataStore);
 
         SchedulerUtils.shutdownScheduler(scheduler, conf.getSchedulerShutdownTimeoutMs(),
                 TimeUnit.MILLISECONDS);

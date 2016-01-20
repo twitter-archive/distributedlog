@@ -15,12 +15,13 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
-import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.DryrunLogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.tools.DistributedLogTool;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
@@ -117,7 +118,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 return;
             }
             final LogSegmentMetadata newSegment =
-                    metadataUpdater.changeSequenceNumber(inprogressSegment, newLogSegmentSequenceNumber);
+                    FutureUtils.result(metadataUpdater.changeSequenceNumber(inprogressSegment, newLogSegmentSequenceNumber));
             LOG.info("Fixed {} : {} -> {} ",
                      new Object[] { streamName, inprogressSegment, newSegment });
             if (verbose) {
@@ -399,8 +400,8 @@ public class DistributedLogAdmin extends DistributedLogTool {
             return false;
         }
         for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
-            LogSegmentMetadata newMetadata =
-                    metadataUpdater.updateLastRecord(segmentCandidate.metadata, segmentCandidate.lastRecord);
+            LogSegmentMetadata newMetadata = FutureUtils.result(
+                    metadataUpdater.updateLastRecord(segmentCandidate.metadata, segmentCandidate.lastRecord));
             if (verbose) {
                 System.out.println("  Fixed segment " + segmentCandidate.metadata.getLogSegmentSequenceNumber() + " : ");
                 System.out.println("    old metadata : " + segmentCandidate.metadata);
@@ -668,8 +669,10 @@ public class DistributedLogAdmin extends DistributedLogTool {
         @Override
         protected int runCmd() throws Exception {
             MetadataUpdater metadataUpdater = dryrun ?
-                    new DryrunZkMetadataUpdater(getConf(), getZooKeeperClient()) :
-                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getZooKeeperClient());
+                    new DryrunLogSegmentMetadataStoreUpdater(getConf(),
+                            getLogSegmentMetadataStore()) :
+                    LogSegmentMetadataStoreUpdater.createMetadataUpdater(getConf(),
+                            getLogSegmentMetadataStore());
             System.out.println("List of streams : ");
             System.out.println(streams);
             if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
@@ -716,8 +719,11 @@ public class DistributedLogAdmin extends DistributedLogTool {
 
         @Override
         protected int runCmd() throws Exception {
-            MetadataUpdater metadataUpdater = dryrun ? new DryrunZkMetadataUpdater(getConf(), getZooKeeperClient()) :
-                    ZkMetadataUpdater.createMetadataUpdater(getConf(), getZooKeeperClient());
+            MetadataUpdater metadataUpdater = dryrun ?
+                    new DryrunLogSegmentMetadataStoreUpdater(getConf(),
+                            getLogSegmentMetadataStore()) :
+                    LogSegmentMetadataStoreUpdater.createMetadataUpdater(getConf(),
+                            getLogSegmentMetadataStore());
             ExecutorService executorService = Executors.newCachedThreadPool();
             BookKeeperClient bkc = getBookKeeperClient();
             try {

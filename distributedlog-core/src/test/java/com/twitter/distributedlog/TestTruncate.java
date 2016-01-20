@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.Test;
@@ -157,7 +158,7 @@ public class TestTruncate extends TestDistributedLogBase {
         // Try force truncation
         BKDistributedLogManager dlm = (BKDistributedLogManager)createNewDLM(confLocal, name);
         BKLogWriteHandler handler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
-        handler.purgeLogsOlderThan(Integer.MAX_VALUE);
+        FutureUtils.result(handler.purgeLogSegmentsOlderThanTxnId(Integer.MAX_VALUE));
 
         verifyEntries(name, 1, 31, 20);
     }

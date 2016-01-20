@@ -1,5 +1,6 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.PermitLimiter;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
@@ -143,6 +144,13 @@ public class TestDistributedLogBase {
             DistributedLogConfiguration conf,
             String path) throws Exception {
         return DLMTestUtil.createNewBKDLM(conf.getUnpartitionedStreamName(), conf, path, zkPort);
+    }
+
+    @SuppressWarnings("deprecation")
+    protected LogSegmentMetadataStore getLogSegmentMetadataStore(DistributedLogManagerFactory factory) {
+        DistributedLogNamespace namespace = factory.getNamespace();
+        assert(namespace instanceof BKDistributedLogNamespace);
+        return ((BKDistributedLogNamespace) namespace).getWriterSegmentMetadataStore();
     }
 
     @SuppressWarnings("deprecation")

@@ -1,10 +1,13 @@
 package com.twitter.distributedlog.util;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
 import scala.runtime.BoxedUnit;
@@ -286,6 +289,20 @@ public class Utils {
             if (Event.KeeperState.SyncConnected.equals(event.getState())) {
                 zkConnectLatch.countDown();
             }
+        }
+    }
+
+    /**
+     * Close a closeable.
+     *
+     * @param closeable
+     *          closeable to close
+     */
+    public static void close(Closeable closeable) {
+        try {
+            Closeables.close(closeable, true);
+        } catch (IOException e) {
+            // no-op. the exception is swallowed.
         }
     }
 }

@@ -34,6 +34,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import scala.Function1;
 import scala.Option;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
@@ -66,6 +67,14 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     static final Logger LOG = LoggerFactory.getLogger(BKAsyncLogWriter.class);
 
+    static Function1<List<LogSegmentMetadata>, Boolean> TruncationResultConverter =
+            new AbstractFunction1<List<LogSegmentMetadata>, Boolean>() {
+                @Override
+                public Boolean apply(List<LogSegmentMetadata> segments) {
+                    return true;
+                }
+            };
+
     static class TruncationFunction extends ExceptionalFunction<BKLogWriteHandler, Future<Boolean>> {
 
         private final DLSN dlsn;
@@ -81,7 +90,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
                 promise.setValue(false);
                 return promise;
             }
-            return handler.setLogsOlderThanDLSNTruncatedAsync(dlsn);
+            return handler.setLogSegmentsOlderThanDLSNTruncated(dlsn).map(TruncationResultConverter);
         }
     }
 

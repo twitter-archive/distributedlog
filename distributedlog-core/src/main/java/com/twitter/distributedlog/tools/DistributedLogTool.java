@@ -37,6 +37,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.twitter.distributedlog.BKDistributedLogNamespace;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -82,7 +83,7 @@ import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.MetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 
@@ -237,6 +238,12 @@ public class DistributedLogTool extends Tool {
                 logger.info("Construct DLM : uri = {}", getUri());
             }
             return this.factory;
+        }
+
+        protected LogSegmentMetadataStore getLogSegmentMetadataStore() throws IOException {
+            DistributedLogNamespace namespace = getFactory().getNamespace();
+            assert(namespace instanceof BKDistributedLogNamespace);
+            return ((BKDistributedLogNamespace) namespace).getWriterSegmentMetadataStore();
         }
 
         protected ZooKeeperClient getZooKeeperClient() throws IOException {
@@ -1463,38 +1470,33 @@ public class DistributedLogTool extends Tool {
         }
 
         protected int inspectAndRepair(List<LogSegmentMetadata> segments) throws Exception {
-            ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                    .sessionTimeoutMs(getConf().getZKSessionTimeoutMilliseconds())
-                    .uri(getUri()).zkAclId(null).build();
+            LogSegmentMetadataStore metadataStore = getLogSegmentMetadataStore();
+            ZooKeeperClient zkc = getZooKeeperClient();
+            BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
+            BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
+            BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
+                    .dlConfig(getConf())
+                    .zkServers(bkdlConfig.getBkZkServersForReader())
+                    .ledgersPath(bkdlConfig.getBkLedgersPath())
+                    .name("dlog")
+                    .build();
             try {
-                BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());
-                BKDLConfig.propagateConfiguration(bkdlConfig, getConf());
-                BookKeeperClient bkc = BookKeeperClientBuilder.newBuilder()
-                        .dlConfig(getConf())
-                        .zkServers(bkdlConfig.getBkZkServersForReader())
-                        .ledgersPath(bkdlConfig.getBkLedgersPath())
-                        .name("dlog")
-                        .build();
-                try {
-                    List<LogSegmentMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
-                    if (segmentsToRepair.isEmpty()) {
-                        System.out.println("Stream is good. No log segments to repair.");
-                        return 0;
-                    }
-                    System.out.println(segmentsToRepair.size() + " segments to repair : ");
-                    System.out.println(segmentsToRepair);
-                    System.out.println();
-                    if (!IOUtils.confirmPrompt("Are u sure to repair them (Y/N): ")) {
-                        System.out.println("Gave up! Bye!");
-                        return -1;
-                    }
-                    repairLogSegments(zkc, bkc, segmentsToRepair);
+                List<LogSegmentMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
+                if (segmentsToRepair.isEmpty()) {
+                    System.out.println("Stream is good. No log segments to repair.");
                     return 0;
-                } finally {
-                    bkc.close();
                 }
+                System.out.println(segmentsToRepair.size() + " segments to repair : ");
+                System.out.println(segmentsToRepair);
+                System.out.println();
+                if (!IOUtils.confirmPrompt("Are u sure to repair them (Y/N): ")) {
+                    System.out.println("Gave up! Bye!");
+                    return -1;
+                }
+                repairLogSegments(metadataStore, bkc, segmentsToRepair);
+                return 0;
             } finally {
-                zkc.close();
+                bkc.close();
             }
         }
 
@@ -1569,12 +1571,13 @@ public class DistributedLogTool extends Tool {
             }
         }
 
-        protected void repairLogSegments(ZooKeeperClient zkc,
+        protected void repairLogSegments(LogSegmentMetadataStore metadataStore,
                                          BookKeeperClient bkc,
                                          List<LogSegmentMetadata> segments) throws Exception {
             BookKeeperAdmin bkAdmin = new BookKeeperAdmin(bkc.get());
             try {
-                MetadataUpdater metadataUpdater = ZkMetadataUpdater.createMetadataUpdater(getConf(), zkc);
+                MetadataUpdater metadataUpdater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(
+                        getConf(), metadataStore);
                 for (LogSegmentMetadata segment : segments) {
                     repairLogSegment(bkAdmin, metadataUpdater, segment);
                 }

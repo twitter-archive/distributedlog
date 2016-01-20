@@ -9,8 +9,8 @@ import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.metadata.DryrunZkMetadataUpdater;
-import com.twitter.distributedlog.metadata.ZkMetadataUpdater;
+import com.twitter.distributedlog.metadata.DryrunLogSegmentMetadataStoreUpdater;
+import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
@@ -100,7 +100,7 @@ public class TestDLCK extends TestDistributedLogBase {
         // dryrun
         BookKeeperClient bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                new DryrunZkMetadataUpdater(conf, getZooKeeperClient(factory)),
+                new DryrunLogSegmentMetadataStoreUpdater(conf, getLogSegmentMetadataStore(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentMetadata> segments = getLogSegments(dlm);
@@ -113,7 +113,7 @@ public class TestDLCK extends TestDistributedLogBase {
         // check and repair
         bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                ZkMetadataUpdater.createMetadataUpdater(conf, getZooKeeperClient(factory)),
+                LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, getLogSegmentMetadataStore(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);

@@ -18,6 +18,7 @@ import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -167,6 +168,7 @@ class BKLogReadHandler extends BKLogHandler {
                             DynamicDistributedLogConfiguration dynConf,
                             ZooKeeperClientBuilder zkcBuilder,
                             BookKeeperClientBuilder bkcBuilder,
+                            LogSegmentMetadataStore metadataStore,
                             OrderedScheduler scheduler,
                             OrderedSafeExecutor lockStateExecutor,
                             ScheduledExecutorService readAheadExecutor,
@@ -177,7 +179,7 @@ class BKLogReadHandler extends BKLogHandler {
                             String clientId,
                             AsyncNotification notification,
                             boolean isHandleForReading) {
-        super(logMetadata, conf, zkcBuilder, bkcBuilder, scheduler,
+        super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
         this.dynConf = dynConf;
         this.readAheadExecutor = readAheadExecutor;

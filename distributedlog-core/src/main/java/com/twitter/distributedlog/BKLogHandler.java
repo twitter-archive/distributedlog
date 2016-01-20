@@ -27,6 +27,7 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
@@ -102,6 +103,7 @@ abstract class BKLogHandler implements Watcher {
     protected final DistributedLogConfiguration conf;
     protected final ZooKeeperClient zooKeeperClient;
     protected final BookKeeperClient bookKeeperClient;
+    protected final LogSegmentMetadataStore metadataStore;
     protected final String digestpw;
     protected final int firstNumEntriesPerReadLastRecordScan;
     protected final int maxNumEntriesPerReadLastRecordScan;
@@ -241,6 +243,7 @@ abstract class BKLogHandler implements Watcher {
                  DistributedLogConfiguration conf,
                  ZooKeeperClientBuilder zkcBuilder,
                  BookKeeperClientBuilder bkcBuilder,
+                 LogSegmentMetadataStore metadataStore,
                  OrderedScheduler scheduler,
                  StatsLogger statsLogger,
                  AlertStatsLogger alertStatsLogger,
@@ -264,6 +267,7 @@ abstract class BKLogHandler implements Watcher {
         this.zooKeeperClient = zkcBuilder.build();
         LOG.debug("Using ZK Path {}", logMetadata.getLogRootPath());
         this.bookKeeperClient = bkcBuilder.build();
+        this.metadataStore = metadataStore;
 
         if (lockClientId.equals(DistributedLogConstants.UNKNOWN_CLIENT_ID)) {
             this.lockClientId = getHostIpLockClientId();
@@ -1200,7 +1204,7 @@ abstract class BKLogHandler implements Watcher {
                                         // attempt on the znode corresponding to the segment
                                         // 2. In progress segment has been completed => inprogress ZNode does not exist
                                         if (cause instanceof KeeperException &&
-                                                KeeperException.Code.NONODE ==((KeeperException) cause).code()) {
+                                                KeeperException.Code.NONODE == ((KeeperException) cause).code()) {
                                             removedSegments.add(segment);
                                             complete();
                                         } else {

@@ -11,10 +11,12 @@ import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
@@ -128,6 +130,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final StatsLogger perLogStatsLogger;
     private final AlertStatsLogger alertStatsLogger;
 
+    // log segment metadata stores
+    private final LogSegmentMetadataStore writerMetadataStore;
+    private final LogSegmentMetadataStore readerMetadataStore;
+
     // bookkeeper clients
     // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
     //       {@link com.twitter.distributedlog.BookKeeperClient#get()}. So it is safe to
@@ -199,6 +205,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
              zkcForReaderBKC,
              writerBKCBuilder,
              readerBKCBuilder,
+             null,
+             null,
              OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
              null,
              null,
@@ -254,6 +262,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
+                            LogSegmentMetadataStore writerMetadataStore,
+                            LogSegmentMetadataStore readerMetadataStore,
                             OrderedScheduler scheduler,
                             ScheduledExecutorService readAheadExecutor,
                             OrderedSafeExecutor lockStateExecutor,
@@ -284,6 +294,17 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.ledgerAllocator = ledgerAllocator;
         this.writeLimiter = writeLimiter;
         this.logSegmentRollingPermitManager = logSegmentRollingPermitManager;
+
+        if (null == writerMetadataStore) {
+            this.writerMetadataStore = new ZKLogSegmentMetadataStore(conf, writerZKC, scheduler);
+        } else {
+            this.writerMetadataStore = writerMetadataStore;
+        }
+        if (null == readerMetadataStore) {
+            this.readerMetadataStore = new ZKLogSegmentMetadataStore(conf, readerZKC, scheduler);
+        } else {
+            this.readerMetadataStore = readerMetadataStore;
+        }
 
         // create the bkc for writers
         if (null == writerBKCBuilder) {
@@ -461,6 +482,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 dynConf,
                 readerZKCBuilder,
                 readerBKCBuilder,
+                readerMetadataStore,
                 scheduler,
                 lockExecutor,
                 readAheadExecutor,
@@ -532,6 +554,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 conf,
                 writerZKCBuilder,
                 writerBKCBuilder,
+                writerMetadataStore,
                 scheduler,
                 orderedFuturePool,
                 ledgerAllocatorDelegator,
@@ -1117,6 +1140,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      */
     @Override
     public void purgeLogsOlderThan(long minTxIdToKeep) throws IOException {
+        Preconditions.checkArgument(minTxIdToKeep > 0, "Invalid transaction id " + minTxIdToKeep);
         for (String streamIdentifier : getStreamsWithinALog()) {
             purgeLogsForPartitionOlderThan(streamIdentifier, minTxIdToKeep);
         }
@@ -1153,11 +1177,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * @throws IOException if purging fails
      */
     public void purgeLogsForPartitionOlderThan(String streamIdentifier, long minTxIdToKeep) throws IOException {
-        checkClosedOrInError("purgeLogsOlderThan");
+        checkClosedOrInError("purgeLogSegmentsOlderThan");
         BKLogWriteHandler ledgerHandler = createWriteLedgerHandler(streamIdentifier);
         try {
             LOG.info("Purging logs for {} older than {}", ledgerHandler.getFullyQualifiedName(), minTxIdToKeep);
-            ledgerHandler.purgeLogsOlderThan(minTxIdToKeep);
+            FutureUtils.result(ledgerHandler.purgeLogSegmentsOlderThanTxnId(minTxIdToKeep));
         } finally {
             ledgerHandler.close();
         }
