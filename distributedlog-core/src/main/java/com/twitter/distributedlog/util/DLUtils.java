@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.util.List;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 public class DLUtils {
 
     static final Logger logger = LoggerFactory.getLogger(DLUtils.class);
@@ -131,5 +133,53 @@ public class DLUtils {
             }
         }
         return startSequenceId;
+    }
+
+    /**
+     * Deserialize log segment sequence number for bytes <code>data</code>.
+     *
+     * @param data
+     *          byte representation of log segment sequence number
+     * @return log segment sequence number
+     * @throws NumberFormatException if the bytes aren't valid
+     */
+    public static long deserializeLogSegmentSequenceNumber(byte[] data) {
+        String seqNoStr = new String(data, UTF_8);
+        return Long.valueOf(seqNoStr);
+    }
+
+    /**
+     * Serilize log segment sequence number <code>logSegmentSeqNo</code> into bytes.
+     *
+     * @param logSegmentSeqNo
+     *          log segment sequence number
+     * @return byte representation of log segment sequence number
+     */
+    public static byte[] serializeLogSegmentSequenceNumber(long logSegmentSeqNo) {
+        return Long.toString(logSegmentSeqNo).getBytes(UTF_8);
+    }
+
+    /**
+     * Deserialize log record transaction id for bytes <code>data</code>.
+     *
+     * @param data
+     *          byte representation of log record transaction id
+     * @return log record transaction id
+     * @throws NumberFormatException if the bytes aren't valid
+     */
+    public static long deserializeTransactionId(byte[] data) {
+        String seqNoStr = new String(data, UTF_8);
+        return Long.valueOf(seqNoStr);
+    }
+
+    /**
+     * Serilize log record transaction id <code>transactionId</code> into bytes.
+     *
+     * @param transactionId
+     *          log record transaction id
+     * @return byte representation of log record transaction id.
+     */
+    public static byte[] serializeTransactionId(long transactionId) {
+        return Long.toString(transactionId).getBytes(UTF_8);
     }
 }

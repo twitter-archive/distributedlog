@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
@@ -9,8 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-
-import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for storing and reading max ledger sequence number
@@ -26,7 +25,7 @@ class MaxLogSegmentSequenceNo {
         if (dataWithStat.exists()) {
             zkVersion = dataWithStat.getStat().getVersion();
             try {
-                maxSeqNo = toLogSegmentSequenceNo(dataWithStat.getData());
+                maxSeqNo = DLUtils.deserializeLogSegmentSequenceNumber(dataWithStat.getData());
             } catch (NumberFormatException nfe) {
                 maxSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
             }
@@ -52,7 +51,7 @@ class MaxLogSegmentSequenceNo {
 
     synchronized void store(ZooKeeperClient zkc, String path, long logSegmentSeqNo) throws IOException {
         try {
-            Stat stat = zkc.get().setData(path, toBytes(logSegmentSeqNo), zkVersion);
+            Stat stat = zkc.get().setData(path, DLUtils.serializeLogSegmentSequenceNumber(logSegmentSeqNo), zkVersion);
             this.zkVersion = stat.getVersion();
             this.maxSeqNo = logSegmentSeqNo;
         } catch (KeeperException ke) {
@@ -67,12 +66,4 @@ class MaxLogSegmentSequenceNo {
         }
     }
 
-    static long toLogSegmentSequenceNo(byte[] data) {
-        String seqNoStr = new String(data, UTF_8);
-        return Long.valueOf(seqNoStr);
-    }
-
-    static byte[] toBytes(long logSegmentSeqNo) {
-        return Long.toString(logSegmentSeqNo).getBytes(UTF_8);
-    }
 }

@@ -4,7 +4,10 @@ import com.google.common.annotations.Beta;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.callback.LogSegmentNamesListener;
 import com.twitter.distributedlog.util.Transaction;
+import com.twitter.distributedlog.util.Transaction.OpListener;
 import com.twitter.util.Future;
+import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.versioning.Versioned;
 
 import java.io.Closeable;
 import java.util.List;
@@ -22,6 +25,44 @@ public interface LogSegmentMetadataStore extends Closeable {
      * @return transaction of the log segment metadata store.
      */
     Transaction<Object> transaction();
+
+    // The reason to keep storing log segment sequence number & log record transaction id
+    // in this log segment metadata store interface is to share the transaction that used
+    // to start/complete log segment. It is a bit hard to separate them out right now.
+
+    /**
+     * Store the maximum log segment sequence number on <code>path</code>.
+     *
+     * @param txn
+     *          transaction to execute for storing log segment sequence number.
+     * @param path
+     *          path to store sequence number
+     * @param sequenceNumber
+     *          log segment sequence number to store
+     * @param listener
+     *          listener on the result to this operation
+     */
+    void storeMaxLogSegmentSequenceNumber(Transaction<Object> txn,
+                                          String path,
+                                          Versioned<Long> sequenceNumber,
+                                          OpListener<Version> listener);
+
+    /**
+     * Store the maximum transaction id for <code>path</code>
+     *
+     * @param txn
+     *          transaction to execute for storing transaction id
+     * @param path
+     *          path to store sequence number
+     * @param transactionId
+     *          transaction id to store
+     * @param listener
+     *          listener on the result to this operation
+     */
+    void storeMaxTxnId(Transaction<Object> txn,
+                       String path,
+                       Versioned<Long> transactionId,
+                       OpListener<Version> listener);
 
     /**
      * Create a log segment <code>segment</code> under transaction <code>txn</code>.

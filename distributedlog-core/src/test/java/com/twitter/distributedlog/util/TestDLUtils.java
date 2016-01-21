@@ -9,6 +9,7 @@ import org.junit.Test;
 
 import java.util.List;
 
+import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
 
 /**
@@ -202,6 +203,38 @@ public class TestDLUtils {
                         .setStartSequenceId(101L).setRecordCount(100).build()
         );
         assertEquals(301L, DLUtils.computeStartSequenceId(segments, inprogressLogSegment(4L, 301L)));
+    }
+
+    @Test(timeout = 60000)
+    public void testSerDeLogSegmentSequenceNumber() throws Exception {
+        long sn = 123456L;
+        byte[] snData = Long.toString(sn).getBytes(UTF_8);
+        assertEquals("Deserialization should succeed",
+                sn, DLUtils.deserializeLogSegmentSequenceNumber(snData));
+        assertArrayEquals("Serialization should succeed",
+                snData, DLUtils.serializeLogSegmentSequenceNumber(sn));
+    }
+
+    @Test(timeout = 60000, expected = NumberFormatException.class)
+    public void testDeserilizeInvalidLSSN() throws Exception {
+        byte[] corruptedData = "corrupted-lssn".getBytes(UTF_8);
+        DLUtils.deserializeLogSegmentSequenceNumber(corruptedData);
+    }
+
+    @Test(timeout = 60000)
+    public void testSerDeLogRecordTxnId() throws Exception {
+        long txnId = 123456L;
+        byte[] txnData = Long.toString(txnId).getBytes(UTF_8);
+        assertEquals("Deserialization should succeed",
+                txnId, DLUtils.deserializeTransactionId(txnData));
+        assertArrayEquals("Serialization should succeed",
+                txnData, DLUtils.serializeTransactionId(txnId));
+    }
+
+    @Test(timeout = 60000, expected = NumberFormatException.class)
+    public void testDeserilizeInvalidLogRecordTxnId() throws Exception {
+        byte[] corruptedData = "corrupted-txn-id".getBytes(UTF_8);
+        DLUtils.deserializeTransactionId(corruptedData);
     }
 
 }

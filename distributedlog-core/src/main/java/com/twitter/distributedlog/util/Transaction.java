@@ -27,6 +27,30 @@ public interface Transaction<OpResult> {
     }
 
     /**
+     * Listener on the result of an {@link com.twitter.distributedlog.util.Transaction.Op}.
+     *
+     * @param <OpResult>
+     */
+    interface OpListener<OpResult> {
+
+        /**
+         * Trigger on operation committed.
+         *
+         * @param r
+         *          result to return
+         */
+        void onCommit(OpResult r);
+
+        /**
+         * Trigger on operation aborted.
+         *
+         * @param t
+         *          reason to abort
+         */
+        void onAbort(Throwable t);
+    }
+
+    /**
      * Add the operation to current transaction.
      *
      * @param operation

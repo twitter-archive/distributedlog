@@ -202,7 +202,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
     // Transactional operations for MaxLogSegmentSequenceNo
     void tryStore(org.apache.zookeeper.Transaction txn, MaxLogSegmentSequenceNo maxSeqNo, long seqNo) {
-        byte[] data = MaxLogSegmentSequenceNo.toBytes(seqNo);
+        byte[] data = DLUtils.serializeLogSegmentSequenceNumber(seqNo);
         txn.setData(logMetadata.getLogSegmentsPath(), data, maxSeqNo.getZkVersion());
     }
 

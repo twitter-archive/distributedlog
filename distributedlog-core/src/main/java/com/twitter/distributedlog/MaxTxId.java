@@ -17,15 +17,13 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-
-import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Utility class for storing and reading
@@ -47,9 +45,9 @@ class MaxTxId {
         this.enabled = enabled && null != dataWithStat && null != dataWithStat.getStat();
         if (this.enabled) {
             try {
-                this.currentMax = toTxId(dataWithStat.getData());
-            } catch (UnsupportedEncodingException e) {
-                LOG.warn("Invalid txn id stored in {} : e", path, e);
+                this.currentMax = DLUtils.deserializeTransactionId(dataWithStat.getData());
+            } catch (NumberFormatException e) {
+                LOG.warn("Invalid txn id stored in {}", path, e);
                 this.currentMax = 0L;
             }
         } else {
@@ -67,19 +65,9 @@ class MaxTxId {
         }
     }
 
-    static long toTxId(byte[] data) throws UnsupportedEncodingException {
-        String txidString = new String(data, UTF_8);
-        return Long.valueOf(txidString);
-    }
-
-    static byte[] toBytes(long txId) {
-        String txidString = Long.toString(txId);
-        return txidString.getBytes(UTF_8);
-    }
-
     synchronized byte[] couldStore(long maxTxId) {
         if (enabled && currentMax < maxTxId) {
-            return toBytes(maxTxId);
+            return DLUtils.serializeTransactionId(maxTxId);
         } else {
             return null;
         }

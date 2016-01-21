@@ -14,10 +14,16 @@ import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Transaction;
+import com.twitter.util.Await;
 import com.twitter.util.Future;
+import com.twitter.util.Promise;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -71,6 +77,7 @@ public class TestZKLogSegmentMetadataStore extends TestDistributedLogBase {
     protected ZKLogSegmentMetadataStore lsmStore;
     protected OrderedScheduler scheduler;
     protected URI uri;
+    protected String rootZkPath;
 
     @Before
     public void setup() throws Exception {
@@ -92,6 +99,7 @@ public class TestZKLogSegmentMetadataStore extends TestDistributedLogBase {
                 new byte[0],
                 ZooDefs.Ids.OPEN_ACL_UNSAFE,
                 CreateMode.PERSISTENT);
+        this.rootZkPath = "/" + runtime.getMethodName();
     }
 
     @After
@@ -519,6 +527,190 @@ public class TestZKLogSegmentMetadataStore extends TestDistributedLogBase {
                 2 * numSegments, thirdSegmentList.size());
         assertEquals("List of segments should be updated",
                 newChildren, thirdSegmentList);
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxLogSegmentSequenceNumber() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(0));
+        final Promise<Version> result = new Promise<Version>();
+        lsmStore.storeMaxLogSegmentSequenceNumber(updateTxn, rootZkPath, value,
+                new Transaction.OpListener<Version>() {
+            @Override
+            public void onCommit(Version r) {
+                result.setValue(r);
+            }
+
+            @Override
+            public void onAbort(Throwable t) {
+                result.setException(t);
+            }
+        });
+        FutureUtils.result(updateTxn.execute());
+        assertEquals(1, ((ZkVersion) FutureUtils.result(result)).getZnodeVersion());
+        Stat stat = new Stat();
+        byte[] data = zkc.get().getData(rootZkPath, false, stat);
+        assertEquals(999L, DLUtils.deserializeLogSegmentSequenceNumber(data));
+        assertEquals(1, stat.getVersion());
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxLogSegmentSequenceNumberBadVersion() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(10));
+        final Promise<Version> result = new Promise<Version>();
+        lsmStore.storeMaxLogSegmentSequenceNumber(updateTxn, rootZkPath, value,
+                new Transaction.OpListener<Version>() {
+                    @Override
+                    public void onCommit(Version r) {
+                        result.setValue(r);
+                    }
+
+                    @Override
+                    public void onAbort(Throwable t) {
+                        result.setException(t);
+                    }
+                });
+        try {
+            FutureUtils.result(updateTxn.execute());
+            fail("Should fail on storing log segment sequence number if providing bad version");
+        } catch (ZKException zke) {
+            assertEquals(KeeperException.Code.BADVERSION, zke.getKeeperExceptionCode());
+        }
+        try {
+            Await.result(result);
+            fail("Should fail on storing log segment sequence number if providing bad version");
+        } catch (KeeperException ke) {
+            assertEquals(KeeperException.Code.BADVERSION, ke.code());
+        }
+        Stat stat = new Stat();
+        byte[] data = zkc.get().getData(rootZkPath, false, stat);
+        assertEquals(0, stat.getVersion());
+        assertEquals(0, data.length);
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxLogSegmentSequenceNumberOnNonExistentPath() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(10));
+        final Promise<Version> result = new Promise<Version>();
+        String nonExistentPath = rootZkPath + "/non-existent";
+        lsmStore.storeMaxLogSegmentSequenceNumber(updateTxn, nonExistentPath, value,
+                new Transaction.OpListener<Version>() {
+                    @Override
+                    public void onCommit(Version r) {
+                        result.setValue(r);
+                    }
+
+                    @Override
+                    public void onAbort(Throwable t) {
+                        result.setException(t);
+                    }
+                });
+        try {
+            FutureUtils.result(updateTxn.execute());
+            fail("Should fail on storing log segment sequence number if path doesn't exist");
+        } catch (ZKException zke) {
+            assertEquals(KeeperException.Code.NONODE, zke.getKeeperExceptionCode());
+        }
+        try {
+            Await.result(result);
+            fail("Should fail on storing log segment sequence number if path doesn't exist");
+        } catch (KeeperException ke) {
+            assertEquals(KeeperException.Code.NONODE, ke.code());
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxTxnId() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(0));
+        final Promise<Version> result = new Promise<Version>();
+        lsmStore.storeMaxTxnId(updateTxn, rootZkPath, value,
+                new Transaction.OpListener<Version>() {
+            @Override
+            public void onCommit(Version r) {
+                result.setValue(r);
+            }
+
+            @Override
+            public void onAbort(Throwable t) {
+                result.setException(t);
+            }
+        });
+        FutureUtils.result(updateTxn.execute());
+        assertEquals(1, ((ZkVersion) FutureUtils.result(result)).getZnodeVersion());
+        Stat stat = new Stat();
+        byte[] data = zkc.get().getData(rootZkPath, false, stat);
+        assertEquals(999L, DLUtils.deserializeTransactionId(data));
+        assertEquals(1, stat.getVersion());
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxTxnIdBadVersion() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(10));
+        final Promise<Version> result = new Promise<Version>();
+        lsmStore.storeMaxTxnId(updateTxn, rootZkPath, value,
+                new Transaction.OpListener<Version>() {
+                    @Override
+                    public void onCommit(Version r) {
+                        result.setValue(r);
+                    }
+
+                    @Override
+                    public void onAbort(Throwable t) {
+                        result.setException(t);
+                    }
+                });
+        try {
+            FutureUtils.result(updateTxn.execute());
+            fail("Should fail on storing log record transaction id if providing bad version");
+        } catch (ZKException zke) {
+            assertEquals(KeeperException.Code.BADVERSION, zke.getKeeperExceptionCode());
+        }
+        try {
+            Await.result(result);
+            fail("Should fail on storing log record transaction id if providing bad version");
+        } catch (KeeperException ke) {
+            assertEquals(KeeperException.Code.BADVERSION, ke.code());
+        }
+        Stat stat = new Stat();
+        byte[] data = zkc.get().getData(rootZkPath, false, stat);
+        assertEquals(0, stat.getVersion());
+        assertEquals(0, data.length);
+    }
+
+    @Test(timeout = 60000)
+    public void testStoreMaxTxnIdOnNonExistentPath() throws Exception {
+        Transaction<Object> updateTxn = lsmStore.transaction();
+        Versioned<Long> value = new Versioned<Long>(999L, new ZkVersion(10));
+        final Promise<Version> result = new Promise<Version>();
+        String nonExistentPath = rootZkPath + "/non-existent";
+        lsmStore.storeMaxLogSegmentSequenceNumber(updateTxn, nonExistentPath, value,
+                new Transaction.OpListener<Version>() {
+                    @Override
+                    public void onCommit(Version r) {
+                        result.setValue(r);
+                    }
+
+                    @Override
+                    public void onAbort(Throwable t) {
+                        result.setException(t);
+                    }
+                });
+        try {
+            FutureUtils.result(updateTxn.execute());
+            fail("Should fail on storing log record transaction id if path doesn't exist");
+        } catch (ZKException zke) {
+            assertEquals(KeeperException.Code.NONODE, zke.getKeeperExceptionCode());
+        }
+        try {
+            Await.result(result);
+            fail("Should fail on storing log record transaction id if path doesn't exist");
+        } catch (KeeperException ke) {
+            assertEquals(KeeperException.Code.NONODE, ke.code());
+        }
     }
 
 }

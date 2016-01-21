@@ -4,6 +4,7 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.zookeeper.data.Stat;
 import org.junit.Rule;
@@ -166,7 +167,8 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         assertEquals(3, max2.getSequenceNumber());
 
         // update the max ledger sequence number
-        updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, MaxLogSegmentSequenceNo.toBytes(99));
+        updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf,
+                DLUtils.serializeLogSegmentSequenceNumber(99));
 
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {

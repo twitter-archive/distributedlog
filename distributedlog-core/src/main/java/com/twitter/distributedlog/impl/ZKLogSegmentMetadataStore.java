@@ -5,14 +5,20 @@ import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.callback.LogSegmentNamesListener;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Transaction;
 import com.twitter.distributedlog.zk.DefaultZKOp;
+import com.twitter.distributedlog.zk.ZKOp;
 import com.twitter.distributedlog.zk.ZKTransaction;
+import com.twitter.distributedlog.zk.ZKVersionedSetOp;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.AsyncCallback.Children2Callback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -147,6 +153,38 @@ public class ZKLogSegmentMetadataStore implements LogSegmentMetadataStore, Watch
         } finally {
             closeLock.readLock().unlock();
         }
+    }
+
+    // max sequence number and max transaction id
+
+    @Override
+    public void storeMaxLogSegmentSequenceNumber(Transaction<Object> txn,
+                                                 String path,
+                                                 Versioned<Long> lssn,
+                                                 Transaction.OpListener<Version> listener) {
+        Version version = lssn.getVersion();
+        assert(version instanceof ZkVersion);
+
+        ZkVersion zkVersion = (ZkVersion) version;
+        byte[] data = DLUtils.serializeLogSegmentSequenceNumber(lssn.getValue());
+        Op setDataOp = Op.setData(path, data, zkVersion.getZnodeVersion());
+        ZKOp zkOp = new ZKVersionedSetOp(setDataOp, listener);
+        txn.addOp(zkOp);
+    }
+
+    @Override
+    public void storeMaxTxnId(Transaction<Object> txn,
+                              String path,
+                              Versioned<Long> transactionId,
+                              Transaction.OpListener<Version> listener) {
+        Version version = transactionId.getVersion();
+        assert(version instanceof ZkVersion);
+
+        ZkVersion zkVersion = (ZkVersion) version;
+        byte[] data = DLUtils.serializeTransactionId(transactionId.getValue());
+        Op setDataOp = Op.setData(path, data, zkVersion.getZnodeVersion());
+        ZKOp zkOp = new ZKVersionedSetOp(setDataOp, listener);
+        txn.addOp(zkOp);
     }
 
     // updates
