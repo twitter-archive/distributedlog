@@ -5,6 +5,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URI;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -333,8 +335,10 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
     @SuppressWarnings("deprecation")
     private void testFactory(String name, boolean shareBK) throws Exception {
         int count = 3;
+        URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
         BKDistributedLogNamespace namespace = BKDistributedLogNamespace.newBuilder()
-                .conf(conf).uri(createDLMURI("/" + name)).build();
+                .conf(conf).uri(uri).build();
         DistributedLogManager[] dlms = new DistributedLogManager[count];
         for (int s = 0; s < count; s++) {
             if (shareBK) {

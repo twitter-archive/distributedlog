@@ -95,8 +95,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     static void createLog(DistributedLogConfiguration conf, ZooKeeperClient zkc, URI uri, String streamName)
             throws IOException, InterruptedException {
-        Future<ZKLogMetadataForWriter> createFuture = ZKLogMetadataForWriter.createLogIfNotExists(
-                        uri, streamName, conf.getUnpartitionedStreamName(), zkc.get(), zkc.getDefaultACL(), true);
+        Future<ZKLogMetadataForWriter> createFuture = ZKLogMetadataForWriter.of(
+                        uri, streamName, conf.getUnpartitionedStreamName(), zkc.get(), zkc.getDefaultACL(), true, true);
         FutureUtils.result(createFuture);
     }
 
@@ -515,13 +515,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         boolean ownAllocator = null == ledgerAllocator;
 
         // Fetching Log Metadata
-        Future<ZKLogMetadataForWriter> metadataFuture;
-        if (conf.getCreateStreamIfNotExists() || ownAllocator) {
-            metadataFuture = ZKLogMetadataForWriter.createLogIfNotExists(uri, name, logIdentifier,
-                    zk, writerZKC.getDefaultACL(), ownAllocator);
-        } else {
-            metadataFuture = ZKLogMetadataForWriter.getLogMetadata(uri, name, logIdentifier, zk);
-        }
+        Future<ZKLogMetadataForWriter> metadataFuture =
+                ZKLogMetadataForWriter.of(uri, name, logIdentifier,
+                        zk, writerZKC.getDefaultACL(),
+                        ownAllocator, conf.getCreateStreamIfNotExists() || ownAllocator);
         ZKLogMetadataForWriter logMetadata = FutureUtils.result(metadataFuture);
 
         // Build the locks
@@ -539,7 +536,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         if (ownAllocator) {
             LedgerAllocator allocator = new SimpleLedgerAllocator(
                     logMetadata.getAllocationPath(),
-                    logMetadata.getAllocationStat(),
+                    logMetadata.getAllocationData(),
                     conf,
                     writerZKC,
                     writerBKC);

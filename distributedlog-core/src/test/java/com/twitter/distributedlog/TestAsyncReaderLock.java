@@ -392,6 +392,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     public void testReaderLockMultiReadersScenario() throws Exception {
         final String name = runtime.getMethodName();
         URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
 
         // Force immediate flush to make dlsn counting easy.
         DistributedLogConfiguration localConf = new DistributedLogConfiguration();

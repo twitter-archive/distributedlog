@@ -10,7 +10,6 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
-import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
@@ -173,10 +172,10 @@ class BKLogWriteHandler extends BKLogHandler {
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
 
         // Construct the max sequence no
-        maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(logMetadata.getLogSegmentsStat());
+        maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(logMetadata.getMaxLSSNData());
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, logMetadata.getMaxTxIdPath(),
-                conf.getSanityCheckTxnID(), logMetadata.getMaxTxIdStat());
+                conf.getSanityCheckTxnID(), logMetadata.getMaxTxIdData());
 
         // Schedule fetching ledgers list in background before we access it.
         // We don't need to watch the ledgers list changes for writer, as it manages ledgers list.

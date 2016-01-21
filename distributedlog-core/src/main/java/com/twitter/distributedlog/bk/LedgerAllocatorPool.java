@@ -5,9 +5,10 @@ import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -165,10 +166,10 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                     latch.countDown();
                     return;
                 }
-                DataWithStat dataWithStat = new DataWithStat();
-                dataWithStat.setDataWithStat(data, stat);
+                Versioned<byte[]> allocatorData =
+                        new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
                 SimpleLedgerAllocator allocator =
-                        new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                        new SimpleLedgerAllocator(path, allocatorData, conf, zkc, bkc);
                 allocator.start();
                 pendingList.add(allocator);
                 if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
@@ -224,10 +225,10 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                     boolean retry = false;
                     SimpleLedgerAllocator newAllocator = null;
                     if (KeeperException.Code.OK.intValue() == rc) {
-                        DataWithStat dataWithStat = new DataWithStat();
-                        dataWithStat.setDataWithStat(data, stat);
+                        Versioned<byte[]> allocatorData =
+                                new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
                         logger.info("Rescuing ledger allocator {}.", path);
-                        newAllocator = new SimpleLedgerAllocator(path, dataWithStat, conf, zkc, bkc);
+                        newAllocator = new SimpleLedgerAllocator(path, allocatorData, conf, zkc, bkc);
                         newAllocator.start();
                         logger.info("Rescued ledger allocator {}.", path);
                     } else if (KeeperException.Code.NONODE.intValue() == rc) {

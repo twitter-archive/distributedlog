@@ -11,7 +11,6 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
@@ -309,7 +308,7 @@ public class DLAuditor {
                     byte[] data = getZooKeeperClient(factory).get().getData(allocatorPath, false, new Stat());
                     if (null != data && data.length > 0) {
                         try {
-                            long ledgerId = Utils.bytes2LedgerId(data);
+                            long ledgerId = DLUtils.bytes2LedgerId(data);
                             synchronized (ledgers) {
                                 ledgers.add(ledgerId);
                             }

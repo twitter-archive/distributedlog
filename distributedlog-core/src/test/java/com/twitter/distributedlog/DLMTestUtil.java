@@ -33,6 +33,9 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooDefs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -147,6 +150,13 @@ public class DLMTestUtil {
             .zkAclId(conf.getZkAclId());
 
         ZooKeeperClient zkClient = zkcBuilder.build();
+
+        try {
+            zkClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        } catch (KeeperException.NodeExistsException nee) {
+            // ignore
+        }
+
         // resolve uri
         BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkClient, uri);
         BKDLConfig.propagateConfiguration(bkdlConfig, conf);

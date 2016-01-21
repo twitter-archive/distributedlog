@@ -5,7 +5,8 @@ import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.DLUtils;
-import com.twitter.distributedlog.zk.DataWithStat;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.data.Stat;
 import org.junit.Rule;
 import org.junit.Test;
@@ -30,9 +31,8 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         String logSegmentsPath = ZKLogMetadata.getLogSegmentsPath(
                 uri, streamName, conf.getUnpartitionedStreamName());
         byte[] data = zkc.get().getData(logSegmentsPath, false, stat);
-        DataWithStat dataWithStat = new DataWithStat();
-        dataWithStat.setDataWithStat(data, stat);
-        return new MaxLogSegmentSequenceNo(dataWithStat);
+        Versioned<byte[]> maxLSSNData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
+        return new MaxLogSegmentSequenceNo(maxLSSNData);
     }
 
     private static void updateMaxLogSegmentSequenceNo(ZooKeeperClient zkc, URI uri, String streamName,

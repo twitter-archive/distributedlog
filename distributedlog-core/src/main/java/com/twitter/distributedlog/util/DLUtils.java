@@ -10,6 +10,9 @@ import java.util.List;
 
 import static com.google.common.base.Charsets.UTF_8;
 
+/**
+ * Utilities about DL implementations like uri, log segments, metadata serialization and deserialization.
+ */
 public class DLUtils {
 
     static final Logger logger = LoggerFactory.getLogger(DLUtils.class);
@@ -181,5 +184,27 @@ public class DLUtils {
      */
     public static byte[] serializeTransactionId(long transactionId) {
         return Long.toString(transactionId).getBytes(UTF_8);
+    }
+
+    /**
+     * Serialize ledger id into bytes.
+     *
+     * @param ledgerId
+     *          ledger id
+     * @return bytes representation of ledger id
+     */
+    public static byte[] ledgerId2Bytes(long ledgerId) {
+        return Long.toString(ledgerId).getBytes(UTF_8);
+    }
+
+    /**
+     * Deserialize bytes into ledger id.
+     *
+     * @param data
+     *          bytes representation of ledger id
+     * @return ledger id
+     */
+    public static long bytes2LedgerId(byte[] data) {
+        return Long.valueOf(new String(data, UTF_8));
     }
 }

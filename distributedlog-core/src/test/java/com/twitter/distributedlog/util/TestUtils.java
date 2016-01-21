@@ -1,7 +1,12 @@
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.util;
 
 import com.google.common.base.Optional;
-import com.twitter.distributedlog.util.Utils;
+import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.ZooKeeperClusterTestCase;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
@@ -11,6 +16,7 @@ import org.junit.Test;
 
 import java.util.concurrent.CountDownLatch;
 
+import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
 
 /**
@@ -81,5 +87,23 @@ public class TestUtils extends ZooKeeperClusterTestCase {
                 }, null);
         doneLatch3.await();
         assertNotNull(zkc.get().exists(path2, false));
+    }
+
+    @Test(timeout = 60000)
+    public void testZkGetData() throws Exception {
+        String path1 = "/zk-get-data/non-existent-path";
+        Versioned<byte[]> data = FutureUtils.result(Utils.zkGetData(zkc.get(), path1, false));
+        assertNull("No data should return from non-existent-path", data.getValue());
+        assertNull("No version should return from non-existent-path", data.getVersion());
+
+        String path2 = "/zk-get-data/path2";
+        byte[] rawData = "test-data".getBytes(UTF_8);
+        FutureUtils.result(Utils.zkAsyncCreateFullPathOptimistic(zkc, path2, rawData,
+                zkc.getDefaultACL(), CreateMode.PERSISTENT));
+        data = FutureUtils.result(Utils.zkGetData(zkc.get(), path2, false));
+        assertArrayEquals("Data should return as written",
+                rawData, data.getValue());
+        assertEquals("Version should be zero",
+                0, ((ZkVersion) data.getVersion()).getZnodeVersion());
     }
 }

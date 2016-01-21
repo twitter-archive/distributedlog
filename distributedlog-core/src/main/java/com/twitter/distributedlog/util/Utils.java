@@ -3,20 +3,20 @@ package com.twitter.distributedlog.util;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
+import org.apache.zookeeper.ZooKeeper;
 import scala.runtime.BoxedUnit;
 
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
@@ -25,18 +25,10 @@ import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 
-import static com.google.common.base.Charsets.UTF_8;
-
+/**
+ * Basic Utilities.
+ */
 public class Utils {
-    private static final long NANOSECONDS_PER_MILLISECOND = 1000000;
-
-    public static byte[] ledgerId2Bytes(long ledgerId) {
-        return Long.toString(ledgerId).getBytes(UTF_8);
-    }
-
-    public static long bytes2LedgerId(byte[] data) {
-        return Long.valueOf(new String(data, UTF_8));
-    }
 
     /**
      * Current time from some arbitrary time base in the past, counting in
@@ -75,6 +67,19 @@ public class Utils {
         return (Math.random() * 100.0) <= percent;
     }
 
+    /**
+     * Synchronously create zookeeper path recursively and optimistically.
+     *
+     * @see {@link #zkAsyncCreateFullPathOptimistic(ZooKeeperClient, String, byte[], List, CreateMode)}
+     * @param zkc Zookeeper client
+     * @param path Zookeeper full path
+     * @param data Zookeeper data
+     * @param acl Acl of the zk path
+     * @param createMode Create mode of zk path
+     * @throws ZooKeeperClient.ZooKeeperConnectionException
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
     public static void zkCreateFullPathOptimistic(
         ZooKeeperClient zkc,
         String path,
@@ -143,18 +148,18 @@ public class Utils {
                         return;
                     }
                     zkAsyncCreateFullPathOptimisticRecursive(zkc, parent, parentPathShouldNotCreate, new byte[0], acl,
-                        CreateMode.PERSISTENT, new AsyncCallback.StringCallback() {
-                        @Override
-                        public void processResult(int rc, String path, Object ctx, String name) {
-                            if (rc == KeeperException.Code.OK.intValue() || rc == KeeperException.Code.NODEEXISTS.intValue()) {
-                                // succeeded in creating the parent, now create the original path
-                                zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
-                                        data, acl, createMode, callback, ctx);
-                            } else {
-                                callback.processResult(rc, path, ctx, name);
-                            }
-                        }
-                    }, ctx);
+                            CreateMode.PERSISTENT, new AsyncCallback.StringCallback() {
+                                @Override
+                                public void processResult(int rc, String path, Object ctx, String name) {
+                                    if (rc == KeeperException.Code.OK.intValue() || rc == KeeperException.Code.NODEEXISTS.intValue()) {
+                                        // succeeded in creating the parent, now create the original path
+                                        zkAsyncCreateFullPathOptimisticRecursive(zkc, pathToCreate, parentPathShouldNotCreate,
+                                                data, acl, createMode, callback, ctx);
+                                    } else {
+                                        callback.processResult(rc, path, ctx, name);
+                                    }
+                                }
+                            }, ctx);
                 }
             }, ctx);
         } catch (ZooKeeperClient.ZooKeeperConnectionException zkce) {
@@ -274,22 +279,34 @@ public class Utils {
         }
     }
 
-
     /**
-     * Simple watcher to notify when zookeeper has connected
+     * Retrieve data from zookeeper <code>path</code>.
+     *
+     * @param path
+     *          zookeeper path to retrieve data
+     * @param watch
+     *          whether to watch the path
+     * @return future representing the versioned value. null version or null value means path doesn't exist.
      */
-    public static class ZkConnectionWatcher implements Watcher {
-        CountDownLatch zkConnectLatch;
-
-        public ZkConnectionWatcher(CountDownLatch zkConnectLatch) {
-            this.zkConnectLatch = zkConnectLatch;
-        }
-
-        public void process(WatchedEvent event) {
-            if (Event.KeeperState.SyncConnected.equals(event.getState())) {
-                zkConnectLatch.countDown();
+    public static Future<Versioned<byte[]>> zkGetData(ZooKeeper zk, String path, boolean watch) {
+        final Promise<Versioned<byte[]>> promise = new Promise<Versioned<byte[]>>();
+        zk.getData(path, watch, new AsyncCallback.DataCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+                if (KeeperException.Code.OK.intValue() == rc) {
+                    if (null == stat) {
+                        promise.setValue(new Versioned<byte[]>(null, null));
+                    } else {
+                        promise.setValue(new Versioned<byte[]>(data, new ZkVersion(stat.getVersion())));
+                    }
+                } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                    promise.setValue(new Versioned<byte[]>(null, null));
+                } else {
+                    promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                }
             }
-        }
+        }, null);
+        return promise;
     }
 
     /**
@@ -305,4 +322,5 @@ public class Utils {
             // no-op. the exception is swallowed.
         }
     }
+
 }

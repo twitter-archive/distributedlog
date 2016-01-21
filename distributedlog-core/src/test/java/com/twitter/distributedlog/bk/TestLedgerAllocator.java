@@ -9,11 +9,12 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
@@ -95,13 +96,12 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
     public void testBadVersionOnTwoAllocators() throws Exception {
         String allocationPath = "/allocation-bad-version";
         zkc.get().create(allocationPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        DataWithStat dataWithStat = new DataWithStat();
         Stat stat = new Stat();
         byte[] data = zkc.get().getData(allocationPath, false, stat);
-        dataWithStat.setDataWithStat(data, stat);
+        Versioned<byte[]> allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
 
-        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, dataWithStat, dlConf, zkc, bkc);
-        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, dataWithStat, dlConf, zkc, bkc);
+        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
+        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
         allocator1.allocate();
         // wait until allocated
         Transaction txn1 = zkc.get().transaction();
@@ -170,12 +170,12 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
     public void testSuccessAllocatorShouldDeleteUnusedledger() throws Exception {
         String allocationPath = "/allocation-delete-unused-ledger";
         zkc.get().create(allocationPath, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        DataWithStat dataWithStat = new DataWithStat();
         Stat stat = new Stat();
         byte[] data = zkc.get().getData(allocationPath, false, stat);
-        dataWithStat.setDataWithStat(data, stat);
 
-        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, dataWithStat, dlConf, zkc, bkc);
+        Versioned<byte[]> allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
+
+        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
         allocator1.allocate();
         // wait until allocated
         Transaction txn1 = zkc.get().transaction();
@@ -184,8 +184,8 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         // Second allocator kicks in
         stat = new Stat();
         data = zkc.get().getData(allocationPath, false, stat);
-        dataWithStat.setDataWithStat(data, stat);
-        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, dataWithStat, dlConf, zkc, bkc);
+        allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
+        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
         allocator2.allocate();
         // wait until allocated
         Transaction txn2 = zkc.get().transaction();

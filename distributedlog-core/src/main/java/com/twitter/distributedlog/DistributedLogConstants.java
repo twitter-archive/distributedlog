@@ -9,6 +9,7 @@ import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.ACL;
 
 public class DistributedLogConstants {
+    public static final byte[] EMPTY_BYTES = new byte[0];
     public static final String SCHEME_PREFIX = "distributedlog";
     public static final String BACKEND_BK = "bk";
     public static final long INVALID_TXID = -999;

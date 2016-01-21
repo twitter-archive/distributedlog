@@ -3,7 +3,9 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.DLUtils;
-import com.twitter.distributedlog.zk.DataWithStat;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -18,25 +20,31 @@ class MaxLogSegmentSequenceNo {
 
     static final Logger LOG = LoggerFactory.getLogger(MaxLogSegmentSequenceNo.class);
 
-    int zkVersion;
+    Version version;
     long maxSeqNo;
 
-    MaxLogSegmentSequenceNo(DataWithStat dataWithStat) {
-        if (dataWithStat.exists()) {
-            zkVersion = dataWithStat.getStat().getVersion();
+    MaxLogSegmentSequenceNo(Versioned<byte[]> logSegmentsData) {
+        if (null != logSegmentsData
+                && null != logSegmentsData.getValue()
+                && null != logSegmentsData.getVersion()) {
+            version = logSegmentsData.getVersion();
             try {
-                maxSeqNo = DLUtils.deserializeLogSegmentSequenceNumber(dataWithStat.getData());
+                maxSeqNo = DLUtils.deserializeLogSegmentSequenceNumber(logSegmentsData.getValue());
             } catch (NumberFormatException nfe) {
                 maxSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
             }
         } else {
             maxSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
-            zkVersion = -1;
+            if (null != logSegmentsData && null != logSegmentsData.getVersion()) {
+                version = logSegmentsData.getVersion();
+            } else {
+                version = new ZkVersion(-1);
+            }
         }
     }
 
     synchronized int getZkVersion() {
-        return zkVersion;
+        return ((ZkVersion) version).getZnodeVersion();
     }
 
     synchronized long getSequenceNumber() {
@@ -44,16 +52,16 @@ class MaxLogSegmentSequenceNo {
     }
 
     synchronized MaxLogSegmentSequenceNo update(int zkVersion, long logSegmentSeqNo) {
-        this.zkVersion = zkVersion;
+        this.version = new ZkVersion(zkVersion);
         this.maxSeqNo = logSegmentSeqNo;
         return this;
     }
 
     synchronized void store(ZooKeeperClient zkc, String path, long logSegmentSeqNo) throws IOException {
         try {
-            Stat stat = zkc.get().setData(path, DLUtils.serializeLogSegmentSequenceNumber(logSegmentSeqNo), zkVersion);
-            this.zkVersion = stat.getVersion();
-            this.maxSeqNo = logSegmentSeqNo;
+            Stat stat = zkc.get().setData(path,
+                    DLUtils.serializeLogSegmentSequenceNumber(logSegmentSeqNo), getZkVersion());
+            update(stat.getVersion(), logSegmentSeqNo);
         } catch (KeeperException ke) {
             throw new ZKException("Error writing max ledger sequence number " + logSegmentSeqNo + " to "
                                   + path + " : ", ke);

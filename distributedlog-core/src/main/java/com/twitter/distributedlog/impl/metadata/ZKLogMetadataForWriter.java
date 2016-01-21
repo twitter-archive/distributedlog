@@ -1,29 +1,36 @@
 package com.twitter.distributedlog.impl.metadata;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.exceptions.LogExistsException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.zk.DataWithStat;
+import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
-import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Op;
+import org.apache.zookeeper.OpResult;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.ACL;
-import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
 
+import java.io.File;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Log Metadata for writer
@@ -32,12 +39,12 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
 
     static final Logger LOG = LoggerFactory.getLogger(ZKLogMetadataForWriter.class);
 
-    private static int bytesToInt(byte[] b) {
+    static int bytesToInt(byte[] b) {
         assert b.length >= 4;
         return b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3];
     }
 
-    private static byte[] intToBytes(int i) {
+    static byte[] intToBytes(int i) {
         return new byte[]{
             (byte) (i >> 24),
             (byte) (i >> 16),
@@ -45,63 +52,23 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             (byte) (i)};
     }
 
-    private static class IgnoreNodeExistsStringCallback implements org.apache.zookeeper.AsyncCallback.StringCallback {
-        @Override
-        public void processResult(int rc, String path, Object ctx, String name) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                LOG.trace("Created path {}.", path);
-            } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                LOG.debug("Path {} is already existed.", path);
-            } else {
-                LOG.error("Failed to create path {} : ", path, KeeperException.create(KeeperException.Code.get(rc)));
-            }
-        }
-    }
-    private static final IgnoreNodeExistsStringCallback IGNORE_NODE_EXISTS_STRING_CALLBACK = new IgnoreNodeExistsStringCallback();
-
-    private static class MultiGetCallback implements org.apache.zookeeper.AsyncCallback.DataCallback {
-
-        final AtomicInteger numPendings;
-        final AtomicInteger numFailures;
-        final org.apache.zookeeper.AsyncCallback.VoidCallback finalCb;
-        final Object finalCtx;
-
-        MultiGetCallback(int numRequests, org.apache.zookeeper.AsyncCallback.VoidCallback finalCb, Object ctx) {
-            this.numPendings = new AtomicInteger(numRequests);
-            this.numFailures = new AtomicInteger(0);
-            this.finalCb = finalCb;
-            this.finalCtx = ctx;
-        }
-
-        @Override
-        public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
-            if (KeeperException.Code.OK.intValue() == rc) {
-                assert(ctx instanceof DataWithStat);
-                DataWithStat dataWithStat = (DataWithStat) ctx;
-                dataWithStat.setDataWithStat(data, stat);
-            } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                assert(ctx instanceof DataWithStat);
-                DataWithStat dataWithStat = (DataWithStat) ctx;
-                dataWithStat.setDataWithStat(null, null);
-            } else {
-                KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                LOG.error("Failed to get data from path {} : ", path, ke);
-                numFailures.incrementAndGet();
-                finalCb.processResult(rc, path, finalCtx);
-            }
-            if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
-                finalCb.processResult(KeeperException.Code.OK.intValue(), path, finalCtx);
-            }
-        }
+    static boolean pathExists(Versioned<byte[]> metadata) {
+        return null != metadata.getValue() && null != metadata.getVersion();
     }
 
-    public static Future<ZKLogMetadataForWriter> createLogIfNotExists(
+    static void ensureMetadataExist(Versioned<byte[]> metadata) {
+        Preconditions.checkNotNull(metadata.getValue());
+        Preconditions.checkNotNull(metadata.getVersion());
+    }
+
+    public static Future<ZKLogMetadataForWriter> of(
             final URI uri,
             final String logName,
             final String logIdentifier,
             final ZooKeeper zk,
             final List<ACL> acl,
-            final boolean ownAllocator) {
+            final boolean ownAllocator,
+            final boolean createIfNotExists) {
         final String logRootPath = ZKLogMetadata.getLogRootPath(uri, logName, logIdentifier);
         try {
             PathUtils.validatePath(logRootPath);
@@ -110,6 +77,27 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             return Future.exception(new InvalidStreamNameException(logName, "Log name is invalid"));
         }
 
+        return checkLogMetadataPaths(zk, logRootPath, ownAllocator)
+                .flatMap(new AbstractFunction1<List<Versioned<byte[]>>, Future<List<Versioned<byte[]>>>>() {
+                    @Override
+                    public Future<List<Versioned<byte[]>>> apply(List<Versioned<byte[]>> metadatas) {
+                        Promise<List<Versioned<byte[]>>> promise =
+                                new Promise<List<Versioned<byte[]>>>();
+                        createMissingMetadata(zk, logRootPath, metadatas, acl,
+                                ownAllocator, createIfNotExists, false, promise);
+                        return promise;
+                    }
+                }).map(new ExceptionalFunction<List<Versioned<byte[]>>, ZKLogMetadataForWriter>() {
+                    @Override
+                    public ZKLogMetadataForWriter applyE(List<Versioned<byte[]>> metadatas) throws DLException {
+                        return processLogMetadatas(uri, logName, logIdentifier, metadatas, ownAllocator);
+                    }
+                });
+    }
+
+    static Future<List<Versioned<byte[]>>> checkLogMetadataPaths(ZooKeeper zk,
+                                                                 String logRootPath,
+                                                                 boolean ownAllocator) {
         // Note re. persistent lock state initialization: the read lock persistent state (path) is
         // initialized here but only used in the read handler. The reason is its more convenient and
         // less error prone to manage all stream structure in one place.
@@ -120,181 +108,170 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
         final String versionPath = logRootPath + VERSION_PATH;
         final String allocationPath = logRootPath + ALLOCATION_PATH;
 
-        final DataWithStat allocationData = new DataWithStat();
-        final DataWithStat maxTxIdData = new DataWithStat();
-        final DataWithStat logSegmentsData = new DataWithStat();
-        // lockData, readLockData & logSegmentsData just used for checking whether the path exists or not.
-        final DataWithStat lockData = new DataWithStat();
-        final DataWithStat readLockData = new DataWithStat();
-        final DataWithStat versionData = new DataWithStat();
-
-        final Promise<ZKLogMetadataForWriter> promise = new Promise<ZKLogMetadataForWriter>();
-
-        final Runnable completion = new Runnable() {
-            @Override
-            public void run() {
-                // Initialize the structures with retreived zookeeper data.
-                try {
-                    // Verify Version
-                    Preconditions.checkNotNull(versionData.getStat());
-                    Preconditions.checkNotNull(versionData.getData());
-                    Preconditions.checkArgument(LAYOUT_VERSION == bytesToInt(versionData.getData()));
-                    // Verify MaxTxId
-                    Preconditions.checkNotNull(maxTxIdData.getStat());
-                    Preconditions.checkNotNull(maxTxIdData.getData());
-                    // Verify Allocation
-                    if (ownAllocator) {
-                        Preconditions.checkNotNull(allocationData.getStat());
-                        Preconditions.checkNotNull(allocationData.getData());
-                    }
-                } catch (IllegalArgumentException iae) {
-                    promise.setException(new UnexpectedException("Invalid log " + logRootPath, iae));
-                    return;
-                }
-
-                ZKLogMetadataForWriter logMetadata =
-                        new ZKLogMetadataForWriter(uri, logName, logIdentifier, logSegmentsData, maxTxIdData, allocationData);
-                promise.setValue(logMetadata);
-            }
-        };
-
-        class CreatePartitionCallback implements org.apache.zookeeper.AsyncCallback.StringCallback,
-                org.apache.zookeeper.AsyncCallback.DataCallback {
-
-            // num of zookeeper paths to get.
-            final AtomicInteger numPendings = new AtomicInteger(0);
-
-            @Override
-            public void processResult(int rc, String path, Object ctx, String name) {
-                if (KeeperException.Code.OK.intValue() == rc ||
-                        KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                    createAndGetZnodes();
-                } else {
-                    KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                    LOG.error("Failed to create log root path {} : ", logRootPath, ke);
-                    promise.setException(
-                            new ZKException("Failed to create log root path " + logRootPath, ke));
-                }
-            }
-
-            private void createAndGetZnodes() {
-                // Send the corresponding create requests in sequence and just wait for the last call.
-                // maxtxid path
-                zk.create(maxTxIdPath, Long.toString(0).getBytes(UTF_8), acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // version path
-                zk.create(versionPath, intToBytes(LAYOUT_VERSION), acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // log segments path
-                zk.create(logSegmentsPath, new byte[]{'0'}, acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // lock path
-                zk.create(lockPath, new byte[0], acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // read lock path
-                zk.create(readLockPath, new byte[0], acl,
-                        CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                // allocation path
-                if (ownAllocator) {
-                    zk.create(allocationPath, new byte[0], acl,
-                            CreateMode.PERSISTENT, IGNORE_NODE_EXISTS_STRING_CALLBACK, null);
-                }
-                // send get requests to maxTxId, version, allocation
-                numPendings.set(ownAllocator ? 3 : 2);
-                zk.getData(maxTxIdPath, false, this, maxTxIdData);
-                zk.getData(versionPath, false, this, versionData);
-                if (ownAllocator) {
-                    zk.getData(allocationPath, false, this, allocationData);
-                }
-            }
-
-            @Override
-            public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
-                if (KeeperException.Code.OK.intValue() == rc) {
-                    assert(ctx instanceof DataWithStat);
-                    DataWithStat dataWithStat = (DataWithStat) ctx;
-                    dataWithStat.setDataWithStat(data, stat);
-                } else {
-                    KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
-                    LOG.error("Failed to get data from path {} : ", path, ke);
-                    promise.setException(new ZKException("Failed to get data from path " + path, ke));
-                    return;
-                }
-                if (numPendings.decrementAndGet() == 0) {
-                    completion.run();
-                }
-            }
-        }
-
-        class GetDataCallback implements org.apache.zookeeper.AsyncCallback.VoidCallback {
-            @Override
-            public void processResult(int rc, String path, Object ctx) {
-                if (KeeperException.Code.OK.intValue() == rc) {
-                    if ((ownAllocator && allocationData.notExists()) || versionData.notExists() || maxTxIdData.notExists() ||
-                        lockData.notExists() || readLockData.notExists() || logSegmentsData.notExists()) {
-                        ZkUtils.asyncCreateFullPathOptimistic(zk, logRootPath, new byte[]{'0'},
-                                acl, CreateMode.PERSISTENT, new CreatePartitionCallback(), null);
-                    } else {
-                        completion.run();
-                    }
-                } else {
-                    LOG.error("Failed to get log data from {}.", logRootPath);
-                    promise.setException(new ZKException("Failed to get partiton data from " + logRootPath,
-                            KeeperException.Code.get(rc)));
-                    return;
-                }
-            }
-        }
-
-        final int NUM_PATHS_TO_CHECK = ownAllocator ? 6 : 5;
-        MultiGetCallback getCallback = new MultiGetCallback(NUM_PATHS_TO_CHECK, new GetDataCallback(), null);
-        zk.getData(maxTxIdPath, false, getCallback, maxTxIdData);
-        zk.getData(versionPath, false, getCallback, versionData);
+        int numPathsToCheck = ownAllocator ? 6 : 5;
+        List<Future<Versioned<byte[]>>> checkFutures = Lists.newArrayListWithExpectedSize(numPathsToCheck);
+        checkFutures.add(Utils.zkGetData(zk, maxTxIdPath, false));
+        checkFutures.add(Utils.zkGetData(zk, versionPath, false));
+        checkFutures.add(Utils.zkGetData(zk, lockPath, false));
+        checkFutures.add(Utils.zkGetData(zk, readLockPath, false));
+        checkFutures.add(Utils.zkGetData(zk, logSegmentsPath, false));
         if (ownAllocator) {
-            zk.getData(allocationPath, false, getCallback, allocationData);
+            checkFutures.add(Utils.zkGetData(zk, allocationPath, false));
         }
-        zk.getData(lockPath, false, getCallback, lockData);
-        zk.getData(readLockPath, false, getCallback, readLockData);
-        zk.getData(logSegmentsPath, false, getCallback, logSegmentsData);
 
-        return promise;
+        return Future.collect(checkFutures);
     }
 
-    public static Future<ZKLogMetadataForWriter> getLogMetadata(final URI uri,
-                                                                final String logName,
-                                                                final String logIdentifier,
-                                                                final ZooKeeper zk) {
-        final String logSegmentsPath = getLogRootPath(uri, logName, logIdentifier);
-        final Promise<ZKLogMetadataForWriter> promise =
-                new Promise<ZKLogMetadataForWriter>();
+    static void createMissingMetadata(final ZooKeeper zk,
+                                      final String logRootPath,
+                                      final List<Versioned<byte[]>> metadatas,
+                                      final List<ACL> acl,
+                                      final boolean ownAllocator,
+                                      final boolean createIfNotExists,
+                                      final boolean excludeRootPath,
+                                      final Promise<List<Versioned<byte[]>>> promise) {
+        final List<byte[]> pathsToCreate = Lists.newArrayListWithExpectedSize(metadatas.size());
+        final List<Op> zkOps = Lists.newArrayListWithExpectedSize(metadatas.size());
+        CreateMode createMode = CreateMode.PERSISTENT;
+        // max id
+        if (pathExists(metadatas.get(0))) {
+            pathsToCreate.add(null);
+        } else {
+            byte[] zeroTxnIdData = DLUtils.serializeTransactionId(0L);
+            pathsToCreate.add(zeroTxnIdData);
+            zkOps.add(Op.create(logRootPath + MAX_TXID_PATH, zeroTxnIdData, acl, createMode));
+        }
+        // version
+        if (pathExists(metadatas.get(1))) {
+            pathsToCreate.add(null);
+        } else {
+            byte[] versionData = intToBytes(LAYOUT_VERSION);
+            pathsToCreate.add(versionData);
+            zkOps.add(Op.create(logRootPath + VERSION_PATH, versionData, acl, createMode));
+        }
+        // lock path
+        if (pathExists(metadatas.get(2))) {
+            pathsToCreate.add(null);
+        } else {
+            pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
+            zkOps.add(Op.create(logRootPath + LOCK_PATH, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+        }
+        // read lock path
+        if (pathExists(metadatas.get(3))) {
+            pathsToCreate.add(null);
+        } else {
+            pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
+            zkOps.add(Op.create(logRootPath + READ_LOCK_PATH, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+        }
+        // log segments path
+        if (pathExists(metadatas.get(4))) {
+            pathsToCreate.add(null);
+        } else {
+            byte[] logSegmentsData = DLUtils.serializeLogSegmentSequenceNumber(
+                    DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO);
+            pathsToCreate.add(logSegmentsData);
+            zkOps.add(Op.create(logRootPath + LOGSEGMENTS_PATH, logSegmentsData, acl, createMode));
+        }
+        // allocation path
+        if (ownAllocator) {
+            if (pathExists(metadatas.get(5))) {
+                pathsToCreate.add(null);
+            } else {
+                pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
+                zkOps.add(Op.create(logRootPath + ALLOCATION_PATH,
+                        DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+            }
+        }
+        if (zkOps.isEmpty()) {
+            // nothing missed
+            promise.setValue(metadatas);
+            return;
+        }
+        if (!createIfNotExists) {
+            promise.setException(new LogNotFoundException("Log " + logRootPath + " not found"));
+            return;
+        }
 
-        zk.getData(logSegmentsPath, false, new AsyncCallback.DataCallback() {
+        if (zkOps.size() == metadatas.size() && !excludeRootPath) {
+            // all missed, it is most likely that the log hasn't been created
+            zkOps.add(0, Op.create(new File(logRootPath).getParent(),
+                    DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+            zkOps.add(1, Op.create(logRootPath,
+                    DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+        }
+
+        zk.multi(zkOps, new AsyncCallback.MultiCallback() {
             @Override
-            public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+            public void processResult(int rc, String path, Object ctx, List<OpResult> resultList) {
                 if (KeeperException.Code.OK.intValue() == rc) {
-                    DataWithStat logSegmentsStat = new DataWithStat();
-                    DataWithStat maxTXIdStat = new DataWithStat();
-                    DataWithStat allocationStat = new DataWithStat();
-                    logSegmentsStat.setDataWithStat(data, stat);
-                    ZKLogMetadataForWriter logMetadata =
-                        new ZKLogMetadataForWriter(uri, logName, logIdentifier,
-                                logSegmentsStat, maxTXIdStat, allocationStat);
-                    promise.setValue(logMetadata);
-                } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                    promise.setException(new LogNotFoundException("No " + LOGSEGMENTS_PATH
-                            + " found for log " + logName + ":" + logIdentifier));
+                    List<Versioned<byte[]>> finalMetadatas =
+                            Lists.newArrayListWithExpectedSize(metadatas.size());
+                    for (int i = 0; i < pathsToCreate.size(); i++) {
+                        byte[] dataCreated = pathsToCreate.get(i);
+                        if (null == dataCreated) {
+                            finalMetadatas.add(metadatas.get(i));
+                        } else {
+                            finalMetadatas.add(new Versioned<byte[]>(dataCreated, new ZkVersion(0)));
+                        }
+                    }
+                    promise.setValue(finalMetadatas);
+                } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
+                    if (excludeRootPath) {
+                        promise.setException(new LogExistsException("Someone just created log "
+                                + logRootPath));
+                    } else {
+                        createMissingMetadata(zk, logRootPath, metadatas, acl,
+                                ownAllocator, true, true, promise);
+                    }
                 } else {
-                    promise.setException(new ZKException("Failed on getting logsegments data from " + logSegmentsPath + " : ",
+                    promise.setException(new ZKException("Failed to create log " + logRootPath,
                             KeeperException.Code.get(rc)));
                 }
             }
         }, null);
-        return promise;
     }
 
-    private final DataWithStat maxTxIdStat;
-    private final DataWithStat logSegmentsStat;
-    private final DataWithStat allocationStat;
+    static ZKLogMetadataForWriter processLogMetadatas(URI uri,
+                                                      String logName,
+                                                      String logIdentifier,
+                                                      List<Versioned<byte[]>> metadatas,
+                                                      boolean ownAllocator)
+            throws UnexpectedException {
+        try {
+            // max id
+            Versioned<byte[]> maxTxnIdData = metadatas.get(0);
+            ensureMetadataExist(maxTxnIdData);
+            // version
+            Versioned<byte[]> versionData = metadatas.get(1);
+            ensureMetadataExist(maxTxnIdData);
+            Preconditions.checkArgument(LAYOUT_VERSION == bytesToInt(versionData.getValue()));
+            // lock path
+            ensureMetadataExist(metadatas.get(2));
+            // read lock path
+            ensureMetadataExist(metadatas.get(3));
+            // max lssn
+            Versioned<byte[]> maxLSSNData = metadatas.get(4);
+            ensureMetadataExist(maxLSSNData);
+            // allocation path
+            Versioned<byte[]>  allocationData;
+            if (ownAllocator) {
+                allocationData = metadatas.get(5);
+                ensureMetadataExist(allocationData);
+            } else {
+                allocationData = new Versioned<byte[]>(null, null);
+            }
+            return new ZKLogMetadataForWriter(uri, logName, logIdentifier,
+                    maxLSSNData, maxTxnIdData, allocationData);
+        } catch (IllegalArgumentException iae) {
+            throw new UnexpectedException("Invalid log " + logName, iae);
+        } catch (NullPointerException npe) {
+            throw new UnexpectedException("Invalid log " + logName, npe);
+        }
+    }
+
+    private final Versioned<byte[]> maxLSSNData;
+    private final Versioned<byte[]> maxTxIdData;
+    private final Versioned<byte[]> allocationData;
 
     /**
      * metadata representation of a log
@@ -306,25 +283,25 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
     private ZKLogMetadataForWriter(URI uri,
                                    String logName,
                                    String logIdentifier,
-                                   DataWithStat logSegmentsStat,
-                                   DataWithStat maxTxIdStat,
-                                   DataWithStat allocationStat) {
+                                   Versioned<byte[]> maxLSSNData,
+                                   Versioned<byte[]> maxTxIdData,
+                                   Versioned<byte[]> allocationData) {
         super(uri, logName, logIdentifier);
-        this.logSegmentsStat = logSegmentsStat;
-        this.maxTxIdStat = maxTxIdStat;
-        this.allocationStat = allocationStat;
+        this.maxLSSNData = maxLSSNData;
+        this.maxTxIdData = maxTxIdData;
+        this.allocationData = allocationData;
     }
 
-    public DataWithStat getLogSegmentsStat() {
-        return logSegmentsStat;
+    public Versioned<byte[]> getMaxLSSNData() {
+        return maxLSSNData;
     }
 
-    public DataWithStat getMaxTxIdStat() {
-        return maxTxIdStat;
+    public Versioned<byte[]> getMaxTxIdData() {
+        return maxTxIdData;
     }
 
-    public DataWithStat getAllocationStat() {
-        return allocationStat;
+    public Versioned<byte[]> getAllocationData() {
+        return allocationData;
     }
 
 }

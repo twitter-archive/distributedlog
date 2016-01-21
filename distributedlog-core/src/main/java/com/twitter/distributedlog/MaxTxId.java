@@ -18,7 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.util.DLUtils;
-import com.twitter.distributedlog.zk.DataWithStat;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,13 +39,14 @@ class MaxTxId {
     private long currentMax;
 
     MaxTxId(ZooKeeperClient zkc, String path, boolean enabled,
-            DataWithStat dataWithStat) {
+            Versioned<byte[]> maxTxIdData) {
         this.zkc = zkc;
         this.path = path;
-        this.enabled = enabled && null != dataWithStat && null != dataWithStat.getStat();
+        this.enabled = enabled && null != maxTxIdData && null != maxTxIdData.getVersion()
+                && null != maxTxIdData.getValue();
         if (this.enabled) {
             try {
-                this.currentMax = DLUtils.deserializeTransactionId(dataWithStat.getData());
+                this.currentMax = DLUtils.deserializeTransactionId(maxTxIdData.getValue());
             } catch (NumberFormatException e) {
                 LOG.warn("Invalid txn id stored in {}", path, e);
                 this.currentMax = 0L;

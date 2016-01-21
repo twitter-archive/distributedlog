@@ -3,12 +3,16 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -100,9 +104,18 @@ public class TestDistributedLogBase {
         return DLMTestUtil.createDLMURI(zkPort, path);
     }
 
+    protected void ensureURICreated(URI uri) throws Exception {
+        try {
+            zkc.create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        } catch (KeeperException.NodeExistsException nee) {
+            // ignore
+        }
+    }
+
     public BKDistributedLogManager createNewDLM(DistributedLogConfiguration conf,
-                                              String name) throws Exception {
+                                                String name) throws Exception {
         URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
         return new BKDistributedLogManager(
                 name,
                 conf,
@@ -120,10 +133,11 @@ public class TestDistributedLogBase {
     }
 
     public BKDistributedLogManager createNewDLM(DistributedLogConfiguration conf,
-                                              String name,
-                                              PermitLimiter writeLimiter)
+                                                String name,
+                                                PermitLimiter writeLimiter)
             throws Exception {
         URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
         return new BKDistributedLogManager(
                 name,
                 conf,

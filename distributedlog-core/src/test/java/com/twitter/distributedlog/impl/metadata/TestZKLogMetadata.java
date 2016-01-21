@@ -38,4 +38,5 @@ public class TestZKLogMetadata {
                 logName + ":" + logIdentifier, logMetadata.getFullyQualifiedName());
     }
 
+
 }

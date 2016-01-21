@@ -789,8 +789,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         int numLogSegments = 3;
         int numRecordsPerLogSegment = 1;
 
+        URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
         DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(confLocal).uri(createDLMURI("/" + name)).build();
+                .conf(confLocal).uri(uri).build();
         final DistributedLogManager[] dlms = new DistributedLogManager[count];
         final TestReader[] readers = new TestReader[count];
         final CountDownLatch readyLatch = new CountDownLatch(count);
@@ -1211,6 +1213,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setMinDelayBetweenImmediateFlushMs(1);
 
         URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
 
         DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
                 .conf(confLocal).uri(uri).clientId("gabbagoo").build();

@@ -3,15 +3,16 @@ package com.twitter.distributedlog.bk;
 import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.util.Utils;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.zk.DataWithStat;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
@@ -87,7 +88,8 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
     private final int ackQuorumSize;
     private final byte[] digestpw;
 
-    static DataWithStat createAndGetAllocationData(String allocatePath, ZooKeeperClient zkc) throws IOException {
+    static Versioned<byte[]> createAndGetAllocationData(String allocatePath, ZooKeeperClient zkc)
+            throws IOException {
         try {
             try {
                 zkc.get().create(allocatePath, new byte[0], zkc.getDefaultACL(), CreateMode.PERSISTENT);
@@ -97,9 +99,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
             }
             Stat stat = new Stat();
             byte[] data = zkc.get().getData(allocatePath, false, stat);
-            DataWithStat dataWithStat = new DataWithStat();
-            dataWithStat.setDataWithStat(data, stat);
-            return dataWithStat;
+            return new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
         } catch (KeeperException e) {
             throw new IOException("Failed to get allocation data from " + allocatePath, e);
         } catch (InterruptedException e) {
@@ -128,9 +128,11 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      *          bookkeeper client.
      * @throws IOException
      */
-    public SimpleLedgerAllocator(String allocatePath, DataWithStat allocationData,
+    public SimpleLedgerAllocator(String allocatePath,
+                                 Versioned<byte[]> allocationData,
                                  DistributedLogConfiguration conf,
-                                 ZooKeeperClient zkc, BookKeeperClient bkc) {
+                                 ZooKeeperClient zkc,
+                                 BookKeeperClient bkc) {
         this.zkc = zkc;
         this.bkc = bkc;
         this.allocatePath = allocatePath;
@@ -160,13 +162,13 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
      *          Allocation Data.
      * @throws IOException
      */
-    private void initialize(DataWithStat allocationData) {
-        setZkVersion(allocationData.getStat().getVersion());
-        byte[] data = allocationData.getData();
+    private void initialize(Versioned<byte[]> allocationData) {
+        setZkVersion(((ZkVersion) allocationData.getVersion()).getZnodeVersion());
+        byte[] data = allocationData.getValue();
         if (null != data && data.length > 0) {
             // delete the allocated ledger since this is left by last allocation.
             try {
-                ledgerIdLeftFromPrevAllocation = Utils.bytes2LedgerId(data);
+                ledgerIdLeftFromPrevAllocation = DLUtils.bytes2LedgerId(data);
             } catch (NumberFormatException nfe) {
                 LOG.warn("Invalid data found in allocator path {} : ", allocatePath, nfe);
             }
@@ -341,7 +343,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, AsyncCallback.Cre
 
     private void markAsAllocated(final LedgerHandle lh)
             throws InterruptedException, ZooKeeperClient.ZooKeeperConnectionException {
-        byte[] data = Utils.ledgerId2Bytes(lh.getId());
+        byte[] data = DLUtils.ledgerId2Bytes(lh.getId());
         zkc.get().setData(allocatePath, data, getZkVersion(), new org.apache.zookeeper.AsyncCallback.StatCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, Stat stat) {

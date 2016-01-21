@@ -69,6 +69,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 .setPeriodicFlushFrequencyMilliSeconds(10);
         serverConf = newLocalServerConf();
         uri = createDLMURI("/" + testName.getMethodName());
+        ensureURICreated(uri);
         service = createService(serverConf, dlConf, latch);
     }
 

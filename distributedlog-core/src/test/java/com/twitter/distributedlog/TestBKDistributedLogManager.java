@@ -305,7 +305,8 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testTwoWriters() throws Exception {
         long start = 1;
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm1 = createNewBKDLM(conf, "distrlog-dualWriter");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm1 =
+                createNewBKDLM(conf, "distrlog-dualWriter");
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlm2 = createNewBKDLM(conf, "distrlog-dualWriter");
 
         bkdlm1.getWriteHandler().startLogSegment(start);
@@ -491,7 +492,6 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         String name = "distrlog-check-log-exists";
         DistributedLogManager dlm = createNewDLM(conf, name);
 
-        dlm.createOrUpdateMetadata(name.getBytes());
         long txid = 1;
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
@@ -500,6 +500,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         writer.setReadyToFlush();
         writer.flushAndSync();
         writer.close();
+        dlm.createOrUpdateMetadata(name.getBytes());
         assertEquals(name, new String(dlm.getMetadata()));
 
         URI uri = createDLMURI("/" + name);
@@ -524,7 +525,6 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         for(Map.Entry<String, byte[]> logEntry: namespace.enumerateLogsWithMetadataInNamespace().entrySet()) {
             assertEquals(name, new String(logEntry.getValue()));
         }
-
     }
 
     @Test(timeout = 60000)
@@ -766,7 +766,8 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
 
     @Test(timeout = 60000)
     public void testMaxLogRecSize() throws Exception {
-        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-maxlogRecSize");
+        DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients =
+                createNewBKDLM(conf, "distrlog-maxlogRecSize");
         long txid = 1;
         BKLogSegmentWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
         boolean exceptionEncountered = false;
