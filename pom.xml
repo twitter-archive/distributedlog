@@ -5,7 +5,7 @@
   <groupId>com.twitter</groupId>
   <artifactId>distributedlog</artifactId>
   <packaging>pom</packaging>
-  <version>0.3.42-SNAPSHOT</version>
+  <version>0.3.43-SNAPSHOT</version>
   <name>distributedlog</name>
   <distributionManagement>
     <repository>

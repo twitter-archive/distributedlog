@@ -1,3 +1,9 @@
+0.3.42
+------
+- Bump birdcage release to 20160128130022-e7bf469
+- Add markEndOfStream to log writer
+- Conversion of many synchronous/blocking operations to asynchronous
+
 0.3.41
 ------
 - Bump bkc to 4.3.2
