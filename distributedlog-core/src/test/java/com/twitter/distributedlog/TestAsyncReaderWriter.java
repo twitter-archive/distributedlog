@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
@@ -1687,4 +1688,74 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         }
     }
 
+    @Test(timeout = 60000)
+    public void testMarkEndOfStream() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+
+        final int NUM_RECORDS = 10;
+        int i = 1;
+        for (; i <= NUM_RECORDS; i++) {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(i)));
+            assertEquals("last tx id should become " + i,
+                    i, writer.getLastTxId());
+        }
+
+        Await.result(writer.markEndOfStream());
+
+        // Multiple end of streams are ok.
+        Await.result(writer.markEndOfStream());
+
+        try {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(i)));
+            fail("Should have thrown");
+        } catch (EndOfStreamException ex) {
+        }
+
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        LogRecord record = null;
+        for (int j = 0; j < NUM_RECORDS; j++) {
+            record = Await.result(reader.readNext());
+            assertEquals(j+1, record.getTransactionId());
+        }
+
+        try {
+            record = Await.result(reader.readNext());
+            fail("Should have thrown");
+        } catch (EndOfStreamException ex) {
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testMarkEndOfStreamAtBeginningOfSegment() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        Await.result(writer.markEndOfStream());
+        try {
+            Await.result(writer.write(DLMTestUtil.getLogRecordInstance(1)));
+            fail("Should have thrown");
+        } catch (EndOfStreamException ex) {
+        }
+
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        try {
+            LogRecord record = Await.result(reader.readNext());
+            fail("Should have thrown");
+        } catch (EndOfStreamException ex) {
+        }
+    }
 }

@@ -58,6 +58,16 @@ public class AppendOnlyStreamWriter implements Closeable {
         logWriter.closeAndComplete();
     }
 
+    public void markEndOfStream() throws IOException {
+        try {
+            Await.result(logWriter.markEndOfStream());
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception ex) {
+            throw new UnexpectedException("Mark end of stream hit unexpected exception", ex);
+        }
+    }
+
     class WriteCompleteListener implements FutureEventListener<DLSN> {
         private final long position;
         public WriteCompleteListener(long position) {

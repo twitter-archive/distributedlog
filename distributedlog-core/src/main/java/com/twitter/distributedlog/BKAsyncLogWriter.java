@@ -155,6 +155,8 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     private final StatsLogger statsLogger;
     private final OpStatsLogger writeOpStatsLogger;
     private final OpStatsLogger writeQueueOpStatsLogger;
+    private final OpStatsLogger markEndOfStreamOpStatsLogger;
+    private final OpStatsLogger markEndOfStreamQueueOpStatsLogger;
     private final OpStatsLogger bulkWriteOpStatsLogger;
     private final OpStatsLogger bulkWriteQueueOpStatsLogger;
     private final OpStatsLogger getWriterOpStatsLogger;
@@ -184,6 +186,8 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         this.statsLogger = dlmStatsLogger.scope("log_writer");
         this.writeOpStatsLogger = statsLogger.getOpStatsLogger("write");
         this.writeQueueOpStatsLogger = statsLogger.scope("write").getOpStatsLogger("queued");
+        this.markEndOfStreamOpStatsLogger = statsLogger.getOpStatsLogger("mark_end_of_stream");
+        this.markEndOfStreamQueueOpStatsLogger = statsLogger.scope("mark_end_of_stream").getOpStatsLogger("queued");
         this.bulkWriteOpStatsLogger = statsLogger.getOpStatsLogger("bulk_write");
         this.bulkWriteQueueOpStatsLogger = statsLogger.scope("bulk_write").getOpStatsLogger("queued");
         this.getWriterOpStatsLogger = statsLogger.getOpStatsLogger("get_writer");
@@ -243,8 +247,10 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         return getCachedLogWriter();
     }
 
-    private BKLogSegmentWriter getPerStreamLogWriter(LogRecord record, boolean bestEffort,
-                                                       boolean rollLog) throws IOException {
+    private BKLogSegmentWriter getPerStreamLogWriter(long firstTxid,
+                                                     boolean bestEffort,
+                                                     boolean rollLog,
+                                                     boolean allowMaxTxID) throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
@@ -253,8 +259,11 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
             }
             BKLogSegmentWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
             if (null == writer || rollLog) {
-                writer = rollLogSegmentIfNecessary(writer, conf.getUnpartitionedStreamName(),
-                                                   record.getTransactionId(), bestEffort, false);
+                writer = rollLogSegmentIfNecessary(writer,
+                                                   conf.getUnpartitionedStreamName(),
+                                                   firstTxid,
+                                                   bestEffort,
+                                                   allowMaxTxID);
             }
             success = true;
             return writer;
@@ -265,6 +274,23 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
                 getWriterOpStatsLogger.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
             }
         }
+    }
+
+    /**
+     * We write end of stream marker by writing a record with MAX_TXID, so we need to allow using
+     * max txid when rolling for this case only.
+     */
+    private BKLogSegmentWriter getPerStreamLogWriterForEndOfStream() throws IOException {
+        return getPerStreamLogWriter(DistributedLogConstants.MAX_TXID,
+                                     false /* bestEffort */,
+                                     false /* roll log */,
+                                     true /* allow max txid */);
+    }
+
+    private BKLogSegmentWriter getPerStreamLogWriter(long firstTxid,
+                                                     boolean bestEffort,
+                                                     boolean rollLog) throws IOException {
+        return getPerStreamLogWriter(firstTxid, bestEffort, rollLog, false /* allow max txid */);
     }
 
     Future<DLSN> queueRequest(LogRecord record) {
@@ -301,7 +327,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     private Future<DLSN> asyncWrite(LogRecord record, boolean flush) throws IOException {
-        BKLogSegmentWriter w = getPerStreamLogWriter(record, false, false);
+        BKLogSegmentWriter w = getPerStreamLogWriter(record.getTransactionId(), false, false);
         return asyncWrite(w, record, flush);
     }
 
@@ -372,7 +398,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
         try {
-            BKLogSegmentWriter writer = getPerStreamLogWriter(record, true, true);
+            BKLogSegmentWriter writer = getPerStreamLogWriter(record.getTransactionId(), true, true);
             synchronized (this) {
                 for (PendingLogRecord pendingLogRecord : pendingRequests) {
 
@@ -509,6 +535,24 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
                 return String.format("FlushAndSyncAll(Stream=%s)", getStreamName());
             }
         });
+    }
+
+    Future<Void> markEndOfStream() {
+        final Stopwatch stopwatch = Stopwatch.createStarted();
+        return orderedFuturePool.apply(new ExceptionalFunction0<Void>() {
+            @Override
+            public Void applyE() throws IOException {
+                markEndOfStreamQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+                BKLogSegmentWriter w = getPerStreamLogWriterForEndOfStream();
+                w.markEndOfStream();
+                return null;
+            }
+
+            @Override
+            public String toString() {
+                return String.format("markEndOfStream(Stream=%s)", getStreamName());
+            }
+        }).addEventListener(new OpStatsListener<Void>(markEndOfStreamOpStatsLogger, stopwatch));
     }
 
     @Override
