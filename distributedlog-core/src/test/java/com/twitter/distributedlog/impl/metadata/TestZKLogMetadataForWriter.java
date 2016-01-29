@@ -1,7 +1,13 @@
 package com.twitter.distributedlog.impl.metadata;
 
+import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.metadata.DLMetadata;
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -88,9 +94,9 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
         List<Versioned<byte[]>> metadatas =
                 FutureUtils.result(ZKLogMetadataForWriter.checkLogMetadataPaths(
                         zkc.get(), logRootPath, true));
-        assertEquals("Should have 6 paths",
-                6, metadatas.size());
-        for (Versioned<byte[]> path : metadatas) {
+        assertEquals("Should have 8 paths",
+                8, metadatas.size());
+        for (Versioned<byte[]> path : metadatas.subList(2, metadatas.size())) {
             assertNull(path.getValue());
             assertNull(path.getVersion());
         }
@@ -102,9 +108,9 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
         List<Versioned<byte[]>> metadatas =
                 FutureUtils.result(ZKLogMetadataForWriter.checkLogMetadataPaths(
                         zkc.get(), logRootPath, false));
-        assertEquals("Should have 5 paths",
-                5, metadatas.size());
-        for (Versioned<byte[]> path : metadatas) {
+        assertEquals("Should have 7 paths",
+                7, metadatas.size());
+        for (Versioned<byte[]> path : metadatas.subList(2, metadatas.size())) {
             assertNull(path.getValue());
             assertNull(path.getVersion());
         }
@@ -124,18 +130,22 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
         for (String path : pathsToDelete) {
             zkc.get().delete(path, -1);
         }
+
         ZKLogMetadataForWriter logMetadata =
                 FutureUtils.result(ZKLogMetadataForWriter.of(uri, logName, logIdentifier,
                         zkc.get(), zkc.getDefaultACL(), ownAllocator, true));
+
         final String logRootPath = getLogRootPath(uri, logName, logIdentifier);
+
         List<Versioned<byte[]>> metadatas =
                 FutureUtils.result(ZKLogMetadataForWriter.checkLogMetadataPaths(zkc.get(), logRootPath, ownAllocator));
+
         if (ownAllocator) {
-            assertEquals("Should have 6 paths : ownAllocator = " + ownAllocator,
-                    6, metadatas.size());
+            assertEquals("Should have 8 paths : ownAllocator = " + ownAllocator,
+                    8, metadatas.size());
         } else {
-            assertEquals("Should have 5 paths : ownAllocator = " + ownAllocator,
-                    5, metadatas.size());
+            assertEquals("Should have 7 paths : ownAllocator = " + ownAllocator,
+                    7, metadatas.size());
         }
 
         for (Versioned<byte[]> metadata : metadatas) {
@@ -144,10 +154,14 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
         }
 
         Versioned<byte[]> logSegmentsData = logMetadata.getMaxLSSNData();
+
         assertEquals(DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO,
                 DLUtils.deserializeLogSegmentSequenceNumber(logSegmentsData.getValue()));
+
         Versioned<byte[]> maxTxIdData = logMetadata.getMaxTxIdData();
+
         assertEquals(0L, DLUtils.deserializeTransactionId(maxTxIdData.getValue()));
+
         if (ownAllocator) {
             Versioned<byte[]> allocationData = logMetadata.getAllocationData();
             assertEquals(0, allocationData.getValue().length);
@@ -262,6 +276,27 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
         String logIdentifier = "<default>";
         FutureUtils.result(ZKLogMetadataForWriter.of(uri, logName, logIdentifier,
                         zkc.get(), zkc.getDefaultACL(), true, false));
+    }
+
+    @Test(timeout = 60000)
+    public void testCreateLogMetadataWithCustomMetadata() throws Exception {
+        URI uri = DLMTestUtil.createDLMURI(zkPort, "");
+        String logName = testName.getMethodName();
+        String logIdentifier = "<default>";
+        List<String> pathsToDelete = Lists.newArrayList();
+
+        DLMetadata.create(new BKDLConfig(zkServers, "/ledgers")).update(uri);
+
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+            .conf(new DistributedLogConfiguration())
+            .uri(uri)
+            .build();
+
+        DistributedLogManager dlm = namespace.openLog(logName);
+        dlm.createOrUpdateMetadata(logName.getBytes("UTF-8"));
+        dlm.close();
+
+        testCreateLogMetadataWithMissingPaths(uri, logName, logIdentifier, pathsToDelete, true, false);
     }
 
 }

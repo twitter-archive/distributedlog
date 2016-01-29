@@ -39,6 +39,17 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
 
     static final Logger LOG = LoggerFactory.getLogger(ZKLogMetadataForWriter.class);
 
+    static class MetadataIndex {
+        static final int LOG_ROOT_PARENT = 0;
+        static final int LOG_ROOT = 1;
+        static final int MAX_TXID = 2;
+        static final int VERSION = 3;
+        static final int LOCK = 4;
+        static final int READ_LOCK = 5;
+        static final int LOGSEGMENTS = 6;
+        static final int ALLOCATION = 7;
+    }
+
     static int bytesToInt(byte[] b) {
         assert b.length >= 4;
         return b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3];
@@ -84,7 +95,7 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
                         Promise<List<Versioned<byte[]>>> promise =
                                 new Promise<List<Versioned<byte[]>>>();
                         createMissingMetadata(zk, logRootPath, metadatas, acl,
-                                ownAllocator, createIfNotExists, false, promise);
+                                ownAllocator, createIfNotExists, promise);
                         return promise;
                     }
                 }).map(new ExceptionalFunction<List<Versioned<byte[]>>, ZKLogMetadataForWriter>() {
@@ -101,6 +112,7 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
         // Note re. persistent lock state initialization: the read lock persistent state (path) is
         // initialized here but only used in the read handler. The reason is its more convenient and
         // less error prone to manage all stream structure in one place.
+        final String logRootParentPath = new File(logRootPath).getParent();
         final String logSegmentsPath = logRootPath + LOGSEGMENTS_PATH;
         final String maxTxIdPath = logRootPath + MAX_TXID_PATH;
         final String lockPath = logRootPath + LOCK_PATH;
@@ -108,8 +120,10 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
         final String versionPath = logRootPath + VERSION_PATH;
         final String allocationPath = logRootPath + ALLOCATION_PATH;
 
-        int numPathsToCheck = ownAllocator ? 6 : 5;
-        List<Future<Versioned<byte[]>>> checkFutures = Lists.newArrayListWithExpectedSize(numPathsToCheck);
+        int numPaths = ownAllocator ? MetadataIndex.ALLOCATION + 1 : MetadataIndex.LOGSEGMENTS + 1;
+        List<Future<Versioned<byte[]>>> checkFutures = Lists.newArrayListWithExpectedSize(numPaths);
+        checkFutures.add(Utils.zkGetData(zk, logRootParentPath, false));
+        checkFutures.add(Utils.zkGetData(zk, logRootPath, false));
         checkFutures.add(Utils.zkGetData(zk, maxTxIdPath, false));
         checkFutures.add(Utils.zkGetData(zk, versionPath, false));
         checkFutures.add(Utils.zkGetData(zk, lockPath, false));
@@ -128,13 +142,30 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
                                       final List<ACL> acl,
                                       final boolean ownAllocator,
                                       final boolean createIfNotExists,
-                                      final boolean excludeRootPath,
                                       final Promise<List<Versioned<byte[]>>> promise) {
         final List<byte[]> pathsToCreate = Lists.newArrayListWithExpectedSize(metadatas.size());
         final List<Op> zkOps = Lists.newArrayListWithExpectedSize(metadatas.size());
         CreateMode createMode = CreateMode.PERSISTENT;
+
+        // log root parent path
+        if (pathExists(metadatas.get(MetadataIndex.LOG_ROOT_PARENT))) {
+            pathsToCreate.add(null);
+        } else {
+            String logRootParentPath = new File(logRootPath).getParent();
+            pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
+            zkOps.add(Op.create(logRootParentPath, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+        }
+
+        // log root path
+        if (pathExists(metadatas.get(MetadataIndex.LOG_ROOT))) {
+            pathsToCreate.add(null);
+        } else {
+            pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
+            zkOps.add(Op.create(logRootPath, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
+        }
+
         // max id
-        if (pathExists(metadatas.get(0))) {
+        if (pathExists(metadatas.get(MetadataIndex.MAX_TXID))) {
             pathsToCreate.add(null);
         } else {
             byte[] zeroTxnIdData = DLUtils.serializeTransactionId(0L);
@@ -142,7 +173,7 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             zkOps.add(Op.create(logRootPath + MAX_TXID_PATH, zeroTxnIdData, acl, createMode));
         }
         // version
-        if (pathExists(metadatas.get(1))) {
+        if (pathExists(metadatas.get(MetadataIndex.VERSION))) {
             pathsToCreate.add(null);
         } else {
             byte[] versionData = intToBytes(LAYOUT_VERSION);
@@ -150,21 +181,21 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             zkOps.add(Op.create(logRootPath + VERSION_PATH, versionData, acl, createMode));
         }
         // lock path
-        if (pathExists(metadatas.get(2))) {
+        if (pathExists(metadatas.get(MetadataIndex.LOCK))) {
             pathsToCreate.add(null);
         } else {
             pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
             zkOps.add(Op.create(logRootPath + LOCK_PATH, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
         }
         // read lock path
-        if (pathExists(metadatas.get(3))) {
+        if (pathExists(metadatas.get(MetadataIndex.READ_LOCK))) {
             pathsToCreate.add(null);
         } else {
             pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
             zkOps.add(Op.create(logRootPath + READ_LOCK_PATH, DistributedLogConstants.EMPTY_BYTES, acl, createMode));
         }
         // log segments path
-        if (pathExists(metadatas.get(4))) {
+        if (pathExists(metadatas.get(MetadataIndex.LOGSEGMENTS))) {
             pathsToCreate.add(null);
         } else {
             byte[] logSegmentsData = DLUtils.serializeLogSegmentSequenceNumber(
@@ -174,7 +205,7 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
         }
         // allocation path
         if (ownAllocator) {
-            if (pathExists(metadatas.get(5))) {
+            if (pathExists(metadatas.get(MetadataIndex.ALLOCATION))) {
                 pathsToCreate.add(null);
             } else {
                 pathsToCreate.add(DistributedLogConstants.EMPTY_BYTES);
@@ -190,14 +221,6 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
         if (!createIfNotExists) {
             promise.setException(new LogNotFoundException("Log " + logRootPath + " not found"));
             return;
-        }
-
-        if (zkOps.size() == metadatas.size() && !excludeRootPath) {
-            // all missed, it is most likely that the log hasn't been created
-            zkOps.add(0, Op.create(new File(logRootPath).getParent(),
-                    DistributedLogConstants.EMPTY_BYTES, acl, createMode));
-            zkOps.add(1, Op.create(logRootPath,
-                    DistributedLogConstants.EMPTY_BYTES, acl, createMode));
         }
 
         zk.multi(zkOps, new AsyncCallback.MultiCallback() {
@@ -216,14 +239,23 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
                     }
                     promise.setValue(finalMetadatas);
                 } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                    if (excludeRootPath) {
-                        promise.setException(new LogExistsException("Someone just created log "
-                                + logRootPath));
-                    } else {
-                        createMissingMetadata(zk, logRootPath, metadatas, acl,
-                                ownAllocator, true, true, promise);
-                    }
+                    promise.setException(new LogExistsException("Someone just created log "
+                            + logRootPath));
                 } else {
+                    if (LOG.isDebugEnabled()) {
+                        StringBuilder builder = new StringBuilder();
+                        for (OpResult result : resultList) {
+                            if (result instanceof OpResult.ErrorResult) {
+                                OpResult.ErrorResult errorResult = (OpResult.ErrorResult) result;
+                                builder.append(errorResult.getErr()).append(",");
+                            } else {
+                                builder.append(0).append(",");
+                            }
+                        }
+                        String resultCodeList = builder.substring(0, builder.length() - 1);
+                        LOG.debug("Failed to create log, full rc list = {}", resultCodeList);
+                    }
+
                     promise.setException(new ZKException("Failed to create log " + logRootPath,
                             KeeperException.Code.get(rc)));
                 }
@@ -239,23 +271,23 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             throws UnexpectedException {
         try {
             // max id
-            Versioned<byte[]> maxTxnIdData = metadatas.get(0);
+            Versioned<byte[]> maxTxnIdData = metadatas.get(MetadataIndex.MAX_TXID);
             ensureMetadataExist(maxTxnIdData);
             // version
-            Versioned<byte[]> versionData = metadatas.get(1);
+            Versioned<byte[]> versionData = metadatas.get(MetadataIndex.VERSION);
             ensureMetadataExist(maxTxnIdData);
             Preconditions.checkArgument(LAYOUT_VERSION == bytesToInt(versionData.getValue()));
             // lock path
-            ensureMetadataExist(metadatas.get(2));
+            ensureMetadataExist(metadatas.get(MetadataIndex.LOCK));
             // read lock path
-            ensureMetadataExist(metadatas.get(3));
+            ensureMetadataExist(metadatas.get(MetadataIndex.READ_LOCK));
             // max lssn
-            Versioned<byte[]> maxLSSNData = metadatas.get(4);
+            Versioned<byte[]> maxLSSNData = metadatas.get(MetadataIndex.LOGSEGMENTS);
             ensureMetadataExist(maxLSSNData);
             // allocation path
             Versioned<byte[]>  allocationData;
             if (ownAllocator) {
-                allocationData = metadatas.get(5);
+                allocationData = metadatas.get(MetadataIndex.ALLOCATION);
                 ensureMetadataExist(allocationData);
             } else {
                 allocationData = new Versioned<byte[]>(null, null);

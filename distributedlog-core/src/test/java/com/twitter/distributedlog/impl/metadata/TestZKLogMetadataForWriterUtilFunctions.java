@@ -23,6 +23,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(null, null));
         ZKLogMetadataForWriter.processLogMetadatas(uri, logName, logIdentifier, metadatas, false);
     }
@@ -35,6 +37,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(null, null));
         ZKLogMetadataForWriter.processLogMetadatas(uri, logName, logIdentifier, metadatas, false);
@@ -48,6 +52,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(9999), null));
         ZKLogMetadataForWriter.processLogMetadatas(uri, logName, logIdentifier, metadatas, false);
@@ -61,6 +67,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(null, null));
@@ -75,6 +83,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(new byte[0], new ZkVersion(1)),
@@ -90,6 +100,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(new byte[0], new ZkVersion(1)),
@@ -106,6 +118,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         String logName = "test-log";
         String logIdentifier = "<default>";
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 new Versioned<byte[]>(DLUtils.serializeTransactionId(1L), new ZkVersion(1)),
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(new byte[0], new ZkVersion(1)),
@@ -127,6 +141,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         Versioned<byte[]> logSegmentsData =
                 new Versioned<byte[]>(DLUtils.serializeLogSegmentSequenceNumber(1L), new ZkVersion(1));
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 maxTxnIdData,
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(new byte[0], new ZkVersion(1)),
@@ -154,6 +170,8 @@ public class TestZKLogMetadataForWriterUtilFunctions {
         Versioned<byte[]> allocationData =
                 new Versioned<byte[]>(DLUtils.ledgerId2Bytes(1L), new ZkVersion(1));
         List<Versioned<byte[]>> metadatas = Lists.newArrayList(
+                new Versioned<byte[]>(null, null),
+                new Versioned<byte[]>(null, null),
                 maxTxnIdData,
                 new Versioned<byte[]>(ZKLogMetadataForWriter.intToBytes(ZKLogMetadata.LAYOUT_VERSION), null),
                 new Versioned<byte[]>(new byte[0], new ZkVersion(1)),
