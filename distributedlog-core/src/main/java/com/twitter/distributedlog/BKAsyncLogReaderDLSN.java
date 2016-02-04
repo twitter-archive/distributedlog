@@ -67,10 +67,10 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     protected final BKDistributedLogManager bkDistributedLogManager;
     protected final BKLogReadHandler bkLedgerManager;
     private Watcher sessionExpireWatcher = null;
-    private AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
-    private ScheduledExecutorService executorService;
-    private ConcurrentLinkedQueue<PendingReadRequest> pendingRequests = new ConcurrentLinkedQueue<PendingReadRequest>();
-    private AtomicLong scheduleCount = new AtomicLong(0);
+    private final AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
+    private final ScheduledExecutorService executorService;
+    private final ConcurrentLinkedQueue<PendingReadRequest> pendingRequests = new ConcurrentLinkedQueue<PendingReadRequest>();
+    private final AtomicLong scheduleCount = new AtomicLong(0);
     private boolean simulateErrors = false;
     final private Stopwatch scheduleDelayStopwatch;
     final private Stopwatch readNextDelayStopwatch;
@@ -80,6 +80,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final boolean positionGapDetectionEnabled;
     private final int idleErrorThresholdMillis;
     private final ScheduledFuture<?> idleReaderTimeoutTask;
+    private ScheduledFuture<?> backgroundScheduleTask = null;
 
     protected boolean closed = false;
 
@@ -88,6 +89,16 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean disableReadAheadZKNotification = false;
 
     private final boolean returnEndOfStreamRecord;
+
+    private final Runnable BACKGROUND_READ_SCHEDULER = new Runnable() {
+        @Override
+        public void run() {
+            synchronized (scheduleCount) {
+                backgroundScheduleTask = null;
+            }
+            scheduleBackgroundRead();
+        }
+    };
 
     // Stats
     private final OpStatsLogger readNextExecTime;
@@ -101,12 +112,25 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private class PendingReadRequest {
         private final Stopwatch enqueueTime;
         private final int numEntries;
+        private final List<LogRecordWithDLSN> records;
         private final Promise<List<LogRecordWithDLSN>> promise;
+        private final long deadlineTime;
+        private final TimeUnit deadlineTimeUnit;
 
-        PendingReadRequest(int numEntries) {
+        PendingReadRequest(int numEntries,
+                           long deadlineTime,
+                           TimeUnit deadlineTimeUnit) {
             this.numEntries = numEntries;
             this.enqueueTime = Stopwatch.createStarted();
+            // optimize the space usage for single read.
+            if (numEntries == 1) {
+                this.records = new ArrayList<LogRecordWithDLSN>(1);
+            } else {
+                this.records = new ArrayList<LogRecordWithDLSN>();
+            }
             this.promise = new Promise<List<LogRecordWithDLSN>>();
+            this.deadlineTime = deadlineTime;
+            this.deadlineTimeUnit = deadlineTimeUnit;
         }
 
         Promise<List<LogRecordWithDLSN>> getPromise() {
@@ -125,7 +149,29 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             }
         }
 
-        void setValue(List<LogRecordWithDLSN> records) {
+        boolean hasReadRecords() {
+            return records.size() > 0;
+        }
+
+        boolean hasReadEnoughRecords() {
+            return records.size() >= numEntries;
+        }
+
+        long getRemainingWaitTime() {
+            if (deadlineTime <= 0L) {
+                return 0L;
+            }
+            return deadlineTime - elapsedSinceEnqueue(deadlineTimeUnit);
+        }
+
+        void addRecord(LogRecordWithDLSN record) {
+            records.add(record);
+        }
+
+        void complete() {
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("{} : Satisfied promise with {} records", bkLedgerManager.getFullyQualifiedName(), records.size());
+            }
             delayUntilPromiseSatisfied.registerSuccessfulEvent(enqueueTime.stop().elapsed(TimeUnit.MICROSECONDS));
             Stopwatch stopwatch = Stopwatch.createStarted();
             promise.setValue(records);
@@ -273,11 +319,18 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
      */
     @Override
     public synchronized Future<LogRecordWithDLSN> readNext() {
-        return readInternal(1).map(READ_NEXT_MAP_FUNCTION);
+        return readInternal(1, 0, TimeUnit.MILLISECONDS).map(READ_NEXT_MAP_FUNCTION);
     }
 
     public synchronized Future<List<LogRecordWithDLSN>> readBulk(int numEntries) {
-        return readInternal(numEntries);
+        return readInternal(numEntries, 0, TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    public synchronized Future<List<LogRecordWithDLSN>> readBulk(int numEntries,
+                                                                 long waitTime,
+                                                                 TimeUnit timeUnit) {
+        return readInternal(numEntries, waitTime, timeUnit);
     }
 
     /**
@@ -288,10 +341,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
      *          num entries to read
      * @return A promise that satisfied with a non-empty list of log records with their DLSN.
      */
-    private synchronized Future<List<LogRecordWithDLSN>> readInternal(int numEntries) {
+    private synchronized Future<List<LogRecordWithDLSN>> readInternal(int numEntries,
+                                                                      long deadlineTime,
+                                                                      TimeUnit deadlineTimeUnit) {
         timeBetweenReadNexts.registerSuccessfulEvent(readNextDelayStopwatch.elapsed(TimeUnit.MICROSECONDS));
         readNextDelayStopwatch.reset().start();
-        final PendingReadRequest readRequest = new PendingReadRequest(numEntries);
+        final PendingReadRequest readRequest = new PendingReadRequest(numEntries, deadlineTime, deadlineTimeUnit);
 
         if (!readAheadStarted) {
             bkLedgerManager.checkLogStreamExistsAsync().addEventListener(new FutureEventListener<Void>() {
@@ -373,6 +428,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             LOG.info("{}: Failed to cancel the background idle reader timeout task", bkLedgerManager.getFullyQualifiedName());
         }
 
+        synchronized (scheduleCount) {
+            if (null != backgroundScheduleTask) {
+                backgroundScheduleTask.cancel(true);
+            }
+        }
+
         cancelAllPendingReads(exception);
 
         bkLedgerManager.unregister(sessionExpireWatcher);
@@ -435,21 +496,13 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     return;
                 }
 
-                List<LogRecordWithDLSN> records;
-                // optimize the space usage for single read.
-                if (1 == nextRequest.numEntries) {
-                    records = new ArrayList<LogRecordWithDLSN>(1);
-                } else {
-                    records = new ArrayList<LogRecordWithDLSN>();
-                }
                 try {
                     // Fail 10% of the requests when asked to simulate errors
                     if (simulateErrors && Utils.randomPercent(10)) {
                         throw new IOException("Reader Simulated Exception");
                     }
                     LogRecordWithDLSN record;
-                    int numReads = 0;
-                    do {
+                    while (!nextRequest.hasReadEnoughRecords()) {
                         // read single record
                         do {
                             record = bkLedgerManager.getNextReadAheadRecord();
@@ -462,10 +515,20 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                         + bkLedgerManager.getFullyQualifiedName()));
                                 break;
                             }
-                            records.add(record);
-                            ++numReads;
+
+                            // gap detection
+                            if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
+                                    (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
+                                bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
+                                if (positionGapDetectionEnabled) {
+                                    throw new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn());
+                                }
+                            }
+                            lastPosition = record.getPositionWithinLogSegment();
+
+                            nextRequest.addRecord(record);
                         }
-                    } while (numReads < nextRequest.numEntries);
+                    };
                 } catch (IOException exc) {
                     setLastException(exc);
                     if (!(exc instanceof LogNotFoundException)) {
@@ -474,39 +537,36 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     continue;
                 }
 
-                if (!records.isEmpty()) {
-                    // Verify that the count is contiguous and monotonically increasing
-                    boolean gapDetected = false;
-                    for (LogRecordWithDLSN record : records) {
-                        if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
-                                (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
-                            bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
-                            if (positionGapDetectionEnabled) {
-                                setLastException(new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn()));
-                                gapDetected = true;
-                                break;
-                            }
-                        }
-                        lastPosition = record.getPositionWithinLogSegment();
+                if (nextRequest.hasReadRecords()) {
+                    long remainingWaitTime = nextRequest.getRemainingWaitTime();
+                    if (remainingWaitTime > 0 && !nextRequest.hasReadEnoughRecords()) {
+                        backgroundReaderRunTime.registerSuccessfulEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
+                        scheduleDelayStopwatch.reset().start();
+                        scheduleCount.set(0);
+                        // the request could still wait for more records
+                        backgroundScheduleTask = executorService.schedule(BACKGROUND_READ_SCHEDULER, remainingWaitTime, nextRequest.deadlineTimeUnit);
+                        return;
                     }
 
-                    if (positionGapDetectionEnabled && gapDetected) {
-                        continue;
-                    }
-
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("{} : Satisfied promise with {} records", bkLedgerManager.getFullyQualifiedName(), records.size());
-                    }
                     PendingReadRequest request = pendingRequests.poll();
-                    if (null != request) {
-                        request.setValue(records);
+                    if (null != request && nextRequest == request) {
+                        request.complete();
+                        if (null != backgroundScheduleTask) {
+                            backgroundScheduleTask.cancel(true);
+                            backgroundScheduleTask = null;
+                        }
                     } else {
+                        DLIllegalStateException ise = new DLIllegalStateException("Unexpected condition at dlsn = "
+                                + nextRequest.records.get(0).getDlsn());
+                        nextRequest.setException(ise);
+                        if (null != request) {
+                            request.setException(ise);
+                        }
                         // We should never get here as we should have exited the loop if
                         // pendingRequests were empty
                         bkDistributedLogManager.raiseAlert("Unexpected condition at dlsn = {}",
-                                records.get(0).getDlsn());
-                        setLastException(
-                            new DLIllegalStateException("Unexpected condition at dlsn = " + records.get(0).getDlsn()));
+                                nextRequest.records.get(0).getDlsn());
+                        setLastException(ise);
                     }
                 } else {
                     if (0 == scheduleCountLocal) {

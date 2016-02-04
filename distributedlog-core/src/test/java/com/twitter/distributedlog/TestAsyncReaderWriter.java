@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.twitter.distributedlog.util.DistributedLogAnnotations;
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -1757,5 +1758,95 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             fail("Should have thrown");
         } catch (EndOfStreamException ex) {
         }
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkReadWaitingMoreRecords() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        LogRecord controlRecord = DLMTestUtil.getLogRecordInstance(1L);
+        controlRecord.setControl();
+        FutureUtils.result(writer.write(controlRecord));
+
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        Future<List<LogRecordWithDLSN>> bulkReadFuture = reader.readBulk(2, Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+        Future<LogRecordWithDLSN> readFuture = reader.readNext();
+
+        // write another records
+        for (int i = 0; i < 5; i++) {
+            long txid = 2L + i;
+            FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(txid)));
+            controlRecord = DLMTestUtil.getLogRecordInstance(txid);
+            controlRecord.setControl();
+            FutureUtils.result(writer.write(controlRecord));
+        }
+
+        List<LogRecordWithDLSN> bulkReadRecords = FutureUtils.result(bulkReadFuture);
+        assertEquals(2, bulkReadRecords.size());
+        assertEquals(1L, bulkReadRecords.get(0).getTransactionId());
+        assertEquals(2L, bulkReadRecords.get(1).getTransactionId());
+        for (LogRecordWithDLSN record : bulkReadRecords) {
+            DLMTestUtil.verifyLogRecord(record);
+        }
+        LogRecordWithDLSN record = FutureUtils.result(readFuture);
+        assertEquals(3L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+
+        reader.close();
+        writer.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testBulkReadNotWaitingMoreRecords() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+        BKAsyncLogWriter writer = (BKAsyncLogWriter) dlm.startAsyncLogSegmentNonPartitioned();
+        FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        LogRecord controlRecord = DLMTestUtil.getLogRecordInstance(1L);
+        controlRecord.setControl();
+        FutureUtils.result(writer.write(controlRecord));
+
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        Future<List<LogRecordWithDLSN>> bulkReadFuture = reader.readBulk(2, 0, TimeUnit.MILLISECONDS);
+        Future<LogRecordWithDLSN> readFuture = reader.readNext();
+
+        List<LogRecordWithDLSN> bulkReadRecords = FutureUtils.result(bulkReadFuture);
+        assertEquals(1, bulkReadRecords.size());
+        assertEquals(1L, bulkReadRecords.get(0).getTransactionId());
+        for (LogRecordWithDLSN record : bulkReadRecords) {
+            DLMTestUtil.verifyLogRecord(record);
+        }
+
+        // write another records
+        for (int i = 0; i < 5; i++) {
+            long txid = 2L + i;
+            FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(txid)));
+            controlRecord = DLMTestUtil.getLogRecordInstance(txid);
+            controlRecord.setControl();
+            FutureUtils.result(writer.write(controlRecord));
+        }
+
+        LogRecordWithDLSN record = FutureUtils.result(readFuture);
+        assertEquals(2L, record.getTransactionId());
+        DLMTestUtil.verifyLogRecord(record);
+
+        reader.close();
+        writer.close();
+        dlm.close();
     }
 }

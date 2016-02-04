@@ -4,6 +4,7 @@ import com.twitter.util.Future;
 
 import java.io.Closeable;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public interface AsyncLogReader extends Closeable {
 
@@ -31,4 +32,21 @@ public interface AsyncLogReader extends Closeable {
      * @return A promise that when satisfied will contain a non-empty list of records with their DLSN.
      */
     public Future<List<LogRecordWithDLSN>> readBulk(int numEntries);
+
+    /**
+     * Read next <i>numEntries</i> entries in a given <i>waitTime</i>.
+     * <p>
+     * The future is satisfied when either reads <i>numEntries</i> entries or reaches <i>waitTime</i>.
+     * The only exception is if there isn't any new entries written within <i>waitTime</i>, it would
+     * wait until new entries are available.
+     *
+     * @param numEntries
+     *          max entries to return
+     * @param waitTime
+     *          maximum wait time if there are entries already for read
+     * @param timeUnit
+     *          wait time unit
+     * @return A promise that when satisfied will contain a non-empty list of records with their DLSN.
+     */
+    public Future<List<LogRecordWithDLSN>> readBulk(int numEntries, long waitTime, TimeUnit timeUnit);
 }
