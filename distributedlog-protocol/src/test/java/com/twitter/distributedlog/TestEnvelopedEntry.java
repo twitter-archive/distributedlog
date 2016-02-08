@@ -4,17 +4,17 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 
+import com.twitter.distributedlog.io.Buffer;
+import com.twitter.distributedlog.io.CompressionCodec;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.io.CompressionCodec;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-public class TestEnvelopedEntry extends TestDistributedLogBase {
+public class TestEnvelopedEntry {
 
     static final Logger LOG = LoggerFactory.getLogger(TestEnvelopedEntry.class);
 
@@ -37,7 +37,7 @@ public class TestEnvelopedEntry extends TestDistributedLogBase {
                                                   data,
                                                   data.length,
                                                   new NullStatsLogger());
-        BKLogSegmentWriter.Buffer outBuf = new BKLogSegmentWriter.Buffer(2 * data.length);
+        Buffer outBuf = new Buffer(2 * data.length);
         writeEntry.writeFully(new DataOutputStream(outBuf));
         EnvelopedEntry readEntry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
                                                       new NullStatsLogger());
@@ -54,7 +54,7 @@ public class TestEnvelopedEntry extends TestDistributedLogBase {
                                                        data,
                                                        data.length,
                                                        new NullStatsLogger());
-        BKLogSegmentWriter.Buffer outBuf = new BKLogSegmentWriter.Buffer(data.length);
+        Buffer outBuf = new Buffer(data.length);
         writeEntry.writeFully(new DataOutputStream(outBuf));
         assertTrue(data.length > outBuf.size());
         EnvelopedEntry readEntry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,

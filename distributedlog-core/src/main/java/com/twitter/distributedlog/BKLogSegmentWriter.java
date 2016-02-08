@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.LinkedList;
@@ -33,6 +32,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.io.Buffer;
 import com.twitter.distributedlog.logsegment.LogSegmentWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.Sizable;
@@ -103,16 +103,6 @@ import static com.google.common.base.Charsets.UTF_8;
  */
 class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Sizable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
-
-    public static class Buffer extends ByteArrayOutputStream {
-        Buffer(int initialCapacity) {
-            super(initialCapacity);
-        }
-
-        byte[] getData() {
-            return buf;
-        }
-    }
 
     private static class BKTransmitPacket {
         public BKTransmitPacket(long logSegmentSequenceNo, int initialBufferSize) {
