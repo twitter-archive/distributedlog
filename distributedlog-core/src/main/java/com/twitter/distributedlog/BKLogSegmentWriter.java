@@ -107,8 +107,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final String fullyQualifiedLogSegment;
     private final String streamName;
     private final int logSegmentMetadataVersion;
-    private BKTransmitPacket packetCurrent;
     private BKTransmitPacket packetPrevious;
+    private LogRecordSet.Writer recordSetWriter;
     private final AtomicInteger outstandingTransmits;
     private final int transmissionThreshold;
     protected final LedgerHandle lh;
@@ -263,9 +263,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.compressionType = CompressionUtils.stringToType(conf.getCompressionType());
 
         this.logSegmentSequenceNumber = logSegmentSequenceNumber;
-        this.packetCurrent = new BKTransmitPacket(
+        this.recordSetWriter = LogRecordSet.newLogRecordSet(
                 streamName,
-                logSegmentSequenceNumber,
                 Math.max(transmissionThreshold, 1024),
                 envelopeBeforeTransmit(),
                 compressionType,
@@ -407,10 +406,9 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         return 0;
     }
 
-    private BKTransmitPacket getTransmitPacket() {
-        return new BKTransmitPacket(
+    private LogRecordSet.Writer newRecordSetWriter() {
+        return LogRecordSet.newLogRecordSet(
                 streamName,
-                logSegmentSequenceNumber,
                 Math.max(transmissionThreshold, getAverageTransmitSize()),
                 envelopeBeforeTransmit(),
                 compressionType,
@@ -445,17 +443,23 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     private synchronized void abortPacket(BKTransmitPacket packet) {
-        long numPromises = 0;
+        long numRecords = 0;
         if (null != packet) {
-            numPromises = packet.getWriteCount();
-            packet.reset();
+            LogRecordSetBuffer recordSet = packet.getRecordSet();
+            numRecords = recordSet.getNumRecords();
+            int rc = transmitResult.get();
+            if (BKException.Code.OK == rc) {
+                rc = BKException.Code.InterruptedException;
+            }
+            Throwable reason = new WriteCancelledException(streamName, FutureUtils.transmitException(rc));
+            recordSet.abortTransmit(reason);
         }
-        LOG.info("Stream {} aborted {} writes", fullyQualifiedLogSegment, numPromises);
+        LOG.info("Stream {} aborted {} writes", fullyQualifiedLogSegment, numRecords);
     }
 
     private synchronized long getWritesPendingTransmit() {
-        if (null != packetCurrent) {
-            return packetCurrent.getWriteCount();
+        if (null != recordSetWriter) {
+            return recordSetWriter.getNumRecords();
         } else {
             return 0;
         }
@@ -517,14 +521,14 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         final BKTransmitPacket packetCurrentSaved;
         synchronized (this) {
             packetPreviousSaved = packetPrevious;
-            packetCurrentSaved = packetCurrent;
-            packetCurrent = getTransmitPacket();
+            packetCurrentSaved = new BKTransmitPacket(recordSetWriter);
+            recordSetWriter = newRecordSetWriter();
         }
 
         // Once the last packet been transmitted, apply any remaining promises asynchronously
         // to avoid blocking close if bk client is slow for some reason.
         if (null != packetPreviousSaved) {
-            packetPreviousSaved.awaitTransmitComplete().addEventListener(new FutureEventListener<Integer>() {
+            packetPreviousSaved.addTransmitCompleteListener(new FutureEventListener<Integer>() {
                 @Override
                 public void onSuccess(Integer transmitResult) {
                     flushAddCompletes();
@@ -588,12 +592,12 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 // we don't pack control records with user records together
                 // so transmit current output buffer if possible
                 try {
-                    transmit(false);
+                    transmit();
                 } catch (IOException ioe) {
                     return Future.exception(new WriteCancelledException(fullyQualifiedLogSegment, ioe));
                 }
                 result = writeControlLogRecord(record);
-                transmit(true);
+                transmit();
             } else {
                 result = writeUserRecord(record);
                 if (!isDurableWriteEnabled) {
@@ -694,14 +698,11 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
         // If we will exceed the max number of bytes allowed per entry
         // initiate a transmit before accepting the new log record
-        if ((packetCurrent.getRecordSetWriter().getNumBytes() + logRecordSize) > MAX_LOGRECORDSET_SIZE) {
+        if ((recordSetWriter.getNumBytes() + logRecordSize) > MAX_LOGRECORDSET_SIZE) {
             doFlush();
         }
 
         checkWriteLock();
-
-        Promise<DLSN> dlsn = new Promise<DLSN>();
-        dlsn.addEventListener(new OpStatsListener<DLSN>(writeTime));
 
         if (enableRecordCounts) {
             // Set the count here. The caller would appropriately increment it
@@ -709,15 +710,9 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             record.setPositionWithinLogSegment(positionWithinLogSegment);
         }
 
-        try {
-            packetCurrent.getRecordSetWriter().writeRecord(record);
-        } catch (IOException e) {
-            LOG.error("Failed to append record to output buffer for {} : ",
-                    getFullyQualifiedLogSegment(), e);
-            throw new WriteException(streamName, "Failed to append record to outputbuffer for "
-                    + getFullyQualifiedLogSegment());
-        }
-        packetCurrent.addToPromiseList(dlsn, record.getTransactionId());
+        Promise<DLSN> writePromise = new Promise<DLSN>();
+        writePromise.addEventListener(new OpStatsListener<DLSN>(writeTime));
+        recordSetWriter.writeRecord(record, writePromise);
 
         if (record.getTransactionId() < lastTxId) {
             LOG.info("Log Segment {} TxId decreased Last: {} Record: {}",
@@ -728,7 +723,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             lastTxId = record.getTransactionId();
             outstandingBytes += (20 + record.getPayload().length);
         }
-        return dlsn;
+        return writePromise;
     }
 
     synchronized private void writeControlLogRecord()
@@ -819,7 +814,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             throws BKTransmitException, WriteException, InvalidEnvelopedEntryException, LockingException {
         checkStateBeforeTransmit();
 
-        if (transmit(false)) {
+        if (transmit()) {
             shouldFlushControl.incrementAndGet();
         }
         return lastTxIdAcknowledged;
@@ -919,7 +914,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             if (preFlushCounter > 0) {
                 try {
                     writeControlLogRecord();
-                    transmit(true);
+                    transmit();
                 } catch (Exception exc) {
                     shouldFlushControl.addAndGet(preFlushCounter);
                     preFlushCounter = 0;
@@ -1027,16 +1022,15 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
      * NOTE: This method should only throw known exceptions so that we don't accidentally
      *       add new code that throws in an inappropriate place.
      *
-     * @param isControl if transmit the packet as a control
      * @return true if we successfully tranmit an entry, false if no data to tranmit
      * @throws BKTransmitException if the segment writer is already in error state
      * @throws LockingException if the segment writer lost lock before transmit
      * @throws WriteException if failed to create the envelope for the data to transmit
      * @throws InvalidEnvelopedEntryException when built an invalid enveloped entry
      */
-    private boolean transmit(boolean isControl)
+    private boolean transmit()
         throws BKTransmitException, LockingException, WriteException, InvalidEnvelopedEntryException {
-        BKTransmitPacket packet;
+        LogRecordSetBuffer recordSetToTransmit;
         transmitLock.lock();
         try {
             synchronized (this) {
@@ -1053,28 +1047,26 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                                           + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
                 }
 
-                if (packetCurrent.getRecordSetWriter().getNumRecords() == 0) {
+                if (recordSetWriter.getNumRecords() == 0) {
                     // Control flushes always have at least the control record to flush
                     transmitDataMisses.inc();
                     return false;
                 }
 
-                packet = packetCurrent;
-                packet.setControl(isControl);
+                recordSetToTransmit = recordSetWriter;
+                recordSetWriter = newRecordSetWriter();
                 outstandingBytes = 0;
-                packetCurrent = getTransmitPacket();
-                packetPrevious = packet;
                 lastTxIdFlushed = lastTxId;
 
-                if (!isControl) {
-                    numBytes += packet.getRecordSetWriter().getNumBytes();
+                if (recordSetToTransmit.hasUserRecords()) {
+                    numBytes += recordSetToTransmit.getNumBytes();
                     numFlushesSinceRestart++;
                 }
             }
 
             Buffer toSend;
             try {
-                toSend = packet.getRecordSetWriter().serialize();
+                toSend = recordSetToTransmit.getBuffer();
             } catch (IOException e) {
                 if (e instanceof InvalidEnvelopedEntryException) {
                     alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
@@ -1093,14 +1085,15 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             }
 
             synchronized (this) {
-                packet.notifyTransmit();
+                BKTransmitPacket packet = new BKTransmitPacket(recordSetToTransmit);
+                packetPrevious = packet;
                 lh.asyncAddEntry(toSend.getData(), 0, toSend.size(),
                                  this, packet);
 
-                if (isControl) {
-                    transmitControlSuccesses.inc();
-                } else {
+                if (recordSetToTransmit.hasUserRecords()) {
                     transmitDataSuccesses.inc();
+                } else {
+                    transmitControlSuccesses.inc();
                 }
 
                 lastTransmit.reset().start();
@@ -1123,7 +1116,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             return false;
         }
 
-        return (packetCurrent.getRecordSetWriter().getNumRecords() > 0);
+        return (recordSetWriter.getNumRecords() > 0);
     }
 
     @Override
@@ -1174,16 +1167,16 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 @Override
                 public void onFailure(Throwable cause) {
                     LOG.error("addComplete processing failed for {} entry {} lastTxId {} rc {} with error",
-                        new Object[] {fullyQualifiedLogSegment, entryId, transmitPacket.getMaxTxId(), rc, cause});
+                        new Object[] {fullyQualifiedLogSegment, entryId, transmitPacket.getRecordSet().getMaxTxId(), rc, cause});
                 }
             });
             // Race condition if we notify before the addComplete is enqueued.
-            transmitPacket.setTransmitComplete(effectiveRC.get());
+            transmitPacket.notifyTransmitComplete(effectiveRC.get());
             outstandingTransmits.getAndDecrement();
         } else {
             // Notify transmit complete must be called before deferred processing in the
             // sync case since otherwise callbacks in deferred processing may deadlock.
-            transmitPacket.setTransmitComplete(effectiveRC.get());
+            transmitPacket.notifyTransmitComplete(effectiveRC.get());
             outstandingTransmits.getAndDecrement();
             addCompleteDeferredProcessing(transmitPacket, entryId, effectiveRC.get());
         }
@@ -1193,6 +1186,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                                final long entryId,
                                                final int rc) {
         boolean cancelPendingPromises = false;
+        LogRecordSetBuffer recordSet = transmitPacket.getRecordSet();
         synchronized (this) {
             if (transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 // If this is the first time we are setting an error code in the transmitResult then
@@ -1205,15 +1199,15 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             }
 
             if (transmitResult.get() != BKException.Code.OK) {
-                if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerFailedEvent(transmitPacket.getRecordSetWriter().getNumBytes());
+                if (recordSet.hasUserRecords()) {
+                    transmitDataPacketSize.registerFailedEvent(recordSet.getNumBytes());
                 }
             } else {
                 // If we had data that we flushed then we need it to make sure that
                 // background flush in the next pass will make the previous writes
                 // visible by advancing the lastAck
-                if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.getRecordSetWriter().getNumBytes());
+                if (recordSet.hasUserRecords()) {
+                    transmitDataPacketSize.registerSuccessfulEvent(recordSet.getNumBytes());
                     controlFlushNeeded = true;
                     if (immediateFlushEnabled) {
                         if (0 == minDelayBetweenImmediateFlushMs) {
@@ -1231,16 +1225,23 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 }
             }
 
-            DLSN lastDLSNInPacket = transmitPacket.finalize(entryId, transmitResult.get());
-
             // update last dlsn before satisifying future
-            if (BKException.Code.OK == transmitResult.get() && !transmitPacket.isControl()) {
-                if (null != lastDLSNInPacket && lastDLSN.compareTo(lastDLSNInPacket) < 0) {
-                    lastDLSN = lastDLSNInPacket;
+            if (BKException.Code.OK == transmitResult.get()) {
+                DLSN lastDLSNInPacket = recordSet.finalizeTransmit(
+                        logSegmentSequenceNumber, entryId);
+                if (recordSet.hasUserRecords()) {
+                    if (null != lastDLSNInPacket && lastDLSN.compareTo(lastDLSNInPacket) < 0) {
+                        lastDLSN = lastDLSNInPacket;
+                    }
                 }
             }
         }
-        transmitPacket.processTransmitComplete(entryId, transmitResult.get());
+
+        if (BKException.Code.OK == transmitResult.get()) {
+            recordSet.completeTransmit(logSegmentSequenceNumber, entryId);
+        } else {
+            recordSet.abortTransmit(FutureUtils.transmitException(transmitResult.get()));
+        }
 
         if (cancelPendingPromises) {
             // Since the writer is in a bad state no more packets will be tramsitted, and its safe to
@@ -1248,11 +1249,12 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             // try to cancel the current packet;
             final BKTransmitPacket packetCurrentSaved;
             synchronized (this) {
-                packetCurrentSaved = packetCurrent;
-                packetCurrent = getTransmitPacket();
+                packetCurrentSaved = new BKTransmitPacket(recordSetWriter);
+                recordSetWriter = newRecordSetWriter();
             }
-            packetCurrentSaved.cancelPromises(new WriteCancelledException(fullyQualifiedLogSegment,
-                FutureUtils.transmitException(transmitResult.get())));
+            packetCurrentSaved.getRecordSet().abortTransmit(
+                    new WriteCancelledException(streamName,
+                            FutureUtils.transmitException(transmitResult.get())));
         }
     }
 
@@ -1278,7 +1280,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                     writeControlLogRecord();
                 }
 
-                transmit(!newData);
+                transmit();
                 pFlushSuccesses.inc();
             } else {
                 pFlushMisses.inc();

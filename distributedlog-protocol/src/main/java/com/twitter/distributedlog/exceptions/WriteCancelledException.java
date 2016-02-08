@@ -12,6 +12,11 @@ public class WriteCancelledException extends DLException {
             stream + " due to an earlier error", t);
     }
 
+    public WriteCancelledException(String stream, String reason) {
+        super(StatusCode.WRITE_CANCELLED_EXCEPTION,
+                "Write cancelled on stream " + stream + " due to : " + reason);
+    }
+
     public WriteCancelledException(String stream) {
         super(StatusCode.WRITE_CANCELLED_EXCEPTION,
             "Write cancelled on stream " +

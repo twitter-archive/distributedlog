@@ -7,6 +7,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.io.Buffer;
 import com.twitter.distributedlog.io.CompressionCodec;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
@@ -242,38 +243,21 @@ public class LogRecordSet {
     /**
      * Writer to append {@link LogRecord}s to {@link LogRecordSet}.
      */
-    public interface Writer {
+    public interface Writer extends LogRecordSetBuffer {
 
         /**
          * Write a {@link LogRecord} to this record set.
          *
          * @param record
          *          record to write
+         * @param transmitPromise
+         *          callback for transmit result. the promise is only
+         *          satisfied when this record set is transmitted.
          * @throws LogRecordTooLongException if the record is too long
          * @throws WriteException when encountered exception writing the record
          */
-        void writeRecord(LogRecord record)
+        void writeRecord(LogRecord record, Promise<DLSN> transmitPromise)
                 throws LogRecordTooLongException, WriteException;
-
-        /**
-         * Return the number of bytes written so far.
-         *
-         * @return the number of bytes written so far.
-         */
-        int getNumBytes();
-
-        /**
-         * Return the number of records written so far.
-         * @return
-         */
-        int getNumRecords();
-
-        /**
-         * Return serialized data.
-         *
-         * @return serialized data.
-         */
-        Buffer serialize() throws InvalidEnvelopedEntryException, IOException;
 
         /**
          * Reset the writer to write records.

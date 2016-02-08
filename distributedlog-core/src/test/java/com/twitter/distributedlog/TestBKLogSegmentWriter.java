@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -288,7 +289,10 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
             try {
                 Await.result(futureList.get(i));
                 fail("Should be aborted record " + i + " with transmit exception");
-            } catch (BKTransmitException bkte) {
+            } catch (WriteCancelledException wce) {
+                assertTrue("Record " + i + " should be aborted because of ledger fenced",
+                        wce.getCause() instanceof BKTransmitException);
+                BKTransmitException bkte = (BKTransmitException) wce.getCause();
                 assertEquals("Record " + i + " should be aborted",
                         BKException.Code.InterruptedException, bkte.getBKResultCode());
             }
@@ -370,9 +374,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
             try {
                 Await.result(futureList.get(i));
                 fail("Should be aborted record " + i + " with transmit exception");
-            } catch (BKTransmitException bkte) {
+            } catch (WriteCancelledException wce) {
+                assertTrue("Record " + i + " should be aborted because of ledger fenced",
+                        wce.getCause() instanceof BKTransmitException);
+                BKTransmitException bkte = (BKTransmitException) wce.getCause();
                 assertEquals("Record " + i + " should be aborted",
-                        BKException.Code.InterruptedException, bkte.getBKResultCode());
+                        rcToFailComplete, bkte.getBKResultCode());
             }
         }
 
@@ -553,9 +560,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
             try {
                 Await.result(anotherFutureList.get(i));
                 fail("Should be aborted record " + (numRecords + i) + " with transmit exception");
-            } catch (BKTransmitException bkte) {
-                assertEquals("Record " + i + " should be aborted",
-                        BKException.Code.InterruptedException, bkte.getBKResultCode());
+            } catch (WriteCancelledException wce) {
+                // writes should be cancelled.
             }
         }
 
