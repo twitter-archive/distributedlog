@@ -7,16 +7,31 @@ import org.apache.commons.codec.binary.Hex;
 
 import java.nio.ByteBuffer;
 
+/**
+ * DistributedLog Sequence Number (DLSN) is the system generated sequence number for log record.
+ *
+ * <p>DLSN is comprised with 3 components:
+ * <ul>
+ * <li>LogSegment Sequence Number: the sequence number of log segment that the record is written in
+ * <li>Entry Id: the entry id of the entry that the record is batched in
+ * <li>Slot Id: the slot id that the record is in the entry
+ * </ul>
+ *
+ * @see LogRecordWithDLSN
+ */
 public class DLSN implements Comparable<DLSN> {
 
     public static final byte VERSION0 = (byte) 0;
     public static final byte VERSION1 = (byte) 1;
 
+    // The initial DLSN that DL starts with
     public static final DLSN InitialDLSN = new DLSN(1, 0 , 0);
+    // The non-inclusive lower bound DLSN
     public static final DLSN NonInclusiveLowerBound = new DLSN(1, 0 , -1);
+    // Invalid DLSN
     public static final DLSN InvalidDLSN = new DLSN(0,-1,-1);
-    static final byte CUR_VERSION = VERSION1;
 
+    static final byte CUR_VERSION = VERSION1;
     static final int VERSION0_LEN = Long.SIZE * 3 + Byte.SIZE;
     static final int VERSION1_LEN = Long.SIZE * 3 / Byte.SIZE + 1;
 
@@ -30,6 +45,11 @@ public class DLSN implements Comparable<DLSN> {
         this.slotId = slotId;
     }
 
+    /**
+     * Return the sequence number of the log segment that the record is written to.
+     *
+     * @return sequence number of the log segment that the record is written to.
+     */
     long getLogSegmentSequenceNo() {
         return logSegmentSequenceNo;
     }
@@ -42,10 +62,20 @@ public class DLSN implements Comparable<DLSN> {
         return logSegmentSequenceNo;
     }
 
+    /**
+     * Return the entry id of the batch that the record is written to.
+     *
+     * @return entry id of the batch that the record is written to.
+     */
     long getEntryId() {
         return entryId;
     }
 
+    /**
+     * Return the slot id in the batch that the record is written to.
+     *
+     * @return slot id in the batch that the record is written to.
+     */
     long getSlotId() {
         return slotId;
     }
@@ -61,10 +91,22 @@ public class DLSN implements Comparable<DLSN> {
         }
     }
 
+    /**
+     * Serialize the DLSN into bytes with current version.
+     *
+     * @return the serialized bytes
+     */
     public byte[] serializeBytes() {
         return serializeBytes(CUR_VERSION);
     }
 
+    /**
+     * Serialize the DLSN into bytes with given <code>version</code>.
+     *
+     * @param version
+     *          version to serialize the DLSN
+     * @return the serialized bytes
+     */
     public byte[] serializeBytes(byte version) {
         Preconditions.checkArgument(version <= CUR_VERSION && version >= VERSION0);
         byte[] data = new byte[CUR_VERSION == version ? VERSION1_LEN : VERSION0_LEN];
@@ -76,19 +118,47 @@ public class DLSN implements Comparable<DLSN> {
         return data;
     }
 
+    /**
+     * Serialize the DLSN into base64 encoded string.
+     *
+     * @return serialized base64 string
+     * @see #serializeBytes()
+     */
     public String serialize() {
         return serialize(CUR_VERSION);
     }
 
+    /**
+     * Serialize the DLSN into base64 encoded string with given <code>version</code>.
+     *
+     * @param version
+     *          version to serialize the DLSN
+     * @return the serialized base64 string
+     * @see #serializeBytes(byte)
+     */
     public String serialize(byte version) {
         return Base64.encodeBase64String(serializeBytes(version));
     }
 
+    /**
+     * Deserialize the DLSN from base64 encoded string <code>dlsn</code>.
+     *
+     * @param dlsn
+     *          base64 encoded string
+     * @return dlsn
+     */
     public static DLSN deserialize(String dlsn) {
         byte[] data = Base64.decodeBase64(dlsn);
         return deserializeBytes(data);
     }
 
+    /**
+     * Deserialize the DLSN from bytes array.
+     *
+     * @param data
+     *          serialized bytes
+     * @return dlsn
+     */
     public static DLSN deserializeBytes(byte[] data) {
         ByteBuffer bb = ByteBuffer.wrap(data);
         byte version = bb.get();

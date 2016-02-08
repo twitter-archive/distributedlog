@@ -28,7 +28,6 @@ public class DistributedLogConstants {
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";
     public static final int LOCAL_REGION_ID = 0;
     public static final long LOGSEGMENT_DEFAULT_STATUS = 0;
-    public static final int INPUTSTREAM_MARK_LIMIT = 16;
     public static final long UNASSIGNED_LOGSEGMENT_SEQNO = 0;
     public static final long UNASSIGNED_SEQUENCE_ID = -1L;
     public static final long FIRST_LOGSEGMENT_SEQNO = 1;

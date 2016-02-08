@@ -29,13 +29,51 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Helper classes for reading the ops from an InputStream.
- * All ops derive from LogRecord and are only
- * instantiated from Reader#readOp()
-
+ * Log record is the basic element in a log.
+ *
+ * <p>A log is a sequence of log records. Each log record is a sequence of bytes.
+ * Log records are written sequentially into a stream, and will be assigned with
+ * an unique system generated sequence number {@link DLSN} (distributedlog sequence
+ * number). Besides {@link DLSN}, application can assign its own sequence number
+ * while constructing log records. The application defined sequence number is called
+ * <code>TransactionID</code> (<i>txid</i>). Either {@link DLSN} or <code>TransactionId</code>
+ * could be used to position readers to start from specific log records.
+ *
+ * <h3>User Record</h3>
+ *
+ * User records are the records written by applications and read by applications. They
+ * are constructed via {@link #LogRecord(long, byte[])} by applications and appended to
+ * logs by writers. And they would be deserialized from bytes by the readers and return
+ * to applications.
+ *
+ * <h3>Control Record</h3>
+ *
+ * Control records are special records that written by distributedlog. They are invisible
+ * to applications. They could be treated as <i>commit requests</i> as what people could find
+ * in distributed consensus algorithms, since they are usually written by distributedlog to
+ * commit application written records. <i>Commit</i> means making application written records
+ * visible to readers to achieve consistent views among them.
+ * <p>
+ * They are named as 'Control Records' for controlling visibility of application written records.
+ * <p>
+ * The transaction id of 'Control Records' are assigned by distributedlog by inheriting from last
+ * written user records. So we could indicate what user records that a control record is committing
+ * by looking at its transaction id.
+ *
+ * <h4>EndOfStream Record</h4>
+ *
+ * <code>EoS</code>(EndOfStream) is a special control record that would be written by a writer
+ * to seal a log. After a <i>EoS</i> record is written to a log, no writers could append any record
+ * after that and readers will get {@link com.twitter.distributedlog.exceptions.EndOfStreamException}
+ * when they reach EoS.
+ * <p>TransactionID of EoS is <code>Long.MAX_VALUE</code>.
+ *
+ * <h3>Serialization & Deserialization</h3>
+ *
  * Data type in brackets. Interpretation should be on the basis of data types and not individual
  * bytes to honor Endianness.
- *
+ * <p>
+ * <pre>
  * LogRecord structure:
  * -------------------
  * Bytes 0 - 7                      : Metadata (Long)
@@ -56,39 +94,104 @@ import org.slf4j.LoggerFactory;
  * Bit  0      : If set, control record, else record with payload.
  * Bit  1      : If set, end of stream.
  * Bits 2 - 15 : Unused
+ * </pre>
+ *
+ * <h3>Sequence Numbers</h3>
+ *
+ * A record is associated with three types of sequence numbers. They are generated
+ * and used for different purposes. Check {@link LogRecordWithDLSN} for more details.
+ *
+ * @see LogRecordWithDLSN
  */
 public class LogRecord {
     static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);
 
-    private long metadata;
-    private long txid;
-    private byte[] payload;
+    private static final int INPUTSTREAM_MARK_LIMIT = 16;
 
     static final long LOGRECORD_METADATA_FLAGS_MASK = 0xffff;
     static final long LOGRECORD_METADATA_POSITION_MASK = 0x0000ffffffff0000L;
     static final int LOGRECORD_METADATA_POSITION_SHIFT = 16;
     static final long LOGRECORD_METADATA_UNUSED_MASK = 0xffff000000000000L;
 
-
     // TODO: Replace with EnumSet
     static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
     static final long LOGRECORD_FLAGS_END_OF_STREAM = 0x2;
+
+    private long metadata;
+    private long txid;
+    private byte[] payload;
+
     /**
-     * This empty constructor can only be called from Reader#readOp.
+     * Construct an uninitialized log record.
+     * <p>
+     * NOTE: only deserializer should call this constructor.
      */
     protected LogRecord() {
         this.txid = 0;
         this.metadata = 0;
     }
 
+    /**
+     * Construct a log record with <i>TransactionId</i> and payload.
+     * <p>Usually writer would construct the log record for writing.
+     *
+     * @param txid
+     *          application defined transaction id.
+     * @param payload
+     *          record data
+     */
     public LogRecord(long txid, byte[] payload) {
         this.txid = txid;
         this.payload = payload;
         this.metadata = 0;
     }
 
+    //
+    // Accessors
+    //
+
+    /**
+     * Return application defined transaction id.
+     *
+     * @return transacton id.
+     */
     public long getTransactionId() {
         return txid;
+    }
+
+    /**
+     * Set application defined transaction id.
+     *
+     * @param txid application defined transaction id.
+     */
+    protected void setTransactionId(long txid) {
+        this.txid = txid;
+    }
+
+    /**
+     * Return the payload of this log record.
+     *
+     * @return payload of this log record.
+     */
+    public byte[] getPayload() {
+        return payload;
+    }
+
+    /**
+     * Return the payload as an {@link InputStream}.
+     *
+     * @return payload as input stream
+     */
+    public InputStream getPayLoadInputStream() {
+        return new ByteArrayInputStream(payload);
+    }
+
+    //
+    // Metadata & Flags
+    //
+
+    protected void setMetadata(long metadata) {
+        this.metadata = metadata;
     }
 
     void setPositionWithinLogSegment(int positionWithinLogSegment) {
@@ -110,34 +213,51 @@ public class LogRecord {
         metadata = metadata | LOGRECORD_FLAGS_CONTROL_MESSAGE;
     }
 
+    /**
+     * Check if the record is a control record.
+     *
+     * @return true if the record is a control record, otherwise false.
+     */
     public boolean isControl() {
         return ((metadata & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 
+    /**
+     * Check flags to see if it indicates a control record.
+     *
+     * @param flags record flags
+     * @return true if the record is a control record, otherwise false.
+     */
     public static boolean isControl(long flags) {
         return ((flags & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
     }
 
+    /**
+     * Set the record as <code>EoS</code> mark.
+     *
+     * @see #isEndOfStream()
+     */
     void setEndOfStream() {
         metadata = metadata | LOGRECORD_FLAGS_END_OF_STREAM;
     }
 
+    /**
+     * Check if the record is a <code>EoS</code> mark.
+     * <p><code>EoS</code> mark is a special record that writer would
+     * add to seal a log. after <code>Eos</code> mark is written,
+     * writers can't write any more records and readers will get
+     * {@link com.twitter.distributedlog.exceptions.EndOfStreamException}
+     * when they reach <code>EoS</code>.
+     *
+     * @return true
+     */
     boolean isEndOfStream() {
         return ((metadata & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
     }
 
-    public static boolean isEndOfStream(long flags) {
-        return ((flags & LOGRECORD_FLAGS_END_OF_STREAM) != 0);
-    }
-
-
-    public byte[] getPayload() {
-        return payload;
-    }
-
-    public InputStream getPayLoadInputStream() {
-        return new ByteArrayInputStream(payload);
-    }
+    //
+    // Serialization & Deserialization
+    //
 
     protected void readPayload(DataInputStream in, int logVersion) throws IOException {
         int length = in.readInt();
@@ -151,14 +271,6 @@ public class LogRecord {
     private void writePayload(DataOutputStream out) throws IOException {
         out.writeInt(payload.length);
         out.write(payload);
-    }
-
-    protected void setTransactionId(long txid) {
-        this.txid = txid;
-    }
-
-    protected void setMetadata(long metadata) {
-        this.metadata = metadata;
     }
 
     private void writeToStream(DataOutputStream out) throws IOException {
@@ -279,7 +391,7 @@ public class LogRecord {
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
-                in.mark(DistributedLogConstants.INPUTSTREAM_MARK_LIMIT);
+                in.mark(INPUTSTREAM_MARK_LIMIT);
                 try {
                     long flags = in.readLong();
                     if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
