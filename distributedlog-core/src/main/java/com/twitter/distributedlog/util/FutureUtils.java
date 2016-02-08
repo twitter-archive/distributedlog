@@ -186,4 +186,17 @@ public class FutureUtils {
         future.raise(new FutureCancelledException());
     }
 
+    /**
+     * Create transmit exception from transmit result.
+     *
+     * @param transmitResult
+     *          transmit result (basically bk exception code)
+     * @return transmit exception
+     */
+    public static BKTransmitException transmitException(int transmitResult) {
+        return new BKTransmitException("Failed to write to bookkeeper; Error is ("
+            + transmitResult + ") "
+            + BKException.getMessage(transmitResult), transmitResult);
+    }
+
 }

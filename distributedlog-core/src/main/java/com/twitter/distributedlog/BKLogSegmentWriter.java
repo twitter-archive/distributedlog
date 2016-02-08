@@ -18,7 +18,6 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ScheduledExecutorService;
@@ -31,11 +30,13 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 
+import com.twitter.distributedlog.injector.FailureInjector;
+import com.twitter.distributedlog.injector.RandomDelayFailureInjector;
 import com.twitter.distributedlog.io.Buffer;
 import com.twitter.distributedlog.logsegment.LogSegmentWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Sizable;
-import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -66,8 +67,6 @@ import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SafeQueueingFuturePool;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -104,134 +103,6 @@ import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORDSET_SIZE;
  */
 class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Sizable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
-
-    private static class BKTransmitPacket {
-
-        private boolean isControl;
-        private long logSegmentSequenceNo;
-        private DLSN lastDLSN;
-        private List<Promise<DLSN>> promiseList;
-        private Promise<Integer> transmitComplete;
-        private long transmitTime;
-        private long maxTxId;
-        private LogRecordSet.Writer writer;
-
-        public BKTransmitPacket(String logName,
-                                long logSegmentSequenceNo,
-                                int initialBufferSize,
-                                boolean envelopeBeforeTransmit,
-                                CompressionCodec.Type codec,
-                                StatsLogger statsLogger) {
-            this.logSegmentSequenceNo = logSegmentSequenceNo;
-            this.promiseList = new LinkedList<Promise<DLSN>>();
-            this.isControl = false;
-            this.transmitComplete = new Promise<Integer>();
-            this.writer = LogRecordSet.newLogRecordSet(
-                    logName,
-                    initialBufferSize * 6 / 5,
-                    envelopeBeforeTransmit,
-                    codec,
-                    statsLogger);
-            this.maxTxId = Long.MIN_VALUE;
-        }
-
-        public void reset() {
-            if (null != promiseList) {
-                // Likely will have to move promise fulfillment to a separate thread
-                // so safest to just create a new list so the old list can move with
-                // with the thread, hence avoiding using clear to measure accurate GC
-                // behavior
-                cancelPromises(BKException.Code.InterruptedException);
-            }
-            promiseList = new LinkedList<Promise<DLSN>>();
-            writer.reset();
-        }
-
-        public long getLogSegmentSequenceNo() {
-            return logSegmentSequenceNo;
-        }
-
-        public void addToPromiseList(Promise<DLSN> nextPromise, long txId) {
-            promiseList.add(nextPromise);
-            maxTxId = Math.max(maxTxId, txId);
-        }
-
-        public LogRecordSet.Writer getRecordSetWriter() {
-            return writer;
-        }
-
-        private void satisfyPromises(long entryId) {
-            long nextSlotId = 0;
-            for(Promise<DLSN> promise : promiseList) {
-                promise.setValue(new DLSN(logSegmentSequenceNo, entryId, nextSlotId));
-                nextSlotId++;
-            }
-            promiseList.clear();
-        }
-
-        private void cancelPromises(int transmitResult) {
-            cancelPromises(transmitResultToException(transmitResult));
-        }
-
-        private void cancelPromises(Throwable t) {
-            for(Promise<DLSN> promise : promiseList) {
-                promise.setException(t);
-            }
-            promiseList.clear();
-        }
-
-        public void processTransmitComplete(long entryId, int transmitResult) {
-            if (transmitResult != BKException.Code.OK) {
-                cancelPromises(transmitResult);
-            } else {
-                satisfyPromises(entryId);
-            }
-        }
-
-        public DLSN finalize(long entryId, int transmitResult) {
-            if (transmitResult == BKException.Code.OK) {
-                lastDLSN = new DLSN(logSegmentSequenceNo, entryId, promiseList.size() - 1);
-            }
-            return lastDLSN;
-        }
-
-        public void setControl(boolean control) {
-            isControl = control;
-        }
-
-        public boolean isControl() {
-            return isControl;
-        }
-
-        public int awaitTransmitComplete(long timeout, TimeUnit unit) throws Exception {
-            return Await.result(transmitComplete, Duration.fromTimeUnit(timeout, unit));
-        }
-
-        public Future<Integer> awaitTransmitComplete() {
-            return transmitComplete;
-        }
-
-        public void setTransmitComplete(int transmitResult) {
-            transmitComplete.setValue(transmitResult);
-        }
-
-        public void notifyTransmit() {
-            transmitTime = System.nanoTime();
-        }
-
-        public long getTransmitTime() {
-            return transmitTime;
-        }
-
-        public long getWriteCount() {
-            return promiseList.size();
-        }
-
-        public long getMaxTxId() {
-            return maxTxId;
-        }
-
-    }
 
     private final String fullyQualifiedLogSegment;
     private final String streamName;
@@ -301,49 +172,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final AlertStatsLogger alertStatsLogger;
     private final WriteLimiter writeLimiter;
     private final FailureInjector writeDelayInjector;
-
-    static interface FailureInjector {
-        void inject();
-    }
-
-    static class NullFailureInjector implements FailureInjector {
-        public static NullFailureInjector INSTANCE = new NullFailureInjector();
-        @Override
-        public void inject() {
-        }
-    }
-
-    // manage failure injection for the class
-    static class RandomDelayFailureInjector implements FailureInjector {
-        private final DynamicDistributedLogConfiguration dynConf;
-
-        public RandomDelayFailureInjector(DynamicDistributedLogConfiguration dynConf) {
-            this.dynConf = dynConf;
-        }
-
-        private int delayMs() {
-            return dynConf.getEIInjectedWriteDelayMs();
-        }
-
-        private double delayPct() {
-            return dynConf.getEIInjectedWriteDelayPercent();
-        }
-
-        private boolean enabled() {
-            return delayMs() > 0 && delayPct() > 0;
-        }
-
-        @Override
-        public void inject() {
-            try {
-                if (enabled() && Utils.randomPercent(delayPct())) {
-                    Thread.sleep(delayMs());
-                }
-            } catch (InterruptedException ex) {
-                LOG.warn("delay was interrupted ", ex);
-            }
-        }
-    }
 
     /**
      * Construct an edit log output stream which writes to a ledger.
@@ -456,7 +284,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         if (conf.getEIInjectWriteDelay()) {
             this.writeDelayInjector = new RandomDelayFailureInjector(dynConf);
         } else {
-            this.writeDelayInjector = NullFailureInjector.INSTANCE;
+            this.writeDelayInjector = FailureInjector.NULL;
         }
 
         // If we are transmitting immediately (threshold == 0) and if immediate
@@ -1183,7 +1011,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         if (lastPacketRc != BKException.Code.OK) {
             LOG.error("Log Segment {} Failed to write to bookkeeper; Error is {}",
                 fullyQualifiedLogSegment, BKException.getMessage(lastPacketRc));
-            throw transmitResultToException(lastPacketRc);
+            throw FutureUtils.transmitException(lastPacketRc);
         }
 
         synchronized (this) {
@@ -1424,7 +1252,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 packetCurrent = getTransmitPacket();
             }
             packetCurrentSaved.cancelPromises(new WriteCancelledException(fullyQualifiedLogSegment,
-                transmitResultToException(transmitResult.get())));
+                FutureUtils.transmitException(transmitResult.get())));
         }
     }
 
@@ -1460,9 +1288,4 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
     }
 
-    private static BKTransmitException transmitResultToException(int transmitResult) {
-        return new BKTransmitException("Failed to write to bookkeeper; Error is ("
-            + transmitResult + ") "
-            + BKException.getMessage(transmitResult), transmitResult);
-    }
 }
