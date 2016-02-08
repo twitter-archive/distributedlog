@@ -1,0 +1,103 @@
+package com.twitter.distributedlog;
+
+import com.twitter.distributedlog.LogRecordSet.Writer;
+import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
+import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
+import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.io.Buffer;
+import com.twitter.distributedlog.io.CompressionCodec;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+
+/**
+ * {@link com.twitter.distributedlog.io.Buffer} based log record set writer.
+ */
+class EnvelopedRecordSetWriter implements Writer {
+
+    static final Logger logger = LoggerFactory.getLogger(EnvelopedRecordSetWriter.class);
+
+    private final String logName;
+    private final Buffer buffer;
+    private final LogRecord.Writer writer;
+    private final boolean envelopeBeforeTransmit;
+    private final CompressionCodec.Type codec;
+    private final StatsLogger statsLogger;
+    private int count = 0;
+
+    EnvelopedRecordSetWriter(String logName,
+                             int initialBufferSize,
+                             boolean envelopeBeforeTransmit,
+                             CompressionCodec.Type codec,
+                             StatsLogger statsLogger) {
+        this.logName = logName;
+        this.buffer = new Buffer(initialBufferSize * 6 / 5);
+        this.writer = new LogRecord.Writer(new DataOutputStream(buffer));
+        this.envelopeBeforeTransmit = envelopeBeforeTransmit;
+        this.codec = codec;
+        this.statsLogger = statsLogger;
+    }
+
+    @Override
+    public synchronized void reset() {
+        count = 0;
+        this.buffer.reset();
+    }
+
+    @Override
+    public synchronized void writeRecord(LogRecord record)
+            throws LogRecordTooLongException, WriteException {
+        int logRecordSize = record.getPersistentSize();
+        if (logRecordSize > MAX_LOGRECORD_SIZE) {
+            throw new LogRecordTooLongException(
+                    "Log Record of size " + logRecordSize + " written when only "
+                            + MAX_LOGRECORD_SIZE + " is allowed");
+        }
+
+        try {
+            this.writer.writeOp(record);
+            ++count;
+        } catch (IOException e) {
+            logger.error("Failed to append record to record set of {} : ",
+                    logName, e);
+            throw new WriteException(logName, "Failed to append record to record set of "
+                    + logName);
+        }
+    }
+
+    @Override
+    public int getNumBytes() {
+        return buffer.size();
+    }
+
+    @Override
+    public synchronized int getNumRecords() {
+        return count;
+    }
+
+    @Override
+    public synchronized Buffer serialize() throws InvalidEnvelopedEntryException, IOException {
+        if (!envelopeBeforeTransmit) {
+            return buffer;
+        }
+        // We can't escape this allocation because things need to be read from one byte array
+        // and then written to another. This is the destination.
+        Buffer toSend = new Buffer(buffer.size());
+        byte[] decompressed = buffer.getData();
+        int length = buffer.size();
+        EnvelopedEntry entry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
+                                                  codec,
+                                                  decompressed,
+                                                  length,
+                                                  statsLogger);
+        // This will cause an allocation of a byte[] for compression. This can be avoided
+        // but we can do that later only if needed.
+        entry.writeFully(new DataOutputStream(toSend));
+        return toSend;
+    }
+}

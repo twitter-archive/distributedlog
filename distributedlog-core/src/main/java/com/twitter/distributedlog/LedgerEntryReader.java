@@ -93,6 +93,6 @@ public class LedgerEntryReader extends LogRecord.Reader {
             public String getName() {
                 return name;
             }
-        }, getInputStream(in, envelopeEntries, statsLogger), 0, startSequenceId);
+        }, getInputStream(in, envelopeEntries, statsLogger), startSequenceId);
     }
 }

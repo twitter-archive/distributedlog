@@ -96,7 +96,6 @@ class BKPerStreamLogReader {
             new BufferedInputStream(lin,
                 // Size the buffer only as much look ahead we need for skipping
                 DistributedLogConstants.INPUTSTREAM_MARK_LIMIT)),
-            logVersion,
             Long.MIN_VALUE);
         // Note: The caller of the function (or a derived class is expected to open the
         // LedgerDescriptor and pass the ownership to the BKPerStreamLogReader

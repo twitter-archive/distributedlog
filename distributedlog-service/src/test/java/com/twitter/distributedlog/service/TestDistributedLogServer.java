@@ -3,7 +3,6 @@ package com.twitter.distributedlog.service;
 import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.ZooKeeperClient;
@@ -17,10 +16,10 @@ import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.routing.LocalRoutingService;
-import com.twitter.distributedlog.service.DistributedLogClient;
-import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.service.DistributedLogClient;
+import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
@@ -48,6 +47,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
 import static org.junit.Assert.*;
 
 public class TestDistributedLogServer extends DistributedLogServerTestCase {
@@ -246,7 +246,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
             writes.add(ByteBuffer.wrap(("" + i).getBytes()));
         }
         // Too big, will cause partial failure.
-        ByteBuffer buf = ByteBuffer.allocate(DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        ByteBuffer buf = ByteBuffer.allocate(MAX_LOGRECORD_SIZE + 1);
         writes.add(buf);
         for (long i = 1; i <= writeCount; i++) {
             writes.add(ByteBuffer.wrap(("" + i).getBytes()));
@@ -280,7 +280,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         final int writeCount = 100;
         List<ByteBuffer> writes = new ArrayList<ByteBuffer>(writeCount + 1);
-        ByteBuffer buf = ByteBuffer.allocate(DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        ByteBuffer buf = ByteBuffer.allocate(MAX_LOGRECORD_SIZE + 1);
         writes.add(buf);
         for (long i = 1; i <= writeCount; i++) {
             writes.add(ByteBuffer.wrap(("" + i).getBytes()));

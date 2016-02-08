@@ -259,7 +259,7 @@ public class LogRecord {
     // Serialization & Deserialization
     //
 
-    protected void readPayload(DataInputStream in, int logVersion) throws IOException {
+    protected void readPayload(DataInputStream in) throws IOException {
         int length = in.readInt();
         if (length < 0) {
             throw new EOFException("Log Record is corrupt: Negative length " + length);
@@ -322,7 +322,6 @@ public class LogRecord {
     public static class Reader {
         private final RecordStream recordStream;
         private final DataInputStream in;
-        private final int logVersion;
         private final long startSequenceId;
         private static final int SKIP_BUFFER_SIZE = 512;
 
@@ -333,9 +332,7 @@ public class LogRecord {
          */
         public Reader(RecordStream recordStream,
                       DataInputStream in,
-                      int logVersion,
                       long startSequenceId) {
-            this.logVersion = logVersion;
             this.recordStream = recordStream;
             this.in = in;
             this.startSequenceId = startSequenceId;
@@ -362,7 +359,7 @@ public class LogRecord {
                 nextRecordInStream.setMetadata(metadata);
                 recordStream.advanceToNextRecord();
                 nextRecordInStream.setTransactionId(in.readLong());
-                nextRecordInStream.readPayload(in, logVersion);
+                nextRecordInStream.readPayload(in);
                 if (LOG.isTraceEnabled()) {
                     if (nextRecordInStream.isControl()) {
                         LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());

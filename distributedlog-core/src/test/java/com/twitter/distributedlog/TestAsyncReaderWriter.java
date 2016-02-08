@@ -42,6 +42,7 @@ import com.twitter.util.FutureEventListener;
 import junit.framework.Assert;
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureFailed;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
 import static org.junit.Assert.*;
 
 public class TestAsyncReaderWriter extends TestDistributedLogBase {
@@ -128,15 +129,15 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         DLSN dlsn = Await.result(result, Duration.fromSeconds(10));
         assertEquals(1, dlsn.getLogSegmentSequenceNo());
 
-        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        record = DLMTestUtil.getLogRecordInstance(txid++, MAX_LOGRECORD_SIZE + 1);
         result = writer.write(record);
         validateFutureFailed(result, LogRecordTooLongException.class);
 
-        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        record = DLMTestUtil.getLogRecordInstance(txid++, MAX_LOGRECORD_SIZE + 1);
         result = writer.write(record);
         validateFutureFailed(result, WriteException.class);
 
-        record = DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1);
+        record = DLMTestUtil.getLogRecordInstance(txid++, MAX_LOGRECORD_SIZE + 1);
         result = writer.write(record);
         validateFutureFailed(result, WriteException.class);
 

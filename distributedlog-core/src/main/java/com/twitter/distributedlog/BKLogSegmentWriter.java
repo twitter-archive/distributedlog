@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
@@ -78,6 +77,8 @@ import com.twitter.util.Promise;
 import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORDSET_SIZE;
 
 /**
  * BookKeeper Based Log Segment Writer.
@@ -105,12 +106,32 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     static final Logger LOG = LoggerFactory.getLogger(BKLogSegmentWriter.class);
 
     private static class BKTransmitPacket {
-        public BKTransmitPacket(long logSegmentSequenceNo, int initialBufferSize) {
+
+        private boolean isControl;
+        private long logSegmentSequenceNo;
+        private DLSN lastDLSN;
+        private List<Promise<DLSN>> promiseList;
+        private Promise<Integer> transmitComplete;
+        private long transmitTime;
+        private long maxTxId;
+        private LogRecordSet.Writer writer;
+
+        public BKTransmitPacket(String logName,
+                                long logSegmentSequenceNo,
+                                int initialBufferSize,
+                                boolean envelopeBeforeTransmit,
+                                CompressionCodec.Type codec,
+                                StatsLogger statsLogger) {
             this.logSegmentSequenceNo = logSegmentSequenceNo;
             this.promiseList = new LinkedList<Promise<DLSN>>();
             this.isControl = false;
             this.transmitComplete = new Promise<Integer>();
-            this.buffer = new Buffer(initialBufferSize * 6 / 5);
+            this.writer = LogRecordSet.newLogRecordSet(
+                    logName,
+                    initialBufferSize * 6 / 5,
+                    envelopeBeforeTransmit,
+                    codec,
+                    statsLogger);
             this.maxTxId = Long.MIN_VALUE;
         }
 
@@ -123,7 +144,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 cancelPromises(BKException.Code.InterruptedException);
             }
             promiseList = new LinkedList<Promise<DLSN>>();
-            buffer.reset();
+            writer.reset();
         }
 
         public long getLogSegmentSequenceNo() {
@@ -135,8 +156,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             maxTxId = Math.max(maxTxId, txId);
         }
 
-        public Buffer getBuffer() {
-            return buffer;
+        public LogRecordSet.Writer getRecordSetWriter() {
+            return writer;
         }
 
         private void satisfyPromises(long entryId) {
@@ -210,14 +231,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             return maxTxId;
         }
 
-        private boolean isControl;
-        private long logSegmentSequenceNo;
-        private DLSN lastDLSN;
-        private List<Promise<DLSN>> promiseList;
-        private Promise<Integer> transmitComplete;
-        private Buffer buffer;
-        private long transmitTime;
-        private long maxTxId;
     }
 
     private final String fullyQualifiedLogSegment;
@@ -234,7 +247,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         = new AtomicInteger(BKException.Code.OK);
     private final DistributedReentrantLock lock;
     private final boolean isDurableWriteEnabled;
-    private LogRecord.Writer writer;
     private DLSN lastDLSN = DLSN.InvalidDLSN;
     private final long startTxId;
     private long lastTxId = DistributedLogConstants.INVALID_TXID;
@@ -413,18 +425,24 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         final int configuredTransmissionThreshold = dynConf.getOutputBufferSize();
-        if (configuredTransmissionThreshold > DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+        if (configuredTransmissionThreshold > MAX_LOGRECORDSET_SIZE) {
             LOG.warn("Setting output buffer size {} greater than max transmission size {} for log segment {}",
-                new Object[] {configuredTransmissionThreshold, DistributedLogConstants.MAX_TRANSMISSION_SIZE, fullyQualifiedLogSegment});
-            this.transmissionThreshold = DistributedLogConstants.MAX_TRANSMISSION_SIZE;
+                new Object[] {configuredTransmissionThreshold, MAX_LOGRECORDSET_SIZE, fullyQualifiedLogSegment});
+            this.transmissionThreshold = MAX_LOGRECORDSET_SIZE;
         } else {
             this.transmissionThreshold = configuredTransmissionThreshold;
         }
+        this.compressionType = CompressionUtils.stringToType(conf.getCompressionType());
 
         this.logSegmentSequenceNumber = logSegmentSequenceNumber;
-        this.packetCurrent = new BKTransmitPacket(logSegmentSequenceNumber, Math.max(transmissionThreshold, 1024));
+        this.packetCurrent = new BKTransmitPacket(
+                streamName,
+                logSegmentSequenceNumber,
+                Math.max(transmissionThreshold, 1024),
+                envelopeBeforeTransmit(),
+                compressionType,
+                envelopeStatsLogger);
         this.packetPrevious = null;
-        this.writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
         this.startTxId = startTxId;
         this.lastTxId = startTxId;
         this.lastTxIdFlushed = startTxId;
@@ -466,7 +484,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         assert(!this.immediateFlushEnabled || (null != this.executorService));
         this.closed = false;
         this.lastTransmit = Stopwatch.createStarted();
-        this.compressionType = CompressionUtils.stringToType(conf.getCompressionType());
     }
 
     String getFullyQualifiedLogSegment() {
@@ -563,8 +580,13 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     private BKTransmitPacket getTransmitPacket() {
-        return new BKTransmitPacket(logSegmentSequenceNumber,
-            Math.max(transmissionThreshold, getAverageTransmitSize()));
+        return new BKTransmitPacket(
+                streamName,
+                logSegmentSequenceNumber,
+                Math.max(transmissionThreshold, getAverageTransmitSize()),
+                envelopeBeforeTransmit(),
+                compressionType,
+                envelopeStatsLogger);
     }
 
     private boolean envelopeBeforeTransmit() {
@@ -836,16 +858,15 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                    WriteException, InvalidEnvelopedEntryException {
         int logRecordSize = record.getPersistentSize();
 
-        if (logRecordSize > DistributedLogConstants.MAX_LOGRECORD_SIZE) {
+        if (logRecordSize > MAX_LOGRECORD_SIZE) {
             throw new LogRecordTooLongException(String.format(
                     "Log Record of size %d written when only %d is allowed",
-                    logRecordSize, DistributedLogConstants.MAX_LOGRECORD_SIZE));
+                    logRecordSize, MAX_LOGRECORD_SIZE));
         }
 
         // If we will exceed the max number of bytes allowed per entry
         // initiate a transmit before accepting the new log record
-        if ((writer.getPendingBytes() + logRecordSize) >
-            DistributedLogConstants.MAX_TRANSMISSION_SIZE) {
+        if ((packetCurrent.getRecordSetWriter().getNumBytes() + logRecordSize) > MAX_LOGRECORDSET_SIZE) {
             doFlush();
         }
 
@@ -861,7 +882,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
 
         try {
-            writer.writeOp(record);
+            packetCurrent.getRecordSetWriter().writeRecord(record);
         } catch (IOException e) {
             LOG.error("Failed to append record to output buffer for {} : ",
                     getFullyQualifiedLogSegment(), e);
@@ -1204,7 +1225,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                                           + ") " + BKException.getMessage(transmitResult.get()), transmitResult.get());
                 }
 
-                if (packetCurrent.getBuffer().size() == 0) {
+                if (packetCurrent.getRecordSetWriter().getNumRecords() == 0) {
                     // Control flushes always have at least the control record to flush
                     transmitDataMisses.inc();
                     return false;
@@ -1215,46 +1236,31 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 outstandingBytes = 0;
                 packetCurrent = getTransmitPacket();
                 packetPrevious = packet;
-                writer = new LogRecord.Writer(new DataOutputStream(packetCurrent.getBuffer()));
                 lastTxIdFlushed = lastTxId;
 
                 if (!isControl) {
-                    numBytes += packet.getBuffer().size();
+                    numBytes += packet.getRecordSetWriter().getNumBytes();
                     numFlushesSinceRestart++;
                 }
             }
 
-            Buffer toSend = packet.getBuffer();
-            if (envelopeBeforeTransmit()) {
-                try {
-                    // We can't escape this allocation because things need to be read from one byte array
-                    // and then written to another. This is the destination.
-                    toSend = new Buffer(packet.getBuffer().size());
-                    byte[] decompressed = packet.getBuffer().getData();
-                    int length = packet.getBuffer().size();
-                    EnvelopedEntry entry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
-                                                              compressionType,
-                                                              decompressed,
-                                                              length,
-                                                              envelopeStatsLogger);
-                    // This will cause an allocation of a byte[] for compression. This can be avoided
-                    // but we can do that later only if needed.
-                    entry.writeFully(new DataOutputStream(toSend));
-                } catch (IOException e) {
-                    if (e instanceof InvalidEnvelopedEntryException) {
-                        alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
-                    }
-                    LOG.error("Exception while enveloping entries for segment: {}",
-                              new Object[] {fullyQualifiedLogSegment}, e);
-                    // If a write fails here, we need to set the transmit result to an error so that
-                    // no future writes go through and violate ordering guarantees.
-                    transmitResult.set(BKException.Code.WriteException);
-                    if (e instanceof InvalidEnvelopedEntryException) {
-                        alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
-                        throw (InvalidEnvelopedEntryException) e;
-                    } else {
-                        throw new WriteException(streamName, "Envelope Error");
-                    }
+            Buffer toSend;
+            try {
+                toSend = packet.getRecordSetWriter().serialize();
+            } catch (IOException e) {
+                if (e instanceof InvalidEnvelopedEntryException) {
+                    alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
+                }
+                LOG.error("Exception while enveloping entries for segment: {}",
+                          new Object[] {fullyQualifiedLogSegment}, e);
+                // If a write fails here, we need to set the transmit result to an error so that
+                // no future writes go through and violate ordering guarantees.
+                transmitResult.set(BKException.Code.WriteException);
+                if (e instanceof InvalidEnvelopedEntryException) {
+                    alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
+                    throw (InvalidEnvelopedEntryException) e;
+                } else {
+                    throw new WriteException(streamName, "Envelope Error");
                 }
             }
 
@@ -1289,7 +1295,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             return false;
         }
 
-        return (packetCurrent.getBuffer().size() > 0);
+        return (packetCurrent.getRecordSetWriter().getNumRecords() > 0);
     }
 
     @Override
@@ -1372,14 +1378,14 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
             if (transmitResult.get() != BKException.Code.OK) {
                 if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerFailedEvent(transmitPacket.buffer.size());
+                    transmitDataPacketSize.registerFailedEvent(transmitPacket.getRecordSetWriter().getNumBytes());
                 }
             } else {
                 // If we had data that we flushed then we need it to make sure that
                 // background flush in the next pass will make the previous writes
                 // visible by advancing the lastAck
                 if (!transmitPacket.isControl()) {
-                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.buffer.size());
+                    transmitDataPacketSize.registerSuccessfulEvent(transmitPacket.getRecordSetWriter().getNumBytes());
                     controlFlushNeeded = true;
                     if (immediateFlushEnabled) {
                         if (0 == minDelayBetweenImmediateFlushMs) {

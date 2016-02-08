@@ -19,6 +19,8 @@ import java.util.List;
 
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureFailed;
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureSucceededAndGetResult;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORDSET_SIZE;
 import static org.junit.Assert.*;
 
 /**
@@ -60,7 +62,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
 
         // Generate records: 10 good records, 1 too large record, 10 good records
         final List<LogRecord> records = DLMTestUtil.getLargeLogRecordInstanceList(1, goodRecs);
-        records.add(DLMTestUtil.getLogRecordInstance(goodRecs, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1));
+        records.add(DLMTestUtil.getLogRecordInstance(goodRecs, MAX_LOGRECORD_SIZE + 1));
         records.addAll(DLMTestUtil.getLargeLogRecordInstanceList(1, goodRecs));
 
         Future<List<Future<DLSN>>> futureResults = writer.writeBulk(records);
@@ -150,7 +152,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         List<Future<DLSN>> results = null;
         records = new ArrayList<LogRecord>(2);
         records.add(DLMTestUtil.getLogRecordInstance(txid++, 2048));
-        records.add(DLMTestUtil.getLogRecordInstance(txid++, DistributedLogConstants.MAX_LOGRECORD_SIZE + 1));
+        records.add(DLMTestUtil.getLogRecordInstance(txid++, MAX_LOGRECORD_SIZE + 1));
         futureResults = writer.writeBulk(records);
         results = validateFutureSucceededAndGetResult(futureResults);
         result = results.get(0);
@@ -225,7 +227,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         // First entry.
         int numTransmissions = 4;
         int recSize = 10*1024;
-        int batchSize = (numTransmissions*DistributedLogConstants.MAX_TRANSMISSION_SIZE+1)/recSize;
+        int batchSize = (numTransmissions*MAX_LOGRECORDSET_SIZE+1)/recSize;
         long ledgerIndex = 1;
         long entryIndex = 0;
         long slotIndex = 0;
@@ -254,7 +256,7 @@ public class TestAsyncBulkWrite extends TestDistributedLogBase {
         // First entry.
         int numTransmissions = 4;
         int recSize = 10*1024;
-        int batchSize = (numTransmissions*DistributedLogConstants.MAX_TRANSMISSION_SIZE+1)/recSize;
+        int batchSize = (numTransmissions*MAX_LOGRECORDSET_SIZE+1)/recSize;
         long ledgerIndex = 1;
         long entryIndex = 0;
         long slotIndex = 0;
