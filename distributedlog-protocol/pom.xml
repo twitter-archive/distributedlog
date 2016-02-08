@@ -11,6 +11,11 @@
   <name>DistributedLog Protocol</name>
   <dependencies>
     <dependency>
+      <groupId>org.apache.bookkeeper.stats</groupId>
+      <artifactId>bookkeeper-stats-api</artifactId>
+      <version>${bookkeeper.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.thrift</groupId>
       <artifactId>libthrift</artifactId>
       <version>0.5.0-1</version>
@@ -44,6 +49,11 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
       <version>1.6.4</version>
+    </dependency>
+    <dependency>
+      <groupId>net.jpountz.lz4</groupId>
+      <artifactId>lz4</artifactId>
+      <version>1.2.0</version>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

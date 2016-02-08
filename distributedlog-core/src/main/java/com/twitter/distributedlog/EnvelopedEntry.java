@@ -30,10 +30,10 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations.Compression;
+import com.twitter.distributedlog.io.CompressionCodec;
+import com.twitter.distributedlog.io.CompressionUtils;
 import com.twitter.distributedlog.util.BitMaskUtils;
-import com.twitter.distributedlog.util.CompressionCodec;
-import com.twitter.distributedlog.util.CompressionUtils;
-import com.twitter.distributedlog.util.DistributedLogAnnotations.Compression;
 
 /**
  * An enveloped entry written to BookKeeper.

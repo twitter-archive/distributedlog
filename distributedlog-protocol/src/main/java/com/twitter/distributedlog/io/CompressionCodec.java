@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.util;
+package com.twitter.distributedlog.io;
 
 import org.apache.bookkeeper.stats.OpStatsLogger;
 

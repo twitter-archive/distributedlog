@@ -10,8 +10,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.twitter.distributedlog.util.DistributedLogAnnotations;
-import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -22,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Stopwatch;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
@@ -32,6 +31,7 @@ import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;

@@ -1,4 +1,4 @@
-package com.twitter.distributedlog.util;
+package com.twitter.distributedlog.io;
 
 public class CompressionUtils {
 

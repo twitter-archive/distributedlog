@@ -14,7 +14,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.distributedlog.util.DistributedLogAnnotations.FlakyTest;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations.FlakyTest;
 import com.twitter.util.Await;
 import com.twitter.util.Function0;
 import com.twitter.util.FutureEventListener;
