@@ -1,3 +1,7 @@
+0.3.43
+------
+- Log metadata creation handles missing log identifer
+
 0.3.42
 ------
 - Bump birdcage release to 20160128130022-e7bf469

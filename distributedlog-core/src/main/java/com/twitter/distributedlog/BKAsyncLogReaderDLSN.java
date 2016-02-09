@@ -517,8 +517,16 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                             }
 
                             // gap detection
-                            if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
-                                    (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
+                            boolean firstLogRecord = (1 == record.getPositionWithinLogSegment());
+                            boolean endOfStreamRecord = record.isEndOfStream();
+                            boolean emptyLogSegment = (0 == lastPosition);
+                            boolean positionIncreasedByOne = (record.getPositionWithinLogSegment() != (lastPosition + 1));
+
+                            if (!firstLogRecord &&
+                                !emptyLogSegment &&
+                                !endOfStreamRecord &&
+                                !positionIncreasedByOne) {
+
                                 bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
                                 if (positionGapDetectionEnabled) {
                                     throw new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn());
