@@ -112,31 +112,32 @@ public class AppendOnlyStreamReader extends InputStream {
         return read;
     }
 
-    /**
-     * Position the reader at the given offset.
-     *
-     * @throw EndOfStreamException if we attempt to skip past the end of the stream.
-     */
-    public void skipTo(long position) throws IOException {
-
-        // We don't have a reposition method on the reader right now, but we can get
-        // close by creating a new reader at the desired position.
-        reader.close();
-        reader = dlm.getInputStream(position);
-
-        // We may end up with a reader positioned *before* the requested position if
-        // we're near the tail and the writer is still active, or if the desired position
-        // is not at a log record payload boundary.
-        LogRecordWithInputStream record = nextStream();
-        currentPosition = record.getLogRecord().getTransactionId();
-
-        // Transaction ID gives us the starting position of the log record. Read a head
-        // if necessary.
+    public boolean skipTo(long position) throws IOException {
+        // Allocate once and reuse unlike the default implementation
+        // in InputStream
         byte[] skipBuffer = new byte[SKIP_BUFFER_SIZE];
-        while (currentPosition < position) {
-            long bytesToRead = Math.min(position - currentPosition, SKIP_BUFFER_SIZE);
-            read(skipBuffer, 0, (int)bytesToRead);
+
+        // Underlying reader doesnt support positioning
+        // beyond the current point in the stream
+        // So we should reset the DLog Reader and reposition a new one
+        // In practice positioning behind the current point is not
+        // a frequent operation so this is fine
+        if (position < currentPosition) {
+            reader.close();
+            reader = dlm.getInputStream(0);
+            currentPosition = 0;
         }
+
+        long read = currentPosition;
+        while (read < position) {
+            long bytesToRead = Math.min(position - read, SKIP_BUFFER_SIZE);
+            int bytesRead = read(skipBuffer, 0 , (int)bytesToRead);
+            if (bytesRead < bytesToRead) {
+                return false;
+            }
+            read += bytesToRead;
+        }
+        return true;
     }
 
     public long position() {
