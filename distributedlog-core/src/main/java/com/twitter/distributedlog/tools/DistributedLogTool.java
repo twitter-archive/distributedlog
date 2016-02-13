@@ -63,6 +63,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
@@ -1367,23 +1368,28 @@ public class DistributedLogTool extends Tool {
         @Override
         protected int runCmd() throws Exception {
             DistributedLogManager dlm = getFactory().createDistributedLogManagerWithSharedClients(getStreamName());
+            long totalCount = dlm.getLogRecordCount();
             try {
-                LogReader reader;
+                AsyncLogReader reader;
+                Object startOffset;
                 try {
                     DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
                     println("Last DLSN : " + lastDLSN);
                     if (null == fromDLSN) {
-                        reader = dlm.getInputStream(fromTxnId);
+                        reader = dlm.getAsyncLogReader(fromTxnId);
+                        startOffset = fromTxnId;
                     } else {
-                        reader = dlm.getInputStream(fromDLSN);
+                        reader = dlm.getAsyncLogReader(fromDLSN);
+                        startOffset = fromDLSN;
                     }
                 } catch (LogNotFoundException lee) {
                     println("No stream found to dump records.");
                     return 0;
                 }
                 try {
-                    println("Dump records for " + getStreamName() + " (from = " + fromTxnId
-                            + ", count = " + count + ")");
+                    println(String.format("Dump records for %s (from = %s, dump count = %d, total records = %d)",
+                            getStreamName(), startOffset, count, totalCount));
+
                     dumpRecords(reader);
                 } finally {
                     reader.close();
@@ -1394,9 +1400,9 @@ public class DistributedLogTool extends Tool {
             return 0;
         }
 
-        private void dumpRecords(LogReader reader) throws Exception {
+        private void dumpRecords(AsyncLogReader reader) throws Exception {
             int numRead = 0;
-            LogRecord record = reader.readNext(false);
+            LogRecord record = Await.result(reader.readNext());
             while (record != null) {
                 // dump the record
                 dumpRecord(record);
@@ -1404,7 +1410,7 @@ public class DistributedLogTool extends Tool {
                 if (numRead >= count) {
                     break;
                 }
-                record = reader.readNext(false);
+                record = Await.result(reader.readNext());
             }
             if (numRead == 0) {
                 println("No records.");
@@ -2067,6 +2073,7 @@ public class DistributedLogTool extends Tool {
         boolean skipPayload = false;
         boolean readAllBookies = false;
         boolean readLac = false;
+        boolean corruptOnly = false;
 
         int metadataVersion = LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION;
 
@@ -2079,6 +2086,7 @@ public class DistributedLogTool extends Tool {
             options.addOption("bks", "all-bookies", false, "Read entry from all bookies");
             options.addOption("lac", "last-add-confirmed", false, "Return last add confirmed rather than entry payload");
             options.addOption("ver", "metadata-version", true, "The log segment metadata version to use");
+            options.addOption("bad", "corrupt-only", false, "Display info for corrupt entries only");
         }
 
         @Override
@@ -2093,8 +2101,9 @@ public class DistributedLogTool extends Tool {
                 untilEntryId = Long.parseLong(cmdline.getOptionValue("uid"));
             }
             if (cmdline.hasOption("ver")) {
-                this.metadataVersion = Integer.parseInt(cmdline.getOptionValue("ver"));
+                metadataVersion = Integer.parseInt(cmdline.getOptionValue("ver"));
             }
+            corruptOnly = cmdline.hasOption("bad");
             readAllBookies = cmdline.hasOption("bks");
             readLac = cmdline.hasOption("lac");
         }
@@ -2152,19 +2161,36 @@ public class DistributedLogTool extends Tool {
                 if (null == readResults) {
                     throw new IOException("Failed to read entry " + eid);
                 }
-                System.out.println("\t" + eid + "\t:");
+                boolean printHeader = true;
                 for (LedgerReader.ReadResult<InputStream> rr : readResults) {
-                    System.out.println("\tbookie=" + rr.getBookieAddress());
-                    System.out.println("\t-------------------------------");
-                    if (BKException.Code.OK == rr.getResultCode()) {
-                        LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
-                                                                         LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                         0L, NullStatsLogger.INSTANCE);
-                        printEntry(reader);
+                    if (corruptOnly) {
+                        if (BKException.Code.DigestMatchException == rr.getResultCode()) {
+                            if (printHeader) {
+                                System.out.println("\t" + eid + "\t:");
+                                printHeader = false;
+                            }
+                            System.out.println("\tbookie=" + rr.getBookieAddress());
+                            System.out.println("\t-------------------------------");
+                            System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
+                            System.out.println("\t-------------------------------");
+                        }
                     } else {
-                        System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
+                        if (printHeader) {
+                            System.out.println("\t" + eid + "\t:");
+                            printHeader = false;
+                        }
+                        System.out.println("\tbookie=" + rr.getBookieAddress());
+                        System.out.println("\t-------------------------------");
+                        if (BKException.Code.OK == rr.getResultCode()) {
+                            LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
+                                                                             LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
+                                                                             0L, NullStatsLogger.INSTANCE);
+                            printEntry(reader);
+                        } else {
+                            System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
+                        }
+                        System.out.println("\t-------------------------------");
                     }
-                    System.out.println("\t-------------------------------");
                 }
             }
         }
@@ -2569,10 +2595,12 @@ public class DistributedLogTool extends Tool {
     public static class SerializeDLSNCommand extends SimpleCommand {
 
         private DLSN dlsn = DLSN.InitialDLSN;
+        private boolean hex = false;
 
         SerializeDLSNCommand() {
-            super("serialize_dlsn", "Serialize DLSN");
+            super("serialize_dlsn", "Serialize DLSN. Default format is base64 string.");
             options.addOption("dlsn", true, "DLSN in comma separated format to serialize");
+            options.addOption("x", "hex", false, "Emit hex-encoded string DLSN instead of base 64");
         }
 
         public void setDLSN(DLSN dlsn) {
@@ -2583,11 +2611,18 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("dlsn")) {
                 dlsn = parseDLSN(cmdline.getOptionValue("dlsn"));
             }
+            hex = cmdline.hasOption("x");
         }
 
         @Override
         protected int runSimpleCmd() throws Exception {
-            println(dlsn.serialize());
+            if (hex) {
+                byte[] bytes = dlsn.serializeBytes();
+                String hexString = Hex.encodeHexString(bytes);
+                println(hexString);
+            } else {
+                println(dlsn.serialize());
+            }
             return 0;
         }
     }
