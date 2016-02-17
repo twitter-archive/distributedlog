@@ -517,8 +517,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                             }
 
                             // gap detection
-                            if ((1 != record.getPositionWithinLogSegment()) && (0 != lastPosition) &&
-                                    (record.getPositionWithinLogSegment() != (lastPosition + 1))) {
+                            if (recordPositionsContainsGap(record, lastPosition)) {
                                 bkDistributedLogManager.raiseAlert("Gap detected between records at dlsn = {}", record.getDlsn());
                                 if (positionGapDetectionEnabled) {
                                     throw new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn());
@@ -578,6 +577,16 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 }
             }
         }
+    }
+
+    private boolean recordPositionsContainsGap(LogRecordWithDLSN record, long lastPosition) {
+        final boolean firstLogRecord = (1 == record.getPositionWithinLogSegment());
+        final boolean endOfStreamRecord = record.isEndOfStream();
+        final boolean emptyLogSegment = (0 == lastPosition);
+        final boolean positionIncreasedByOne = (record.getPositionWithinLogSegment() == (lastPosition + 1));
+
+        return !firstLogRecord && !endOfStreamRecord && !emptyLogSegment &&
+               !positionIncreasedByOne;
     }
 
     /**

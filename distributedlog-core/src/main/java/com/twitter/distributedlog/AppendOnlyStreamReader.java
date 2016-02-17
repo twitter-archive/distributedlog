@@ -39,6 +39,12 @@ public class AppendOnlyStreamReader extends InputStream {
         LogRecordWithDLSN getLogRecord() {
             return logRecord;
         }
+
+        // The last txid of the log record is the position of the next byte in the stream.
+        // Subtract length to get starting offset.
+        long getOffset() {
+            return logRecord.getTransactionId() - logRecord.getPayload().length;
+        }
     }
 
     /**
@@ -59,7 +65,11 @@ public class AppendOnlyStreamReader extends InputStream {
      *
      * @return input stream, or null if no more entries
      */
-    private LogRecordWithInputStream nextStream() throws IOException {
+    private LogRecordWithInputStream nextLogRecord() throws IOException {
+        return nextLogRecord(reader);
+    }
+
+    private static LogRecordWithInputStream nextLogRecord(LogReader reader) throws IOException {
         LogRecordWithDLSN record = reader.readNext(false);
 
         if (null != record) {
@@ -89,7 +99,7 @@ public class AppendOnlyStreamReader extends InputStream {
     public int read(byte[] b, int off, int len) throws IOException {
         int read = 0;
         if (currentLogRecord == null) {
-            currentLogRecord = nextStream();
+            currentLogRecord = nextLogRecord();
             if (currentLogRecord == null) {
                 return read;
             }
@@ -98,7 +108,7 @@ public class AppendOnlyStreamReader extends InputStream {
         while (read < len) {
             int thisread = currentLogRecord.getPayLoadInputStream().read(b, off + read, (len - read));
             if (thisread == -1) {
-                currentLogRecord = nextStream();
+                currentLogRecord = nextLogRecord();
                 if (currentLogRecord == null) {
                     return read;
                 }
@@ -112,31 +122,50 @@ public class AppendOnlyStreamReader extends InputStream {
         return read;
     }
 
+    /**
+     * Position the reader at the given offset. If we fail to skip to the desired position
+     * and don't hit end of stream, return false.
+     *
+     * @throw EndOfStreamException if we attempt to skip past the end of the stream.
+     */
     public boolean skipTo(long position) throws IOException {
-        // Allocate once and reuse unlike the default implementation
-        // in InputStream
-        byte[] skipBuffer = new byte[SKIP_BUFFER_SIZE];
 
-        // Underlying reader doesnt support positioning
-        // beyond the current point in the stream
-        // So we should reset the DLog Reader and reposition a new one
-        // In practice positioning behind the current point is not
-        // a frequent operation so this is fine
-        if (position < currentPosition) {
-            reader.close();
-            reader = dlm.getInputStream(0);
-            currentPosition = 0;
+        LogReader skipReader = dlm.getInputStream(position);
+        LogRecordWithInputStream logRecord = null;
+        try {
+            logRecord = nextLogRecord(skipReader);
+        } catch (IOException ex) {
+            skipReader.close();
+            throw ex;
         }
 
-        long read = currentPosition;
-        while (read < position) {
-            long bytesToRead = Math.min(position - read, SKIP_BUFFER_SIZE);
-            int bytesRead = read(skipBuffer, 0 , (int)bytesToRead);
+        if (null == logRecord) {
+            return false;
+        }
+
+        // We may end up with a reader positioned *before* the requested position if
+        // we're near the tail and the writer is still active, or if the desired position
+        // is not at a log record payload boundary.
+        // Transaction ID gives us the starting position of the log record. Read ahead
+        // if necessary.
+        currentPosition = logRecord.getOffset();
+        currentLogRecord = logRecord;
+        LogReader oldReader = reader;
+        reader = skipReader;
+
+        // Close the oldreader after swapping AppendOnlyStreamReader state. Close may fail
+        // and we need to make sure it leaves AppendOnlyStreamReader in a consistent state.
+        oldReader.close();
+
+        byte[] skipBuffer = new byte[SKIP_BUFFER_SIZE];
+        while (currentPosition < position) {
+            long bytesToRead = Math.min(position - currentPosition, SKIP_BUFFER_SIZE);
+            long bytesRead = read(skipBuffer, 0, (int)bytesToRead);
             if (bytesRead < bytesToRead) {
                 return false;
             }
-            read += bytesToRead;
         }
+
         return true;
     }
 
