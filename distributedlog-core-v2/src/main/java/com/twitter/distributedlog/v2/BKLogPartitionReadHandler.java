@@ -225,6 +225,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
         zooKeeperClient.get().getChildren(ledgerPath, watcher);
     }
 
+    @VisibleForTesting
+    ReadAheadWorker getReadAheadWorker() {
+        return readAheadWorker;
+    }
+
     public void startReadAhead(LedgerReadPosition startPosition) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(getFullyQualifiedName(),
@@ -233,7 +238,11 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 ledgerDataAccessor,
                 conf);
             readAheadWorker.start();
-            ledgerDataAccessor.setReadAheadEnabled(true, conf.getReadAheadWaitTime(), conf.getReadAheadBatchSize());
+            ledgerDataAccessor.setReadAheadEnabled(
+                    true,
+                    conf.getReadAheadWaitTime(),
+                    conf.getReadAheadBatchSize(),
+                    conf.getReaderIdleWarnThresholdMillis());
         } else {
             readAheadWorker.advanceReadAhead(startPosition);
         }
@@ -423,6 +432,12 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                 LOG.info("Done waiting for ReadAhead Worker to stop {}", fullyQualifiedName);
             } catch (InterruptedException exc) {
                 LOG.info("{}: Interrupted while waiting for ReadAhead Worker to stop", fullyQualifiedName, exc);
+            }
+        }
+
+        void updateCache(LedgerReadPosition position, LedgerEntry entry) {
+            if (running) {
+                ledgerDataAccessor.set(position, entry);
             }
         }
 
@@ -918,7 +933,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
                             nextReadAheadPosition.advance();
 
-                            ledgerDataAccessor.set(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()), entry);
+                            updateCache(new LedgerReadPosition(entry.getLedgerId(), currentLH.getLedgerSequenceNo(), entry.getEntryId()), entry);
 
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Reading the value received {} for {} : entryId {}",
@@ -998,7 +1013,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             bkcUnExpectedExceptions.set(0);
                             nextReadAheadPosition.advance();
                             LedgerEntry e = seq.nextElement();
-                            ledgerDataAccessor.set(new LedgerReadPosition(e.getLedgerId(), currentLH.getLedgerSequenceNo(), e.getEntryId()), e);
+                            updateCache(new LedgerReadPosition(e.getLedgerId(), currentLH.getLedgerSequenceNo(), e.getEntryId()), e);
                         }
                         if (ledgerDataAccessor.getNumCacheEntries() >= readAheadMaxEntries) {
                             cacheFull = true;

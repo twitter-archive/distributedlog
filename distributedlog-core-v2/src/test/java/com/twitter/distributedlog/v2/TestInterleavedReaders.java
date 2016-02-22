@@ -32,6 +32,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class TestInterleavedReaders {
     static final Logger LOG = LoggerFactory.getLogger(TestBookKeeperDistributedLogManager.class);
@@ -608,8 +611,8 @@ public class TestInterleavedReaders {
             LOG.info("Exception encountered", exc);
             exceptionEncountered = true;
         }
-        assert(!exceptionEncountered);
-        assert(!currentThread.isInterrupted());
+        assertTrue(exceptionEncountered);
+        assertFalse(currentThread.isInterrupted());
         executor.shutdown();
     }
 
@@ -1203,4 +1206,52 @@ public class TestInterleavedReaders {
         }
         reader.close();
     }
+
+    @Test(timeout = 15000)
+    public void testIdleReadAheadEnabled() throws Exception {
+        String name = "distrlog-idle-readahead-enabled";
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setReaderIdleWarnThresholdMillis(100);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setReadAheadMaxRecords(10);
+        confLocal.setEnableReadAhead(true);
+
+        DistributedLogManager dlm = DLMTestUtil.createNewDLM(confLocal, name);
+
+        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        for (int i = 0; i < 10; i++) {
+            writer.write(DLMTestUtil.getLogRecordInstance(1L + i));
+        }
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+
+        BKContinuousLogReader reader = (BKContinuousLogReader) dlm.getInputStream(1L);
+        LogRecord record;
+        long txId = 1L;
+        while ((record = reader.readNext(true)) != null) {
+            assertEquals(txId, record.getTransactionId());
+            ++txId;
+        }
+        assertEquals(11L, txId);
+        // stop the readahead to simulate idle readahead
+        reader.getReadHandler().getReadAheadWorker().stop();
+
+        TimeUnit.MILLISECONDS.sleep(3 * 100);
+
+        writer.write(DLMTestUtil.getLogRecordInstance(1L + 10));
+        writer.setReadyToFlush();
+        writer.flushAndSync();
+
+        try {
+            while ((record = reader.readNext(true)) == null) {
+                // wait until read next record
+            }
+            fail("Should thrown idle reader exception on reading " + record);
+        } catch (IdleReaderException ire) {
+            // expected
+        }
+    }
+
 }

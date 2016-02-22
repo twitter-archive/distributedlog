@@ -3,20 +3,22 @@ package com.twitter.distributedlog.v2;
 import com.twitter.distributedlog.AsyncNotification;
 import com.twitter.distributedlog.LogReadException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.IdleReaderException;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -27,16 +29,19 @@ public class LedgerDataAccessor {
     private boolean readAheadEnabled = false;
     private int readAheadWaitTime = 100;
     private int readAheadBatchSize = 1;
+    private long idleReaderWarnThresholdMillis = TimeUnit.MILLISECONDS.convert(2, TimeUnit.MINUTES);
     private final LedgerHandleCache ledgerHandleCache;
     private final Counter readAheadHits;
     private final Counter readAheadWaits;
     private final Counter readAheadMisses;
-    private final Map<LedgerReadPosition, ReadAheadCacheValue> readAheadCache = Collections.synchronizedMap(new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true));
+    private final LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue> readAheadCache =
+            new LinkedHashMap<LedgerReadPosition, ReadAheadCacheValue>(16, 0.75f, true);
     private AtomicReference<LedgerReadPosition> lastRemovedKey = new AtomicReference<LedgerReadPosition>();
     private volatile AsyncNotification notification;
     private AtomicLong cacheBytes = new AtomicLong(0);
     private BKLogPartitionReadHandler.ReadAheadCallback readAheadCallback = null;
     private final String streamName;
+    private long lastReadAheadTime;
 
     LedgerDataAccessor(LedgerHandleCache ledgerHandleCache, String streamName) {
         this(ledgerHandleCache, streamName, NullStatsLogger.INSTANCE);
@@ -49,6 +54,7 @@ public class LedgerDataAccessor {
         this.readAheadMisses = readAheadStatsLogger.getCounter("miss");
         this.readAheadHits = readAheadStatsLogger.getCounter("hit");
         this.readAheadWaits = readAheadStatsLogger.getCounter("wait");
+        this.lastReadAheadTime = MathUtils.nowInNano();
     }
 
     public synchronized void setReadAheadCallback(BKLogPartitionReadHandler.ReadAheadWorker readAheadCallback, long maxEntries) {
@@ -62,10 +68,15 @@ public class LedgerDataAccessor {
         this.notification = notification;
     }
 
-    public void setReadAheadEnabled(boolean enabled, int waitTime, int batchSize) {
+    public void setReadAheadEnabled(boolean enabled,
+                                    int waitTime,
+                                    int batchSize,
+                                    long warnThresholdMillis) {
+        LOG.info("Set readhead : enabled = {}, warnMs = {}", enabled, warnThresholdMillis);
         readAheadEnabled = enabled;
         readAheadWaitTime = waitTime;
         readAheadBatchSize = batchSize;
+        idleReaderWarnThresholdMillis = warnThresholdMillis;
     }
 
     public long getLastAddConfirmed(LedgerDescriptor ledgerDesc) throws IOException {
@@ -165,6 +176,20 @@ public class LedgerDataAccessor {
             assert (entries.hasMoreElements());
             LedgerEntry e = entries.nextElement();
             assert !entries.hasMoreElements();
+
+            if (readAheadEnabled) {
+                synchronized (readAheadCache) {
+                    // foreground reader could read records, but the background readahead hasn't
+                    // been updated for more than 2 of idle reader warn threshold. throw idle reader exception
+                    // to force application restart the reader.
+                    long elapsedMs = MathUtils.elapsedMSec(lastReadAheadTime);
+                    if (elapsedMs > 2 * idleReaderWarnThresholdMillis) {
+                        throw new IdleReaderException("ReadAhead on stream " + streamName
+                                + " is idle for " + elapsedMs +" ms");
+                    }
+                }
+            }
+
             return e;
         } catch (BKException bke) {
             if ((bke.getCode() == BKException.Code.NoSuchLedgerExistsException) ||
@@ -192,6 +217,8 @@ public class LedgerDataAccessor {
 
         ReadAheadCacheValue value;
         synchronized(readAheadCache) {
+            lastReadAheadTime = MathUtils.nowInNano();
+
             value = readAheadCache.get(key);
             if (null == value) {
                 readAheadCache.put(key, newValue);
