@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
@@ -428,10 +429,23 @@ public class DLMTestUtil {
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
-        BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
-                new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
+        BKLogSegmentWriter writer = new BKLogSegmentWriter(
+                writeHandler.getFullyQualifiedName(),
+                inprogressZnodeName,
+                conf,
+                conf.getDLLedgerMetadataLayoutVersion(),
+                new BKLogSegmentEntryWriter(lh),
+                writeHandler.lock,
+                startTxID,
+                logSegmentSeqNo,
+                writeHandler.scheduler,
+                writeHandler.orderedFuturePool,
+                writeHandler.statsLogger,
+                writeHandler.statsLogger,
+                writeHandler.alertStatsLogger,
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0),
+                ConfUtils.getConstDynConf(conf));
         if (writeEntries) {
             long txid = startTxID;
             for (long j = 1; j <= segmentSize; j++) {
@@ -470,10 +484,23 @@ public class DLMTestUtil {
         l.write(dlm.writerZKC);
         writeHandler.maxTxId.store(startTxID);
         writeHandler.addLogSegmentToCache(inprogressZnodeName, l);
-        BKLogSegmentWriter writer = new BKLogSegmentWriter(writeHandler.getFullyQualifiedName(), inprogressZnodeName,
-                conf, conf.getDLLedgerMetadataLayoutVersion(), lh, writeHandler.lock, startTxID, logSegmentSeqNo, writeHandler.scheduler,
-                writeHandler.orderedFuturePool, writeHandler.statsLogger, writeHandler.statsLogger, writeHandler.alertStatsLogger, PermitLimiter.NULL_PERMIT_LIMITER,
-                new SettableFeatureProvider("", 0), ConfUtils.getConstDynConf(conf));
+        BKLogSegmentWriter writer = new BKLogSegmentWriter(
+                writeHandler.getFullyQualifiedName(),
+                inprogressZnodeName,
+                conf,
+                conf.getDLLedgerMetadataLayoutVersion(),
+                new BKLogSegmentEntryWriter(lh),
+                writeHandler.lock,
+                startTxID,
+                logSegmentSeqNo,
+                writeHandler.scheduler,
+                writeHandler.orderedFuturePool,
+                writeHandler.statsLogger,
+                writeHandler.statsLogger,
+                writeHandler.alertStatsLogger,
+                PermitLimiter.NULL_PERMIT_LIMITER,
+                new SettableFeatureProvider("", 0),
+                ConfUtils.getConstDynConf(conf));
         long txid = startTxID;
         DLSN wrongDLSN = null;
         for (long j = 1; j <= segmentSize; j++) {
@@ -486,8 +513,8 @@ public class DLMTestUtil {
         if (recordWrongLastDLSN) {
             writer.close();
             writeHandler.completeAndCloseLogSegment(
-                    writeHandler.inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
-                    writer.getLogSegmentSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), startTxID + segmentSize - 2,
+                    writeHandler.inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
+                    writer.getLogSegmentSequenceNumber(), writer.getLogSegmentId(), writer.getStartTxId(), startTxID + segmentSize - 2,
                     writer.getPositionWithinLogSegment() - 1, wrongDLSN.getEntryId(), wrongDLSN.getSlotId(), true);
         } else {
             writeHandler.completeAndCloseLogSegment(writer);

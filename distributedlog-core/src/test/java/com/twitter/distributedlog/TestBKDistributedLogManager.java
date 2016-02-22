@@ -434,7 +434,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
                                                       writer.getLogSegmentSequenceNumber()), false));
             BKLogSegmentWriter perStreamLogWriter = blplm.startLogSegment(txid - 1);
             blplm.completeAndCloseLogSegment(perStreamLogWriter.getLogSegmentSequenceNumber(),
-                    perStreamLogWriter.getLedgerHandle().getId(), txid - 1, txid - 1, 0);
+                    perStreamLogWriter.getLogSegmentId(), txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1,
                                                       perStreamLogWriter.getLogSegmentSequenceNumber()), false));
@@ -894,7 +894,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
                                                       perStreamLogWriter.getLogSegmentSequenceNumber()), false));
             BKLogSegmentWriter writer = blplm.startLogSegment(txid - 1);
             blplm.completeAndCloseLogSegment(writer.getLogSegmentSequenceNumber(),
-                    writer.getLedgerHandle().getId(), txid - 1, txid - 1, 0);
+                    writer.getLogSegmentId(), txid - 1, txid - 1, 0);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1,
                                                       writer.getLogSegmentSequenceNumber()), false));

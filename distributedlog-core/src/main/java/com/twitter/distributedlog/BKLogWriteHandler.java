@@ -11,6 +11,7 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
@@ -493,7 +494,7 @@ class BKLogWriteHandler extends BKLogHandler {
                     inprogressZnodeName,
                     conf,
                     conf.getDLLedgerMetadataLayoutVersion(),
-                    lh,
+                    new BKLogSegmentEntryWriter(lh),
                     lock,
                     txId,
                     logSegmentSeqNo,
@@ -581,8 +582,8 @@ class BKLogWriteHandler extends BKLogHandler {
                 throw new IOException("PerStreamLogWriter for " + writer.getFullyQualifiedLogSegment() + " is already in error.");
             }
             completeAndCloseLogSegment(
-                    inprogressZNodeName(writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
-                    writer.getLogSegmentSequenceNumber(), writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+                    inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
+                    writer.getLogSegmentSequenceNumber(), writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
                     writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
             return writer.getLastTxId();
         }
@@ -590,7 +591,7 @@ class BKLogWriteHandler extends BKLogHandler {
         @Override
         public String toString() {
             return String.format("CompleteWriterOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
-                    writer.getLedgerHandle().getId(), writer.getStartTxId(), writer.getLastTxId(),
+                    writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
                     writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
         }
     }

@@ -33,6 +33,7 @@ import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.injector.FailureInjector;
 import com.twitter.distributedlog.injector.RandomDelayFailureInjector;
 import com.twitter.distributedlog.io.Buffer;
+import com.twitter.distributedlog.logsegment.LogSegmentEntryWriter;
 import com.twitter.distributedlog.logsegment.LogSegmentWriter;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
@@ -111,7 +112,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private LogRecordSet.Writer recordSetWriter;
     private final AtomicInteger outstandingTransmits;
     private final int transmissionThreshold;
-    protected final LedgerHandle lh;
+    protected final LogSegmentEntryWriter entryWriter;
     private final CompressionCodec.Type compressionType;
     private final ReentrantLock transmitLock = new ReentrantLock();
     private final AtomicInteger transmitResult
@@ -180,8 +181,10 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  String logSegmentName,
                                  DistributedLogConfiguration conf,
                                  int logSegmentMetadataVersion,
-                                 LedgerHandle lh, DistributedReentrantLock lock,
-                                 long startTxId, long logSegmentSequenceNumber,
+                                 LogSegmentEntryWriter entryWriter,
+                                 DistributedReentrantLock lock,
+                                 long startTxId,
+                                 long logSegmentSequenceNumber,
                                  ScheduledExecutorService executorService,
                                  FuturePool orderedFuturePool,
                                  StatsLogger statsLogger,
@@ -248,7 +251,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.fullyQualifiedLogSegment = streamName + ":" + logSegmentName;
         this.streamName = streamName;
         this.logSegmentMetadataVersion = logSegmentMetadataVersion;
-        this.lh = lh;
+        this.entryWriter = entryWriter;
         this.lock = lock;
         this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
@@ -327,8 +330,14 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         transmitResult.set(rc);
     }
 
-    protected final LedgerHandle getLedgerHandle() {
-        return this.lh;
+    @VisibleForTesting
+    protected final LogSegmentEntryWriter getEntryWriter() {
+        return this.entryWriter;
+    }
+
+    @Override
+    public long getLogSegmentId() {
+        return this.entryWriter.getLogSegmentId();
     }
 
     protected final long getLogSegmentSequenceNumber() {
@@ -389,7 +398,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
 
     @Override
     public long size() {
-        return lh.getLength();
+        return entryWriter.size();
     }
 
     private synchronized int getAverageTransmitSize() {
@@ -550,7 +559,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             // Synchronous closing the ledger handle, if we couldn't close a ledger handle successfully.
             // we should throw the exception to #closeToFinalize, so it would fail completing a log segment.
             try {
-                lh.close();
+                entryWriter.close();
             } catch (BKException.BKLedgerClosedException lce) {
                 // if a ledger is already closed, we don't need to throw exception
             } catch (BKException bke) {
@@ -1087,7 +1096,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             synchronized (this) {
                 BKTransmitPacket packet = new BKTransmitPacket(recordSetToTransmit);
                 packetPrevious = packet;
-                lh.asyncAddEntry(toSend.getData(), 0, toSend.size(),
+                entryWriter.asyncAddEntry(toSend.getData(), 0, toSend.size(),
                                  this, packet);
 
                 if (recordSetToTransmit.hasUserRecords()) {

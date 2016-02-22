@@ -42,8 +42,12 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
                 ++txid;
             }
             out.close();
-            bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(out.getLogSegmentSequenceNumber(), out.getLedgerHandle().getId(),
-                    1 + sid * numEntriesPerSegment, (sid + 1) * numEntriesPerSegment, numEntriesPerSegment);
+            bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(
+                    out.getLogSegmentSequenceNumber(),
+                    out.getLogSegmentId(),
+                    1 + sid * numEntriesPerSegment,
+                    (sid + 1) * numEntriesPerSegment,
+                    numEntriesPerSegment);
         }
         bkdlmAndClients.close();
     }

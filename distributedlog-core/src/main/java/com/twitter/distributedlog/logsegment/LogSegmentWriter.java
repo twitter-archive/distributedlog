@@ -16,6 +16,13 @@ import java.io.IOException;
 public interface LogSegmentWriter extends Closeable, Abortable {
 
     /**
+     * Get the unique log segment id.
+     *
+     * @return log segment id.
+     */
+    public long getLogSegmentId();
+
+    /**
      * Write a log record to a log segment.
      *
      * @param record single log record

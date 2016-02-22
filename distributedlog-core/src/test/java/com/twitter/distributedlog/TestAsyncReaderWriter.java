@@ -1329,7 +1329,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         BKLogSegmentWriter logWriter = writer.getCachedLogWriter();
 
         // fence the ledger
-        dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
+        dlm.getWriterBKC().get().openLedger(logWriter.getLogSegmentId(),
                 BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
 
         try {
@@ -1372,7 +1372,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         BKLogSegmentWriter logWriter = writer.getCachedLogWriter();
 
         // fence the ledger
-        dlm.getWriterBKC().get().openLedger(logWriter.getLedgerHandle().getId(),
+        dlm.getWriterBKC().get().openLedger(logWriter.getLogSegmentId(),
                 BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
 
         try {

@@ -306,10 +306,10 @@ public class TestRollLogSegments extends TestDistributedLogBase {
     private void checkAndWaitWriterReaderPosition(BKLogSegmentWriter writer, long expectedWriterPosition,
                                                   BKAsyncLogReaderDLSN reader, long expectedReaderPosition,
                                                   LedgerHandle inspector, long expectedLac) throws Exception {
-        while (writer.getLedgerHandle().getLastAddConfirmed() < expectedWriterPosition) {
+        while (getLedgerHandle(writer).getLastAddConfirmed() < expectedWriterPosition) {
             Thread.sleep(1000);
         }
-        assertEquals(expectedWriterPosition, writer.getLedgerHandle().getLastAddConfirmed());
+        assertEquals(expectedWriterPosition, getLedgerHandle(writer).getLastAddConfirmed());
         assertEquals(expectedLac, inspector.readLastConfirmed());
         LedgerReadPosition readPosition = reader.bkLedgerManager.readAheadWorker.getNextReadAheadPosition();
         logger.info("ReadAhead moved read position {} : ", readPosition);
@@ -361,7 +361,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
         BKLogSegmentWriter perStreamWriter = writer.perStreamWriter;
         BookKeeperClient bkc = readDLM.getReaderBKC();
-        LedgerHandle readLh = bkc.get().openLedgerNoRecovery(perStreamWriter.getLedgerHandle().getId(),
+        LedgerHandle readLh = bkc.get().openLedgerNoRecovery(getLedgerHandle(perStreamWriter).getId(),
                 BookKeeper.DigestType.CRC32, conf.getBKDigestPW().getBytes(UTF_8));
 
         // Writer moved to lac = 9, while reader knows lac = 8 and moving to wait on 9
@@ -387,9 +387,9 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // simulate a recovery without closing ledger causing recording wrong last dlsn
         BKLogWriteHandler writeHandler = writer.getCachedWriteHandler();
         writeHandler.completeAndCloseLogSegment(
-                writeHandler.inprogressZNodeName(perStreamWriter.getLedgerHandle().getId(), perStreamWriter.getStartTxId(), perStreamWriter.getLogSegmentSequenceNumber()),
+                writeHandler.inprogressZNodeName(perStreamWriter.getLogSegmentId(), perStreamWriter.getStartTxId(), perStreamWriter.getLogSegmentSequenceNumber()),
                 perStreamWriter.getLogSegmentSequenceNumber(),
-                perStreamWriter.getLedgerHandle().getId(),
+                perStreamWriter.getLogSegmentId(),
                 perStreamWriter.getStartTxId(), perStreamWriter.getLastTxId(),
                 perStreamWriter.getPositionWithinLogSegment() - 1,
                 9,

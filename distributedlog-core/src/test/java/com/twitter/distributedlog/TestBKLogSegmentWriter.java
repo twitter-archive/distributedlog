@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.ConfUtils;
@@ -146,7 +147,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 runtime.getMethodName(),
                 conf,
                 LogSegmentMetadata.LEDGER_METADATA_CURRENT_LAYOUT_VERSION,
-                lh,
+                new BKLogSegmentEntryWriter(lh),
                 lock,
                 startTxId,
                 logSegmentSequenceNumber,
@@ -232,7 +233,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         }
         assertEquals("Last DLSN should be " + dlsns.get(dlsns.size() - 1),
                 dlsns.get(dlsns.size() - 1), writer.getLastDLSN());
-        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle lh = getLedgerHandle(writer);
         LedgerHandle readLh = openLedgerNoRecovery(lh);
         assertTrue("Ledger " + lh.getId() + " should be closed", readLh.isClosed());
         assertEquals("There should be two entries in ledger " + lh.getId(),
@@ -299,7 +300,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         }
 
         // check no entries were written
-        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle lh = getLedgerHandle(writer);
         LedgerHandle readLh = openLedgerNoRecovery(lh);
         assertTrue("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
         assertEquals("There should be no entries in ledger " + lh.getId(),
@@ -384,7 +385,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         }
 
         // check no entries were written
-        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle lh = getLedgerHandle(writer);
         LedgerHandle readLh = openLedgerNoRecovery(lh);
         assertFalse("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
         assertEquals("There should be no entries in ledger " + lh.getId(),
@@ -423,7 +424,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         assertEquals("Position should be " + numRecords,
                 10, writer.getPositionWithinLogSegment());
         // fence the ledger
-        fenceLedger(writer.getLedgerHandle());
+        fenceLedger(getLedgerHandle(writer));
         // close the writer: it should release the lock, fail on flushing data and throw exception
         try {
             writer.close();
@@ -458,7 +459,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         }
 
         // check no entries were written
-        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle lh = getLedgerHandle(writer);
         LedgerHandle readLh = openLedgerNoRecovery(lh);
         assertTrue("Ledger " + lh.getId() + " should be closed", readLh.isClosed());
         assertEquals("There should be no entries in ledger " + lh.getId(),
@@ -578,7 +579,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 2 * numRecords, writer.getPositionWithinLogSegment());
 
         // check only 1 entry were written
-        LedgerHandle lh = writer.getLedgerHandle();
+        LedgerHandle lh = getLedgerHandle(writer);
         LedgerHandle readLh = openLedgerNoRecovery(lh);
         assertTrue("Ledger " + lh.getId() + " should not be closed", readLh.isClosed());
         assertEquals("Only one entry is written for ledger " + lh.getId(),
@@ -720,7 +721,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
         // fence the ledger
-        fenceLedger(writer.getLedgerHandle());
+        fenceLedger(getLedgerHandle(writer));
 
         LogRecord record = DLMTestUtil.getLogRecordInstance(1);
         record.setControl();
@@ -759,6 +760,6 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         assertEquals(DLSN.InvalidDLSN,
                 Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(2))));
 
-        assertEquals(-1L, writer.getLedgerHandle().getLastAddPushed());
+        assertEquals(-1L, getLedgerHandle(writer).getLastAddPushed());
     }
 }

@@ -1,9 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
+import com.twitter.distributedlog.logsegment.LogSegmentEntryWriter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.util.PermitLimiter;
-import com.twitter.distributedlog.util.Utils;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -179,5 +181,11 @@ public class TestDistributedLogBase {
         DistributedLogNamespace namespace = factory.getNamespace();
         assert(namespace instanceof BKDistributedLogNamespace);
         return ((BKDistributedLogNamespace) namespace).getReaderBKC();
+    }
+
+    protected LedgerHandle getLedgerHandle(BKLogSegmentWriter segmentWriter) {
+        LogSegmentEntryWriter entryWriter = segmentWriter.getEntryWriter();
+        assert(entryWriter instanceof BKLogSegmentEntryWriter);
+        return ((BKLogSegmentEntryWriter) entryWriter).getLedgerHandle();
     }
 }
