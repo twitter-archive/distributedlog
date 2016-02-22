@@ -79,7 +79,7 @@ public class TestRoutingService {
                     .build();
         } else {
             routingService = ServerSetRoutingService.newServerSetRoutingServiceBuilder()
-                    .serverSetWatcher(new DLServerSetWatcher(new NameServerSet(name), true)).build();
+                    .serverSetWatcher(new TwitterServerSetWatcher(new NameServerSet(name), true)).build();
         }
 
         if (asyncResolution) {

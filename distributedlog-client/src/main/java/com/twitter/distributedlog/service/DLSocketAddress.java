@@ -17,7 +17,7 @@ public class DLSocketAddress {
     private final int shard;
     private final InetSocketAddress socketAddress;
 
-    DLSocketAddress(int shard, InetSocketAddress socketAddress) {
+    public DLSocketAddress(int shard, InetSocketAddress socketAddress) {
         this.shard = shard;
         this.socketAddress = socketAddress;
     }

@@ -5,14 +5,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.StatsReceiver;
-import com.twitter.thrift.Endpoint;
-import com.twitter.thrift.ServiceInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,11 +36,11 @@ class ServerSetRoutingService extends Thread implements RoutingService {
 
     static class ServerSetRoutingServiceBuilder implements RoutingService.Builder {
 
-        private DLServerSetWatcher _serverSetWatcher;
+        private ServerSetWatcher _serverSetWatcher;
 
         private ServerSetRoutingServiceBuilder() {}
 
-        public ServerSetRoutingServiceBuilder serverSetWatcher(DLServerSetWatcher serverSetWatcher) {
+        public ServerSetRoutingServiceBuilder serverSetWatcher(ServerSetWatcher serverSetWatcher) {
             this._serverSetWatcher = serverSetWatcher;
             return this;
         }
@@ -69,22 +67,22 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         }
     }
 
-    private final DLServerSetWatcher serverSetWatcher;
+    private final ServerSetWatcher serverSetWatcher;
 
     private final Set<SocketAddress> hostSet = new HashSet<SocketAddress>();
     private List<SocketAddress> hostList = new ArrayList<SocketAddress>();
     private final HashFunction hasher = Hashing.md5();
 
     // Server Set Changes
-    private final AtomicReference<ImmutableSet<ServiceInstance>> serverSetChange =
-            new AtomicReference<ImmutableSet<ServiceInstance>>(null);
+    private final AtomicReference<ImmutableSet<DLSocketAddress>> serverSetChange =
+            new AtomicReference<ImmutableSet<DLSocketAddress>>(null);
     private final CountDownLatch changeLatch = new CountDownLatch(1);
 
     // Listeners
     protected final CopyOnWriteArraySet<RoutingListener> listeners =
             new CopyOnWriteArraySet<RoutingListener>();
 
-    ServerSetRoutingService(DLServerSetWatcher serverSetWatcher) {
+    ServerSetRoutingService(ServerSetWatcher serverSetWatcher) {
         super("ServerSetRoutingService");
         this.serverSetWatcher = serverSetWatcher;
     }
@@ -181,15 +179,15 @@ class ServerSetRoutingService extends Thread implements RoutingService {
     @Override
     public void run() {
         try {
-            serverSetWatcher.watch(new DLServerSetWatcher.DLHostChangeMonitor<ServiceInstance>() {
+            serverSetWatcher.watch(new ServerSetWatcher.ServerSetMonitor() {
                 @Override
-                public void onChange(ImmutableSet<ServiceInstance> serviceInstances, boolean resolvedFromName) {
-                    ImmutableSet<ServiceInstance> lastValue = serverSetChange.getAndSet(serviceInstances);
+                public void onChange(ImmutableSet<DLSocketAddress> serviceInstances) {
+                    ImmutableSet<DLSocketAddress> lastValue = serverSetChange.getAndSet(serviceInstances);
                     if (null == lastValue) {
-                        ImmutableSet<ServiceInstance> mostRecentValue;
+                        ImmutableSet<DLSocketAddress> mostRecentValue;
                         do {
                             mostRecentValue = serverSetChange.get();
-                            performServerSetChange(mostRecentValue, resolvedFromName);
+                            performServerSetChange(mostRecentValue);
                             changeLatch.countDown();
                         } while (!serverSetChange.compareAndSet(mostRecentValue, null));
                     }
@@ -201,12 +199,10 @@ class ServerSetRoutingService extends Thread implements RoutingService {
         }
     }
 
-    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serverSet, boolean resolvedFromName) {
+    protected synchronized void performServerSetChange(ImmutableSet<DLSocketAddress> serverSet) {
         Set<SocketAddress> newSet = new HashSet<SocketAddress>();
-        for (ServiceInstance serviceInstance : serverSet) {
-            Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
-            SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
-            newSet.add(address);
+        for (DLSocketAddress serviceInstance : serverSet) {
+            newSet.add(serviceInstance.getSocketAddress());
         }
 
         Set<SocketAddress> removed;

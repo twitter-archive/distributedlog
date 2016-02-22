@@ -5,27 +5,26 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
+import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.finagle.ChannelException;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.stats.Counter;
 import com.twitter.finagle.stats.Gauge;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
-import com.twitter.thrift.Endpoint;
-import com.twitter.thrift.ServiceInstance;
 import com.twitter.util.Function0;
 import org.apache.commons.lang3.tuple.Pair;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scala.collection.Seq;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -40,8 +39,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ConsistentHashRoutingService.class);
+
     @Deprecated
-    public static ConsistentHashRoutingService of(DLServerSetWatcher serverSetWatcher, int numReplicas) {
+    public static ConsistentHashRoutingService of(ServerSetWatcher serverSetWatcher, int numReplicas) {
         return new ConsistentHashRoutingService(serverSetWatcher, numReplicas, 300, NullStatsReceiver.get());
     }
 
@@ -89,7 +90,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             Preconditions.checkNotNull(_serverSet, "No serverset provided.");
             Preconditions.checkNotNull(_statsReceiver, "No stats receiver provided.");
             Preconditions.checkArgument(_numReplicas > 0, "Invalid number of replicas : " + _numReplicas);
-            return new ConsistentHashRoutingService(new DLServerSetWatcher(_serverSet, _resolveFromName),
+            return new ConsistentHashRoutingService(new TwitterServerSetWatcher(_serverSet, _resolveFromName),
                     _numReplicas, _blackoutSeconds, _statsReceiver);
         }
     }
@@ -270,7 +271,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     private static final int UNKNOWN_SHARD_ID = -1;
 
-    private ConsistentHashRoutingService(DLServerSetWatcher serverSetWatcher,
+    private ConsistentHashRoutingService(ServerSetWatcher serverSetWatcher,
                                          int numReplicas,
                                          int blackoutSeconds,
                                          StatsReceiver statsReceiver) {
@@ -392,68 +393,52 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
     }
 
     @Override
-    protected synchronized void performServerSetChange(ImmutableSet<ServiceInstance> serviceInstances, boolean resolvedFromName) {
+    protected synchronized void performServerSetChange(ImmutableSet<DLSocketAddress> serviceInstances) {
         Set<SocketAddress> joinedList = new HashSet<SocketAddress>();
         Set<SocketAddress> removedList = new HashSet<SocketAddress>();
-        if (resolvedFromName) {
-            Set<SocketAddress> newSet = new HashSet<SocketAddress>();
-            for (ServiceInstance serviceInstance : serviceInstances) {
-                Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
-                SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
-                newSet.add(address);
-            }
 
-            synchronized (shardId2Address) {
-                removedList = Sets.difference(address2ShardId.keySet(), newSet).immutableCopy();
-                joinedList = Sets.difference(newSet, address2ShardId.keySet()).immutableCopy();
-                for (SocketAddress node: removedList) {
-                    removeHostInternal(node, Optional.<Throwable>absent());
-                }
-                for (SocketAddress node: joinedList) {
-                    // Assign a random negative shardId
-                    int shardId;
-                    do {
-                        shardId = Math.min(-1 , (int)(Math.random() * Integer.MIN_VALUE));
-                    } while (null != shardId2Address.get(shardId));
-
-                    // Since we have allocated a unique id, we don't expect to ever
-                    // have to populate anything in the removedList; Since its an immutable set;
-                    // add will throw and be a good check in case there are cases when we
-                    // don't maintain the set correctly
-                    join(shardId, node, removedList);
-                }
-            }
-        } else {
-            Map<Integer, SocketAddress> newMap = new HashMap<Integer, SocketAddress>();
-            for (ServiceInstance serviceInstance : serviceInstances) {
-                Endpoint endpoint = serviceInstance.getAdditionalEndpoints().get("thrift");
-                SocketAddress address = new InetSocketAddress(endpoint.getHost(), endpoint.getPort());
-                newMap.put(serviceInstance.getShard(), address);
-            }
-
-            Map<Integer, SocketAddress> left;
-            synchronized (shardId2Address) {
-                MapDifference<Integer, SocketAddress> difference =
-                        Maps.difference(shardId2Address, newMap);
-                left = difference.entriesOnlyOnLeft();
-                for (Integer shard : left.keySet()) {
-                    SocketAddress host = shardId2Address.get(shard);
-                    if (null != host) {
-                        // we don't remove those hosts that just disappered on serverset proactively,
-                        // since it might be just because serverset become flaky
-                        // address2ShardId.remove(host);
-                        // circle.remove(shard, host);
-                        logger.info("Shard {} ({}) left temporarily.", shard, host);
+        Map<Integer, SocketAddress> newMap = new HashMap<Integer, SocketAddress>();
+        synchronized (shardId2Address) {
+            for (DLSocketAddress serviceInstance : serviceInstances) {
+                if (serviceInstance.getShard() >= 0) {
+                    newMap.put(serviceInstance.getShard(), serviceInstance.getSocketAddress());
+                } else {
+                    Integer shard = address2ShardId.get(serviceInstance.getSocketAddress());
+                    if (null == shard) {
+                        // Assign a random negative shardId
+                        int shardId;
+                        do {
+                            shardId = Math.min(-1 , (int)(Math.random() * Integer.MIN_VALUE));
+                        } while (null != shardId2Address.get(shardId));
+                        shard = shardId;
                     }
+                    newMap.put(shard, serviceInstance.getSocketAddress());
                 }
-                // we need to find if any shards are replacing old shards
-                for (Integer shard : newMap.keySet()) {
-                    SocketAddress oldHost = shardId2Address.get(shard);
-                    SocketAddress newHost = newMap.get(shard);
-                    if (!newHost.equals(oldHost)) {
-                        join(shard, newHost, removedList);
-                        joinedList.add(newHost);
-                    }
+            }
+        }
+
+        Map<Integer, SocketAddress> left;
+        synchronized (shardId2Address) {
+            MapDifference<Integer, SocketAddress> difference =
+                    Maps.difference(shardId2Address, newMap);
+            left = difference.entriesOnlyOnLeft();
+            for (Integer shard : left.keySet()) {
+                SocketAddress host = shardId2Address.get(shard);
+                if (null != host) {
+                    // we don't remove those hosts that just disappered on serverset proactively,
+                    // since it might be just because serverset become flaky
+                    // address2ShardId.remove(host);
+                    // circle.remove(shard, host);
+                    logger.info("Shard {} ({}) left temporarily.", shard, host);
+                }
+            }
+            // we need to find if any shards are replacing old shards
+            for (Integer shard : newMap.keySet()) {
+                SocketAddress oldHost = shardId2Address.get(shard);
+                SocketAddress newHost = newMap.get(shard);
+                if (!newHost.equals(oldHost)) {
+                    join(shard, newHost, removedList);
+                    joinedList.add(newHost);
                 }
             }
         }
