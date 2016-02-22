@@ -16,6 +16,7 @@
 
 package com.twitter.distributedlog;
 
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.zk.ZKWatcherManager;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -39,6 +40,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -120,6 +122,7 @@ public class ZooKeeperClient {
     private final double requestRateLimit;
     private final Credentials credentials;
     private volatile boolean authenticated = false;
+    private Stopwatch disconnectedStopwatch = null;
 
     private boolean closed = false;
 
@@ -145,8 +148,14 @@ public class ZooKeeperClient {
              Credentials.NONE);
     }
 
-    ZooKeeperClient(String name, int sessionTimeoutMs, int connectionTimeoutMs, String zooKeeperServers,
-                    RetryPolicy retryPolicy, StatsLogger statsLogger, int retryThreadCount, double requestRateLimit,
+    ZooKeeperClient(String name,
+                    int sessionTimeoutMs,
+                    int connectionTimeoutMs,
+                    String zooKeeperServers,
+                    RetryPolicy retryPolicy,
+                    StatsLogger statsLogger,
+                    int retryThreadCount,
+                    double requestRateLimit,
                     Credentials credentials) {
         this.name = name;
         this.sessionTimeoutMs = sessionTimeoutMs;
@@ -199,8 +208,27 @@ public class ZooKeeperClient {
             throw new ZooKeeperConnectionException("Client " + name + " has already been closed");
         }
 
+        // the underneath zookeeper is retryable zookeeper
+        if (zooKeeper != null && retryPolicy != null) {
+            if (zooKeeper.getState().equals(ZooKeeper.States.CONNECTED)) {
+                // the zookeeper client is connected
+                disconnectedStopwatch = null;
+            } else {
+                if (disconnectedStopwatch == null) {
+                    disconnectedStopwatch = Stopwatch.createStarted();
+                } else {
+                    long disconnectedMs = disconnectedStopwatch.elapsed(TimeUnit.MILLISECONDS);
+                    if (disconnectedMs > defaultConnectionTimeoutMs) {
+                        closeInternal();
+                        authenticated = false;
+                    }
+                }
+            }
+        }
+
         if (zooKeeper == null) {
             zooKeeper = buildZooKeeper();
+            disconnectedStopwatch = null;
         }
 
         // In case authenticate throws an exception, the caller can try to recover the client by

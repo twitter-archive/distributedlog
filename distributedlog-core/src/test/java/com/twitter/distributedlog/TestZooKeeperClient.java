@@ -13,18 +13,18 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
@@ -50,6 +50,11 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
     }
 
     private ZooKeeperClientBuilder clientBuilder() throws Exception {
+        return clientBuilder(sessionTimeoutMs);
+    }
+
+    private ZooKeeperClientBuilder clientBuilder(int sessionTimeoutMs)
+            throws Exception {
         return ZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
                 .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
@@ -364,5 +369,52 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
         assertEquals(1, w2.receivedEvents.size());
         assertEquals(zkPath, w2.receivedEvents.get(0).getPath());
         assertEquals(Watcher.Event.EventType.NodeDataChanged, w2.receivedEvents.get(0).getType());
+    }
+
+    @Test(timeout = 60000)
+    public void testZooKeeperReconnection() throws Exception {
+        int sessionTimeoutMs = 100;
+        ZooKeeperClient zkc = clientBuilder(sessionTimeoutMs).zkAclId(null).build();
+        ZooKeeper zk = zkc.get();
+        long sessionId = zk.getSessionId();
+        ZooKeeperClientUtils.expireSession(zkc, zkServers, 2 * sessionTimeoutMs);
+        ZooKeeper newZk = zkc.get();
+        while (!ZooKeeper.States.CONNECTED.equals(newZk.getState())) {
+            TimeUnit.MILLISECONDS.sleep(sessionTimeoutMs / 2);
+        }
+        long newSessionId = newZk.getSessionId();
+        assertTrue(newZk == zk);
+        assertFalse(sessionId == newSessionId);
+    }
+
+    @Test(timeout = 60000)
+    public void testZooKeeperReconnectionBlockingRetryThread() throws Exception {
+        int sessionTimeoutMs = 100;
+        ZooKeeperClient zkc = clientBuilder(sessionTimeoutMs).zkAclId(null).build();
+        ZooKeeper zk = zkc.get();
+        assertTrue(zk instanceof org.apache.bookkeeper.zookeeper.ZooKeeperClient);
+        org.apache.bookkeeper.zookeeper.ZooKeeperClient bkZkc =
+                (org.apache.bookkeeper.zookeeper.ZooKeeperClient) zk;
+        // get the connect executor
+        Field connectExecutorField = bkZkc.getClass().getDeclaredField("connectExecutor");
+        connectExecutorField.setAccessible(true);
+        ExecutorService connectExecutor = (ExecutorService) connectExecutorField.get(bkZkc);
+        final CountDownLatch latch = new CountDownLatch(1);
+        // block retry thread in the zookeeper client
+        connectExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    latch.await();
+                } catch (InterruptedException e) {
+                }
+            }
+        });
+        ZooKeeperClientUtils.expireSession(zkc, zkServers, 2 * sessionTimeoutMs);
+        ZooKeeper newZk;
+        while ((newZk = zkc.get()) == zk) {
+            TimeUnit.MILLISECONDS.sleep(sessionTimeoutMs / 2);
+        }
+        assertEquals(ZooKeeper.States.CONNECTED, newZk.getState());
     }
 }
