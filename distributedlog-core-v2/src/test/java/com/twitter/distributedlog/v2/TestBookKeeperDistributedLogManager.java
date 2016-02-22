@@ -994,13 +994,13 @@ public class TestBookKeeperDistributedLogManager {
         try {
             dlmreader.getTxIdNotLaterThan(new PartitionId(0), 70L);
             assert (false);
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             // expected
         }
         try {
             dlmreader.getTxIdNotLaterThan(new PartitionId(1), 70L);
             assert (false);
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             // expected
         }
 

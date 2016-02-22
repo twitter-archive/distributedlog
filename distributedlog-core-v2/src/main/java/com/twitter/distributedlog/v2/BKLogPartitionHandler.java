@@ -23,11 +23,13 @@ import com.twitter.distributedlog.AlreadyTruncatedTransactionException;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.LogEmptyException;
+import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
@@ -194,7 +196,7 @@ abstract class BKLogPartitionHandler {
     public long getLogRecordCount() throws IOException {
         try {
             checkLogStreamExists();
-        } catch (LogEmptyException exc) {
+        } catch (LogNotFoundException exc) {
             return 0;
         }
 
@@ -225,14 +227,14 @@ abstract class BKLogPartitionHandler {
     private void checkLogStreamExists() throws IOException {
         try {
             if (null == Utils.sync(zooKeeperClient, ledgerPath).exists(ledgerPath, false)) {
-                throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+                throw new LogNotFoundException("Log " + getFullyQualifiedName() + " doesn't exist");
             }
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", ledgerPath, ie);
             throw new DLInterruptedException("Interrupted while checking " + ledgerPath, ie);
         } catch (KeeperException ke) {
-            LOG.error("Error reading {} entry in zookeeper", ledgerPath, ke);
-            throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
+            LOG.error("Error checking existence for {}", ledgerPath, ke);
+            throw new ZKException("Log " + getFullyQualifiedName() + " is empty", ke);
         }
     }
 
