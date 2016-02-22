@@ -1392,7 +1392,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
-    private void testAsyncReadIdleErrorInternal(String name, final int idleReaderErrorThreshold, final boolean heartBeatUsingControlRecs) throws Exception {
+    private void testAsyncReadIdleErrorInternal(String name,
+                                                final int idleReaderErrorThreshold,
+                                                final boolean heartBeatUsingControlRecs,
+                                                final boolean simulateReaderStall) throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(testConf);
         confLocal.setOutputBufferSize(0);
@@ -1452,7 +1455,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             }, 0, TimeUnit.MILLISECONDS);
 
         latch.await();
-        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        BKAsyncLogReaderDLSN reader = (BKAsyncLogReaderDLSN) dlm.getAsyncLogReader(DLSN.InitialDLSN);
+        if (simulateReaderStall) {
+            reader.disableProcessingReadRequests();
+        }
         boolean exceptionEncountered = false;
         int recordCount = 0;
         try {
@@ -1469,27 +1475,35 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
             exceptionEncountered = true;
         }
 
-        if (heartBeatUsingControlRecs) {
-            assert (!exceptionEncountered);
+        if (simulateReaderStall) {
+            assertTrue(exceptionEncountered);
+        } else if (heartBeatUsingControlRecs) {
+            assertFalse(exceptionEncountered);
             Assert.assertEquals(segmentSize * numSegments, recordCount);
         } else {
-            assert (exceptionEncountered);
+            assertTrue(exceptionEncountered);
             Assert.assertEquals(segmentSize, recordCount);
         }
-        assert(!currentThread.isInterrupted());
+        assertFalse(currentThread.isInterrupted());
         executor.shutdown();
     }
 
     @Test(timeout = 10000)
     public void testAsyncReadIdleControlRecord() throws Exception {
         String name = "distrlog-async-reader-idle-error-control";
-        testAsyncReadIdleErrorInternal(name, 500, true);
+        testAsyncReadIdleErrorInternal(name, 500, true, false);
     }
 
     @Test(timeout = 10000)
     public void testAsyncReadIdleError() throws Exception {
         String name = "distrlog-async-reader-idle-error";
-        testAsyncReadIdleErrorInternal(name, 1000, false);
+        testAsyncReadIdleErrorInternal(name, 1000, false, false);
+    }
+
+    @Test(timeout = 10000)
+    public void testAsyncReadIdleError2() throws Exception {
+        String name = "distrlog-async-reader-idle-error-2";
+        testAsyncReadIdleErrorInternal(name, 1000, true, true);
     }
 
     @Test(timeout = 60000)

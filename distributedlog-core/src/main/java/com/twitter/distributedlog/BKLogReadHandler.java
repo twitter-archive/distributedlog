@@ -325,14 +325,6 @@ class BKLogReadHandler extends BKLogHandler {
         return null != readAheadWorker && readAheadWorker.isCaughtUp();
     }
 
-    void dumpReadAheadState(boolean isError) {
-        if (isError) {
-            LOG.error("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
-        } else {
-            LOG.warn("Stream {}; Read Ahead state: {}", getFullyQualifiedName(), readAheadWorker);
-        }
-    }
-
     public LedgerHandleCache getHandleCache() {
         return handleCache;
     }
@@ -381,8 +373,8 @@ class BKLogReadHandler extends BKLogHandler {
         return readAheadCache.getNextReadAheadRecord();
     }
 
-    public boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
-        return readAheadCache.checkForReaderStall(idleReaderErrorThreshold, timeUnit);
+    public ReadAheadCache getReadAheadCache() {
+        return readAheadCache;
     }
 
     @VisibleForTesting

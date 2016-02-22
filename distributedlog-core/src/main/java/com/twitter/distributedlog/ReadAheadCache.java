@@ -135,21 +135,16 @@ public class ReadAheadCache {
     }
 
     /**
-     * Check whether the reader becomes stall.
+     * Check whether the readahead becomes stall.
      *
      * @param idleReaderErrorThreshold
      *          idle reader error threshold
      * @param timeUnit
      *          time unit of the idle reader error threshold
-     * @return true if the reader becomes stall, otherwise false.
+     * @return true if the readahead becomes stall, otherwise false.
      */
-    public boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
-        // If the read ahead cache has records that have not been consumed, then somehow
-        // this is a stalled reader
-        // Note: There is always the possibility that a new record just arrived at which point
-        // The readAheadRecords is non empty but it has not had a chance to satisfy the promise; this
-        // is unavoidable and acceptable.
-        return !readAheadRecords.isEmpty() || (lastEntryProcessTime.elapsed(timeUnit) > idleReaderErrorThreshold);
+    public boolean isReadAheadIdle(int idleReaderErrorThreshold, TimeUnit timeUnit) {
+        return (lastEntryProcessTime.elapsed(timeUnit) > idleReaderErrorThreshold);
     }
 
     /**

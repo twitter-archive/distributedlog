@@ -102,6 +102,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     // Failure Injector
     private final AsyncFailureInjector failureInjector;
+    private boolean disableProcessingReadRequests = false;
 
     // Stats
     private final OpStatsLogger readNextExecTime;
@@ -110,6 +111,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final OpStatsLogger futureSetLatency;
     private final OpStatsLogger scheduleLatency;
     private final OpStatsLogger backgroundReaderRunTime;
+    private final Counter idleReaderCheckCount;
+    private final Counter idleReaderCheckIdleReadRequestCount;
+    private final Counter idleReaderCheckIdleReadAheadCount;
     private final Counter idleReaderError;
 
     private class PendingReadRequest {
@@ -221,6 +225,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         timeBetweenReadNexts = asyncReaderStatsLogger.getOpStatsLogger("time_between_read_next");
         delayUntilPromiseSatisfied = asyncReaderStatsLogger.getOpStatsLogger("delay_until_promise_satisfied");
         idleReaderError = asyncReaderStatsLogger.getCounter("idle_reader_error");
+        idleReaderCheckCount = asyncReaderStatsLogger.getCounter("idle_reader_check_total");
+        idleReaderCheckIdleReadRequestCount = asyncReaderStatsLogger.getCounter("idle_reader_check_idle_read_requests");
+        idleReaderCheckIdleReadAheadCount = asyncReaderStatsLogger.getCounter("idle_reader_check_idle_readahead");
 
         // Lock the stream if requested. The lock will be released when the reader is closed.
         this.lockStream = false;
@@ -245,25 +252,39 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             return executorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
-                    PendingReadRequest nextPromise = pendingRequests.peek();
+                    PendingReadRequest nextRequest = pendingRequests.peek();
 
-                    if (null == nextPromise) {
+                    idleReaderCheckCount.inc();
+                    if (null == nextRequest) {
                         return;
                     }
 
-                    if (nextPromise.elapsedSinceEnqueue(TimeUnit.MILLISECONDS) < idleErrorThresholdMillis) {
+                    idleReaderCheckIdleReadRequestCount.inc();
+                    if (nextRequest.elapsedSinceEnqueue(TimeUnit.MILLISECONDS) < idleErrorThresholdMillis) {
                         return;
                     }
 
-                    if (!bkLedgerManager.checkForReaderStall(idleErrorThresholdMillis, TimeUnit.MILLISECONDS)) {
+                    ReadAheadCache cache = bkLedgerManager.getReadAheadCache();
+
+                    // read request has been idle
+                    //   - cache has records but read request are idle,
+                    //     that means notification was missed between readahead and reader.
+                    //   - cache is empty and readahead is idle (no records added for a long time)
+                    idleReaderCheckIdleReadAheadCount.inc();
+                    if (cache.getNumCachedRecords() <= 0
+                            && !cache.isReadAheadIdle(idleErrorThresholdMillis, TimeUnit.MILLISECONDS)) {
                         return;
                     }
 
                     idleReaderError.inc();
-                    setLastException(new IdleReaderException("Reader on stream" +
-                        bkLedgerManager.getFullyQualifiedName()
-                        + "is idle for " + idleErrorThresholdMillis +"ms"));
-                    notifyOnError();
+                    IdleReaderException ire = new IdleReaderException("Reader on stream "
+                            + bkLedgerManager.getFullyQualifiedName()
+                            + " is idle for " + idleErrorThresholdMillis +" ms");
+                    setLastException(ire);
+                    // cancel all pending reads directly rather than notifying on error
+                    // because idle reader could happen on idle read requests that usually means something wrong
+                    // in scheduling reads
+                    cancelAllPendingReads(ire);
                 }
             }, period, period, TimeUnit.MILLISECONDS);
         }
@@ -493,6 +514,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                     }
                 }
 
+                if (disableProcessingReadRequests) {
+                    LOG.info("Reader of {} is forced to stop processing read requests", bkLedgerManager.getFullyQualifiedName());
+                    return;
+                }
+
                 // If the oldest pending promise is interrupted then we must mark
                 // the reader in error and abort all pending reads since we dont
                 // know the last consumed read
@@ -629,6 +655,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     synchronized void disableReadAheadZKNotification() {
         disableReadAheadZKNotification = true;
         bkLedgerManager.disableReadAheadZKNotification();
+    }
+
+    @VisibleForTesting
+    synchronized void disableProcessingReadRequests() {
+        disableProcessingReadRequests = true;
     }
 }
 
