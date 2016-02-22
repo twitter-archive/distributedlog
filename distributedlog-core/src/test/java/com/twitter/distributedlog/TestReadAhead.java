@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
+import com.twitter.distributedlog.readahead.ReadAheadWorker;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -14,7 +15,7 @@ import java.util.concurrent.TimeoutException;
 import static org.junit.Assert.*;
 
 /**
- * {@link BKLogReadHandler.ReadAheadWorker} related test cases.
+ * {@link ReadAheadWorker} related test cases.
  */
 public class TestReadAhead extends TestDistributedLogBase {
 
@@ -44,14 +45,14 @@ public class TestReadAhead extends TestDistributedLogBase {
         }
 
         LedgerDescriptor ld1;
-        while (null == (ld1 = reader.bkLedgerManager.readAheadWorker.currentLH)) {
+        while (null == (ld1 = reader.bkLedgerManager.readAheadWorker.getCurrentLedgerDescriptor())) {
             Thread.sleep(100);
         }
 
         TimeUnit.MILLISECONDS.sleep(2 * 2000);
 
         LedgerDescriptor ld2;
-        while (null == (ld2 = reader.bkLedgerManager.readAheadWorker.currentLH)) {
+        while (null == (ld2 = reader.bkLedgerManager.readAheadWorker.getCurrentLedgerDescriptor())) {
             Thread.sleep(100);
         }
 

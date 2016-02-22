@@ -1,6 +1,6 @@
 package com.twitter.distributedlog;
 
-class LedgerDescriptor {
+public class LedgerDescriptor {
     private final long ledgerId;
     private final long logSegmentSequenceNo;
     private final boolean fenced;

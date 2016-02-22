@@ -17,8 +17,8 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class LedgerDataAccessor {
-    static final Logger LOG = LoggerFactory.getLogger(LedgerDataAccessor.class);
+public class ReadAheadCache {
+    static final Logger LOG = LoggerFactory.getLogger(ReadAheadCache.class);
 
     private final String streamName;
     private final LinkedBlockingQueue<LogRecordWithDLSN> readAheadRecords;
@@ -46,14 +46,14 @@ class LedgerDataAccessor {
     private volatile boolean suppressDeliveryLatency = true;
     private final long deliveryLatencyWarnThresholdMillis;
 
-    LedgerDataAccessor(String streamName,
-                       StatsLogger statsLogger,
-                       AlertStatsLogger alertStatsLogger,
-                       AsyncNotification notification,
-                       int maxCachedRecords,
-                       boolean traceDeliveryLatencyEnabled,
-                       long deliveryLatencyWarnThresholdMillis,
-                       Ticker ticker) {
+    public ReadAheadCache(String streamName,
+                          StatsLogger statsLogger,
+                          AlertStatsLogger alertStatsLogger,
+                          AsyncNotification notification,
+                          int maxCachedRecords,
+                          boolean traceDeliveryLatencyEnabled,
+                          long deliveryLatencyWarnThresholdMillis,
+                          Ticker ticker) {
         this.streamName = streamName;
         this.maxCachedRecords = maxCachedRecords;
         this.notification = notification;
@@ -100,7 +100,7 @@ class LedgerDataAccessor {
      * @param readAheadCallback
      *          read ahead callback
      */
-    synchronized void setReadAheadCallback(ReadAheadCallback readAheadCallback) {
+    public synchronized void setReadAheadCallback(ReadAheadCallback readAheadCallback) {
         this.readAheadCallback = readAheadCallback;
         if (!isCacheFull()) {
             invokeReadAheadCallback();
@@ -117,7 +117,7 @@ class LedgerDataAccessor {
      * @return next record from readahead queue. null if no records available in the queue.
      * @throws IOException
      */
-    LogRecordWithDLSN getNextReadAheadRecord() throws IOException {
+    public LogRecordWithDLSN getNextReadAheadRecord() throws IOException {
         if (null != lastException.get()) {
             throw lastException.get();
         }
@@ -143,7 +143,7 @@ class LedgerDataAccessor {
      *          time unit of the idle reader error threshold
      * @return true if the reader becomes stall, otherwise false.
      */
-    boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
+    public boolean checkForReaderStall(int idleReaderErrorThreshold, TimeUnit timeUnit) {
         // If the read ahead cache has records that have not been consumed, then somehow
         // this is a stalled reader
         // Note: There is always the possibility that a new record just arrived at which point
@@ -166,11 +166,11 @@ class LedgerDataAccessor {
      * @param startSequenceId
      *          the start sequence id
      */
-    void set(LedgerReadPosition key,
-             LedgerEntry entry,
-             String reason,
-             boolean envelopeEntries,
-             long startSequenceId) {
+    public void set(LedgerReadPosition key,
+                    LedgerEntry entry,
+                    String reason,
+                    boolean envelopeEntries,
+                    long startSequenceId) {
         processNewLedgerEntry(key, entry, reason, envelopeEntries, startSequenceId);
         lastEntryProcessTime.reset().start();
         AsyncNotification n = notification;
@@ -179,7 +179,7 @@ class LedgerDataAccessor {
         }
     }
 
-    boolean isCacheFull() {
+    public boolean isCacheFull() {
         return getNumCachedRecords() >= maxCachedRecords;
     }
 
@@ -188,7 +188,7 @@ class LedgerDataAccessor {
      *
      * @return number cached records.
      */
-    int getNumCachedRecords() {
+    public int getNumCachedRecords() {
         return readAheadRecords.size();
     }
 
@@ -197,15 +197,15 @@ class LedgerDataAccessor {
      *
      * @return number cached bytes.
      */
-    long getNumCachedBytes() {
+    public long getNumCachedBytes() {
         return cacheBytes.get();
     }
 
-    void setSuppressDeliveryLatency(boolean suppressed) {
+    public void setSuppressDeliveryLatency(boolean suppressed) {
         this.suppressDeliveryLatency = suppressed;
     }
 
-    void setMinActiveDLSN(DLSN minActiveDLSN) {
+    public void setMinActiveDLSN(DLSN minActiveDLSN) {
         this.minActiveDLSN.set(minActiveDLSN);
     }
 

@@ -155,7 +155,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
                     }
                     synchronized (sharedLock) {
                         DLSN lastDLSNSeenByReadAhead =
-                                reader.bkLedgerManager.ledgerDataAccessor.getLastReadAheadUserDLSN();
+                                reader.bkLedgerManager.readAheadCache.getLastReadAheadUserDLSN();
 
                         // if last seen DLSN by reader is same as the one seen by ReadAhead
                         // that means that reader is caught up with ReadAhead and ReadAhead
@@ -226,7 +226,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
     @VisibleForTesting
     LedgerReadPosition getReadAheadPosition() {
         if (null != reader.bkLedgerManager.readAheadWorker) {
-            return reader.bkLedgerManager.readAheadWorker.nextReadAheadPosition;
+            return reader.bkLedgerManager.readAheadWorker.getNextReadAheadPosition();
         }
         return null;
     }

@@ -67,7 +67,7 @@ public class DLSN implements Comparable<DLSN> {
      *
      * @return entry id of the batch that the record is written to.
      */
-    long getEntryId() {
+    public long getEntryId() {
         return entryId;
     }
 

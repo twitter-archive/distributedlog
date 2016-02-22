@@ -161,7 +161,7 @@ public class TestBKSyncLogReader extends TestDistributedLogBase {
 
         // wait until readahead move on
         while (reader.getAsyncReader().bkLedgerManager
-                .readAheadWorker.nextReadAheadPosition.getEntryId() < 21) {
+                .readAheadWorker.getNextReadAheadPosition().getEntryId() < 21) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
 

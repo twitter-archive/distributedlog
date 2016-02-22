@@ -96,7 +96,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see {@link BKLogWriteHandler} for writers
  * @see {@link BKLogReadHandler} for readers
  */
-abstract class BKLogHandler implements Watcher {
+public abstract class BKLogHandler implements Watcher {
     static final Logger LOG = LoggerFactory.getLogger(BKLogHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -295,6 +295,10 @@ abstract class BKLogHandler implements Watcher {
         negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
         recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
         recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
+    }
+
+    public void reportGetSegmentStats(boolean enabled) {
+        this.reportGetSegmentStats = enabled;
     }
 
     public String getLockClientId() {
@@ -1066,9 +1070,9 @@ abstract class BKLogHandler implements Watcher {
         return logSegmentCache.remove(name);
     }
 
-    protected void asyncGetLedgerList(final Comparator<LogSegmentMetadata> comparator,
-                                      Watcher watcher,
-                                      final GenericCallback<List<LogSegmentMetadata>> callback) {
+    public void asyncGetLedgerList(final Comparator<LogSegmentMetadata> comparator,
+                                   Watcher watcher,
+                                   final GenericCallback<List<LogSegmentMetadata>> callback) {
         asyncGetLedgerListWithRetries(comparator, filter, watcher, callback);
     }
 

@@ -278,8 +278,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private boolean checkClosedOrInError(String operation) {
         if (null == lastException.get()) {
             try {
-                if (null != bkLedgerManager) {
-                    bkLedgerManager.checkClosedOrInError();
+                if (null != bkLedgerManager && null != bkLedgerManager.readAheadWorker) {
+                    bkLedgerManager.readAheadWorker.checkClosedOrInError();
                 }
 
                 bkDistributedLogManager.checkClosedOrInError(operation);
