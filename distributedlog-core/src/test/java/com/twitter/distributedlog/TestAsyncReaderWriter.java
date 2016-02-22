@@ -912,26 +912,8 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void testSimpleAsyncReadWritePolling() throws Exception {
-        testSimpleAsyncReadWriteLACOptions(runtime.getMethodName(), 0);
-    }
-
-    @Test(timeout = 60000)
-    public void testSimpleAsyncReadWriteLongPoll() throws Exception {
-        testSimpleAsyncReadWriteLACOptions(runtime.getMethodName(), 1);
-    }
-
-    @Test(timeout = 60000)
     public void testSimpleAsyncReadWritePiggyBack() throws Exception {
-        testSimpleAsyncReadWriteLACOptions(runtime.getMethodName(), 2);
-    }
-
-    @Test(timeout = 60000)
-    public void testSimpleAsyncReadWritePiggyBackSpec() throws Exception {
-        testSimpleAsyncReadWriteLACOptions(runtime.getMethodName(), 3);
-    }
-
-    private void testSimpleAsyncReadWriteLACOptions(String name, int lacOption) throws Exception {
+        String name = runtime.getMethodName();
 
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(testConf);
@@ -941,7 +923,6 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadMaxRecords(100);
         confLocal.setOutputBufferSize(1024);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(100);
-        confLocal.setReadLACOption(lacOption);
         DistributedLogManager dlm = createNewDLM(confLocal, name);
 
         final AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);

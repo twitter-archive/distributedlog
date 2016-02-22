@@ -46,13 +46,11 @@ import scala.runtime.BoxedUnit;
 
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * ReadAhead Worker process readahead in asynchronous way. The whole readahead process are chained into
@@ -91,73 +89,83 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     private final DynamicDistributedLogConfiguration dynConf;
     private final ZKLogMetadataForReader logMetadata;
     private final BKLogHandler bkLedgerManager;
+    private final boolean isHandleForReading;
+    // Notification to notify readahead status
+    protected final AsyncNotification notification;
 
     // resources
     private final ZooKeeperClient zkc;
     protected final ScheduledExecutorService readAheadExecutor;
     private final LedgerHandleCache handleCache;
-    private volatile boolean reInitializeMetadata = true;
-    private final LedgerReadPosition startReadPosition;
-    protected LedgerReadPosition nextReadAheadPosition;
-    // Indicates the position to which the continuous log reader has been positioned. Its not
-    // an accurate position as its only updated when necessary
-    private AtomicReference<LedgerReadPosition> continuousReaderPosition = new AtomicReference<LedgerReadPosition>(null);
-    private LogSegmentMetadata currentMetadata = null;
-    private int currentMetadataIndex;
-    protected LedgerDescriptor currentLH;
     private final ReadAheadCache readAheadCache;
-    private volatile List<LogSegmentMetadata> ledgerList;
-    private boolean isHandleForReading;
 
     // ReadAhead Status
+    volatile boolean running = true;
+    private final Object stopCond = new Object();
     private volatile boolean isCatchingUp = true;
     private volatile boolean logDeleted = false;
     private volatile boolean readAheadError = false;
     private volatile boolean readAheadInterrupted = false;
     private volatile boolean readingFromTruncated = false;
 
-    // Parameters for the state for this readahead worker.
-    volatile boolean running = true;
+    // Exceptions Handling
     volatile boolean encounteredException = false;
     private final AtomicInteger bkcZkExceptions = new AtomicInteger(0);
     private final AtomicInteger bkcUnExpectedExceptions = new AtomicInteger(0);
     private final int noLedgerExceptionOnReadLACThreshold;
     private final AtomicInteger bkcNoLedgerExceptionsOnReadLAC = new AtomicInteger(0);
-    final Object stopNotification = new Object();
-    volatile boolean inProgressChanged = false;
-    volatile boolean zkNotificationDisabled = false;
 
-    // Metadata Notification
+    // Read Ahead Positions
+    private final LedgerReadPosition startReadPosition;
+    protected LedgerReadPosition nextReadAheadPosition;
+
+    //
+    // LogSegments & Metadata Notification
+    //
+
+    // variables related to getting log segments from zookeeper
+    volatile boolean zkNotificationDisabled = false;
+    private final Watcher getLedgersWatcher;
+
+    // variables related to zookeeper watcher notification to interrupt long poll waits
     final Object notificationLock = new Object();
     AsyncNotification metadataNotification = null;
     volatile long metadataNotificationTimeMillis = -1L;
 
+    // variables related to log segments
+    private volatile boolean reInitializeMetadata = true;
+    volatile boolean inProgressChanged = false;
+    private LogSegmentMetadata currentMetadata = null;
+    private int currentMetadataIndex;
+    protected LedgerDescriptor currentLH;
+    private volatile List<LogSegmentMetadata> ledgerList;
+
+    //
     // ReadAhead Phases
+    //
+
     final Phase schedulePhase = new ScheduleReadAheadPhase();
     final Phase exceptionHandler = new ExceptionHandlePhase(schedulePhase);
     final Phase readAheadPhase =
             new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
-    final ReadAheadTracker tracker;
-    final Stopwatch resumeStopWatch;
-    final Stopwatch lastLedgerCloseDetected = Stopwatch.createUnstarted();
 
-    // zookeeper watcher
-    private final Watcher getLedgersWatcher;
+    //
+    // Stats, Tracing and Failure Injection
+    //
 
     // failure injector
     private final AsyncFailureInjector failureInjector;
-
     // trace
     protected final long metadataLatencyWarnThresholdMillis;
-
+    final ReadAheadTracker tracker;
+    final Stopwatch resumeStopWatch;
+    final Stopwatch lastLedgerCloseDetected = Stopwatch.createUnstarted();
     // Stats
     private final AlertStatsLogger alertStatsLogger;
     private final StatsLogger readAheadPerStreamStatsLogger;
     private final Counter readAheadWorkerWaits;
-    private final Counter readAheadRepositions;
     private final Counter readAheadEntryPiggyBackHits;
     private final Counter readAheadEntryPiggyBackMisses;
-    private final Counter readAheadReadLACCounter;
     private final Counter readAheadReadLACAndEntryCounter;
     private final Counter readAheadCacheFullCounter;
     private final Counter idleReaderWarn;
@@ -168,9 +176,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     private final OpStatsLogger metadataReinitializationStat;
     private final OpStatsLogger notificationExecutionStat;
     private final ReadAheadExceptionsLogger readAheadExceptionsLogger;
-
-    // Notification
-    protected final AsyncNotification notification;
 
     public ReadAheadWorker(DistributedLogConfiguration conf,
                            DynamicDistributedLogConfiguration dynConf,
@@ -188,47 +193,42 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                            AlertStatsLogger alertStatsLogger,
                            AsyncFailureInjector failureInjector,
                            AsyncNotification notification) {
+        // Log information
         this.fullyQualifiedName = logMetadata.getFullyQualifiedName();
         this.conf = conf;
         this.dynConf = dynConf;
         this.logMetadata = logMetadata;
         this.bkLedgerManager = ledgerManager;
+        this.isHandleForReading = isHandleForReading;
+        this.notification = notification;
+        // Resources
         this.zkc = zkc;
         this.readAheadExecutor = readAheadExecutor;
         this.handleCache = handleCache;
         this.readAheadCache = readAheadCache;
-        // readahead status
+        // Readahead status
         this.startReadPosition = new LedgerReadPosition(startPosition);
         this.nextReadAheadPosition = new LedgerReadPosition(startPosition);
-        this.isHandleForReading = isHandleForReading;
+        // LogSegments
+        this.getLedgersWatcher = this.zkc.getWatcherManager()
+                .registerChildWatcher(logMetadata.getLogSegmentsPath(), this);
+        // Failure Detection
         this.failureInjector = failureInjector;
-        if ((conf.getReadLACOption() >= ReadLACOption.INVALID_OPTION.getValue()) ||
-            (conf.getReadLACOption() < ReadLACOption.DEFAULT.getValue())) {
-            LOG.warn("Invalid value of ReadLACOption configured {}", conf.getReadLACOption());
-            conf.setReadLACOption(ReadLACOption.DEFAULT.getValue());
-        }
-        this.notification = notification;
+        // Tracing
+        this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
         this.noLedgerExceptionOnReadLACThreshold =
                 conf.getReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis() / conf.getReadAheadWaitTime();
         this.tracker = new ReadAheadTracker(logMetadata.getLogName(), readAheadCache,
                 ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
         this.resumeStopWatch = Stopwatch.createUnstarted();
-        this.getLedgersWatcher = this.zkc.getWatcherManager()
-                .registerChildWatcher(logMetadata.getLogSegmentsPath(), this);
-
-        // Traces
-        this.metadataLatencyWarnThresholdMillis = conf.getMetadataLatencyWarnThresholdMillis();
-
         // Stats
         this.alertStatsLogger = alertStatsLogger;
         this.readAheadPerStreamStatsLogger = readAheadPerStreamStatsLogger;
         StatsLogger readAheadStatsLogger = handlerStatsLogger.scope("readahead_worker");
         readAheadWorkerWaits = readAheadStatsLogger.getCounter("wait");
-        readAheadRepositions = readAheadStatsLogger.getCounter("repositions");
         readAheadEntryPiggyBackHits = readAheadStatsLogger.getCounter("entry_piggy_back_hits");
         readAheadEntryPiggyBackMisses = readAheadStatsLogger.getCounter("entry_piggy_back_misses");
         readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
-        readAheadReadLACCounter = readAheadStatsLogger.getCounter("read_lac_counter");
         readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
         readAheadCacheFullCounter = readAheadStatsLogger.getCounter("cache_full");
         readAheadCacheResumeStat = readAheadStatsLogger.getOpStatsLogger("resume");
@@ -323,20 +323,16 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
             notification.notifyOnOperationComplete();
         }
         try {
-            synchronized (stopNotification) {
+            synchronized (stopCond) {
                 // It would take at most 2 times the read ahead wait time for the schedule phase
                 // to be executed
-                stopNotification.wait(2 * conf.getReadAheadWaitTime());
+                stopCond.wait(2 * conf.getReadAheadWaitTime());
             }
             LOG.info("Done waiting for ReadAhead Worker to stop {}", fullyQualifiedName);
         } catch (InterruptedException exc) {
             LOG.info("{}: Interrupted while waiting for ReadAhead Worker to stop", fullyQualifiedName, exc);
         }
 
-    }
-
-    public void advanceReadAhead(LedgerReadPosition readerPosition) {
-        continuousReaderPosition.set(readerPosition);
     }
 
     @Override
@@ -477,8 +473,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         void process(int rc) {
             if (!running) {
                 tracker.enterPhase(ReadAheadPhase.STOPPED);
-                synchronized (stopNotification) {
-                    stopNotification.notifyAll();
+                synchronized (stopCond) {
+                    stopCond.notifyAll();
                 }
                 LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
                 return;
@@ -728,8 +724,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         void process(int rc) {
             if (!running) {
                 tracker.enterPhase(ReadAheadPhase.STOPPED);
-                synchronized (stopNotification) {
-                    stopNotification.notifyAll();
+                synchronized (stopCond) {
+                    stopCond.notifyAll();
                 }
                 LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
                 return;
@@ -740,23 +736,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
             inProgressChanged = false;
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Checking {} if InProgress changed.", fullyQualifiedName);
-            }
-
-            // If the read ahead thread is not advancing to a new log segment, we
-            // must check if it needs to be forced to advance (in cases when its
-            // stuck)
-            if (!reInitializeMetadata && null != currentMetadata) {
-                LedgerReadPosition readerPosition = continuousReaderPosition.get();
-                if ((null != readerPosition) &&
-                    nextReadAheadPosition.definitelyLessThan(readerPosition)) {
-                    LOG.info("{}: Advancing ReadAhead position to {}", fullyQualifiedName, readerPosition);
-                    nextReadAheadPosition = readerPosition;
-                    if (!closeCurrentLedgerHandle()) {
-                        return;
-                    }
-                    currentMetadata = null;
-                    readAheadRepositions.inc();
-                }
             }
 
             if (reInitializeMetadata || null == currentMetadata) {
@@ -785,7 +764,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
     final class OpenLedgerPhase extends Phase
             implements BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>,
-                        AsyncCallback.ReadLastConfirmedCallback,
                         AsyncCallback.ReadLastConfirmedAndEntryCallback {
 
         OpenLedgerPhase(Phase next) {
@@ -898,8 +876,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                             }
                         }
 
-                        LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}, lac option: {}",
-                                new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadAheadPosition, conf.getReadLACOption()});
+                        LOG.trace("Reading last add confirmed of {} for {}, as read poistion has moved over {} : {}",
+                                new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadAheadPosition });
 
                         if (nextReadAheadPosition.getEntryId() == 0 && conf.getTraceReadAheadMetadataChanges()) {
                             // we are waiting for first entry to arrive
@@ -909,33 +887,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                             LOG.trace("Reading last add confirmed for {} at {}: lac = {}, position = {}.",
                                       new Object[] { fullyQualifiedName, System.currentTimeMillis(), lastAddConfirmed, nextReadAheadPosition});
                         }
-                        switch(ReadLACOption.values()[conf.getReadLACOption()]) {
-                            case LONGPOLL:
-                                // Using deprecated option, falling back to read_entry_piggyback
-                            case READENTRYPIGGYBACK_PARALLEL:
-                                issueReadLastConfirmedAndEntry(true, lastAddConfirmed);
-                                break;
-                            case READENTRYPIGGYBACK_SEQUENTIAL:
-                                issueReadLastConfirmedAndEntry(false, lastAddConfirmed);
-                                break;
-                            default:
-                                String ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
-                                setMetadataNotification(null);
-                                handleCache.asyncTryReadLastConfirmed(currentLH)
-                                        .addEventListener(new FutureEventListener<Long>() {
-                                            @Override
-                                            public void onSuccess(Long lac) {
-                                                readLastConfirmedComplete(BKException.Code.OK, lac, null);
-                                            }
-
-                                            @Override
-                                            public void onFailure(Throwable cause) {
-                                                readLastConfirmedComplete(FutureUtils.bkResultCode(cause), lastAddConfirmed, null);
-                                            }
-                                        });
-                                readAheadReadLACCounter.inc();
-                                break;
-                        }
+                        issueReadLastConfirmedAndEntry(false, lastAddConfirmed);
                     } else {
                         next.process(BKException.Code.OK);
                     }
@@ -1094,28 +1046,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                 handleException(ReadAheadPhase.READ_LAST_CONFIRMED, rc);
                 return;
             }
-        }
-
-        @Override
-        public void readLastConfirmedComplete(final int rc, final long lastConfirmed, final Object ctx) {
-            // submit callback execution to dlg executor to avoid deadlock.
-            submit(new Runnable() {
-                @Override
-                public void run() {
-                    if (BKException.Code.OK != rc) {
-                        handleReadLastConfirmedError(rc);
-                        return;
-                    }
-                    bkcZkExceptions.set(0);
-                    bkcUnExpectedExceptions.set(0);
-                    bkcNoLedgerExceptionsOnReadLAC.set(0);
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Advancing Last Add Confirmed of {} for {} : {}",
-                                new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed });
-                    }
-                    next.process(rc);
-                }
-            });
         }
 
         public void readLastConfirmedAndEntryComplete(final int rc, final long lastConfirmed, final LedgerEntry entry,
@@ -1292,13 +1222,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                 readAheadCacheFullCounter.inc();
                 resumeStopWatch.reset().start();
                 readAheadCache.setReadAheadCallback(ReadAheadWorker.this);
-            } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.getValue() == conf.getReadLACOption())) {
-                if (LOG.isTraceEnabled()) {
-                    LOG.info("Reached End of inprogress ledger {}. Backoff reading ahead for {} ms.",
-                        fullyQualifiedName, conf.getReadAheadWaitTime());
-                }
-                // Backoff before resuming
-                schedule(ReadAheadWorker.this, conf.getReadAheadWaitTime());
             } else {
                 run();
             }
@@ -1464,33 +1387,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                 complete(true);
             }
         }
-    }
-
-    class ReadLastConfirmedCallbackWithNotification
-            extends LongPollNotification<AsyncCallback.ReadLastConfirmedCallback>
-            implements AsyncCallback.ReadLastConfirmedCallback {
-
-        ReadLastConfirmedCallbackWithNotification(
-                long lac, AsyncCallback.ReadLastConfirmedCallback cb, Object ctx) {
-            super(lac, cb, ctx);
-        }
-
-        @Override
-        public void readLastConfirmedComplete(int rc, long lac, Object ctx) {
-            if (called.compareAndSet(false, true)) {
-                // clear the notification when callback
-                synchronized (notificationLock) {
-                    metadataNotification = null;
-                }
-                this.cb.readLastConfirmedComplete(rc, lac, ctx);
-            }
-        }
-
-        @Override
-        void doComplete(boolean success) {
-            readLastConfirmedComplete(BKException.Code.OK, lac, ctx);
-        }
-
     }
 
     class ReadLastConfirmedAndEntryCallbackWithNotification

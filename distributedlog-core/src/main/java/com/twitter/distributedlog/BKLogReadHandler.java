@@ -318,8 +318,6 @@ class BKLogReadHandler extends BKLogHandler {
                     failureInjector,
                     notification);
             readAheadWorker.start();
-        } else {
-            readAheadWorker.advanceReadAhead(startPosition);
         }
     }
 
@@ -377,12 +375,6 @@ class BKLogReadHandler extends BKLogHandler {
                     }
                 }, null);
         return promise;
-    }
-
-
-
-    public void raiseAlert(String msg, Object... args) {
-        alertStatsLogger.raise(msg, args);
     }
 
     public LogRecordWithDLSN getNextReadAheadRecord() throws IOException {

@@ -2147,37 +2147,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
 
     /**
-     * Should read ahead use long polling or piggyback for read last confirmed.
-     * <p>The options are
-     * <ul>
-     * <li>0: polling read last add confirmed</li>
-     * <li>1: long polling read last add confirmed</li>
-     * <li>2: long polling and piggyback entries (parallel)</li>
-     * <li>3: long polling and piggyback entries (sequential)</li>
-     * <li>4: invalid</li>
-     * </ul>
-     * The default value is <code>3</code>.
-     *
-     * @return whether read ahead should use long polling or piggyback for read last confirmed.
-     */
-    public int getReadLACOption() {
-        return getInt(BKDL_READLAC_OPTION, BKDL_READLAC_OPTION_DEFAULT);
-    }
-
-    /**
-     * Set the method that read-ahead's should use to get read last confirmed.
-     *
-     * @param option
-     *          flag to set the read-ahead's option for read last confirmed.
-     * @return configuration instance.
-     * @see #getReadLACOption()
-     */
-    public DistributedLogConfiguration setReadLACOption(int option) {
-        setProperty(BKDL_READLAC_OPTION, option);
-        return this;
-    }
-
-    /**
      * Get the long poll time out for read last add confirmed requests, in milliseconds.
      * The default value is 1 second.
      *

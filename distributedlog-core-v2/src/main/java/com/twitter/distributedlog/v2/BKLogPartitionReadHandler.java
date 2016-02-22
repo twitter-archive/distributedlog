@@ -60,15 +60,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
     private final Counter readAheadWorkerWaits;
     private final Counter readAheadRepositions;
 
-    public enum ReadLACOption {
-        DEFAULT (0), LONGPOLL(1), READENTRYPIGGYBACK_PARALLEL (2), READENTRYPIGGYBACK_SEQUENTIAL(3), INVALID_OPTION(4);
-        private final int value;
-
-        private ReadLACOption(int value) {
-            this.value = value;
-        }
-    }
-
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -705,7 +696,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
 
         final class OpenLedgerPhase extends Phase
                 implements BookkeeperInternalCallbacks.GenericCallback<LedgerDescriptor>,
-                            AsyncCallback.ReadLastConfirmedCallback,
                             AsyncCallback.ReadLastConfirmedAndEntryCallback {
 
             OpenLedgerPhase(Phase next) {
@@ -767,21 +757,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                         new Object[] { currentMetadata, fullyQualifiedName, lastAddConfirmed, nextReadAheadPosition});
                             }
 
-                            switch (ReadLACOption.values()[conf.getReadLACOption()]) {
-                                case LONGPOLL:
-                                    // Using deprecated option, falling back to read_entry_piggyback
-                                case READENTRYPIGGYBACK_PARALLEL:
-                                    issueReadLastConfirmedAndEntry(true, lastAddConfirmed);
-                                    break;
-                                case READENTRYPIGGYBACK_SEQUENTIAL:
-                                    issueReadLastConfirmedAndEntry(false, lastAddConfirmed);
-                                    break;
-                                default:
-                                    String ctx = String.format("ReadLastConfirmed(%d)", lastAddConfirmed);
-                                    setMetadataNotification(null);
-                                    bkLedgerManager.getHandleCache().asyncTryReadLastConfirmed(currentLH, this, ctx);
-                                    break;
-                            }
+                            issueReadLastConfirmedAndEntry(false, lastAddConfirmed);
                         } else {
                             next.process(BKException.Code.OK);
                         }
@@ -879,28 +855,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     handleException(rc);
                     return;
                 }
-            }
-
-            @Override
-            public void readLastConfirmedComplete(final int rc, final long lastConfirmed, final Object ctx) {
-                // submit callback execution to dlg executor to avoid deadlock.
-                submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (BKException.Code.OK != rc) {
-                            handleException(rc);
-                            return;
-                        }
-                        bkcZkExceptions.set(0);
-                        bkcUnExpectedExceptions.set(0);
-                        bkcNoLedgerExceptionsOnReadLAC.set(0);
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Advancing Last Add Confirmed of {} for {} : {}",
-                                    new Object[] { currentMetadata, fullyQualifiedName, lastConfirmed });
-                        }
-                        next.process(rc);
-                    }
-                });
             }
 
             @Override
@@ -1032,13 +986,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                             fullyQualifiedName, readAheadWaitTime);
                     }
                     ledgerDataAccessor.setReadAheadCallback(ReadAheadWorker.this, readAheadMaxEntries);
-                } else if ((null != currentMetadata) && currentMetadata.isInProgress() && (ReadLACOption.DEFAULT.value == conf.getReadLACOption())) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Reached End of inprogress ledger. Backoff reading ahead for {} ms.",
-                                fullyQualifiedName, readAheadWaitTime);
-                    }
-                    // Backoff before resuming
-                    schedule(ReadAheadWorker.this, readAheadWaitTime);
                 } else {
                     run();
                 }
@@ -1170,7 +1117,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
             }
 
             void complete(boolean success) {
-                long startTime = MathUtils.nowInNano();
                 doComplete(success);
             }
 
@@ -1191,33 +1137,6 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                     complete(true);
                 }
             }
-        }
-
-        class ReadLastConfirmedCallbackWithNotification
-                extends LongPollNotification<AsyncCallback.ReadLastConfirmedCallback>
-                implements AsyncCallback.ReadLastConfirmedCallback {
-
-            ReadLastConfirmedCallbackWithNotification(
-                    long lac, AsyncCallback.ReadLastConfirmedCallback cb, Object ctx) {
-                super(lac, cb, ctx);
-            }
-
-            @Override
-            public void readLastConfirmedComplete(int rc, long lac, Object ctx) {
-                if (called.compareAndSet(false, true)) {
-                    // clear the notification when callback
-                    synchronized (notificationLock) {
-                        metadataNotification = null;
-                    }
-                    this.cb.readLastConfirmedComplete(rc, lac, ctx);
-                }
-            }
-
-            @Override
-            void doComplete(boolean success) {
-                readLastConfirmedComplete(BKException.Code.OK, lac, ctx);
-            }
-
         }
 
         class ReadLastConfirmedAndEntryCallbackWithNotification
