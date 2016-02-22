@@ -1,3 +1,13 @@
+0.3.44
+------
+- Bulk reads with waiting time
+- LogRecordSet interface
+- Cleanup LogSegmentWriter logic
+- DL tooling improvements
+- Throw IdleReader exception if readahead becomes idle
+- Check existence of log or log segments should call zookeeper#sync
+- Recreate zookeeper client if it stays disconnected state for long time
+
 0.3.43
 ------
 - Log metadata creation handles missing log identifer
