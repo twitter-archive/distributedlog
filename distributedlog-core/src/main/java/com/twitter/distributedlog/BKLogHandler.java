@@ -29,6 +29,7 @@ import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
@@ -43,6 +44,7 @@ import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -629,19 +631,35 @@ abstract class BKLogHandler implements Watcher {
     Future<Void> checkLogStreamExistsAsync() {
         final Promise<Void> promise = new Promise<Void>();
         try {
-            zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false, new AsyncCallback.StatCallback() {
+            final ZooKeeper zk = zooKeeperClient.get();
+            zk.sync(logMetadata.getLogSegmentsPath(), new AsyncCallback.VoidCallback() {
                 @Override
-                public void processResult(int rc, String path, Object ctx, Stat stat) {
-                    if (KeeperException.Code.OK.intValue() == rc) {
-                        promise.setValue(null);
-                    } else if (KeeperException.Code.NONODE.intValue() == rc) {
-                        promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
-                    } else {
+                public void processResult(int syncRc, String path, Object syncCtx) {
+                    if (KeeperException.Code.NONODE.intValue() == syncRc) {
+                        promise.setException(new LogNotFoundException(
+                                String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                        return;
+                    } else if (KeeperException.Code.OK.intValue() != syncRc){
                         promise.setException(new ZKException("Error on checking log existence for " + getFullyQualifiedName(),
-                                KeeperException.create(KeeperException.Code.get(rc))));
+                                KeeperException.create(KeeperException.Code.get(syncRc))));
+                        return;
                     }
+                    zk.exists(logMetadata.getLogSegmentsPath(), false, new AsyncCallback.StatCallback() {
+                        @Override
+                        public void processResult(int rc, String path, Object ctx, Stat stat) {
+                            if (KeeperException.Code.OK.intValue() == rc) {
+                                promise.setValue(null);
+                            } else if (KeeperException.Code.NONODE.intValue() == rc) {
+                                promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                            } else {
+                                promise.setException(new ZKException("Error on checking log existence for " + getFullyQualifiedName(),
+                                        KeeperException.create(KeeperException.Code.get(rc))));
+                            }
+                        }
+                    }, null);
                 }
             }, null);
+
         } catch (InterruptedException ie) {
             LOG.error("Interrupted while reading {}", logMetadata.getLogSegmentsPath(), ie);
             promise.setException(new DLInterruptedException("Interrupted while checking "
@@ -654,7 +672,8 @@ abstract class BKLogHandler implements Watcher {
 
     private void checkLogStreamExists() throws IOException {
         try {
-            if (null == zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false)) {
+            if (null == Utils.sync(zooKeeperClient, logMetadata.getLogSegmentsPath())
+                    .exists(logMetadata.getLogSegmentsPath(), false)) {
                 throw new LogNotFoundException("Log " + getFullyQualifiedName() + " doesn't exist");
             }
         } catch (InterruptedException ie) {
@@ -665,22 +684,6 @@ abstract class BKLogHandler implements Watcher {
             LOG.error("Error checking existence for {} : ", logMetadata.getLogSegmentsPath(), ke);
             throw new ZKException("Error checking existence for " + getFullyQualifiedName() + " : ", ke);
         }
-    }
-
-    protected void checkLogExists() throws IOException {
-        /*
-            try {
-                if (null == zooKeeperClient.exists(ledgerPath, false)) {
-                    throw new IOException("Log does not exist or has been deleted");
-                }
-            } catch (InterruptedException ie) {
-                LOG.error("Interrupted while deleting " + ledgerPath, ie);
-                throw new IOException("Log does not exist or has been deleted");
-            } catch (KeeperException ke) {
-                LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-                throw new IOException("Log does not exist or has been deleted");
-            }
-        */
     }
 
     public void close() {

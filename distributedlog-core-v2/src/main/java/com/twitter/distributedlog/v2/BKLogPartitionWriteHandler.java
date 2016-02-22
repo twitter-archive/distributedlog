@@ -239,8 +239,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     private BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
-        checkLogExists();
-
         lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
         lockAcquired = true;
         long highestTxIdWritten = maxTxId.get();
@@ -396,7 +394,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private void doCompleteAndCloseLogSegment(String inprogressZnodeName, long firstTxId, long lastTxId,
                                               int recordCount, boolean shouldReleaseLock)
             throws IOException {
-        checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(inprogressZnodeName);
         try {
@@ -541,14 +538,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public void deleteLog() throws IOException {
-        try {
-            checkLogExists();
-        } catch (DLInterruptedException die) {
-            throw die;
-        } catch (IOException exc) {
-            return;
-        }
-
         try {
             deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
         } catch (LockingException lockExc) {

@@ -17,6 +17,7 @@ import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -24,7 +25,6 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
-import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
@@ -41,11 +41,9 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class DistributedLogManagerFactory {
     static final Logger LOG = LoggerFactory.getLogger(DistributedLogManagerFactory.class);
@@ -632,35 +630,6 @@ public class DistributedLogManagerFactory {
         return new ZKMetadataAccessor(name, conf, uri, zkcBuilder, zkcBuilder, NullStatsLogger.INSTANCE);
     }
 
-    private static ZooKeeper sync(ZooKeeperClient zkc, String path) throws IOException {
-        ZooKeeper zk;
-        try {
-            zk = zkc.get();
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted checkIfLogExists  " + path, e);
-            throw new DLInterruptedException("Interrupted on checking if log " + path + " exists", e);
-        }
-        final CountDownLatch syncLatch = new CountDownLatch(1);
-        final AtomicInteger syncResult = new AtomicInteger(0);
-        zk.sync(path, new AsyncCallback.VoidCallback() {
-            @Override
-            public void processResult(int rc, String path, Object ctx) {
-                syncResult.set(rc);
-                syncLatch.countDown();
-            }
-        }, null);
-        try {
-            syncLatch.await();
-        } catch (InterruptedException e) {
-            throw new DLInterruptedException("Interrupted on syncing zookeeper connection", e);
-        }
-        if (KeeperException.Code.OK.intValue() != syncResult.get()) {
-            throw new ZKException("Error syncing zookeeper connection ",
-                    KeeperException.Code.get(syncResult.get()));
-        }
-        return zk;
-    }
-
     public static boolean checkIfLogExists(DistributedLogConfiguration conf, URI uri, String name)
         throws IOException, IllegalArgumentException {
         validateInput(conf, uri, name);
@@ -670,7 +639,7 @@ public class DistributedLogManagerFactory {
             public Boolean handle(ZooKeeperClient zkc) throws IOException {
                 // check existence after syncing
                 try {
-                    return null != sync(zkc, logRootPath).exists(logRootPath, false);
+                    return null != Utils.sync(zkc, logRootPath).exists(logRootPath, false);
                 } catch (KeeperException e) {
                     throw new ZKException("Error on checking if log " + logRootPath + " exists", e.code());
                 } catch (InterruptedException e) {
@@ -695,7 +664,7 @@ public class DistributedLogManagerFactory {
         validateConfAndURI(conf, uri);
         String namespaceRootPath = uri.getPath();
         try {
-            ZooKeeper zk = sync(zkc, namespaceRootPath);
+            ZooKeeper zk = Utils.sync(zkc, namespaceRootPath);
             Stat currentStat = zk.exists(namespaceRootPath, false);
             if (currentStat == null) {
                 return new LinkedList<String>();
@@ -727,7 +696,7 @@ public class DistributedLogManagerFactory {
         String namespaceRootPath = uri.getPath();
         HashMap<String, byte[]> result = new HashMap<String, byte[]>();
         try {
-            ZooKeeper zk = sync(zkc, namespaceRootPath);
+            ZooKeeper zk = Utils.sync(zkc, namespaceRootPath);
             Stat currentStat = zk.exists(namespaceRootPath, false);
             if (currentStat == null) {
                 return result;

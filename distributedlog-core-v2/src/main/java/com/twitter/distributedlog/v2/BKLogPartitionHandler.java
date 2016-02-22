@@ -29,6 +29,7 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -223,7 +224,7 @@ abstract class BKLogPartitionHandler {
 
     private void checkLogStreamExists() throws IOException {
         try {
-            if (null == zooKeeperClient.get().exists(ledgerPath, false)) {
+            if (null == Utils.sync(zooKeeperClient, ledgerPath).exists(ledgerPath, false)) {
                 throw new LogEmptyException("Log " + getFullyQualifiedName() + " is empty");
             }
         } catch (InterruptedException ie) {
@@ -294,22 +295,6 @@ abstract class BKLogPartitionHandler {
 
         throw new AlreadyTruncatedTransactionException("Records prior to" + thresholdTxId +
             " have already been deleted for log " + getFullyQualifiedName());
-    }
-
-    protected void checkLogExists() throws IOException {
-        /*
-            try {
-                if (null == zooKeeperClient.exists(ledgerPath, false)) {
-                    throw new IOException("Log does not exist or has been deleted");
-                }
-            } catch (InterruptedException ie) {
-                LOG.error("Interrupted while deleting " + ledgerPath, ie);
-                throw new IOException("Log does not exist or has been deleted");
-            } catch (KeeperException ke) {
-                LOG.error("Error deleting" + ledgerPath + "entry in zookeeper", ke);
-                throw new IOException("Log does not exist or has been deleted");
-            }
-        */
     }
 
     public void close() throws IOException {

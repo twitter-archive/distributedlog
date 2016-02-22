@@ -376,8 +376,6 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
-        checkLogExists();
-
         boolean wroteInprogressZnode = false;
 
         try {
@@ -679,7 +677,6 @@ class BKLogWriteHandler extends BKLogHandler {
                                                 long ledgerId, long firstTxId, long lastTxId, int recordCount,
                                                 long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
             throws IOException {
-        checkLogExists();
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressZnodePath = inprogressZNode(inprogressZnodeName);
         try {
@@ -932,14 +929,6 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     public void deleteLog() throws IOException {
-        try {
-            checkLogExists();
-        } catch (DLInterruptedException die) {
-            throw die;
-        } catch (IOException exc) {
-            return;
-        }
-
         try {
             deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
         } catch (LockingException lockExc) {

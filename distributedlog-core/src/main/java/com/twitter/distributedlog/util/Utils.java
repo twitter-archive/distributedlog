@@ -3,27 +3,28 @@ package com.twitter.distributedlog.util;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.util.Await;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.ZooKeeper;
-import scala.runtime.BoxedUnit;
-
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
-
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
-import com.twitter.util.Await;
-import com.twitter.util.Future;
-import com.twitter.util.Promise;
+import scala.runtime.BoxedUnit;
 
 /**
  * Basic Utilities.
@@ -307,6 +308,44 @@ public class Utils {
             }
         }, null);
         return promise;
+    }
+
+    /**
+     * Sync zookeeper client on given <i>path</i>.
+     *
+     * @param zkc
+     *          zookeeper client
+     * @param path
+     *          path to sync
+     * @return zookeeper client after sync
+     * @throws IOException
+     */
+    public static ZooKeeper sync(ZooKeeperClient zkc, String path) throws IOException {
+        ZooKeeper zk;
+        try {
+            zk = zkc.get();
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on checking if log " + path + " exists", e);
+        }
+        final CountDownLatch syncLatch = new CountDownLatch(1);
+        final AtomicInteger syncResult = new AtomicInteger(0);
+        zk.sync(path, new AsyncCallback.VoidCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx) {
+                syncResult.set(rc);
+                syncLatch.countDown();
+            }
+        }, null);
+        try {
+            syncLatch.await();
+        } catch (InterruptedException e) {
+            throw new DLInterruptedException("Interrupted on syncing zookeeper connection", e);
+        }
+        if (KeeperException.Code.OK.intValue() != syncResult.get()) {
+            throw new ZKException("Error syncing zookeeper connection ",
+                    KeeperException.Code.get(syncResult.get()));
+        }
+        return zk;
     }
 
     /**
