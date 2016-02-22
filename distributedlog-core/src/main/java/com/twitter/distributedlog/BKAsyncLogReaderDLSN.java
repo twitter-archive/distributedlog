@@ -9,7 +9,8 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
-import com.twitter.distributedlog.util.Utils;
+import com.twitter.distributedlog.injector.AsyncFailureInjector;
+import com.twitter.distributedlog.injector.AsyncRandomFailureInjector;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -71,7 +72,6 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final ScheduledExecutorService executorService;
     private final ConcurrentLinkedQueue<PendingReadRequest> pendingRequests = new ConcurrentLinkedQueue<PendingReadRequest>();
     private final AtomicLong scheduleCount = new AtomicLong(0);
-    private boolean simulateErrors = false;
     final private Stopwatch scheduleDelayStopwatch;
     final private Stopwatch readNextDelayStopwatch;
     private DLSN startDLSN;
@@ -99,6 +99,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             scheduleBackgroundRead();
         }
     };
+
+    // Failure Injector
+    private final AsyncFailureInjector failureInjector;
 
     // Stats
     private final OpStatsLogger readNextExecTime;
@@ -200,6 +203,16 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
         this.idleErrorThresholdMillis = bkdlm.getConf().getReaderIdleErrorThresholdMillis();
         this.returnEndOfStreamRecord = returnEndOfStreamRecord;
 
+        // Failure Injection
+        this.failureInjector = AsyncRandomFailureInjector.newBuilder()
+                .injectDelays(bkdlm.getConf().getEIInjectReadAheadDelay(),
+                              bkdlm.getConf().getEIInjectReadAheadDelayPercent(),
+                              bkdlm.getConf().getEIInjectMaxReadAheadDelayMs())
+                .injectErrors(false, 10)
+                .injectStops(bkdlm.getConf().getEIInjectReadAheadStall(), 10)
+                .build();
+
+        // Stats
         StatsLogger asyncReaderStatsLogger = statsLogger.scope("async_reader");
         futureSetLatency = asyncReaderStatsLogger.getOpStatsLogger("future_set");
         scheduleLatency = asyncReaderStatsLogger.getOpStatsLogger("schedule");
@@ -353,7 +366,9 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                 @Override
                 public void onSuccess(Void value) {
                     try {
-                        bkLedgerManager.startReadAhead(new LedgerReadPosition(getStartDLSN()), simulateErrors);
+                        bkLedgerManager.startReadAhead(
+                                new LedgerReadPosition(getStartDLSN()),
+                                failureInjector);
                         if (disableReadAheadZKNotification) {
                             bkLedgerManager.disableReadAheadZKNotification();
                         }
@@ -498,7 +513,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
                 try {
                     // Fail 10% of the requests when asked to simulate errors
-                    if (simulateErrors && Utils.randomPercent(10)) {
+                    if (failureInjector.shouldInjectErrors()) {
                         throw new IOException("Reader Simulated Exception");
                     }
                     LogRecordWithDLSN record;
@@ -607,10 +622,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     @VisibleForTesting
     void simulateErrors() {
-        simulateErrors = true;
-        if (null != bkLedgerManager) {
-            bkLedgerManager.simulateErrors();
-        }
+        failureInjector.injectErrors(true);
     }
 
     @VisibleForTesting

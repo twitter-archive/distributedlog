@@ -20,9 +20,9 @@ import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
+import com.twitter.distributedlog.injector.AsyncFailureInjector;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
-import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -82,7 +82,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReadAheadWorker.class);
 
-    private static final Random random = new Random(System.currentTimeMillis());
+    private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
+    private static final int BKC_UNEXPECTED_EXCEPTION_THRESHOLD = 3;
 
     // Stream information
     private final String fullyQualifiedName;
@@ -107,14 +108,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     private final ReadAheadCache readAheadCache;
     private volatile List<LogSegmentMetadata> ledgerList;
     private boolean isHandleForReading;
-    private boolean simulateErrors;
-    private boolean simulateDelays;
-    private boolean injectReadAheadStall;
-    private int maxInjectedDelayMs;
-    private int injectedDelayPercent;
-
-    private static final int BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS = 30;
-    private static final int BKC_UNEXPECTED_EXCEPTION_THRESHOLD = 3;
 
     // ReadAhead Status
     private volatile boolean isCatchingUp = true;
@@ -151,6 +144,9 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     // zookeeper watcher
     private final Watcher getLedgersWatcher;
 
+    // failure injector
+    private final AsyncFailureInjector failureInjector;
+
     // trace
     protected final long metadataLatencyWarnThresholdMillis;
 
@@ -185,12 +181,12 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                            LedgerHandleCache handleCache,
                            LedgerReadPosition startPosition,
                            ReadAheadCache readAheadCache,
-                           boolean simulateErrors,
                            boolean isHandleForReading,
                            ReadAheadExceptionsLogger readAheadExceptionsLogger,
                            StatsLogger handlerStatsLogger,
                            StatsLogger readAheadPerStreamStatsLogger,
                            AlertStatsLogger alertStatsLogger,
+                           AsyncFailureInjector failureInjector,
                            AsyncNotification notification) {
         this.fullyQualifiedName = logMetadata.getFullyQualifiedName();
         this.conf = conf;
@@ -205,11 +201,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         this.startReadPosition = new LedgerReadPosition(startPosition);
         this.nextReadAheadPosition = new LedgerReadPosition(startPosition);
         this.isHandleForReading = isHandleForReading;
-        this.simulateErrors = simulateErrors;
-        this.simulateDelays = conf.getEIInjectReadAheadDelay();
-        this.injectReadAheadStall = conf.getEIInjectReadAheadStall();
-        this.maxInjectedDelayMs = conf.getEIInjectMaxReadAheadDelayMs();
-        this.injectedDelayPercent = Math.max(0, Math.min(100, conf.getEIInjectReadAheadDelayPercent()));
+        this.failureInjector = failureInjector;
         if ((conf.getReadLACOption() >= ReadLACOption.INVALID_OPTION.getValue()) ||
             (conf.getReadLACOption() < ReadLACOption.DEFAULT.getValue())) {
             LOG.warn("Invalid value of ReadLACOption configured {}", conf.getReadLACOption());
@@ -304,10 +296,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         }
     }
 
-    public void simulateErrors() {
-        this.simulateErrors = true;
-    }
-
     public boolean isCaughtUp() {
         return !isCatchingUp;
     }
@@ -361,7 +349,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
             ", readAheadError:" + readAheadError +
             ", readAheadInterrupted" + readAheadInterrupted +
             ", CurrentMetadata:" + ((null != currentMetadata) ? currentMetadata : "NONE") +
-            ", SimulateDelays:" + simulateDelays;
+            ", FailureInjector:" + failureInjector;
     }
 
     @Override
@@ -408,14 +396,14 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     }
 
     void submit(Runnable runnable) {
-        if (injectReadAheadStall && Utils.randomPercent(10)) {
+        if (failureInjector.shouldInjectStops()) {
             LOG.warn("Error injected: read ahead for stream {} is going to stall.",
                     logMetadata.getFullyQualifiedName());
             return;
         }
 
-        if (simulateDelays && Utils.randomPercent(injectedDelayPercent)) {
-            int delayMs = random.nextInt(maxInjectedDelayMs);
+        if (failureInjector.shouldInjectDelays()) {
+            int delayMs = failureInjector.getInjectedDelayMs();
             schedule(runnable, delayMs);
             return;
         }
@@ -497,13 +485,13 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
             }
             tracker.enterPhase(ReadAheadPhase.SCHEDULE_READAHEAD);
 
-            boolean simulate = simulateErrors && Utils.randomPercent(2);
-            if (encounteredException || simulate) {
+            boolean injectErrors = failureInjector.shouldInjectErrors();
+            if (encounteredException || injectErrors) {
                 int zkErrorThreshold = BKC_ZK_EXCEPTION_THRESHOLD_IN_SECONDS * 1000 * 4 / conf.getReadAheadWaitTime();
 
-                if ((bkcZkExceptions.get() > zkErrorThreshold) || simulate) {
+                if ((bkcZkExceptions.get() > zkErrorThreshold) || injectErrors) {
                     LOG.error("{} : BookKeeper Client used by the ReadAhead Thread has encountered {} zookeeper exceptions : simulate = {}",
-                              new Object[] { fullyQualifiedName, bkcZkExceptions.get(), simulate });
+                              new Object[] { fullyQualifiedName, bkcZkExceptions.get(), injectErrors });
                     running = false;
                     setReadAheadError(tracker);
                 } else if (bkcUnExpectedExceptions.get() > BKC_UNEXPECTED_EXCEPTION_THRESHOLD) {

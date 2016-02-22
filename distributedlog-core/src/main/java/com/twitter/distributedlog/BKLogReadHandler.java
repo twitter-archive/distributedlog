@@ -12,6 +12,7 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
+import com.twitter.distributedlog.injector.AsyncFailureInjector;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.readahead.ReadAheadWorker;
@@ -296,7 +297,8 @@ class BKLogReadHandler extends BKLogHandler {
         }
     }
 
-    public void startReadAhead(LedgerReadPosition startPosition, boolean simulateErrors) {
+    public void startReadAhead(LedgerReadPosition startPosition,
+                               AsyncFailureInjector failureInjector) {
         if (null == readAheadWorker) {
             readAheadWorker = new ReadAheadWorker(
                     conf,
@@ -308,12 +310,12 @@ class BKLogReadHandler extends BKLogHandler {
                     handleCache,
                     startPosition,
                     readAheadCache,
-                    simulateErrors,
                     isHandleForReading,
                     readAheadExceptionsLogger,
                     handlerStatsLogger,
                     perLogStatsLogger,
                     alertStatsLogger,
+                    failureInjector,
                     notification);
             readAheadWorker.start();
         } else {
@@ -323,12 +325,6 @@ class BKLogReadHandler extends BKLogHandler {
 
     public boolean isReadAheadCaughtUp() {
         return null != readAheadWorker && readAheadWorker.isCaughtUp();
-    }
-
-    public void simulateErrors() {
-        if (null != readAheadWorker) {
-            readAheadWorker.simulateErrors();
-        }
     }
 
     void dumpReadAheadState(boolean isError) {

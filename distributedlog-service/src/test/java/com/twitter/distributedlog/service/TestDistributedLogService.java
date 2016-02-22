@@ -348,8 +348,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         // those write ops should be aborted
         for (int i = 0; i < numWrites - 1; i++) {
             WriteResponse response = Await.result(futureList.get(i));
-            assertEquals("Op should fail with " + StatusCode.BK_TRANSMIT_ERROR,
-                    StatusCode.BK_TRANSMIT_ERROR, response.getHeader().getCode());
+            assertEquals("Op should fail with " + StatusCode.WRITE_CANCELLED_EXCEPTION,
+                    StatusCode.WRITE_CANCELLED_EXCEPTION, response.getHeader().getCode());
         }
 
         while (streamManager.getCachedStreams().containsKey(streamName)) {
@@ -641,7 +641,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             assertTrue("Op should fail with " + StatusCode.BK_TRANSMIT_ERROR + " or be rejected : "
                     + response.getHeader().getCode(),
                     StatusCode.BK_TRANSMIT_ERROR == response.getHeader().getCode() ||
-                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode());
+                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode() ||
+                    StatusCode.WRITE_CANCELLED_EXCEPTION == response.getHeader().getCode());
         }
         assertTrue("There should be no streams in the cache",
                 streamManager.getCachedStreams().isEmpty());
