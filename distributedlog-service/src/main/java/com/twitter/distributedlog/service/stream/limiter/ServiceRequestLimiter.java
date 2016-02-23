@@ -6,7 +6,6 @@ import com.twitter.distributedlog.limiter.ChainedRequestLimiter;
 import com.twitter.distributedlog.limiter.ComposableRequestLimiter.OverlimitFunction;
 import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.service.stream.StreamManager;
-import com.twitter.distributedlog.service.stream.StreamOpStats;
 import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.rate.MovingAverageRate;
 import org.apache.bookkeeper.feature.Feature;
@@ -22,14 +21,13 @@ public class ServiceRequestLimiter extends DynamicRequestLimiter<StreamOp> {
     private final StreamManager streamManager;
 
     public ServiceRequestLimiter(DynamicDistributedLogConfiguration dynConf,
-                                 StreamOpStats streamOpStats,
+                                 StatsLogger statsLogger,
                                  MovingAverageRate serviceRps,
                                  MovingAverageRate serviceBps,
                                  StreamManager streamManager,
                                  Feature disabledFeature) {
-        super(dynConf, streamOpStats.baseScope("service_limiter"), disabledFeature);
-        this.limiterStatLogger = streamOpStats.baseScope("service_limiter");
-        limiterStatLogger.scope("test");
+        super(dynConf, statsLogger, disabledFeature);
+        this.limiterStatLogger = statsLogger;
         this.streamManager = streamManager;
         this.serviceRps = serviceRps;
         this.serviceBps = serviceBps;
@@ -46,6 +44,7 @@ public class ServiceRequestLimiter extends DynamicRequestLimiter<StreamOp> {
         int bpsHardServiceLimit = dynConf.getBpsHardServiceLimit();
 
         RequestLimiterBuilder rpsHardLimiterBuilder = RequestLimiterBuilder.newRpsLimiterBuilder()
+            .statsLogger(limiterStatLogger.scope("rps_hard_limit"))
             .limit(rpsHardServiceLimit)
             .overlimit(new OverlimitFunction<StreamOp>() {
                 @Override
@@ -55,9 +54,11 @@ public class ServiceRequestLimiter extends DynamicRequestLimiter<StreamOp> {
             });
 
         RequestLimiterBuilder rpsSoftLimiterBuilder = RequestLimiterBuilder.newRpsLimiterBuilder()
+            .statsLogger(limiterStatLogger.scope("rps_soft_limit"))
             .limit(rpsSoftServiceLimit);
 
         RequestLimiterBuilder bpsHardLimiterBuilder = RequestLimiterBuilder.newBpsLimiterBuilder()
+            .statsLogger(limiterStatLogger.scope("bps_hard_limit"))
             .limit(bpsHardServiceLimit)
             .overlimit(new OverlimitFunction<StreamOp>() {
                 @Override
@@ -67,11 +68,12 @@ public class ServiceRequestLimiter extends DynamicRequestLimiter<StreamOp> {
             });
 
         RequestLimiterBuilder bpsSoftLimiterBuilder = RequestLimiterBuilder.newBpsLimiterBuilder()
+            .statsLogger(limiterStatLogger.scope("bps_soft_limit"))
             .limit(bpsSoftServiceLimit);
 
         ChainedRequestLimiter.Builder<StreamOp> builder = new ChainedRequestLimiter.Builder<StreamOp>();
-        builder.addLimiter(new StreamAcquireLimiter(streamManager, serviceRps, rpsStreamAcquireLimit));
-        builder.addLimiter(new StreamAcquireLimiter(streamManager, serviceBps, bpsStreamAcquireLimit));
+        builder.addLimiter(new StreamAcquireLimiter(streamManager, serviceRps, rpsStreamAcquireLimit, limiterStatLogger.scope("rps_acquire")));
+        builder.addLimiter(new StreamAcquireLimiter(streamManager, serviceBps, bpsStreamAcquireLimit, limiterStatLogger.scope("bps_acquire")));
         builder.addLimiter(bpsHardLimiterBuilder.build());
         builder.addLimiter(bpsSoftLimiterBuilder.build());
         builder.addLimiter(rpsHardLimiterBuilder.build());

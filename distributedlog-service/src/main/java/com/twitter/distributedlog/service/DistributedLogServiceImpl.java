@@ -10,6 +10,8 @@ import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.RegionUnavailableException;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.StreamUnavailableException;
+import com.twitter.distributedlog.exceptions.TooManyStreamsException;
 import com.twitter.distributedlog.feature.AbstractFeatureProvider;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
@@ -205,7 +207,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.windowedRps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
         this.windowedBps = movingAvgFactory.create(MOVING_AVERAGE_WINDOW_SECS);
         this.limiter = new ServiceRequestLimiter(
-                dynDlConf, streamOpStats, windowedRps, windowedBps, streamManager, limiterDisabledFeature);
+                dynDlConf,
+                streamOpStats.baseScope("service_limiter"),
+                windowedRps,
+                windowedBps,
+                streamManager,
+                limiterDisabledFeature);
 
         // Stats
         this.statsLogger = statsLogger;
@@ -479,6 +486,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             // Execute per-op pre-exec code
             op.preExecute();
 
+        } catch (TooManyStreamsException e) {
+            // Translate to StreamUnavailableException to ensure that the client will redirect
+            // to a different host. Ideally we would be able to return TooManyStreamsException,
+            // but the way exception handling works right now we can't control the handling in
+            // the client because client changes deploy very slowly.
+            op.fail(new StreamUnavailableException(e.getMessage()));
+            return;
         } catch (Exception e) {
             op.fail(e);
             return;

@@ -83,7 +83,8 @@ public class TestServiceRequestLimiter {
                     public int apply(MockRequest request) {
                         return request.getSize();
                     }
-                });
+                },
+                NullStatsLogger.INSTANCE);
         }
 
         @Override
@@ -117,7 +118,8 @@ public class TestServiceRequestLimiter {
                     public int apply(MockRequest request) {
                         return request.getSize();
                     }
-                });
+                },
+                NullStatsLogger.INSTANCE);
         }
 
         @Override

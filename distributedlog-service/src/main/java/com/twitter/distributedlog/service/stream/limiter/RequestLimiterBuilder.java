@@ -11,10 +11,14 @@ import com.twitter.distributedlog.limiter.RequestLimiter;
 import com.twitter.distributedlog.service.stream.StreamOp;
 import com.twitter.distributedlog.service.stream.WriteOpWithPayload;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+
 public class RequestLimiterBuilder {
     private OverlimitFunction<StreamOp> overlimitFunction = NOP_OVERLIMIT_FUNCTION;
     private RateLimiter limiter;
     private CostFunction<StreamOp> costFunction;
+    private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
 
     public static final CostFunction<StreamOp> RPS_COST_FUNCTION = new CostFunction<StreamOp>() {
         @Override
@@ -61,6 +65,11 @@ public class RequestLimiterBuilder {
         return this;
     }
 
+    public RequestLimiterBuilder statsLogger(StatsLogger statsLogger) {
+        this.statsLogger = statsLogger;
+        return this;
+    }
+
     public static RequestLimiterBuilder newRpsLimiterBuilder() {
         return new RequestLimiterBuilder().cost(RPS_COST_FUNCTION);
     }
@@ -73,6 +82,6 @@ public class RequestLimiterBuilder {
         Preconditions.checkNotNull(limiter);
         Preconditions.checkNotNull(overlimitFunction);
         Preconditions.checkNotNull(costFunction);
-        return new ComposableRequestLimiter(limiter, overlimitFunction, costFunction);
+        return new ComposableRequestLimiter(limiter, overlimitFunction, costFunction, statsLogger);
     }
 }

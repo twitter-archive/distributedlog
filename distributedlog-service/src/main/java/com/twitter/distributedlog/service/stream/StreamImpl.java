@@ -22,6 +22,7 @@ import com.twitter.distributedlog.service.ServerFeatureKeys;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.limiter.StreamRequestLimiter;
+import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.TimeSequencer;
 import com.twitter.util.Function0;
@@ -167,7 +168,12 @@ public class StreamImpl extends Thread implements Stream {
         this.failFastOnStreamNotReady = dlConfig.getFailFastOnStreamNotReady();
         this.fatalErrorHandler = fatalErrorHandler;
         this.dynConf = getDynConf(name, streamConfigProvider, dlConfig);
-        this.limiter = new StreamRequestLimiter(name, dynConf, streamOpStats, featureRateLimitDisabled);
+
+        StatsLogger limiterStatsLogger = BroadCastStatsLogger.two(
+            streamOpStats.baseScope("stream_limiter"),
+            streamOpStats.streamRequestScope(name, "limiter"));
+
+        this.limiter = new StreamRequestLimiter(name, dynConf, limiterStatsLogger, featureRateLimitDisabled);
         this.requestTimer = requestTimer;
 
         // Stats
