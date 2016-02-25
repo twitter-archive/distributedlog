@@ -15,6 +15,7 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import scala.Option;
 import scala.runtime.BoxedUnit;
 
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 
 /**
@@ -96,7 +97,7 @@ public class ProxyClient {
             Service<ThriftClientRequest, byte[]> client =
                 ClientBuilder.safeBuildFactory(
                         clientBuilder
-                                .hosts(address)
+                                .hosts((InetSocketAddress) address)
                                 .reportTo(clientStats.getFinagleStatsReceiver(address))
                 ).toService();
             DistributedLogService.ServiceIface service =

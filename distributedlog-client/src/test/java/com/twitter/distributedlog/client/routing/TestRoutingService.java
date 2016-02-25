@@ -10,7 +10,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
-import com.twitter.finagle.WeightedSocketAddress;
+import com.twitter.finagle.Address;
+import com.twitter.finagle.Addresses;
+import com.twitter.finagle.addr.WeightedAddress;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -45,20 +47,20 @@ public class TestRoutingService {
         this.asyncResolution = asyncResolution;
     }
 
-    private List<SocketAddress> getAddresses(boolean weightedAddresses) {
-        ArrayList<SocketAddress> addresses = new ArrayList<SocketAddress>();
-        addresses.add(new InetSocketAddress("127.0.0.1", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.2", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.3", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.4", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.5", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.6", 3181));
-        addresses.add(new InetSocketAddress("127.0.0.7", 3181));
+    private List<Address> getAddresses(boolean weightedAddresses) {
+        ArrayList<Address> addresses = new ArrayList<Address>();
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.1", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.2", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.3", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.4", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.5", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.6", 3181)));
+        addresses.add(Addresses.newInetAddress(new InetSocketAddress("127.0.0.7", 3181)));
 
         if (weightedAddresses) {
-            ArrayList<SocketAddress> wAddresses = new ArrayList<SocketAddress>();
-            for (SocketAddress address: addresses) {
-                wAddresses.add(new WeightedSocketAddress(address, 1.0));
+            ArrayList<Address> wAddresses = new ArrayList<Address>();
+            for (Address address: addresses) {
+                wAddresses.add(WeightedAddress.apply(address, 1.0));
             }
             return wAddresses;
         } else {
@@ -68,7 +70,7 @@ public class TestRoutingService {
 
     private void testRoutingServiceHelper(boolean consistentHash, boolean weightedAddresses, boolean asyncResolution) throws Exception {
         ExecutorService executorService = null;
-        final List<SocketAddress> addresses = getAddresses(weightedAddresses);
+        final List<Address> addresses = getAddresses(weightedAddresses);
         final TestName name = new TestName();
         RoutingService routingService;
         if (consistentHash) {

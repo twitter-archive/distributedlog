@@ -1,6 +1,5 @@
 package com.twitter.distributedlog.client.routing;
 
-import java.net.SocketAddress;
 import java.util.List;
 
 import scala.runtime.AbstractFunction1;
@@ -11,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import com.twitter.finagle.Addrs;
 import com.twitter.finagle.Addr;
+import com.twitter.finagle.Address;
 import com.twitter.finagle.Name;
 
 public class TestName implements Name {
@@ -21,7 +21,7 @@ public class TestName implements Name {
         this.callback = callback;
     }
 
-    public void changeAddrs(List<SocketAddress> addresses) {
+    public void changeAddrs(List<Address> addresses) {
         if (null != callback) {
             LOG.info("Sending a callback {}", addresses);
             callback.apply(Addrs.newBoundAddr(addresses));

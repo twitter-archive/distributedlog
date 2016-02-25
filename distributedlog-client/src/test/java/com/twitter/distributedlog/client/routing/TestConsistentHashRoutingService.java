@@ -2,6 +2,8 @@ package com.twitter.distributedlog.client.routing;
 
 import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
 import com.twitter.finagle.ChannelWriteException;
+import com.twitter.finagle.Address;
+import com.twitter.finagle.Addresses;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.junit.Test;
 
@@ -26,8 +28,9 @@ public class TestConsistentHashRoutingService {
                 .blackoutSeconds(2)
                 .build();
 
-        InetSocketAddress address = new InetSocketAddress("127.0.0.1", 3181);
-        List<SocketAddress> addresses = new ArrayList<SocketAddress>(1);
+        InetSocketAddress inetAddress = new InetSocketAddress("127.0.0.1", 3181);
+        Address address = Addresses.newInetAddress(inetAddress);
+        List<Address> addresses = new ArrayList<Address>(1);
         addresses.add(address);
         name.changeAddrs(addresses);
 
@@ -37,8 +40,8 @@ public class TestConsistentHashRoutingService {
                 RoutingService.RoutingContext.of(new TwitterRegionResolver());
 
         String streamName = "test-blackout-host";
-        assertEquals(address, routingService.getHost(streamName, routingContext));
-        routingService.removeHost(address, new ChannelWriteException(new IOException("test exception")));
+        assertEquals(inetAddress, routingService.getHost(streamName, routingContext));
+        routingService.removeHost(inetAddress, new ChannelWriteException(new IOException("test exception")));
         try {
             routingService.getHost(streamName, routingContext);
             fail("Should fail to get host since no brokers are available");
@@ -47,7 +50,7 @@ public class TestConsistentHashRoutingService {
         }
 
         TimeUnit.SECONDS.sleep(3);
-        assertEquals(address, routingService.getHost(streamName, routingContext));
+        assertEquals(inetAddress, routingService.getHost(streamName, routingContext));
 
         routingService.stopService();
     }

@@ -1,7 +1,6 @@
 package com.twitter.distributedlog.client.routing;
 
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -14,9 +13,9 @@ import com.twitter.common.base.Commands;
 import com.twitter.common.zookeeper.Group;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.finagle.Addr;
+import com.twitter.finagle.Address;
 import com.twitter.finagle.Name;
 import com.twitter.finagle.Resolver$;
-import com.twitter.finagle.WeightedSocketAddress;
 import com.twitter.thrift.Endpoint;
 import com.twitter.thrift.ServiceInstance;
 import com.twitter.thrift.Status;
@@ -73,10 +72,9 @@ class NameServerSet implements ServerSet {
         }
     }
 
-    private ServiceInstance socketAddressToServiceInstance(SocketAddress socketAddress) {
-        socketAddress = WeightedSocketAddress.extract(socketAddress)._1();
-        if (socketAddress instanceof InetSocketAddress) {
-            InetSocketAddress inetSocketAddress = (InetSocketAddress) socketAddress;
+    private ServiceInstance endpointAddressToServiceInstance(Address endpointAddress) {
+        if (endpointAddress instanceof Address.Inet) {
+            InetSocketAddress inetSocketAddress = ((Address.Inet) endpointAddress).addr();
             Endpoint endpoint = new Endpoint(inetSocketAddress.getHostString(), inetSocketAddress.getPort());
             HashMap<String, Endpoint> map = new HashMap<String, Endpoint>();
             map.put("thrift", endpoint);
@@ -86,8 +84,8 @@ class NameServerSet implements ServerSet {
                 Status.ALIVE);
         } else {
             logger.error("We expect InetSocketAddress while the resolved address {} was {}",
-                        socketAddress, socketAddress.getClass());
-            throw new UnsupportedOperationException("invalid socket address: " + socketAddress);
+                        endpointAddress, endpointAddress.getClass());
+            throw new UnsupportedOperationException("invalid endpoint address: " + endpointAddress);
         }
     }
 
@@ -98,11 +96,11 @@ class NameServerSet implements ServerSet {
         ImmutableSet<ServiceInstance> newHostSet = oldHostSet;
 
         if (addr instanceof Addr.Bound) {
-            scala.collection.immutable.Set<SocketAddress> socketAddresses = ((Addr.Bound)addr).addrs();
-            scala.collection.Iterator<SocketAddress> socketAddressesIterator = socketAddresses.toIterator();
+            scala.collection.immutable.Set<Address> endpointAddresses = ((Addr.Bound)addr).addrs();
+            scala.collection.Iterator<Address> endpointAddressesIterator = endpointAddresses.toIterator();
             HashSet<ServiceInstance> serviceInstances = new HashSet<ServiceInstance>();
-            while (socketAddressesIterator.hasNext()) {
-                serviceInstances.add(socketAddressToServiceInstance(socketAddressesIterator.next()));
+            while (endpointAddressesIterator.hasNext()) {
+                serviceInstances.add(endpointAddressToServiceInstance(endpointAddressesIterator.next()));
             }
             newHostSet = ImmutableSet.copyOf(serviceInstances);
 

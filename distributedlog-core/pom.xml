@@ -13,7 +13,7 @@
     <dependency>
       <groupId>org.apache.zookeeper</groupId>
       <artifactId>zookeeper-client</artifactId>
-      <version>10.0.19-20151024005404-f119572</version>
+      <version>${zookeeper.version}</version>
       <exclusions>
         <exclusion>
           <groupId>com.google.guava</groupId>
@@ -32,7 +32,7 @@
     <dependency>
       <groupId>org.apache.zookeeper</groupId>
       <artifactId>zookeeper-server</artifactId>
-      <version>10.0.19-20151024005404-f119572</version>
+      <version>${zookeeper.version}</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
