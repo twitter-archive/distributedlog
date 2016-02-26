@@ -9,10 +9,10 @@ import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.lock.ZKDistributedLock.State;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.util.Await;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.CreateMode;
@@ -56,7 +56,7 @@ public class TestZKDistributedLock extends ZooKeeperClusterTestCase {
 
     private ZooKeeperClient zkc;
     private ZooKeeperClient zkc0; // used for checking
-    private OrderedSafeExecutor lockStateExecutor;
+    private OrderedScheduler lockStateExecutor;
 
     @Before
     public void setup() throws Exception {
@@ -74,7 +74,9 @@ public class TestZKDistributedLock extends ZooKeeperClusterTestCase {
                 .zkServers(zkServers)
                 .zkAclId(null)
                 .build();
-        lockStateExecutor = new OrderedSafeExecutor(1);
+        lockStateExecutor = OrderedScheduler.newBuilder()
+                .corePoolSize(1)
+                .build();
     }
 
     @After
@@ -732,7 +734,7 @@ public class TestZKDistributedLock extends ZooKeeperClusterTestCase {
         // expire session
         ZooKeeperClientUtils.expireSession(zkc, zkServers, sessionTimeoutMs);
         // submit a runnable to lock state executor to ensure any state changes happened when session expired
-        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+        lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
                 expiredLatch.countDown();
@@ -1139,7 +1141,7 @@ public class TestZKDistributedLock extends ZooKeeperClusterTestCase {
         } else {
             ZooKeeperClientUtils.expireSession(zkc0, zkServers, sessionTimeoutMs);
             final CountDownLatch latch = new CountDownLatch(1);
-            lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+            lockStateExecutor.submit(lockPath, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     latch.countDown();

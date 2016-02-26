@@ -39,13 +39,11 @@ import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
 import com.twitter.util.FutureEventListener;
-
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZKUtil;
@@ -155,7 +153,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final PermitManager logSegmentRollingPermitManager;
     private ExecutorService writerFuturePoolExecutorService = null;
     private FuturePool writerFuturePool = null;
-    private OrderedSafeExecutor lockStateExecutor = null;
+    private OrderedScheduler lockStateExecutor = null;
 
     //
     // Reader Related Variables
@@ -266,7 +264,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             LogSegmentMetadataStore readerMetadataStore,
                             OrderedScheduler scheduler,
                             ScheduledExecutorService readAheadExecutor,
-                            OrderedSafeExecutor lockStateExecutor,
+                            OrderedScheduler lockStateExecutor,
                             ClientSocketChannelFactory channelFactory,
                             HashedWheelTimer requestTimer,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
@@ -369,10 +367,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.readAheadExceptionsLogger = readAheadExceptionsLogger;
     }
 
-    private synchronized OrderedSafeExecutor getLockStateExecutor(boolean createIfNull) {
+    private synchronized OrderedScheduler getLockStateExecutor(boolean createIfNull) {
         if (createIfNull && null == lockStateExecutor && ownExecutor) {
-            lockStateExecutor = OrderedSafeExecutor.newBuilder()
-                    .numThreads(1).name("BKDL-LockState").build();
+            lockStateExecutor = OrderedScheduler.newBuilder()
+                    .corePoolSize(1).name("BKDL-LockState").build();
         }
         return lockStateExecutor;
     }
@@ -471,7 +469,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized public BKLogReadHandler createReadLedgerHandler(String streamIdentifier,
                                                                  Optional<String> subscriberId,
-                                                                 OrderedSafeExecutor lockExecutor,
+                                                                 OrderedScheduler lockExecutor,
                                                                  AsyncNotification notification,
                                                                  boolean isHandleForReading) {
         ZKLogMetadataForReader logMetadata = ZKLogMetadataForReader.of(uri, name, streamIdentifier);
@@ -484,7 +482,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 readerBKCBuilder,
                 readerMetadataStore,
                 scheduler,
-                lockExecutor,
+                lockStateExecutor,
                 readAheadExecutor,
                 alertStatsLogger,
                 readAheadExceptionsLogger,
@@ -521,8 +519,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                         ownAllocator, conf.getCreateStreamIfNotExists() || ownAllocator);
         ZKLogMetadataForWriter logMetadata = FutureUtils.result(metadataFuture);
 
+        OrderedScheduler lockStateExecutor = getLockStateExecutor(true);
         // Build the locks
-        OrderedSafeExecutor lockStateExecutor = getLockStateExecutor(true);
         DistributedReentrantLock lock =
                 new DistributedReentrantLock(lockStateExecutor, writerZKC, logMetadata.getLockPath(),
                             conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(),

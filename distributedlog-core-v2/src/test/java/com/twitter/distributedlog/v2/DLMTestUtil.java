@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog.v2;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
@@ -25,15 +24,14 @@ import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.MetadataAccessor;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.concurrent.Executors;
 
 import static com.twitter.distributedlog.DLSNUtil.*;
 import static org.junit.Assert.assertArrayEquals;
@@ -78,9 +76,14 @@ public class DLMTestUtil {
                                                      DistributedLogConfiguration conf, String path) throws Exception {
         return new BKLogPartitionWriteHandler(
                 path, p.toString(), conf, createDLMURI("/" + path), null, null,
-                Executors.newScheduledThreadPool(1,
-                        new ThreadFactoryBuilder().setNameFormat("Test-BKDL-" + p.toString() + "-executor-%d").build()),
-                OrderedSafeExecutor.newBuilder().name("LockStateThread").numThreads(1).build(),
+                OrderedScheduler.newBuilder()
+                        .name("Test-BKDL-" + p.toString() + "-executor")
+                        .corePoolSize(1)
+                        .build(),
+                OrderedScheduler.newBuilder()
+                        .name("LockStateThread")
+                        .corePoolSize(1)
+                        .build(),
                 NullStatsLogger.INSTANCE, "localhost", PermitLimiter.NULL_PERMIT_LIMITER);
     }
 

@@ -1,6 +1,8 @@
 package com.twitter.distributedlog.util;
 
 import com.twitter.distributedlog.BKTransmitException;
+import com.twitter.distributedlog.DistributedLogConstants;
+import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -19,11 +21,13 @@ import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Utilities to process future
@@ -124,9 +128,18 @@ public class FutureUtils {
         }
     }
 
+    /**
+     * Process the list of items one by one using the process function <i>processFunc</i>.
+     * The process will be stopped immediately if it fails on processing any one.
+     *
+     * @param collection list of items
+     * @param processFunc process function
+     * @param callbackExecutor executor to process the item
+     * @return future presents the list of processed results
+     */
     public static <T, R> Future<List<R>> processList(List<T> collection,
                                                      Function<T, Future<R>> processFunc,
-                                                     ExecutorService callbackExecutor) {
+                                                     @Nullable ExecutorService callbackExecutor) {
         ListFutureProcessor<T, R> processor =
                 new ListFutureProcessor<T, R>(collection, processFunc, callbackExecutor);
         if (null != callbackExecutor) {
@@ -137,6 +150,15 @@ public class FutureUtils {
         return processor.promise;
     }
 
+    /**
+     * Await for the result of the future and thrown bk related exceptions.
+     *
+     * @param result future to wait for
+     * @return the result of future
+     * @throws BKException when exceptions are thrown by the future. If there is unkown exceptions
+     *         thrown from the future, the exceptions will be wrapped into
+     *         {@link org.apache.bookkeeper.client.BKException.BKUnexpectedConditionException}.
+     */
     public static <T> T bkResult(Future<T> result) throws BKException {
         try {
             return Await.result(result);
@@ -150,6 +172,13 @@ public class FutureUtils {
         }
     }
 
+    /**
+     * Return the bk exception return code for a <i>throwable</i>.
+     *
+     * @param throwable the cause of the exception
+     * @return the bk exception return code. if the exception isn't bk exceptions,
+     *         it would return {@link BKException.Code.UnexpectedConditionException}.
+     */
     public static int bkResultCode(Throwable throwable) {
         if (throwable instanceof BKException) {
             return ((BKException)throwable).getCode();
@@ -157,14 +186,31 @@ public class FutureUtils {
         return BKException.Code.UnexpectedConditionException;
     }
 
+    /**
+     * Wait for the result until it completes.
+     *
+     * @param result result to wait
+     * @return the result
+     * @throws IOException when encountered exceptions on the result
+     */
     public static <T> T result(Future<T> result) throws IOException {
         return result(result, Duration.Top());
     }
 
+    /**
+     * Wait for the result for a given <i>duration</i>.
+     * <p>If the result is not ready within `duration`, an IOException will thrown wrapping with
+     * corresponding {@link com.twitter.util.TimeoutException}.
+     *
+     * @param result result to wait
+     * @param duration duration to wait
+     * @return the result
+     * @throws IOException when encountered exceptions on the result or waiting for the result.
+     */
     public static <T> T result(Future<T> result, Duration duration)
             throws IOException {
         try {
-            return Await.result(result);
+            return Await.result(result, duration);
         } catch (KeeperException ke) {
             throw new ZKException("Encountered zookeeper exception on waiting result", ke);
         } catch (BKException bke) {
@@ -178,6 +224,31 @@ public class FutureUtils {
         }
     }
 
+    /**
+     * Wait for the result of a lock operation.
+     *
+     * @param result result to wait
+     * @param lockPath path of the lock
+     * @return the result
+     * @throws LockingException when encountered exceptions on the result of lock operation
+     */
+    public static <T> T lockResult(Future<T> result, String lockPath) throws LockingException {
+        try {
+            return Await.result(result);
+        } catch (LockingException le) {
+            throw le;
+        } catch (Exception e) {
+            throw new LockingException(lockPath, "Encountered exception on locking ", e);
+        }
+    }
+
+    /**
+     * Convert the <i>throwable</i> to zookeeper related exceptions.
+     *
+     * @param throwable cause
+     * @param path zookeeper path
+     * @return zookeeper related exceptions
+     */
     public static Throwable zkException(Throwable throwable, String path) {
         if (throwable instanceof KeeperException) {
             return throwable;
@@ -190,10 +261,55 @@ public class FutureUtils {
         }
     }
 
+    /**
+     * Cancel the future. It would interrupt the future.
+     *
+     * @param future future to cancel
+     */
     public static <T> void cancel(Future<T> future) {
         future.raise(new FutureCancelledException());
     }
 
+    /**
+     * Raise an exception to the <i>promise</i> within a given <i>timeout</i> period.
+     * If the promise has been satisfied before raising, it won't change the state of the promise.
+     *
+     * @param promise promise to raise exception
+     * @param timeout timeout period
+     * @param unit timeout period unit
+     * @param cause cause to raise
+     * @param scheduler scheduler to execute raising exception
+     * @param key the submit key used by the scheduler
+     * @return the promise applied with the raise logic
+     */
+    public static <T> Promise<T> raiseWithin(final Promise<T> promise,
+                                             final long timeout,
+                                             final TimeUnit unit,
+                                             final Throwable cause,
+                                             final OrderedScheduler scheduler,
+                                             final Object key) {
+        if (timeout == DistributedLogConstants.FUTURE_TIMEOUT_INFINITE || promise.isDefined()) {
+            return promise;
+        }
+        scheduler.schedule(key, new Runnable() {
+            @Override
+            public void run() {
+                logger.info("Raise exception {}", cause);
+                // interrupt the promise
+                promise.raise(cause);
+            }
+        }, timeout, unit);
+        return promise;
+    }
+
+    /**
+     * Satisfy the <i>promise</i> with provide value.
+     * <p>If the promise was already satisfied, nothing will be changed.
+     *
+     * @param promise promise to satisfy
+     * @param value value to satisfy
+     * @return true if successfully satisfy the future. false if the promise has been satisfied.
+     */
     public static <T> boolean setValue(Promise<T> promise, T value) {
         boolean success = promise.updateIfEmpty(new Return<T>(value));
         if (!success) {
@@ -203,6 +319,13 @@ public class FutureUtils {
         return success;
     }
 
+    /**
+     * Satisfy the <i>promise</i> with provided <i>cause</i>.
+     *
+     * @param promise promise to satisfy
+     * @param cause cause to satisfy
+     * @return true if successfully satisfy the future. false if the promise has been satisfied.
+     */
     public static <T> boolean setException(Promise<T> promise, Throwable cause) {
         boolean success = promise.updateIfEmpty(new Throw<T>(cause));
         if (!success) {

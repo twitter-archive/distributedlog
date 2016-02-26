@@ -17,8 +17,10 @@ public class DistributedLogConstants {
     public static final long MAX_TXID = Long.MAX_VALUE;
     public static final long SMALL_LOGSEGMENT_THRESHOLD = 10;
     public static final int LOGSEGMENT_NAME_VERSION = 1;
-    public static final long LOCK_IMMEDIATE = 0;
-    public static final long LOCK_TIMEOUT_INFINITE = -1;
+    public static final int FUTURE_TIMEOUT_IMMEDIATE = 0;
+    public static final int FUTURE_TIMEOUT_INFINITE = -1;
+    public static final long LOCK_IMMEDIATE = FUTURE_TIMEOUT_IMMEDIATE;
+    public static final long LOCK_TIMEOUT_INFINITE = FUTURE_TIMEOUT_INFINITE;
     public static final long LOCK_OP_TIMEOUT_DEFAULT = 120;
     public static final long LOCK_REACQUIRE_TIMEOUT_DEFAULT = 120;
     public static final String UNKNOWN_CLIENT_ID = "Unknown-ClientId";

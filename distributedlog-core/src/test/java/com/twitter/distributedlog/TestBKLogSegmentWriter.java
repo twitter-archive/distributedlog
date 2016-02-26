@@ -8,6 +8,7 @@ import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
@@ -20,7 +21,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
@@ -53,7 +53,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
     private ScheduledExecutorService executorService;
     private ScheduledExecutorService futurePoolExecutor;
     private FuturePool futurePool;
-    private OrderedSafeExecutor lockStateExecutor;
+    private OrderedScheduler lockStateExecutor;
     private ZooKeeperClient zkc;
     private ZooKeeperClient zkc0;
     private BookKeeperClient bkc;
@@ -65,7 +65,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         executorService = Executors.newSingleThreadScheduledExecutor();
         futurePoolExecutor = Executors.newSingleThreadScheduledExecutor();
         futurePool = new ExecutorServiceFuturePool(futurePoolExecutor);
-        lockStateExecutor = new OrderedSafeExecutor(1);
+        lockStateExecutor = OrderedScheduler.newBuilder().corePoolSize(1).build();
         // build zookeeper client
         URI uri = createDLMURI("");
         zkc = ZooKeeperClientBuilder.newBuilder()
@@ -192,7 +192,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
         DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -256,7 +256,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
         DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -334,7 +334,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
         DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -408,7 +408,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
         DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -482,7 +482,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
         DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Void> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);

@@ -13,6 +13,7 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.AsyncCallback;
@@ -22,7 +23,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
@@ -36,7 +36,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,7 +52,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     private final DistributedReentrantLock lock;
     private final DistributedReentrantLock deleteLock;
-    protected final OrderedSafeExecutor lockStateExecutor;
+    protected final OrderedScheduler lockStateExecutor;
     private final String maxTxIdPath;
     private final MaxTxId maxTxId;
     private final int ensembleSize;
@@ -132,12 +131,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                                URI uri,
                                ZooKeeperClientBuilder zkcBuilder,
                                BookKeeperClientBuilder bkcBuilder,
-                               ScheduledExecutorService executorService,
-                               OrderedSafeExecutor lockStateExecutor,
+                               OrderedScheduler scheduler,
+                               OrderedScheduler lockStateExecutor,
                                StatsLogger statsLogger,
                                String clientId,
                                PermitLimiter writeLimiter) throws IOException {
-        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
+        super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, scheduler, statsLogger);
         this.lockStateExecutor = lockStateExecutor;
         this.writeLimiter = writeLimiter;
 

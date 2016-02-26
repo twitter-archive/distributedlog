@@ -11,19 +11,21 @@ import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.stats.OpStatsListener;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.Return;
 import com.twitter.util.Throw;
 import com.twitter.util.TimeoutException;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
@@ -35,6 +37,10 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Function1;
+import scala.PartialFunction;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.AbstractPartialFunction;
 import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
@@ -256,13 +262,13 @@ class ZKDistributedLock implements DistributedLock {
     private StateManagement lockState;
     private final DistributedLockContext lockContext;
 
-    private final Promise<Void> acquireFuture;
+    private final Promise<Boolean> acquireFuture;
     private String currentId;
     private String currentNode;
     private String watchedNode;
     private LockWatcher watcher;
     private final AtomicInteger epoch = new AtomicInteger(0);
-    private final OrderedSafeExecutor lockStateExecutor;
+    private final OrderedScheduler lockStateExecutor;
     private LockListener lockListener = null;
     private final long lockOpTimeout;
 
@@ -270,19 +276,10 @@ class ZKDistributedLock implements DistributedLock {
     private final Counter tryTimeouts;
     private final OpStatsLogger unlockStats;
 
-    /**
-     * Satisfied once the lock is acquired. Since this is a one time lock we never reset the
-     * value--successful completion indicates the lock was initially acquired succesfully. but
-     * doesn't say anything about the current state of the lock.
-     */
-    protected Future<Void> getAcquireFuture() {
-        return acquireFuture;
-    }
-
     ZKDistributedLock(ZooKeeperClient zkClient,
                       String lockPath,
                       String clientId,
-                      OrderedSafeExecutor lockStateExecutor)
+                      OrderedScheduler lockStateExecutor)
             throws IOException {
         this(zkClient,
                 lockPath,
@@ -305,7 +302,7 @@ class ZKDistributedLock implements DistributedLock {
     public ZKDistributedLock(ZooKeeperClient zkClient,
                              String lockPath,
                              String clientId,
-                             OrderedSafeExecutor lockStateExecutor,
+                             OrderedScheduler lockStateExecutor,
                              long lockOpTimeout,
                              StatsLogger statsLogger,
                              DistributedLockContext lockContext)
@@ -331,15 +328,15 @@ class ZKDistributedLock implements DistributedLock {
         this.unlockStats = statsLogger.getOpStatsLogger("unlock");
 
         // Attach interrupt handler to acquire future so clients can abort the future.
-        this.acquireFuture = new Promise<Void>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
+        this.acquireFuture = new Promise<Boolean>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
             @Override
             public BoxedUnit apply(Throwable t) {
                 // This will set the lock state to closed, and begin to cleanup the zk lock node.
                 // We have to be careful not to block here since doing so blocks the ordered lock
                 // state executor which can cause deadlocks depending on how futures are chained.
-                ZKDistributedLock.this.unlockAsync();
+                ZKDistributedLock.this.asyncUnlock();
                 // Note re. logging and exceptions: errors are already logged by unlockAsync.
-                return null;
+                return BoxedUnit.UNIT;
             }
         });
     }
@@ -369,8 +366,13 @@ class ZKDistributedLock implements DistributedLock {
         return lockId;
     }
 
-    boolean isExpiredOrClosing() {
+    public boolean isLockExpired() {
         return lockState.isExpiredOrClosing();
+    }
+
+    @Override
+    public boolean isLockHeld() {
+        return lockState.inState(State.CLAIMED);
     }
 
     /**
@@ -382,7 +384,7 @@ class ZKDistributedLock implements DistributedLock {
      *          function to execute a lock action
      */
     protected void executeLockAction(final int lockEpoch, final LockAction func) {
-        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+        lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
                 if (ZKDistributedLock.this.epoch.get() == lockEpoch) {
@@ -418,7 +420,7 @@ class ZKDistributedLock implements DistributedLock {
      *          promise
      */
     protected <T> void executeLockAction(final int lockEpoch, final LockAction func, final Promise<T> promise) {
-        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+        lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
                 int currentEpoch = ZKDistributedLock.this.epoch.get();
@@ -502,7 +504,8 @@ class ZKDistributedLock implements DistributedLock {
         return promise;
     }
 
-    public Future<String> asyncTryLock(long timeout, TimeUnit unit) {
+    @Override
+    public Future<LockWaiter> asyncTryLock(final long timeout, final TimeUnit unit) {
         final Promise<String> result = new Promise<String>();
         final boolean wait = DistributedLogConstants.LOCK_IMMEDIATE != timeout;
         if (wait) {
@@ -513,7 +516,7 @@ class ZKDistributedLock implements DistributedLock {
                 @Override
                 public void processResult(final int rc, String path, Object ctx,
                                           final List<String> children, Stat stat) {
-                    lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                    lockStateExecutor.submit(lockPath, new SafeRunnable() {
                         @Override
                         public void safeRun() {
                             if (!lockState.inState(State.INIT)) {
@@ -533,12 +536,14 @@ class ZKDistributedLock implements DistributedLock {
                                         new FutureEventListener<Pair<String, Long>>() {
                                             @Override
                                             public void onSuccess(Pair<String, Long> owner) {
-                                                checkOrClaimLockOwner(owner, result);
+                                                if (!checkOrClaimLockOwner(owner, result)) {
+                                                    acquireFuture.updateIfEmpty(new Return<Boolean>(false));
+                                                }
                                             }
 
                                             @Override
                                             public void onFailure(final Throwable cause) {
-                                                lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                                                lockStateExecutor.submit(lockPath, new SafeRunnable() {
                                                     @Override
                                                     public void safeRun() {
                                                         result.setException(cause);
@@ -554,19 +559,72 @@ class ZKDistributedLock implements DistributedLock {
                 }
             }, null);
         }
-        return result;
+
+        final Promise<Boolean> waiterAcquireFuture = new Promise<Boolean>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
+            @Override
+            public BoxedUnit apply(Throwable t) {
+                acquireFuture.raise(t);
+                return BoxedUnit.UNIT;
+            }
+        });
+        return result.map(new AbstractFunction1<String, LockWaiter>() {
+            @Override
+            public LockWaiter apply(final String currentOwner) {
+                FutureUtils.raiseWithin(
+                        acquireFuture,
+                        timeout,
+                        unit,
+                        new LockTimeoutException(lockPath, timeout, unit),
+                        lockStateExecutor,
+                        lockPath
+                ).addEventListener(new FutureEventListener<Boolean>() {
+
+                    @Override
+                    public void onSuccess(Boolean acquired) {
+                        completeOrFail(new OwnershipAcquireFailedException(lockPath, currentOwner));
+                    }
+
+                    @Override
+                    public void onFailure(final Throwable acquireCause) {
+                        completeOrFail(acquireCause);
+                    }
+
+                    private void completeOrFail(final Throwable acquireCause) {
+                        if (isLockHeld()) {
+                            waiterAcquireFuture.setValue(true);
+                        } else {
+                            asyncUnlock().addEventListener(new FutureEventListener<BoxedUnit>() {
+                                @Override
+                                public void onSuccess(BoxedUnit value) {
+                                    waiterAcquireFuture.setException(acquireCause);
+                                }
+
+                                @Override
+                                public void onFailure(Throwable cause) {
+                                    waiterAcquireFuture.setException(acquireCause);
+                                }
+                            });
+                        }
+                    }
+                });;
+                return new LockWaiter(
+                        lockId.getLeft(),
+                        currentOwner,
+                        waiterAcquireFuture);
+            }
+        });
     }
 
-    private void checkOrClaimLockOwner(final Pair<String, Long> currentOwner,
-                                       final Promise<String> result) {
+    private boolean checkOrClaimLockOwner(final Pair<String, Long> currentOwner,
+                                          final Promise<String> result) {
         if (lockId.compareTo(currentOwner) != 0 && !lockContext.hasLockId(currentOwner)) {
-            lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+            lockStateExecutor.submit(lockPath, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     result.setValue(currentOwner.getLeft());
                 }
             });
-            return;
+            return false;
         }
         // current owner is itself
         final int curEpoch = epoch.incrementAndGet();
@@ -584,6 +642,7 @@ class ZKDistributedLock implements DistributedLock {
                 return "claimOwnership(owner=" + currentOwner + ")";
             }
         }, result);
+        return true;
     }
 
     /**
@@ -617,7 +676,7 @@ class ZKDistributedLock implements DistributedLock {
                 }
 
                 // If we encountered any exception we should cleanup
-                Future<BoxedUnit> unlockResult = unlockAsync();
+                Future<BoxedUnit> unlockResult = asyncUnlock();
                 unlockResult.addEventListener(new FutureEventListener<BoxedUnit>() {
                     @Override
                     public void onSuccess(BoxedUnit value) {
@@ -731,20 +790,21 @@ class ZKDistributedLock implements DistributedLock {
     @Override
     public void tryLock(long timeout, TimeUnit unit) throws LockingException {
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        Future<String> tryFuture = asyncTryLock(timeout, unit);
-        String currentOwner = waitForTry(stopwatch, tryFuture);
-        boolean acquired = waitForAcquire(getAcquireFuture(), timeout, unit);
+        Future<LockWaiter> tryFuture = asyncTryLock(timeout, unit);
+        LockWaiter waiter = waitForTry(stopwatch, tryFuture);
+        boolean acquired = waiter.waitForAcquireQuietly();
         if (!acquired) {
-            throw new OwnershipAcquireFailedException(lockPath, currentOwner);
+            throw new OwnershipAcquireFailedException(lockPath, waiter.getCurrentOwner());
         }
     }
 
-    synchronized String waitForTry(Stopwatch stopwatch, Future<String> tryFuture) throws LockingException {
+    synchronized LockWaiter waitForTry(Stopwatch stopwatch, Future<LockWaiter> tryFuture)
+            throws LockingException {
         boolean success = false;
         boolean stateChanged = false;
-        String currentOwner;
+        LockWaiter waiter;
         try {
-            currentOwner = Await.result(tryFuture, Duration.fromMilliseconds(lockOpTimeout));
+            waiter = Await.result(tryFuture, Duration.fromMilliseconds(lockOpTimeout));
             success = true;
         } catch (LockStateChangedException ex) {
             stateChanged = true;
@@ -769,44 +829,20 @@ class ZKDistributedLock implements DistributedLock {
                 unlock();
             }
         }
-        return currentOwner;
+        return waiter;
     }
 
-    synchronized boolean waitForAcquire(Future<Void> acquireFuture, long timeout, TimeUnit unit)
-            throws LockingException {
-        try {
-            if (DistributedLogConstants.LOCK_IMMEDIATE != timeout) {
-                if (DistributedLogConstants.LOCK_TIMEOUT_INFINITE == timeout) {
-                    Await.result(acquireFuture);
-                }
-                else {
-                    Await.result(acquireFuture, Duration.fromMilliseconds(timeout));
-                }
-            }
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-        } catch (TimeoutException toe) {
-            LOG.debug("Failed on tryLocking {} in {} ms.", lockPath, unit.toMillis(timeout));
-        } catch (Exception e) {
-            LOG.error("Caught exception waiting for lock acquire", e);
-        } finally {
-            if (!isLockHeld()) {
-                unlock();
-            }
-        }
-        return isLockHeld();
-    }
-
-    Future<BoxedUnit> unlockAsync() {
+    @Override
+    public Future<BoxedUnit> asyncUnlock() {
         final Promise<BoxedUnit> promise = new Promise<BoxedUnit>();
 
         // Use lock executor here rather than lock action, because we want this opertaion to be applied
         // whether the epoch has changed or not. The member node is EPHEMERAL_SEQUENTIAL so there's no
         // risk of an ABA problem where we delete and recreate a node and then delete it again here.
-        lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+        lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                acquireFuture.updateIfEmpty(new Throw<Void>(
+                acquireFuture.updateIfEmpty(new Throw<Boolean>(
                     new LockClosedException(lockPath, lockId, lockState.getState())));
                 unlockInternal(promise);
                 promise.addEventListener(new OpStatsListener<BoxedUnit>(unlockStats));
@@ -818,7 +854,7 @@ class ZKDistributedLock implements DistributedLock {
 
     @Override
     public void unlock() {
-        Future<BoxedUnit> unlockResult = unlockAsync();
+        Future<BoxedUnit> unlockResult = asyncUnlock();
         try {
             Await.result(unlockResult, Duration.fromMilliseconds(lockOpTimeout));
         } catch (TimeoutException toe) {
@@ -842,11 +878,7 @@ class ZKDistributedLock implements DistributedLock {
                     new Object[] { lockPath, System.currentTimeMillis(),
                             lockEpoch, ZKDistributedLock.this.epoch.get() });
         }
-        acquireFuture.setValue(null /* complete */);
-    }
-
-    boolean isLockHeld() {
-        return lockState.inState(State.CLAIMED);
+        acquireFuture.updateIfEmpty(new Return<Boolean>(true));
     }
 
     /**
@@ -888,7 +920,7 @@ class ZKDistributedLock implements DistributedLock {
         deletePromise.addEventListener(new FutureEventListener<BoxedUnit>() {
             @Override
             public void onSuccess(BoxedUnit complete) {
-                lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                lockStateExecutor.submit(lockPath, new SafeRunnable() {
                     @Override
                     public void safeRun() {
                         lockState.transition(State.CLOSED);
@@ -915,7 +947,7 @@ class ZKDistributedLock implements DistributedLock {
         zk.delete(currentNode, -1, new AsyncCallback.VoidCallback() {
             @Override
             public void processResult(final int rc, final String path, Object ctx) {
-                lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
+                lockStateExecutor.submit(lockPath, new SafeRunnable() {
                     @Override
                     public void safeRun() {
                         if (KeeperException.Code.OK.intValue() == rc) {
@@ -966,7 +998,7 @@ class ZKDistributedLock implements DistributedLock {
 
                 // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
                 // we don't even need to clean up the lock as the znode will disappear after session expired
-                acquireFuture.updateIfEmpty(new Throw<Void>(
+                acquireFuture.updateIfEmpty(new Throw<Boolean>(
                         new LockSessionExpiredException(lockPath, lockId, lockState.getState())));
 
                 // session expired, ephemeral node is gone.

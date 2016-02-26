@@ -11,6 +11,8 @@ import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
 import com.twitter.distributedlog.injector.AsyncRandomFailureInjector;
+import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -29,7 +31,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -188,7 +189,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                          ScheduledExecutorService executorService,
-                         OrderedSafeExecutor lockStateExecutor,
+                         OrderedScheduler lockStateExecutor,
                          String streamIdentifier,
                          DLSN startDLSN,
                          Optional<String> subscriberId,

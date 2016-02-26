@@ -2,6 +2,8 @@ package com.twitter.distributedlog.lock;
 
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.util.Future;
+import scala.runtime.BoxedUnit;
 
 import java.util.concurrent.TimeUnit;
 
@@ -24,7 +26,22 @@ public interface DistributedLock {
     DistributedLock setLockListener(LockListener lockListener);
 
     /**
-     * Try locking for a given time period.
+     * Whether the lock is held or not?
+     *
+     * @return true if the lock is held, otherwise false.
+     */
+    boolean isLockHeld();
+
+    /**
+     * Whether the lock is expired or not?
+     * <p>If a lock is expired, it will not be reusable any more. Because it is an one-time lock.
+     *
+     * @return true if the lock is expired, otherwise false.
+     */
+    boolean isLockExpired();
+
+    /**
+     * Acquire the lock if it is free within given waiting time.
      * <p>
      * Calling this method will attempt to acquire the lock. If the lock
      * is already acquired by others, the caller will wait for <i>timeout</i>
@@ -33,6 +50,19 @@ public interface DistributedLock {
      * <p>
      * {@link #unlock()} should be called to unlock a claimed lock. The caller
      * doesn't need to unlock to clean up resources if <i>tryLock</i> fails.
+     * <p>
+     * <i>tryLock</i> here is effectively the combination of following asynchronous calls.
+     * <pre>
+     *     DistributedLock lock = ...;
+     *     Future<LockWaiter> attemptFuture = lock.asyncTryLock(...);
+     *
+     *     boolean acquired = waiter.waitForAcquireQuietly();
+     *     if (acquired) {
+     *         // ...
+     *     } else {
+     *         // ...
+     *     }
+     * </pre>
      *
      * @param timeout
      *          timeout period to wait for claiming ownership
@@ -45,10 +75,35 @@ public interface DistributedLock {
             throws OwnershipAcquireFailedException, LockingException;
 
     /**
-     * Unlock a claimed lock.
+     * Acquire the lock in asynchronous way.
+     * <p>
+     * Calling this method will attempt to place a lock waiter to acquire this lock.
+     * The future returned by this method represents the result of this attempt. It doesn't mean
+     * the caller acquired the lock or not. The application should check {@link LockWaiter#getAcquireFuture()}
+     * to see if it acquired the lock or not.
+     *
+     * @param timeout
+     *          timeout period to wait for claiming ownership
+     * @param unit
+     *          unit of timeout period
+     * @return lock waiter representing this attempt of acquiring lock.
+     * @see #tryLock(long, TimeUnit)
+     */
+    Future<LockWaiter> asyncTryLock(long timeout, TimeUnit unit);
+
+    /**
+     * Release a claimed lock.
      *
      * @see #tryLock(long, TimeUnit)
      */
     void unlock();
+
+    /**
+     * Release a claimed lock in the asynchronous way.
+     *
+     * @return future representing the result of unlock operation.
+     * @see #unlock()
+     */
+    Future<BoxedUnit> asyncUnlock();
 
 }

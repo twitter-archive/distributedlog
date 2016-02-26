@@ -31,6 +31,7 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -55,7 +56,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.twitter.distributedlog.DLSNUtil.*;
@@ -111,7 +111,7 @@ abstract class BKLogPartitionHandler {
     protected final String ledgerPath;
     protected final String digestpw;
     protected long lastLedgerRollingTimeMillis = -1;
-    protected final ScheduledExecutorService executorService;
+    protected final OrderedScheduler executorService;
     protected final StatsLogger statsLogger;
 
     // Maintain the list of ledgers
@@ -129,7 +129,7 @@ abstract class BKLogPartitionHandler {
                           URI uri,
                           ZooKeeperClientBuilder zkcBuilder,
                           BookKeeperClientBuilder bkcBuilder,
-                          ScheduledExecutorService executorService,
+                          OrderedScheduler executorService,
                           StatsLogger statsLogger) throws IOException {
         this.name = name;
         this.streamIdentifier = streamIdentifier;

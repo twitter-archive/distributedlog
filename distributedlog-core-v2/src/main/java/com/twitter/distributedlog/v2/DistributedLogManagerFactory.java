@@ -14,6 +14,7 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
@@ -42,7 +43,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class DistributedLogManagerFactory {
@@ -90,8 +90,8 @@ public class DistributedLogManagerFactory {
     private DistributedLogConfiguration conf;
     private URI namespace;
     private final StatsLogger statsLogger;
-    private final ScheduledExecutorService scheduledExecutorService;
-    private final OrderedSafeExecutor lockStateExecutor;
+    private final OrderedScheduler scheduledExecutorService;
+    private final OrderedScheduler lockStateExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     // zookeeper clients
@@ -136,18 +136,27 @@ public class DistributedLogManagerFactory {
         this.namespace = uri;
         this.statsLogger = statsLogger;
         this.clientId = clientId;
-        this.scheduledExecutorService = Executors.newScheduledThreadPool(
-                conf.getNumWorkerThreads(),
-                new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-executor-%d").build()
-        );
+        StatsLogger schedulerStatsLogger = statsLogger.scope("factory").scope("thread_pool");
+        this.scheduledExecutorService = OrderedScheduler.newBuilder()
+                .name("DLM-" + uri.getPath())
+                .corePoolSize(conf.getNumWorkerThreads())
+                .statsLogger(schedulerStatsLogger)
+                .perExecutorStatsLogger(schedulerStatsLogger)
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
+                .build();
         this.channelFactory = new NioClientSocketChannelFactory(
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-worker-%d").build()),
             conf.getBKClientNumberIOThreads());
-        this.lockStateExecutor = OrderedSafeExecutor.newBuilder()
+        StatsLogger lockStateStatsLogger = statsLogger.scope("factory").scope("lock_scheduler");
+        this.lockStateExecutor = OrderedScheduler.newBuilder()
                 .name("DLM-LockState")
-                .numThreads(conf.getNumLockStateThreads())
-                .statsLogger(statsLogger)
+                .corePoolSize(conf.getNumLockStateThreads())
+                .statsLogger(lockStateStatsLogger)
+                .perExecutorStatsLogger(lockStateStatsLogger)
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
                 .build();
         this.requestTimer = new HashedWheelTimer(
             new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),

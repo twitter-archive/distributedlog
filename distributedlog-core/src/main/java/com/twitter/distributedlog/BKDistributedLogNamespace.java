@@ -42,7 +42,6 @@ import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
@@ -241,7 +240,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     private final BKDLConfig bkdlConfig;
     private final OrderedScheduler scheduler;
     private final ScheduledExecutorService readAheadExecutor;
-    private final OrderedSafeExecutor lockStateExecutor;
+    private final OrderedScheduler lockStateExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     // zookeeper clients
@@ -332,10 +331,14 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             this.readAheadExecutor = this.scheduler;
             LOG.info("Used shared executor for readahead.");
         }
-        this.lockStateExecutor = OrderedSafeExecutor.newBuilder()
+        StatsLogger lockStateStatsLogger = statsLogger.scope("factory").scope("lock_scheduler");
+        this.lockStateExecutor = OrderedScheduler.newBuilder()
                 .name("DLM-LockState")
-                .numThreads(conf.getNumLockStateThreads())
-                .statsLogger(statsLogger)
+                .corePoolSize(conf.getNumLockStateThreads())
+                .statsLogger(lockStateStatsLogger)
+                .perExecutorStatsLogger(lockStateStatsLogger)
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
                 .build();
         this.channelFactory = new NioClientSocketChannelFactory(
             Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("DL-netty-boss-%d").build()),

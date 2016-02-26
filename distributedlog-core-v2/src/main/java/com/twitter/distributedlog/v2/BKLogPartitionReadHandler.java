@@ -11,6 +11,7 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -31,7 +32,6 @@ import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,7 +69,7 @@ class BKLogPartitionReadHandler extends BKLogPartitionHandler {
                                      URI uri,
                                      ZooKeeperClientBuilder zkcBuilder,
                                      BookKeeperClientBuilder bkcBuilder,
-                                     ScheduledExecutorService executorService,
+                                     OrderedScheduler executorService,
                                      StatsLogger statsLogger) throws IOException {
         super(name, streamIdentifier, conf, uri, zkcBuilder, bkcBuilder, executorService, statsLogger);
 

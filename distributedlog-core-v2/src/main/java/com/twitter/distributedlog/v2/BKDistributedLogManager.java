@@ -1,7 +1,6 @@
 package com.twitter.distributedlog.v2;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AppendOnlyStreamReader;
@@ -25,6 +24,7 @@ import com.twitter.distributedlog.exceptions.NotYetImplementedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Future;
@@ -40,9 +40,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedLogManager {
@@ -61,9 +59,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private final DistributedLogConfiguration conf;
     private boolean closed = true;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
     private boolean ownExecutor;
-    private OrderedSafeExecutor lockStateExecutor;
+    private OrderedScheduler lockStateExecutor;
     // bookkeeper clients
     // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
     //       {@link com.twitter.distributedlog.v2.BookKeeperClient#get()}. So it is safe to
@@ -93,7 +91,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this(name, conf, uri,
              writerZKCBuilder, readerZKCBuilder,
              zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
-             Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("BKDL-" + name + "-executor-%d").build()),
+             OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
              null, null, null, writeLimiter, statsLogger);
         this.ownExecutor = true;
     }
@@ -107,15 +105,15 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
-                            ScheduledExecutorService executorService,
-                            OrderedSafeExecutor lockStateExecutor,
+                            OrderedScheduler scheduler,
+                            OrderedScheduler lockStateExecutor,
                             ClientSocketChannelFactory channelFactory,
                             HashedWheelTimer requestTimer,
                             PermitLimiter writeLimiter,
                             StatsLogger statsLogger) throws IOException {
         super(name, conf, uri, writerZKCBuilder, readerZKCBuilder, statsLogger);
         this.conf = conf;
-        this.executorService = executorService;
+        this.scheduler = scheduler;
         this.lockStateExecutor = lockStateExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
@@ -175,10 +173,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         closed = false;
     }
 
-    private synchronized OrderedSafeExecutor getLockStateExecutor(boolean createIfNull) {
+    private synchronized OrderedScheduler getLockStateExecutor(boolean createIfNull) {
         if (createIfNull && null == lockStateExecutor && ownExecutor) {
-            lockStateExecutor = OrderedSafeExecutor.newBuilder()
-                    .numThreads(1).name("BKDL-LockState").build();
+            lockStateExecutor = OrderedScheduler.newBuilder()
+                    .corePoolSize(1).name("BKDL-LockState").build();
         }
         return lockStateExecutor;
     }
@@ -216,12 +214,12 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized public BKLogPartitionReadHandler createReadLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionReadHandler(name, streamIdentifier, conf, uri,
-                readerZKCBuilder, readerBKCBuilder, executorService, statsLogger);
+                readerZKCBuilder, readerBKCBuilder, scheduler, statsLogger);
     }
 
     synchronized public BKLogPartitionWriteHandler createWriteLedgerHandler(String streamIdentifier) throws IOException {
         return new BKLogPartitionWriteHandler(name, streamIdentifier, conf, uri,
-                writerZKCBuilder, writerBKCBuilder, executorService, getLockStateExecutor(true),
+                writerZKCBuilder, writerBKCBuilder, scheduler, getLockStateExecutor(true),
                 statsLogger, clientId, writeLimiter);
     }
 
@@ -594,7 +592,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     @Override
     public void close() throws IOException {
         if (ownExecutor) {
-            SchedulerUtils.shutdownScheduler(executorService, 5000, TimeUnit.MILLISECONDS);
+            SchedulerUtils.shutdownScheduler(scheduler, 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL executor service for {}.", name);
             SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
             LOG.info("Stopped BKDL Lock State Executor for {}.", name);
@@ -615,7 +613,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     public boolean scheduleTask(Runnable task) {
         try {
-            executorService.submit(task);
+            scheduler.submit(task);
             return true;
         } catch (RejectedExecutionException ree) {
             LOG.error("Task {} is rejected : ", ree);
