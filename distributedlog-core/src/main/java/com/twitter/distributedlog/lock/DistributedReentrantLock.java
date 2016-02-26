@@ -91,7 +91,7 @@ public class DistributedReentrantLock {
 
     private final AtomicInteger lockCount = new AtomicInteger(0);
     private final AtomicIntegerArray lockAcqTracker;
-    private DistributedLock internalLock;
+    private ZKDistributedLock internalLock;
     private final ZooKeeperClient zooKeeperClient;
     private final String clientId;
     private final long lockTimeout;
@@ -460,7 +460,7 @@ public class DistributedReentrantLock {
     }
 
     @VisibleForTesting
-    DistributedLock getInternalLock() {
+    ZKDistributedLock getInternalLock() {
         return internalLock;
     }
 
@@ -497,7 +497,7 @@ public class DistributedReentrantLock {
         lockStateExecutor.submitOrdered(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                DistributedLock lock;
+                ZKDistributedLock lock;
                 synchronized (DistributedReentrantLock.this) {
                     try {
                         lock = createInternalLock(numRetries);
@@ -534,14 +534,22 @@ public class DistributedReentrantLock {
         });
     }
 
-    DistributedLock createInternalLock(AtomicInteger numRetries) throws IOException {
-        DistributedLock lock;
+    ZKDistributedLock createInternalLock(AtomicInteger numRetries) throws IOException {
+        ZKDistributedLock lock;
         do {
             if (closed) {
                 throw new LockingException(lockPath, "Lock is closed");
             }
             try {
-                lock = new DistributedLock(zooKeeperClient, lockPath, clientId, lockStateExecutor, new LockListener() {
+                lock = new ZKDistributedLock(
+                        zooKeeperClient,
+                        lockPath,
+                        clientId,
+                        lockStateExecutor,
+                        lockOpTimeout,
+                        lockStatsLogger,
+                        lockContext)
+                .setLockListener(new LockListener() {
                     @Override
                     public void onExpired() {
                         try {
@@ -551,7 +559,7 @@ public class DistributedReentrantLock {
                             LOG.error("Locking exception on re-acquiring lock {} : ", lockPath, e);
                         }
                     }
-                }, lockOpTimeout, lockStatsLogger, lockContext);
+                });
             } catch (DLInterruptedException dlie) {
                 // if the creation is interrupted, throw the exception without retrie.
                 throw dlie;

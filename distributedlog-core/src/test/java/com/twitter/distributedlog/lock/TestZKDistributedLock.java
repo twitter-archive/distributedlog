@@ -1,13 +1,14 @@
 package com.twitter.distributedlog.lock;
 
 import com.twitter.distributedlog.DLMTestUtil;
-import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.lock.ZKDistributedLock.State;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -35,22 +36,21 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.twitter.distributedlog.lock.ZKDistributedLock.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import static com.twitter.distributedlog.lock.DistributedLock.*;
-
 /**
  * Distributed Lock Tests
  */
-public class TestDistributedLock extends ZooKeeperClusterTestCase {
+public class TestZKDistributedLock extends ZooKeeperClusterTestCase {
 
     @Rule
     public TestName testNames = new TestName();
 
-    static final Logger logger = LoggerFactory.getLogger(TestDistributedLock.class);
+    static final Logger logger = LoggerFactory.getLogger(TestZKDistributedLock.class);
 
     private final static int sessionTimeoutMs = 2000;
 
@@ -111,7 +111,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
     private static List<String> getLockWaiters(ZooKeeperClient zkc, String lockPath) throws Exception {
         List<String> children = zkc.get().getChildren(lockPath, false);
-        Collections.sort(children, DistributedLock.MEMBER_COMPARATOR);
+        Collections.sort(children, ZKDistributedLock.MEMBER_COMPARATOR);
         return children;
     }
 
@@ -165,7 +165,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         String lockPath = "/test-execute-lock-action";
         String clientId = "test-execute-lock-action-" + System.currentTimeMillis();
 
-        DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        ZKDistributedLock lock =
+                new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
 
         final AtomicInteger counter = new AtomicInteger(0);
 
@@ -247,7 +248,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         String lockPath = "/test-lock-after-unlock";
         String clientId = "test-lock-after-unlock";
 
-        DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        ZKDistributedLock lock = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
         lock.unlock();
         assertEquals(State.CLOSED, lock.getLockState());
 
@@ -296,8 +297,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        DistributedLock lock = new DistributedLock(
-                zkc, lockPath, clientId, lockStateExecutor, null,
+        ZKDistributedLock lock = new ZKDistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor,
                 1*1000 /* op timeout */, NullStatsLogger.INSTANCE,
                 new DistributedLockContext());
 
@@ -328,8 +329,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        DistributedLock lock = new DistributedLock(
-                zkc, lockPath, clientId, lockStateExecutor, null,
+        ZKDistributedLock lock = new ZKDistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor,
                 1*1000 /* op timeout */, NullStatsLogger.INSTANCE,
                 new DistributedLockContext());
 
@@ -362,8 +363,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        DistributedLock lock = new DistributedLock(
-                zkc, lockPath, clientId, lockStateExecutor, null,
+        ZKDistributedLock lock = new ZKDistributedLock(
+                zkc, lockPath, clientId, lockStateExecutor,
                 1 /* op timeout */, NullStatsLogger.INSTANCE,
                 new DistributedLockContext());
 
@@ -408,7 +409,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        ZKDistributedLock lock = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
         // lock
         lock.tryLock(timeout, TimeUnit.MILLISECONDS);
         // verification after lock
@@ -448,7 +449,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         String lockPath = "/test-lock-on-non-existed-lock";
         String clientId = "test-lock-on-non-existed-lock";
 
-        DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        ZKDistributedLock lock = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
         // lock
         try {
             lock.tryLock(0, TimeUnit.MILLISECONDS);
@@ -496,8 +497,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
-        DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
+        ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId0, lockStateExecutor);
+        ZKDistributedLock lock1 = new ZKDistributedLock(zkc, lockPath, clientId1, lockStateExecutor);
 
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // verification after lock0 lock
@@ -524,7 +525,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         assertEquals(State.CLOSED, lock0.getLockState());
         assertEquals(0, getLockWaiters(zkc, lockPath).size());
 
-        DistributedLock lock2 = new DistributedLock(zkc, lockPath, clientId2, lockStateExecutor, null);
+        ZKDistributedLock lock2 = new ZKDistributedLock(zkc, lockPath, clientId2, lockStateExecutor);
         lock2.tryLock(timeout, TimeUnit.MILLISECONDS);
         // verification after lock2 lock
         assertEquals(State.CLOSED, lock0.getLockState());
@@ -547,7 +548,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zk, lockPath);
 
-        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId, lockStateExecutor, null);
+        final ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId, lockStateExecutor);
         // lock0 lock
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
 
@@ -555,7 +556,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         final DistributedLockContext context1 = new DistributedLockContext();
         context1.addLockId(lock0.getLockId());
 
-        final DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
+        final ZKDistributedLock lock1 = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor,
                 60000, NullStatsLogger.INSTANCE, context1);
         lock1.tryLock(0L, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock1.getLockState());
@@ -564,7 +565,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         final DistributedLockContext context2 = new DistributedLockContext();
         context2.addLockId(lock0.getLockId());
 
-        final DistributedLock lock2 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null,
+        final ZKDistributedLock lock2 = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor,
                 60000, NullStatsLogger.INSTANCE, context2);
         lock2.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock2.getLockState());
@@ -599,8 +600,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
-        final DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
+        final ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId0, lockStateExecutor);
+        final ZKDistributedLock lock1 = new ZKDistributedLock(zkc, lockPath, clientId1, lockStateExecutor);
 
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // verification after lock0 lock
@@ -670,7 +671,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                 expiredLatch.countDown();
             }
         };
-        final DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, listener);
+        final ZKDistributedLock lock =
+                new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor).setLockListener(listener);
         lock.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // verification after lock
         assertEquals(State.CLAIMED, lock.getLockState());
@@ -725,7 +727,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
                 expireCounter.incrementAndGet();
             }
         };
-        final DistributedLock lock = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, listener);
+        final ZKDistributedLock lock = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor)
+                .setLockListener(listener);
         // expire session
         ZooKeeperClientUtils.expireSession(zkc, zkServers, sessionTimeoutMs);
         // submit a runnable to lock state executor to ensure any state changes happened when session expired
@@ -757,14 +760,14 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
+        final ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId0, lockStateExecutor);
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         assertEquals(State.CLAIMED, lock0.getLockState());
         List<String> children = getLockWaiters(zkc0, lockPath);
         assertEquals(1, children.size());
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
 
-        final DistributedLock lock1 = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
+        final ZKDistributedLock lock1 = new ZKDistributedLock(zkc, lockPath, clientId1, lockStateExecutor);
         final CountDownLatch lock1DoneLatch = new CountDownLatch(1);
 
         Thread lock1Thread = new Thread(new Runnable() {
@@ -802,7 +805,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
     }
 
-    public void awaitState(State state, DistributedLock lock) throws InterruptedException {
+    public void awaitState(State state, ZKDistributedLock lock) throws InterruptedException {
         while (lock.getLockState() != state) {
             Thread.sleep(50);
         }
@@ -833,11 +836,11 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId, lockStateExecutor, null);
+        final ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId, lockStateExecutor);
 
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         // lock1_0 couldn't claim ownership since owner is in a different zk session.
-        final DistributedLock lock1_0 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        final ZKDistributedLock lock1_0 = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
         try {
             lock1_0.tryLock(0, TimeUnit.MILLISECONDS);
             fail("Should fail locking since the lock is held in a different zk session.");
@@ -850,7 +853,7 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
         assertEquals(lock0.getLockId(), Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
 
         // lock1_1 would wait the ownership
-        final DistributedLock lock1_1 = new DistributedLock(zkc, lockPath, clientId, lockStateExecutor, null);
+        final ZKDistributedLock lock1_1 = new ZKDistributedLock(zkc, lockPath, clientId, lockStateExecutor);
         final CountDownLatch lock1DoneLatch = new CountDownLatch(1);
 
         Thread lock1Thread = new Thread(new Runnable() {
@@ -943,9 +946,9 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        final DistributedLock lock0_0 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
-        final DistributedLock lock0_1 = new DistributedLock(zkc0, lockPath, clientId0, lockStateExecutor, null);
-        final DistributedLock lock1   = new DistributedLock(zkc, lockPath, clientId1, lockStateExecutor, null);
+        final ZKDistributedLock lock0_0 = new ZKDistributedLock(zkc0, lockPath, clientId0, lockStateExecutor);
+        final ZKDistributedLock lock0_1 = new ZKDistributedLock(zkc0, lockPath, clientId0, lockStateExecutor);
+        final ZKDistributedLock lock1   = new ZKDistributedLock(zkc, lockPath, clientId1, lockStateExecutor);
 
         lock0_0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
 
@@ -1108,8 +1111,8 @@ public class TestDistributedLock extends ZooKeeperClusterTestCase {
 
         createLockPath(zkc.get(), lockPath);
 
-        final DistributedLock lock0 = new DistributedLock(zkc0, lockPath, clientId, lockStateExecutor, null);
-        final DistributedLock lock1 = new DistributedLock(zkc0, lockPath, clientId, lockStateExecutor, null);
+        final ZKDistributedLock lock0 = new ZKDistributedLock(zkc0, lockPath, clientId, lockStateExecutor);
+        final ZKDistributedLock lock1 = new ZKDistributedLock(zkc0, lockPath, clientId, lockStateExecutor);
 
         lock0.tryLock(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
         List<String> children = getLockWaiters(zkc0, lockPath);

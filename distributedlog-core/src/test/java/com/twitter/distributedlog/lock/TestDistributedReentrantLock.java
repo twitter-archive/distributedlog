@@ -37,7 +37,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static com.twitter.distributedlog.lock.DistributedLock.asyncParseClientID;
+import static com.twitter.distributedlog.lock.ZKDistributedLock.asyncParseClientID;
 
 /**
  * Distributed Lock Tests
@@ -85,7 +85,7 @@ public class TestDistributedReentrantLock extends TestDistributedLogBase {
 
     private static List<String> getLockWaiters(ZooKeeperClient zkc, String lockPath) throws Exception {
         List<String> children = zkc.get().getChildren(lockPath, false);
-        Collections.sort(children, DistributedLock.MEMBER_COMPARATOR);
+        Collections.sort(children, ZKDistributedLock.MEMBER_COMPARATOR);
         return children;
     }
 
