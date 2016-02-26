@@ -1,22 +1,31 @@
 package com.twitter.distributedlog.bk;
 
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Transaction.OpListener;
+import com.twitter.distributedlog.util.Utils;
+import com.twitter.distributedlog.zk.ZKTransaction;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.zookeeper.OpResult;
-import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -27,7 +36,23 @@ import static org.junit.Assert.*;
 
 public class TestLedgerAllocatorPool extends TestDistributedLogBase {
 
+    private static final Logger logger = LoggerFactory.getLogger(TestLedgerAllocatorPool.class);
+
     private static final String ledgersPath = "/ledgers";
+    private static final OpListener<LedgerHandle> NULL_LISTENER = new OpListener<LedgerHandle>() {
+        @Override
+        public void onCommit(LedgerHandle r) {
+            // no-op
+        }
+
+        @Override
+        public void onAbort(Throwable t) {
+            // no-op
+        }
+    };
+
+    @Rule
+    public TestName runtime = new TestName();
 
     private ZooKeeperClient zkc;
     private BookKeeperClient bkc;
@@ -52,6 +77,10 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         bkc.close();
         zkc.close();
         allocationExecutor.shutdown();
+    }
+
+    private ZKTransaction newTxn() {
+        return new ZKTransaction(zkc);
     }
 
     private void validatePoolSize(LedgerAllocatorPool pool,
@@ -80,7 +109,7 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         for (int i = 0; i < numAllocators; i++) {
             try {
                 pool.allocate();
-                pool.tryObtain(zkc.get().transaction());
+                FutureUtils.result(pool.tryObtain(newTxn(), NULL_LISTENER));
                 fail("Should fail to allocate ledger if there are enought bookies");
             } catch (SimpleLedgerAllocator.AllocationException ae) {
                 assertEquals(SimpleLedgerAllocator.Phase.ERROR, ae.getPhase());
@@ -89,7 +118,7 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         for (int i = 0; i < numAllocators; i++) {
             try {
                 pool.allocate();
-                pool.tryObtain(zkc.get().transaction());
+                FutureUtils.result(pool.tryObtain(newTxn(), NULL_LISTENER));
                 fail("Should fail to allocate ledger if there aren't available allocators");
             } catch (SimpleLedgerAllocator.AllocationException ae) {
                 assertEquals(SimpleLedgerAllocator.Phase.ERROR, ae.getPhase());
@@ -97,7 +126,7 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
                 // expected
             }
         }
-        pool.close(true);
+        Utils.close(pool);
     }
 
     @Test(timeout = 60000)
@@ -107,46 +136,58 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         int numAllocators = 3;
         LedgerAllocatorPool pool =
                 new LedgerAllocatorPool(allocationPath, numAllocators, dlConf, zkc, bkc, allocationExecutor);
+        List<ZKTransaction> pendingTxns = Lists.newArrayListWithExpectedSize(numAllocators);
+        List<String> allocatePaths = Lists.newArrayListWithExpectedSize(numAllocators);
         for (int i = 0; i < numAllocators; i++) {
-            Transaction txn = zkc.get().transaction();
+            ZKTransaction txn = newTxn();
             pool.allocate();
-            LedgerHandle lh = pool.tryObtain(txn);
-            List<OpResult> opResults = txn.commit();
+            LedgerHandle lh = FutureUtils.result(pool.tryObtain(txn, NULL_LISTENER));
 
-            // introduce error to individual ledger allocator
+            // get the corresponding ledger allocator
             SimpleLedgerAllocator sla = pool.getLedgerAllocator(lh);
             String slaPath = sla.allocatePath;
+
+            logger.info("Allocated ledger {} from path {}", lh.getId(), slaPath);
+
+            pendingTxns.add(txn);
+            allocatePaths.add(slaPath);
+        }
+
+        for (int i = 0; i < numAllocators; i++) {
+            ZKTransaction txn = pendingTxns.get(i);
+            String slaPath = allocatePaths.get(i);
+
+            // execute the transaction to confirm/abort obtain
+            FutureUtils.result(txn.execute());
+
+            // introduce error to individual ledger allocator
             byte[] data = zkc.get().getData(slaPath, false, new Stat());
             zkc.get().setData(slaPath, data, -1);
-
-            // confirm previous allocation
-            pool.confirmObtain(lh, opResults.get(0));
         }
-        // all allocators will be set to error because allocation path is changed.
-        for (int i = 0; i < numAllocators; i++) {
+        int numSuccess = 0;
+        Set<String> allocatedPathSet = new HashSet<String>();
+        while (numSuccess < 2 * numAllocators) {
             try {
                 pool.allocate();
-                pool.tryObtain(zkc.get().transaction());
-                fail("Should fail to allocate ledger if there aren't available allocators");
-            } catch (SimpleLedgerAllocator.AllocationException ae) {
-                assertEquals(SimpleLedgerAllocator.Phase.ERROR, ae.getPhase());
+                ZKTransaction txn = newTxn();
+                LedgerHandle lh = FutureUtils.result(pool.tryObtain(txn, NULL_LISTENER));
+
+                // get the corresponding ledger allocator
+                SimpleLedgerAllocator sla = pool.getLedgerAllocator(lh);
+                String slaPath = sla.allocatePath;
+
+                logger.info("Allocated ledger {} from path {}", lh.getId(), slaPath);
+                allocatedPathSet.add(slaPath);
+
+                FutureUtils.result(txn.execute());
+                ++numSuccess;
+            } catch (IOException ioe) {
+                // continue
             }
         }
-        // wait for all allocators being rescued
-        while (pool.pendingListSize() < numAllocators) {
-            Thread.sleep(100);
-        }
-        // all allocators should be rescued
-        for (int i = 0; i < 2 * numAllocators; i++) {
-            Transaction txn = zkc.get().transaction();
-            pool.allocate();
-            LedgerHandle lh = pool.tryObtain(txn);
-            List<OpResult> opResults = txn.commit();
-
-            // confirm previous allocation
-            pool.confirmObtain(lh, opResults.get(0));
-        }
-        pool.close(true);
+        assertEquals(2 * numAllocators, numSuccess);
+        assertEquals(numAllocators, allocatedPathSet.size());
+        Utils.close(pool);
     }
 
     @Test(timeout = 60000)
@@ -161,16 +202,16 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         } catch (IOException ioe) {
             // expected
         }
-        pool.close(true);
+        Utils.close(pool);
     }
 
     @Test(timeout = 60000)
     public void testObtainWhenNoAllocator() throws Exception {
         String allocationPath = "/obtainWhenNoAllocator";
         LedgerAllocatorPool pool = new LedgerAllocatorPool(allocationPath, 0, dlConf, zkc, bkc, allocationExecutor);
-        Transaction txn = zkc.get().transaction();
+        ZKTransaction txn = newTxn();
         try {
-            pool.tryObtain(txn);
+            FutureUtils.result(pool.tryObtain(txn, NULL_LISTENER));
             fail("Should fail obtain ledger handle if there is no allocator.");
         } catch (SimpleLedgerAllocator.AllocationException ae) {
             fail("Should fail obtain ledger handle if there is no allocator.");
@@ -178,10 +219,28 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
             // expected.
         }
 
-        pool.close(true);
+        Utils.close(pool);
     }
 
     @Test(timeout = 60000)
+    public void testAllocateMultipleLedgers() throws Exception {
+        String allocationPath = "/" + runtime.getMethodName();
+        int numAllocators = 5;
+        final LedgerAllocatorPool pool =
+                new LedgerAllocatorPool(allocationPath, numAllocators, dlConf, zkc, bkc, allocationExecutor);
+        int numLedgers = 20;
+        Set<LedgerHandle> allocatedLedgers = new HashSet<LedgerHandle>();
+        for (int i = 0; i < numLedgers; i++) {
+            pool.allocate();
+            ZKTransaction txn = newTxn();
+            LedgerHandle lh = FutureUtils.result(pool.tryObtain(txn, NULL_LISTENER));
+            FutureUtils.result(txn.execute());
+            allocatedLedgers.add(lh);
+        }
+        assertEquals(numLedgers, allocatedLedgers.size());
+    }
+
+    @Test
     public void testConcurrentAllocation() throws Exception {
         final int numAllocators = 5;
         String allocationPath = "/concurrentAllocation";
@@ -192,6 +251,7 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         final AtomicInteger numFailures = new AtomicInteger(0);
         Thread[] allocationThreads = new Thread[numAllocators];
         for (int i = 0; i < numAllocators; i++) {
+            final int tid = i;
             allocationThreads[i] = new Thread() {
 
                 int numLedgers = 50;
@@ -201,12 +261,13 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
                     try {
                         for (int i = 0; i < numLedgers; i++) {
                             pool.allocate();
-                            Transaction txn = zkc.get().transaction();
-                            LedgerHandle lh = pool.tryObtain(txn);
-                            List<OpResult> results = txn.commit();
-                            pool.confirmObtain(lh, results.get(0));
+                            ZKTransaction txn = newTxn();
+                            LedgerHandle lh = FutureUtils.result(pool.tryObtain(txn, NULL_LISTENER));
+                            FutureUtils.result(txn.execute());
                             lh.close();
                             allocatedLedgers.putIfAbsent(lh.getId(), lh);
+                            logger.info("[thread {}] allocate {}th ledger {}",
+                                    new Object[] { tid, i, lh.getId() });
                         }
                     } catch (Exception ioe) {
                         numFailures.incrementAndGet();
@@ -226,7 +287,7 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
         assertEquals(0, numFailures.get());
         assertEquals(50 * numAllocators, allocatedLedgers.size());
 
-        pool.close(true);
+        Utils.close(pool);
     }
 
 }

@@ -6,11 +6,14 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.util.Await;
+import com.twitter.util.Duration;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureCancelledException;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
+import com.twitter.util.Return;
+import com.twitter.util.Throw;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -155,6 +158,11 @@ public class FutureUtils {
     }
 
     public static <T> T result(Future<T> result) throws IOException {
+        return result(result, Duration.Top());
+    }
+
+    public static <T> T result(Future<T> result, Duration duration)
+            throws IOException {
         try {
             return Await.result(result);
         } catch (KeeperException ke) {
@@ -184,6 +192,24 @@ public class FutureUtils {
 
     public static <T> void cancel(Future<T> future) {
         future.raise(new FutureCancelledException());
+    }
+
+    public static <T> boolean setValue(Promise<T> promise, T value) {
+        boolean success = promise.updateIfEmpty(new Return<T>(value));
+        if (!success) {
+            logger.info("Result set multiple times. Value = '{}', New = 'Return({})'",
+                    promise.poll(), value);
+        }
+        return success;
+    }
+
+    public static <T> boolean setException(Promise<T> promise, Throwable cause) {
+        boolean success = promise.updateIfEmpty(new Throw<T>(cause));
+        if (!success) {
+            logger.info("Result set multiple times. Value = '{}', New = 'Throw({})'",
+                    promise.poll(), cause);
+        }
+        return success;
     }
 
     /**

@@ -28,10 +28,10 @@ public abstract class ZKOp implements Transaction.Op<Object> {
     protected abstract void commitOpResult(OpResult opResult);
 
     @Override
-    public void abort(Object r) {
+    public void abort(Throwable t, Object r) {
         assert(r instanceof OpResult);
-        abortOpResult((OpResult) r);
+        abortOpResult(t, (OpResult) r);
     }
 
-    protected abstract void abortOpResult(OpResult opResult);
+    protected abstract void abortOpResult(Throwable t, OpResult opResult);
 }

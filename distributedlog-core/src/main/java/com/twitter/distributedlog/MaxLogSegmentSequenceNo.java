@@ -52,7 +52,11 @@ class MaxLogSegmentSequenceNo {
     }
 
     synchronized MaxLogSegmentSequenceNo update(int zkVersion, long logSegmentSeqNo) {
-        this.version = new ZkVersion(zkVersion);
+        return update(new ZkVersion(zkVersion), logSegmentSeqNo);
+    }
+
+    synchronized MaxLogSegmentSequenceNo update(ZkVersion version, long logSegmentSeqNo) {
+        this.version = version;
         this.maxSeqNo = logSegmentSeqNo;
         return this;
     }

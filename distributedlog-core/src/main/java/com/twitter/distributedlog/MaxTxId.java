@@ -97,7 +97,7 @@ class MaxTxId {
         }
     }
 
-    synchronized long get() throws IOException {
+    synchronized long get() {
         return currentMax;
     }
 

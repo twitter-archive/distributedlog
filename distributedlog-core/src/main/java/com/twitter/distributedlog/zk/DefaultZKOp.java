@@ -22,7 +22,7 @@ public class DefaultZKOp extends ZKOp {
     }
 
     @Override
-    protected void abortOpResult(OpResult opResult) {
+    protected void abortOpResult(Throwable t, OpResult opResult) {
         // no-op
     }
 }

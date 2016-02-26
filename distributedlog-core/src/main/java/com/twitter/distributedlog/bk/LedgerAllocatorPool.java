@@ -1,10 +1,18 @@
 package com.twitter.distributedlog.bk;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Transaction;
+import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.Function;
+import com.twitter.util.Future;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.util.ZkUtils;
@@ -15,6 +23,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -47,6 +56,8 @@ public class LedgerAllocatorPool implements LedgerAllocator {
             new HashMap<String, SimpleLedgerAllocator>();
     private final Map<LedgerHandle, SimpleLedgerAllocator> obtainMap =
             new HashMap<LedgerHandle, SimpleLedgerAllocator>();
+    private final Map<SimpleLedgerAllocator, LedgerHandle> reverseObtainMap =
+            new HashMap<SimpleLedgerAllocator, LedgerHandle>();
 
     public LedgerAllocatorPool(String poolPath, int corePoolSize,
                                DistributedLogConfiguration conf,
@@ -289,59 +300,74 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public LedgerHandle tryObtain(Object txn) throws IOException {
-        SimpleLedgerAllocator allocator;
+    public Future<LedgerHandle> tryObtain(final Transaction<Object> txn,
+                                          final Transaction.OpListener<LedgerHandle> listener) {
+        final SimpleLedgerAllocator allocator;
         synchronized (this) {
             if (allocatingList.isEmpty()) {
-                throw new IOException("No ledger allocator available under " + poolPath + ".");
+                return Future.exception(new IOException("No ledger allocator available under " + poolPath + "."));
             } else {
                 allocator = allocatingList.removeFirst();
             }
         }
-        boolean success = false;
-        try {
-            LedgerHandle lh = allocator.tryObtain(txn);
-            synchronized (this) {
-                obtainMap.put(lh, allocator);
+
+        final Promise<LedgerHandle> tryObtainPromise = new Promise<LedgerHandle>();
+        final FutureEventListener<LedgerHandle> tryObtainListener = new FutureEventListener<LedgerHandle>() {
+            @Override
+            public void onSuccess(LedgerHandle lh) {
+                synchronized (LedgerAllocatorPool.this) {
+                    obtainMap.put(lh, allocator);
+                    reverseObtainMap.put(allocator, lh);
+                    tryObtainPromise.setValue(lh);
+                }
             }
-            success = true;
-            return lh;
-        } finally {
-            if (!success) {
-                rescueAllocator(allocator);
+
+            @Override
+            public void onFailure(Throwable cause) {
+                try {
+                    rescueAllocator(allocator);
+                } catch (IOException ioe) {
+                    logger.info("Failed to rescue allocator {}", allocator.allocatePath, ioe);
+                }
+                tryObtainPromise.setException(cause);
             }
-        }
+        };
+
+        allocator.tryObtain(txn, new Transaction.OpListener<LedgerHandle>() {
+            @Override
+            public void onCommit(LedgerHandle lh) {
+                confirmObtain(allocator);
+                listener.onCommit(lh);
+            }
+
+            @Override
+            public void onAbort(Throwable t) {
+                abortObtain(allocator);
+                listener.onAbort(t);
+            }
+        }).addEventListener(tryObtainListener);
+        return tryObtainPromise;
     }
 
-    @Override
-    public void confirmObtain(LedgerHandle ledger, Object result) {
-        SimpleLedgerAllocator allocator;
+    void confirmObtain(SimpleLedgerAllocator allocator) {
         synchronized (this) {
-            allocator = obtainMap.remove(ledger);
-            if (null == allocator) {
-                logger.error("No allocator found for {} under {}.", ledger.getId(), poolPath);
-                throw new IllegalArgumentException("No allocator found for ledger " + ledger.getId()
-                        + " under " + poolPath + ".");
+            LedgerHandle lh = reverseObtainMap.remove(allocator);
+            if (null != lh) {
+                obtainMap.remove(lh);
             }
         }
-        allocator.confirmObtain(ledger, result);
         synchronized (this) {
             pendingList.addLast(allocator);
         }
     }
 
-    @Override
-    public void abortObtain(LedgerHandle ledger) {
-        SimpleLedgerAllocator allocator;
+    void abortObtain(SimpleLedgerAllocator allocator) {
         synchronized (this) {
-            allocator = obtainMap.remove(ledger);
-            if (null == allocator) {
-                logger.error("No allocator found for {} under {}.", ledger.getId(), poolPath);
-                throw new IllegalArgumentException("No allocator found for ledger " + ledger.getId()
-                        + " under " + poolPath + ".");
+            LedgerHandle lh = reverseObtainMap.remove(allocator);
+            if (null != lh) {
+                obtainMap.remove(lh);
             }
         }
-        allocator.abortObtain(ledger);
         // if a ledger allocator is aborted, it is better to rescue it. since the ledger allocator might
         // already encounter BadVersion exception.
         try {
@@ -353,39 +379,60 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public void close(boolean cleanup) {
+    public Future<Void> close() {
+        List<LedgerAllocator> allocatorsToClose;
         synchronized (this) {
+            allocatorsToClose = Lists.newArrayListWithExpectedSize(
+                    pendingList.size() + allocatingList.size() + obtainMap.size());
             for (LedgerAllocator allocator : pendingList) {
-                allocator.close(cleanup);
+                allocatorsToClose.add(allocator);
             }
             for (LedgerAllocator allocator : allocatingList) {
-                allocator.close(cleanup);
+                allocatorsToClose.add(allocator);
             }
             for (LedgerAllocator allocator : obtainMap.values()) {
-                allocator.close(cleanup);
+                allocatorsToClose.add(allocator);
             }
         }
+        return FutureUtils.processList(allocatorsToClose, new Function<LedgerAllocator, Future<Void>>() {
+            @Override
+            public Future<Void> apply(LedgerAllocator allocator) {
+                return allocator.close();
+            }
+        }, scheduledExecutorService).map(new AbstractFunction1<List<Void>, Void>() {
+            @Override
+            public Void apply(List<Void> values) {
+                return null;
+            }
+        });
     }
 
     @Override
-    public void delete() throws IOException {
+    public Future<Void> delete() {
+        List<LedgerAllocator> allocatorsToDelete;
         synchronized (this) {
+            allocatorsToDelete = Lists.newArrayListWithExpectedSize(
+                    pendingList.size() + allocatingList.size() + obtainMap.size());
             for (LedgerAllocator allocator : pendingList) {
-                allocator.delete();
+                allocatorsToDelete.add(allocator);
             }
             for (LedgerAllocator allocator : allocatingList) {
-                allocator.delete();
+                allocatorsToDelete.add(allocator);
             }
             for (LedgerAllocator allocator : obtainMap.values()) {
-                allocator.delete();
+                allocatorsToDelete.add(allocator);
             }
         }
-        try {
-            zkc.get().delete(poolPath, -1);
-        } catch (InterruptedException ie) {
-            throw new DLInterruptedException("Interrupted on deleting allocator pool " + poolPath + " : ", ie);
-        } catch (KeeperException ke) {
-            throw new IOException("Error on deleting allocator pool " + poolPath + " : ", ke);
-        }
+        return FutureUtils.processList(allocatorsToDelete, new Function<LedgerAllocator, Future<Void>>() {
+            @Override
+            public Future<Void> apply(LedgerAllocator allocator) {
+                return allocator.delete();
+            }
+        }, scheduledExecutorService).flatMap(new AbstractFunction1<List<Void>, Future<Void>>() {
+            @Override
+            public Future<Void> apply(List<Void> values) {
+                return Utils.zkDelete(zkc, poolPath, new ZkVersion(-1));
+            }
+        });
     }
 }

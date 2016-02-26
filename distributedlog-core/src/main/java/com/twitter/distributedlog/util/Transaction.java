@@ -22,7 +22,7 @@ public interface Transaction<OpResult> {
         /**
          * Execute after the transaction fails
          */
-        void abort(OpResult r);
+        void abort(Throwable t, OpResult r);
 
     }
 

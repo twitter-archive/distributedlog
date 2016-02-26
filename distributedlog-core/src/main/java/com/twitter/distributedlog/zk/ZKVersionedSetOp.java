@@ -1,6 +1,5 @@
 package com.twitter.distributedlog.zk;
 
-import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.Transaction.OpListener;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Version;
@@ -28,10 +27,16 @@ public class ZKVersionedSetOp extends ZKOp {
     }
 
     @Override
-    protected void abortOpResult(OpResult opResult) {
+    protected void abortOpResult(Throwable t, OpResult opResult) {
         assert(opResult instanceof OpResult.ErrorResult);
         OpResult.ErrorResult errorResult = (OpResult.ErrorResult) opResult;
-        listener.onAbort(KeeperException.create(KeeperException.Code.get(errorResult.getErr())));
+        Throwable cause;
+        if (KeeperException.Code.OK.intValue() == errorResult.getErr()) {
+            cause = t;
+        } else {
+            cause = KeeperException.create(KeeperException.Code.get(errorResult.getErr()));
+        }
+        listener.onAbort(cause);
     }
 
 }

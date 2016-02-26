@@ -995,10 +995,17 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             LOG.info("Access Control Manager Stopped.");
         }
 
+        // Close the allocator
+        if (null != allocator) {
+            Utils.close(allocator);
+            LOG.info("Ledger Allocator stopped.");
+        }
+
         // Shutdown log segment metadata stores
         Utils.close(writerSegmentMetadataStore);
         Utils.close(readerSegmentMetadataStore);
 
+        // Shutdown the schedulers
         SchedulerUtils.shutdownScheduler(scheduler, conf.getSchedulerShutdownTimeoutMs(),
                 TimeUnit.MILLISECONDS);
         LOG.info("Executor Service Stopped.");
@@ -1007,10 +1014,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                     TimeUnit.MILLISECONDS);
             LOG.info("ReadAhead Executor Service Stopped.");
         }
-        if (null != allocator) {
-            allocator.close(false);
-            LOG.info("Ledger Allocator stopped.");
-        }
+
         writerBKC.close();
         readerBKC.close();
         sharedWriterZKCForDL.close();

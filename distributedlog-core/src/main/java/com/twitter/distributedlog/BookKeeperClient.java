@@ -6,8 +6,14 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.net.NetUtils;
 import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
+import com.twitter.util.Return;
+import com.twitter.util.Throw;
+import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.FeatureProvider;
@@ -28,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Optional;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 /**
  * BookKeeper Client wrapper over {@link BookKeeper}.
  *
@@ -44,6 +52,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
     private final String name;
     private final String zkServers;
     private final String ledgersPath;
+    private final byte[] passwd;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     private final StatsLogger statsLogger;
@@ -116,6 +125,7 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
         this.name = name;
         this.zkServers = zkServers;
         this.ledgersPath = ledgersPath;
+        this.passwd = conf.getBKDigestPW().getBytes(UTF_8);
         this.channelFactory = channelFactory;
         this.requestTimer = requestTimer;
         this.statsLogger = statsLogger;
@@ -184,6 +194,59 @@ public class BookKeeperClient implements ZooKeeperClient.ZooKeeperSessionExpireN
             initialize();
         }
         return bkc;
+    }
+
+    // Util functions
+    public Future<LedgerHandle> createLedger(int ensembleSize,
+                                             int writeQuorumSize,
+                                             int ackQuorumSize) {
+        BookKeeper bk;
+        try {
+            bk = get();
+        } catch (IOException ioe) {
+            return Future.exception(ioe);
+        }
+        final Promise<LedgerHandle> promise = new Promise<LedgerHandle>();
+        bk.asyncCreateLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
+                BookKeeper.DigestType.CRC32, passwd, new AsyncCallback.CreateCallback() {
+                    @Override
+                    public void createComplete(int rc, LedgerHandle lh, Object ctx) {
+                        if (BKException.Code.OK == rc) {
+                            promise.updateIfEmpty(new Return<LedgerHandle>(lh));
+                        } else {
+                            promise.updateIfEmpty(new Throw<LedgerHandle>(BKException.create(rc)));
+                        }
+                    }
+                }, null);
+        return promise;
+    }
+
+    public Future<Void> deleteLedger(long lid,
+                                     final boolean ignoreNonExistentLedger) {
+        BookKeeper bk;
+        try {
+            bk = get();
+        } catch (IOException ioe) {
+            return Future.exception(ioe);
+        }
+        final Promise<Void> promise = new Promise<Void>();
+        bk.asyncDeleteLedger(lid, new AsyncCallback.DeleteCallback() {
+            @Override
+            public void deleteComplete(int rc, Object ctx) {
+                if (BKException.Code.OK == rc) {
+                    promise.updateIfEmpty(new Return<Void>(null));
+                } else if (BKException.Code.NoSuchLedgerExistsException == rc) {
+                    if (ignoreNonExistentLedger) {
+                        promise.updateIfEmpty(new Return<Void>(null));
+                    } else {
+                        promise.updateIfEmpty(new Throw<Void>(BKException.create(rc)));
+                    }
+                } else {
+                    promise.updateIfEmpty(new Throw<Void>(BKException.create(rc)));
+                }
+            }
+        }, null);
+        return promise;
     }
 
     public synchronized void close() {

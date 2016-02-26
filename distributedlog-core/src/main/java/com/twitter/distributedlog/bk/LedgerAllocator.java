@@ -5,17 +5,11 @@ import org.apache.bookkeeper.client.LedgerHandle;
 
 import java.io.IOException;
 
-public interface LedgerAllocator extends Allocator<LedgerHandle, Object, Object> {
+public interface LedgerAllocator extends Allocator<LedgerHandle, Object> {
 
     /**
-     * Start the ledger allocator.
+     * Start the ledger allocator. The implementaion should not be blocking call.
      */
     void start() throws IOException;
 
-    /**
-     * Delete a given allocator.
-     *
-     * @throws IOException
-     */
-    void delete() throws IOException;
 }

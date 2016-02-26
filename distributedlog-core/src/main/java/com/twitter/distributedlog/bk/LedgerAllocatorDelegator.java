@@ -1,5 +1,8 @@
 package com.twitter.distributedlog.bk;
 
+import com.twitter.distributedlog.util.Transaction;
+import com.twitter.distributedlog.util.Transaction.OpListener;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.client.LedgerHandle;
 
 import java.io.IOException;
@@ -22,7 +25,8 @@ public class LedgerAllocatorDelegator implements LedgerAllocator {
      *          whether to own the allocator
      */
     public LedgerAllocatorDelegator(LedgerAllocator allocator,
-                                    boolean ownAllocator) throws IOException {
+                                    boolean ownAllocator)
+            throws IOException {
         this.allocator = allocator;
         this.ownAllocator = ownAllocator;
         if (this.ownAllocator) {
@@ -36,8 +40,8 @@ public class LedgerAllocatorDelegator implements LedgerAllocator {
     }
 
     @Override
-    public void delete() throws IOException {
-        throw new UnsupportedOperationException("Can't delete an allocator by delegator");
+    public Future<Void> delete() {
+        return Future.exception(new UnsupportedOperationException("Can't delete an allocator by delegator"));
     }
 
     @Override
@@ -46,24 +50,17 @@ public class LedgerAllocatorDelegator implements LedgerAllocator {
     }
 
     @Override
-    public LedgerHandle tryObtain(Object txn) throws IOException {
-        return this.allocator.tryObtain(txn);
+    public Future<LedgerHandle> tryObtain(Transaction<Object> txn,
+                                          OpListener<LedgerHandle> listener) {
+        return this.allocator.tryObtain(txn, listener);
     }
 
     @Override
-    public void confirmObtain(LedgerHandle lh, Object txn) {
-        this.allocator.confirmObtain(lh, txn);
-    }
-
-    @Override
-    public void abortObtain(LedgerHandle lh) {
-        this.allocator.abortObtain(lh);
-    }
-
-    @Override
-    public void close(boolean cleanup) {
+    public Future<Void> close() {
         if (ownAllocator) {
-            this.allocator.close(cleanup);
+            return this.allocator.close();
+        } else {
+            return Future.value(null);
         }
     }
 }

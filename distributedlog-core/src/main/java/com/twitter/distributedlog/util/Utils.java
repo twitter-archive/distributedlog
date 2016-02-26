@@ -11,11 +11,14 @@ import com.google.common.base.Optional;
 import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
+import com.twitter.util.Return;
+import com.twitter.util.Throw;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.ZooKeeper;
@@ -280,6 +283,18 @@ public class Utils {
         }
     }
 
+    public static Future<Versioned<byte[]>> zkGetData(ZooKeeperClient zkc, String path, boolean watch) {
+        ZooKeeper zk;
+        try {
+            zk = zkc.get();
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        } catch (InterruptedException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        }
+        return zkGetData(zk, path, watch);
+    }
+
     /**
      * Retrieve data from zookeeper <code>path</code>.
      *
@@ -305,6 +320,88 @@ public class Utils {
                 } else {
                     promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
                 }
+            }
+        }, null);
+        return promise;
+    }
+
+    public static Future<ZkVersion> zkSetData(ZooKeeperClient zkc, String path, byte[] data, ZkVersion version) {
+        ZooKeeper zk;
+        try {
+            zk = zkc.get();
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        } catch (InterruptedException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        }
+        return zkSetData(zk, path, data, version);
+    }
+
+    /**
+     * Set <code>data</code> to zookeeper <code>path</code>.
+     *
+     * @param zk
+     *          zookeeper client
+     * @param path
+     *          path to set data
+     * @param data
+     *          data to set
+     * @param version
+     *          version used to set data
+     * @return future representing the version after this operation.
+     */
+    public static Future<ZkVersion> zkSetData(ZooKeeper zk, String path, byte[] data, ZkVersion version) {
+        final Promise<ZkVersion> promise = new Promise<ZkVersion>();
+        zk.setData(path, data, version.getZnodeVersion(), new AsyncCallback.StatCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx, Stat stat) {
+                if (KeeperException.Code.OK.intValue() == rc) {
+                    promise.updateIfEmpty(new Return<ZkVersion>(new ZkVersion(stat.getVersion())));
+                    return;
+                }
+                promise.updateIfEmpty(new Throw<ZkVersion>(
+                        KeeperException.create(KeeperException.Code.get(rc))));
+                return;
+            }
+        }, null);
+        return promise;
+    }
+
+    public static Future<Void> zkDelete(ZooKeeperClient zkc, String path, ZkVersion version) {
+        ZooKeeper zk;
+        try {
+            zk = zkc.get();
+        } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        } catch (InterruptedException e) {
+            return Future.exception(FutureUtils.zkException(e, path));
+        }
+        return zkDelete(zk, path, version);
+    }
+
+    /**
+     * Delete the given <i>path</i> from zookeeper.
+     *
+     * @param zk
+     *          zookeeper client
+     * @param path
+     *          path to delete
+     * @param version
+     *          version used to set data
+     * @return future representing the version after this operation.
+     */
+    public static Future<Void> zkDelete(ZooKeeper zk, String path, ZkVersion version) {
+        final Promise<Void> promise = new Promise<Void>();
+        zk.delete(path, version.getZnodeVersion(), new AsyncCallback.VoidCallback() {
+            @Override
+            public void processResult(int rc, String path, Object ctx) {
+                if (KeeperException.Code.OK.intValue() == rc) {
+                    promise.updateIfEmpty(new Return<Void>(null));
+                    return;
+                }
+                promise.updateIfEmpty(new Throw<Void>(
+                        KeeperException.create(KeeperException.Code.get(rc))));
+                return;
             }
         }, null);
         return promise;
@@ -357,6 +454,20 @@ public class Utils {
     public static void close(Closeable closeable) {
         try {
             Closeables.close(closeable, true);
+        } catch (IOException e) {
+            // no-op. the exception is swallowed.
+        }
+    }
+
+    /**
+     * Close an async closeable.
+     *
+     * @param closeable
+     *          closeable to close
+     */
+    public static void close(AsyncCloseable closeable) {
+        try {
+            FutureUtils.result(closeable.close());
         } catch (IOException e) {
             // no-op. the exception is swallowed.
         }
