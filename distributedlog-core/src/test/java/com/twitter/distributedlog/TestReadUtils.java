@@ -238,10 +238,16 @@ public class TestReadUtils extends TestDistributedLogBase {
                 DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 0L, 0L), 999L);
         LogRecordWithDLSN secondRecord =
                 DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 10L, 0L), 99L);
+        LogRecordWithDLSN thirdRecord =
+                DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 100L, 0L), 1099L);
         // out-of-order sequence
         assertTrue(ReadUtils.getEntriesToSearch(888L, firstRecord, secondRecord, 10).isEmpty());
         // same transaction id
         assertTrue(ReadUtils.getEntriesToSearch(888L, firstRecord, firstRecord, 10).isEmpty());
+        // small nways (nways = 2)
+        assertEquals(2, ReadUtils.getEntriesToSearch(888L, firstRecord, thirdRecord, 2).size());
+        // small nways with equal transaction id
+        assertEquals(3, ReadUtils.getEntriesToSearch(1099L, firstRecord, thirdRecord, 2).size());
         LogRecordWithDLSN record1 =
                 DLMTestUtil.getLogRecordWithDLSNInstance(new DLSN(1L, 0L, 0L), 88L);
         LogRecordWithDLSN record2 =

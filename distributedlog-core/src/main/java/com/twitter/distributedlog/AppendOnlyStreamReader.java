@@ -130,6 +130,11 @@ public class AppendOnlyStreamReader extends InputStream {
      */
     public boolean skipTo(long position) throws IOException {
 
+        // No need to skip anywhere.
+        if (position == position()) {
+            return true;
+        }
+
         LogReader skipReader = dlm.getInputStream(position);
         LogRecordWithInputStream logRecord = null;
         try {

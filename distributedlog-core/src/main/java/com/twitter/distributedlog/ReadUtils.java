@@ -34,6 +34,8 @@ public class ReadUtils {
 
     static final Logger LOG = LoggerFactory.getLogger(ReadUtils.class);
 
+    private static final int MIN_SEARCH_BATCH_SIZE = 2;
+
     //
     // Read First & Last Record Functions
     //
@@ -776,7 +778,7 @@ public class ReadUtils {
                 List<Long> entries = getEntriesToSearch(
                         firstRecord.getDlsn().getEntryId() + 1,
                         lastRecord.getDlsn().getEntryId() - 2,
-                        Math.max(1, nWays - 1));
+                        Math.max(MIN_SEARCH_BATCH_SIZE, nWays - 1));
                 entries.add(lastRecord.getDlsn().getEntryId() - 1);
                 return entries;
             } else {
@@ -802,7 +804,7 @@ public class ReadUtils {
         long numEntries = endEntryId - startEntryId + 1;
         long step = Math.max(1L, numEntries / nWays);
         List<Long> entryList = Lists.newArrayListWithExpectedSize(nWays);
-        for (long i = startEntryId, j = nWays - 1; i <= endEntryId && j > 0; i+=step, j--) {
+        for (long i = startEntryId, j = nWays - 1; i <= endEntryId && j > 0; i += step, j--) {
             entryList.add(i);
         }
         if (entryList.get(entryList.size() - 1) < endEntryId) {

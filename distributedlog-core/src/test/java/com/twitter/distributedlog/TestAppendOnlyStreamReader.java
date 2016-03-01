@@ -62,7 +62,7 @@ public class TestAppendOnlyStreamReader extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void skipToSkipsBytesWithImmediateFlush() throws Exception {
+    public void testSkipToSkipsBytesWithImmediateFlush() throws Exception {
         String name = testNames.getMethodName();
 
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -74,7 +74,7 @@ public class TestAppendOnlyStreamReader extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void skipToSkipsBytesWithLargerLogRecords() throws Exception {
+    public void testSkipToSkipsBytesWithLargerLogRecords() throws Exception {
         String name = testNames.getMethodName();
 
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -87,7 +87,7 @@ public class TestAppendOnlyStreamReader extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void skipToSkipsBytesUntilEndOfStream() throws Exception {
+    public void testSkipToSkipsBytesUntilEndOfStream() throws Exception {
         String name = testNames.getMethodName();
 
         DistributedLogManager dlmwrite = createNewDLM(conf, name);
@@ -125,7 +125,7 @@ public class TestAppendOnlyStreamReader extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void skipToreturnsFalseIfPositionDoesNotExistYetForUnSealedStream() throws Exception {
+    public void testSkipToreturnsFalseIfPositionDoesNotExistYetForUnSealedStream() throws Exception {
         String name = testNames.getMethodName();
 
         DistributedLogManager dlmwrite = createNewDLM(conf, name);
@@ -156,5 +156,35 @@ public class TestAppendOnlyStreamReader extends TestDistributedLogBase {
         read = reader.read(bytesIn2, 0, 5);
         assertEquals(5, read);
         assertTrue(Arrays.equals("bcabc".getBytes(), bytesIn2));
+    }
+
+    @Test(timeout = 60000)
+    public void testSkipToForNoPositionChange() throws Exception {
+        String name = testNames.getMethodName();
+
+        DistributedLogManager dlmwrite = createNewDLM(conf, name);
+        DistributedLogManager dlmreader = createNewDLM(conf, name);
+
+        long txid = 1;
+        AppendOnlyStreamWriter writer = dlmwrite.getAppendOnlyStreamWriter();
+        writer.write(DLMTestUtil.repeatString("abc", 5).getBytes());
+        writer.close();
+
+        final AppendOnlyStreamReader reader = dlmreader.getAppendOnlyStreamReader();
+
+        assertTrue(reader.skipTo(0));
+
+        byte[] bytesIn = new byte[4];
+        int read = reader.read(bytesIn, 0, 4);
+        assertEquals(4, read);
+        assertEquals(new String("abca"), new String(bytesIn));
+
+        assertTrue(reader.skipTo(reader.position()));
+
+        assertTrue(reader.skipTo(1));
+
+        read = reader.read(bytesIn, 0, 4);
+        assertEquals(4, read);
+        assertEquals(new String("bcab"), new String(bytesIn));
     }
 }

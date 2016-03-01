@@ -23,7 +23,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     public TestName testNames = new TestName();
 
     @Test(timeout = 60000)
-    public void basicReadAndWriteBehavior() throws Exception {
+    public void testBasicReadAndWriteBehavior() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogManager dlmwrite = createNewDLM(conf, name);
         DistributedLogManager dlmreader = createNewDLM(conf, name);
@@ -54,7 +54,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void writeFutureDoesNotCompleteUntilWritePersisted() throws Exception {
+    public void testWriteFutureDoesNotCompleteUntilWritePersisted() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(Integer.MAX_VALUE);
@@ -89,7 +89,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void positionUpdatesOnlyAfterWriteCompletion() throws Exception {
+    public void testPositionUpdatesOnlyAfterWriteCompletion() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(10*1000);
@@ -128,7 +128,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void positionDoesntUpdateBeforeWriteCompletion() throws Exception {
+    public void testPositionDoesntUpdateBeforeWriteCompletion() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
 
@@ -154,7 +154,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void positionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
+    public void testPositionUpdatesOnlyAfterWriteCompletionWithoutFsync() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setPeriodicFlushFrequencyMilliSeconds(1*1000);
@@ -175,7 +175,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
-    public void writerStartsAtTxidZeroForEmptyStream() throws Exception {
+    public void testWriterStartsAtTxidZeroForEmptyStream() throws Exception {
         String name = testNames.getMethodName();
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.setImmediateFlushEnabled(true);
