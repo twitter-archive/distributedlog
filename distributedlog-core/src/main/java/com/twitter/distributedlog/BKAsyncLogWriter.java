@@ -147,6 +147,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     private final FuturePool orderedFuturePool;
     private final boolean streamFailFast;
+    private final boolean disableRollOnSegmentError;
     private LinkedList<PendingLogRecord> pendingRequests = null;
     private volatile boolean encounteredError = false;
     private boolean rollingLog = false;
@@ -176,6 +177,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         // TODO: move write handler out of constructor and make sure i/o or network happen in constructor
         this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
         this.streamFailFast = conf.getFailFastOnStreamNotReady();
+        this.disableRollOnSegmentError = conf.getDisableRollingOnLogSegmentError();
 
         // make sure no exception throw beyond this point, otherwise write handler couldn't be closed
 
@@ -257,7 +259,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
             if (encounteredError) {
                 throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
             }
-            BKLogSegmentWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName());
+            BKLogSegmentWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName(), !disableRollOnSegmentError);
             if (null == writer || rollLog) {
                 writer = rollLogSegmentIfNecessary(writer,
                                                    conf.getUnpartitionedStreamName(),

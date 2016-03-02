@@ -7,6 +7,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 
+import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.exceptions.WriteException;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -192,5 +195,124 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
 
         writer.close();
         dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testOffsetGapAfterSegmentWriterFailure() throws Exception {
+        String name = testNames.getMethodName();
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setImmediateFlushEnabled(false);
+        conf.setPeriodicFlushFrequencyMilliSeconds(60*1000);
+        conf.setOutputBufferSize(1024*1024);
+
+        final int WRITE_LEN = 5;
+        final int SECTION_WRITES = 10;
+        long read = writeRecordsAndReadThemBackAfterInjectingAFailedTransmit(conf, name, WRITE_LEN, SECTION_WRITES);
+        assertEquals(2*SECTION_WRITES*WRITE_LEN, read);
+    }
+
+    @Test(timeout = 60000)
+    public void testNoOffsetGapAfterSegmentWriterFailure() throws Exception {
+        String name = testNames.getMethodName();
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setImmediateFlushEnabled(false);
+        conf.setPeriodicFlushFrequencyMilliSeconds(60*1000);
+        conf.setOutputBufferSize(1024*1024);
+        conf.setDisableRollingOnLogSegmentError(true);
+
+        final int WRITE_LEN = 5;
+        final int SECTION_WRITES = 10;
+
+        try {
+            writeRecordsAndReadThemBackAfterInjectingAFailedTransmit(conf, name, WRITE_LEN, SECTION_WRITES);
+            fail("should have thrown");
+        } catch (BKTransmitException ex) {
+            ;
+        }
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(conf, name);
+        long length = dlm.getLastTxId();
+        long read = read(dlm, length);
+        assertEquals(length, read);
+    }
+
+    long writeRecordsAndReadThemBackAfterInjectingAFailedTransmit(
+            DistributedLogConfiguration conf,
+            String name,
+            int writeLen,
+            int sectionWrites)
+            throws Exception {
+
+        BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(conf, name);
+
+        URI uri = createDLMURI("/" + name);
+        BKDistributedLogManager.createLog(conf, dlm.getReaderZKC(), uri, name);
+
+        // Log exists but is empty, better not throw.
+        AppendOnlyStreamWriter writer = dlm.getAppendOnlyStreamWriter();
+        byte[] byteStream = DLMTestUtil.repeatString("A", writeLen).getBytes();
+
+        // Log a hundred entries. Offset is advanced accordingly.
+        for (int i = 0; i < sectionWrites; i++) {
+            writer.write(byteStream);
+        }
+        writer.force(false);
+
+        long read = read(dlm, 1*sectionWrites*writeLen);
+        assertEquals(1*sectionWrites*writeLen, read);
+
+        // Now write another 100, but trigger failure during transmit.
+        for (int i = 0; i < sectionWrites; i++) {
+            writer.write(byteStream);
+        }
+
+        try {
+            FailpointUtils.setFailpoint(
+                FailpointUtils.FailPointName.FP_TransmitFailGetBuffer,
+                FailpointUtils.FailPointActions.FailPointAction_Throw);
+
+            writer.force(false);
+            fail("should have thown ⊙﹏⊙");
+        } catch (WriteException we) {
+            ;
+        } finally {
+            FailpointUtils.removeFailpoint(
+                FailpointUtils.FailPointName.FP_TransmitFailGetBuffer);
+        }
+
+        // This actually fails because we try to close an errored out stream.
+        writer.write(byteStream);
+
+        // Writing another 100 triggers offset gap.
+        for (int i = 0; i < sectionWrites; i++) {
+            writer.write(byteStream);
+        }
+
+        writer.force(false);
+        writer.markEndOfStream();
+        writer.close();
+
+        long length = dlm.getLastTxId();
+        assertEquals(3*sectionWrites*writeLen+5, length);
+        read = read(dlm, length);
+        dlm.close();
+        return read;
+    }
+
+    long read(DistributedLogManager dlm, long n) throws Exception {
+        AppendOnlyStreamReader reader = dlm.getAppendOnlyStreamReader();
+        byte[] bytesIn = new byte[1];
+        long offset = 0;
+        try {
+            while (offset < n) {
+                int read = reader.read(bytesIn, 0, 1);
+                offset += read;
+            }
+        } catch (EndOfStreamException ex) {
+            LOG.info("Caught ex", ex);
+        } finally {
+            reader.close();
+        }
+        return offset;
     }
 }

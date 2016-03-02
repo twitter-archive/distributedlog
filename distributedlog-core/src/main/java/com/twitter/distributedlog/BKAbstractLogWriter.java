@@ -197,15 +197,15 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
 
     synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)
             throws IOException {
-        BKLogSegmentWriter ledgerWriter = getLedgerWriter(streamIdentifier);
+        BKLogSegmentWriter ledgerWriter = getLedgerWriter(streamIdentifier, true);
         return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */, allowMaxTxID);
     }
 
-    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier) throws IOException {
+    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, boolean resetOnError) throws IOException {
         BKLogSegmentWriter ledgerWriter = getCachedLogWriter();
 
         // Handle the case where the last call to write actually caused an error in the log
-        if ((null != ledgerWriter) && (ledgerWriter.isLogSegmentInError() || forceRecovery)) {
+        if ((null != ledgerWriter) && (ledgerWriter.isLogSegmentInError() || forceRecovery) && resetOnError) {
 
             // Close the ledger writer so that we will recover and start a new log segment
             ledgerWriter.close();

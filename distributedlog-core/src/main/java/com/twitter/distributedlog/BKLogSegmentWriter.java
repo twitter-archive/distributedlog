@@ -239,12 +239,12 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         transmitOutstandingLogger.registerGauge("requests", new Gauge<Number>() {
             @Override
             public Number getDefaultValue() {
-                                          return 0;
-                                                   }
+                return 0;
+            }
             @Override
             public Number getSample() {
-                                    return outstandingTransmits.get();
-                                                                      }
+                return outstandingTransmits.get();
+            }
         });
 
         outstandingTransmits = new AtomicInteger(0);
@@ -1076,6 +1076,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             Buffer toSend;
             try {
                 toSend = recordSetToTransmit.getBuffer();
+                FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_TransmitFailGetBuffer);
             } catch (IOException e) {
                 if (e instanceof InvalidEnvelopedEntryException) {
                     alertStatsLogger.raise("Invalid enveloped entry for segment {} : ", fullyQualifiedLogSegment, e);
@@ -1097,7 +1098,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 BKTransmitPacket packet = new BKTransmitPacket(recordSetToTransmit);
                 packetPrevious = packet;
                 entryWriter.asyncAddEntry(toSend.getData(), 0, toSend.size(),
-                                 this, packet);
+                                          this, packet);
 
                 if (recordSetToTransmit.hasUserRecords()) {
                     transmitDataSuccesses.inc();

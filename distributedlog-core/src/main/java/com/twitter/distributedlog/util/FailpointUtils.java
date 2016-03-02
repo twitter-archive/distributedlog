@@ -17,6 +17,7 @@ public class FailpointUtils {
         FP_TransmitBeforeAddEntry,
         FP_TransmitComplete,
         FP_WriteInternalLostLock,
+        FP_TransmitFailGetBuffer,
         FP_LockUnlockCleanup,
         FP_LockTryCloseRaceCondition,
         FP_LockTryAcquire,

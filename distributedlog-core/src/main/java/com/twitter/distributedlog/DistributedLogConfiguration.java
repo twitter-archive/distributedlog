@@ -212,6 +212,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_COMPRESSION_TYPE_DEFAULT = "none";
     public static final String BKDL_FAILFAST_ON_STREAM_NOT_READY = "failFastOnStreamNotReady";
     public static final boolean BKDL_FAILFAST_ON_STREAM_NOT_READY_DEFAULT = false;
+    public static final String BKDL_DISABLE_ROLLING_ON_LOG_SEGMENT_ERROR = "disableRollingOnLogSegmentError";
+    public static final boolean BKDL_DISABLE_ROLLING_ON_LOG_SEGMENT_ERROR_DEFAULT = false;
 
     // Durability Settings
     public static final String BKDL_IS_DURABLE_WRITE_ENABLED = "isDurableWriteEnabled";
@@ -1622,6 +1624,30 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setFailFastOnStreamNotReady(boolean failFastOnStreamNotReady) {
         setProperty(BKDL_FAILFAST_ON_STREAM_NOT_READY, failFastOnStreamNotReady);
+        return this;
+    }
+
+    /**
+     * If this option is set, the log writer won't reset the segment writer if an error
+     * is encountered.
+     *
+     * @return true if we should disable automatic rolling
+     */
+    public boolean getDisableRollingOnLogSegmentError() {
+        return getBoolean(BKDL_DISABLE_ROLLING_ON_LOG_SEGMENT_ERROR,
+                BKDL_DISABLE_ROLLING_ON_LOG_SEGMENT_ERROR_DEFAULT);
+    }
+
+    /**
+     * Set the roll on segment error flag.
+     *
+     * @param disableRollingOnLogSegmentError
+     *        set roll on error flag
+     * @return dl configuration.
+     * @see #getDisableRollingOnLogSegmentError()
+     */
+    public DistributedLogConfiguration setDisableRollingOnLogSegmentError(boolean disableRollingOnLogSegmentError) {
+        setProperty(BKDL_DISABLE_ROLLING_ON_LOG_SEGMENT_ERROR, disableRollingOnLogSegmentError);
         return this;
     }
 
