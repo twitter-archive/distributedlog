@@ -1424,7 +1424,8 @@ public class DistributedLogTool extends Tool {
             if (record instanceof LogRecordWithDLSN) {
                 println("Record (txn = " + record.getTransactionId() + ", bytes = "
                         + record.getPayload().length + ", dlsn = "
-                        + ((LogRecordWithDLSN) record).getDlsn() + ")");
+                        + ((LogRecordWithDLSN) record).getDlsn() + ", sequence id = "
+                        + ((LogRecordWithDLSN) record).getSequenceId() + ")");
             } else {
                 println("Record (txn = " + record.getTransactionId() + ", bytes = "
                         + record.getPayload().length + ")");
