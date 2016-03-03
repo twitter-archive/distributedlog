@@ -14,7 +14,7 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.io.AsyncCloseable;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
@@ -471,7 +471,7 @@ public class Utils {
      * @param lock
      *          lock to close
      */
-    public static void closeQuietly(DistributedReentrantLock lock) {
+    public static void closeQuietly(DistributedLock lock) {
         try {
             FutureUtils.result(lock.close());
         } catch (IOException e) {

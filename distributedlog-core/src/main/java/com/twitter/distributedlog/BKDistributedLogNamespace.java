@@ -21,8 +21,8 @@ import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.impl.ZKLogMetadataStore;
 import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
-import com.twitter.distributedlog.lock.DistributedLockFactory;
-import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
+import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.LogMetadataStore;
@@ -278,7 +278,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     private final LogSegmentMetadataStore writerSegmentMetadataStore;
     private final LogSegmentMetadataStore readerSegmentMetadataStore;
     // lock factory
-    private final DistributedLockFactory lockFactory;
+    private final SessionLockFactory lockFactory;
 
     // feature provider
     private final FeatureProvider featureProvider;
@@ -423,7 +423,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
             allocator = null;
         }
         // Build the lock factory
-        this.lockFactory = new ZKDistributedLockFactory(
+        this.lockFactory = new ZKSessionLockFactory(
                 sharedWriterZKCForDL,
                 clientId,
                 lockStateExecutor,

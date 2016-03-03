@@ -3,9 +3,9 @@ package com.twitter.distributedlog.lock;
 import com.twitter.util.Future;
 
 /**
- * Factory to create {@link DistributedLock}
+ * Factory to create {@link SessionLock}
  */
-public interface DistributedLockFactory {
+public interface SessionLockFactory {
 
     /**
      * Create a lock with lock path.
@@ -16,6 +16,6 @@ public interface DistributedLockFactory {
      *          lock context
      * @return future represents the creation result.
      */
-    Future<DistributedLock> createLock(String lockPath, DistributedLockContext context);
+    Future<SessionLock> createLock(String lockPath, DistributedLockContext context);
 
 }

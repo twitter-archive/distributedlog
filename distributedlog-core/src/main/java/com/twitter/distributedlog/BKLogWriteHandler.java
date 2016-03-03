@@ -13,7 +13,7 @@ import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.logsegment.RollingPolicy;
 import com.twitter.distributedlog.logsegment.SizeBasedRollingPolicy;
@@ -80,7 +80,7 @@ import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_F
 class BKLogWriteHandler extends BKLogHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
-    protected final DistributedReentrantLock lock;
+    protected final DistributedLock lock;
     protected final int ensembleSize;
     protected final int writeQuorumSize;
     protected final int ackQuorumSize;
@@ -93,7 +93,7 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
-    protected Future<DistributedReentrantLock> lockFuture = null;
+    protected Future<DistributedLock> lockFuture = null;
     protected final PermitLimiter writeLimiter;
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
@@ -137,7 +137,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       PermitLimiter writeLimiter,
                       FeatureProvider featureProvider,
                       DynamicDistributedLogConfiguration dynConf,
-                      DistributedReentrantLock lock /** owned by handler **/) {
+                      DistributedLock lock /** owned by handler **/) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.perLogStatsLogger = perLogStatsLogger;
@@ -290,7 +290,7 @@ class BKLogWriteHandler extends BKLogHandler {
      *
      * @return future represents the lock result
      */
-    Future<DistributedReentrantLock> lockHandler() {
+    Future<DistributedLock> lockHandler() {
         if (null != lockFuture) {
             return lockFuture;
         }

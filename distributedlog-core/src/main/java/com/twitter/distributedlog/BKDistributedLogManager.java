@@ -15,9 +15,9 @@ import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.io.Abortables;
-import com.twitter.distributedlog.lock.DistributedLockFactory;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
-import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
+import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.DistributedLock;
+import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
@@ -80,9 +80,9 @@ import java.util.concurrent.TimeUnit;
  * scope `writer_future_pool`. See {@link MonitoredFuturePool} for detail stats.
  * <li> `reader_future_pool/*`: metrics about the future pools that used by readers are exposed under
  * scope `reader_future_pool`. See {@link MonitoredFuturePool} for detail stats.
- * <li> `lock/*`: metrics about the locks used by writers. See {@link DistributedReentrantLock} for detail
+ * <li> `lock/*`: metrics about the locks used by writers. See {@link DistributedLock} for detail
  * stats.
- * <li> `read_lock/*`: metrics about the locks used by readers. See {@link DistributedReentrantLock} for
+ * <li> `read_lock/*`: metrics about the locks used by readers. See {@link DistributedLock} for
  * detail stats.
  * <li> `logsegments/*`: metrics about basic operations on log segments. See {@link BKLogHandler} for details.
  * <li> `segments/*`: metrics about write operations on log segments. See {@link BKLogWriteHandler} for details.
@@ -131,7 +131,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final AlertStatsLogger alertStatsLogger;
 
     // lock factory
-    private DistributedLockFactory lockFactory = null;
+    private SessionLockFactory lockFactory = null;
 
     // log segment metadata stores
     private final LogSegmentMetadataStore writerMetadataStore;
@@ -269,7 +269,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             ZooKeeperClient zkcForReaderBKC,
                             BookKeeperClientBuilder writerBKCBuilder,
                             BookKeeperClientBuilder readerBKCBuilder,
-                            DistributedLockFactory lockFactory,
+                            SessionLockFactory lockFactory,
                             LogSegmentMetadataStore writerMetadataStore,
                             LogSegmentMetadataStore readerMetadataStore,
                             OrderedScheduler scheduler,
@@ -386,9 +386,9 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         return lockStateExecutor;
     }
 
-    private synchronized DistributedLockFactory getLockFactory(boolean createIfNull) {
+    private synchronized SessionLockFactory getLockFactory(boolean createIfNull) {
         if (createIfNull && null == lockFactory) {
-            lockFactory = new ZKDistributedLockFactory(
+            lockFactory = new ZKSessionLockFactory(
                     writerZKC,
                     clientId,
                     getLockStateExecutor(createIfNull),
@@ -549,7 +549,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
         OrderedScheduler lockStateExecutor = getLockStateExecutor(true);
         // Build the locks
-        DistributedReentrantLock lock = new DistributedReentrantLock(
+        DistributedLock lock = new DistributedLock(
                 lockStateExecutor,
                 getLockFactory(true),
                 logMetadata.getLockPath(),

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Factory to create zookeeper based locks.
  */
-public class ZKDistributedLockFactory implements DistributedLockFactory {
+public class ZKSessionLockFactory implements SessionLockFactory {
 
     private final ZooKeeperClient zkc;
     private final String clientId;
@@ -30,13 +30,13 @@ public class ZKDistributedLockFactory implements DistributedLockFactory {
     // Stats
     private final StatsLogger lockStatsLogger;
 
-    public ZKDistributedLockFactory(ZooKeeperClient zkc,
-                                    String clientId,
-                                    OrderedScheduler lockStateExecutor,
-                                    int lockCreationRetries,
-                                    long lockOpTimeout,
-                                    long zkRetryBackoffMs,
-                                    StatsLogger statsLogger) {
+    public ZKSessionLockFactory(ZooKeeperClient zkc,
+                                String clientId,
+                                OrderedScheduler lockStateExecutor,
+                                int lockCreationRetries,
+                                long lockOpTimeout,
+                                long zkRetryBackoffMs,
+                                StatsLogger statsLogger) {
         this.zkc = zkc;
         this.clientId = clientId;
         this.lockStateExecutor = lockStateExecutor;
@@ -48,12 +48,12 @@ public class ZKDistributedLockFactory implements DistributedLockFactory {
     }
 
     @Override
-    public Future<DistributedLock> createLock(String lockPath,
-                                              DistributedLockContext context) {
+    public Future<SessionLock> createLock(String lockPath,
+                                          DistributedLockContext context) {
         AtomicInteger numRetries = new AtomicInteger(lockCreationRetries);
         final AtomicReference<Throwable> interruptedException = new AtomicReference<Throwable>(null);
-        Promise<DistributedLock> createPromise =
-                new Promise<DistributedLock>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
+        Promise<SessionLock> createPromise =
+                new Promise<SessionLock>(new com.twitter.util.Function<Throwable, BoxedUnit>() {
             @Override
             public BoxedUnit apply(Throwable t) {
                 interruptedException.set(t);
@@ -74,17 +74,17 @@ public class ZKDistributedLockFactory implements DistributedLockFactory {
                     final DistributedLockContext context,
                     final AtomicReference<Throwable> interruptedException,
                     final AtomicInteger numRetries,
-                    final Promise<DistributedLock> createPromise,
+                    final Promise<SessionLock> createPromise,
                     final long delayMs) {
         lockStateExecutor.schedule(lockPath, new Runnable() {
             @Override
             public void run() {
                 if (null != interruptedException.get()) {
-                    createPromise.updateIfEmpty(new Throw<DistributedLock>(interruptedException.get()));
+                    createPromise.updateIfEmpty(new Throw<SessionLock>(interruptedException.get()));
                     return;
                 }
                 try {
-                    DistributedLock lock = new ZKDistributedLock(
+                    SessionLock lock = new ZKSessionLock(
                             zkc,
                             lockPath,
                             clientId,
@@ -92,14 +92,14 @@ public class ZKDistributedLockFactory implements DistributedLockFactory {
                             lockOpTimeout,
                             lockStatsLogger,
                             context);
-                    createPromise.updateIfEmpty(new Return<DistributedLock>(lock));
+                    createPromise.updateIfEmpty(new Return<SessionLock>(lock));
                 } catch (DLInterruptedException dlie) {
                     // if the creation is interrupted, throw the exception without retrie.
-                    createPromise.updateIfEmpty(new Throw<DistributedLock>(dlie));
+                    createPromise.updateIfEmpty(new Throw<SessionLock>(dlie));
                     return;
                 } catch (IOException e) {
                     if (numRetries.getAndDecrement() < 0) {
-                        createPromise.updateIfEmpty(new Throw<DistributedLock>(e));
+                        createPromise.updateIfEmpty(new Throw<SessionLock>(e));
                         return;
                     }
                     createLock(

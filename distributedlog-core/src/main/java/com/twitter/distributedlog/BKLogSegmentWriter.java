@@ -62,7 +62,7 @@ import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.io.CompressionCodec;
 import com.twitter.distributedlog.io.CompressionUtils;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.PermitLimiter;
@@ -117,7 +117,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final ReentrantLock transmitLock = new ReentrantLock();
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
-    private final DistributedReentrantLock lock;
+    private final DistributedLock lock;
     private final boolean isDurableWriteEnabled;
     private DLSN lastDLSN = DLSN.InvalidDLSN;
     private final long startTxId;
@@ -182,7 +182,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  DistributedLogConfiguration conf,
                                  int logSegmentMetadataVersion,
                                  LogSegmentEntryWriter entryWriter,
-                                 DistributedReentrantLock lock, /** the lock needs to be acquired **/
+                                 DistributedLock lock, /** the lock needs to be acquired **/
                                  long startTxId,
                                  long logSegmentSequenceNumber,
                                  ScheduledExecutorService executorService,
@@ -321,7 +321,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     @VisibleForTesting
-    DistributedReentrantLock getLock() {
+    DistributedLock getLock() {
         return this.lock;
     }
 

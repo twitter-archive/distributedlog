@@ -2,11 +2,9 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Stopwatch;
 import com.google.common.base.Ticker;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
@@ -14,8 +12,8 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
-import com.twitter.distributedlog.lock.DistributedLockFactory;
-import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
+import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.readahead.ReadAheadWorker;
@@ -23,7 +21,7 @@ import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
@@ -34,29 +32,15 @@ import com.twitter.util.Promise;
 import com.twitter.util.Return;
 import com.twitter.util.Throw;
 import com.twitter.util.Try;
-import org.apache.bookkeeper.client.AsyncCallback;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.stats.Counter;
-import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Function0;
-import scala.Function1;
-import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 /**
@@ -95,7 +79,7 @@ import scala.runtime.BoxedUnit;
  * becoming idle.
  * </ul>
  * <h4>Read Lock</h4>
- * All read lock related stats are exposed under scope `read_lock`. See {@link DistributedReentrantLock}
+ * All read lock related stats are exposed under scope `read_lock`. See {@link DistributedLock}
  * for detail stats.
  */
 class BKLogReadHandler extends BKLogHandler {
@@ -112,11 +96,11 @@ class BKLogReadHandler extends BKLogHandler {
     protected ReadAheadWorker readAheadWorker = null;
     private final boolean isHandleForReading;
 
-    private final DistributedLockFactory lockFactory;
+    private final SessionLockFactory lockFactory;
     private final OrderedScheduler lockStateExecutor;
     private final Optional<String> subscriberId;
     private final String readLockPath;
-    private DistributedReentrantLock readLock;
+    private DistributedLock readLock;
     private Future<Void> lockAcquireFuture;
 
     // stats
@@ -175,7 +159,7 @@ class BKLogReadHandler extends BKLogHandler {
         this.subscriberId = subscriberId;
         this.readLockPath = logMetadata.getReadLockPath(subscriberId);
         this.lockStateExecutor = lockStateExecutor;
-        this.lockFactory = new ZKDistributedLockFactory(
+        this.lockFactory = new ZKSessionLockFactory(
                 zooKeeperClient,
                 getLockClientId(),
                 lockStateExecutor,
@@ -206,12 +190,12 @@ class BKLogReadHandler extends BKLogHandler {
      */
     synchronized Future<Void> lockStream() {
         if (null == lockAcquireFuture) {
-            final Function0<DistributedReentrantLock> lockFunction =  new ExceptionalFunction0<DistributedReentrantLock>() {
+            final Function0<DistributedLock> lockFunction =  new ExceptionalFunction0<DistributedLock>() {
                 @Override
-                public DistributedReentrantLock applyE() throws IOException {
+                public DistributedLock applyE() throws IOException {
                     // Unfortunately this has a blocking call which we should not execute on the
                     // ZK completion thread
-                    BKLogReadHandler.this.readLock = new DistributedReentrantLock(
+                    BKLogReadHandler.this.readLock = new DistributedLock(
                             lockStateExecutor,
                             lockFactory,
                             readLockPath,
@@ -225,9 +209,9 @@ class BKLogReadHandler extends BKLogHandler {
             lockAcquireFuture = ensureReadLockPathExist().flatMap(new ExceptionalFunction<Void, Future<Void>>() {
                 @Override
                 public Future<Void> applyE(Void in) throws Throwable {
-                    return scheduler.apply(lockFunction).flatMap(new ExceptionalFunction<DistributedReentrantLock, Future<Void>>() {
+                    return scheduler.apply(lockFunction).flatMap(new ExceptionalFunction<DistributedLock, Future<Void>>() {
                         @Override
-                        public Future<Void> applyE(DistributedReentrantLock lock) throws IOException {
+                        public Future<Void> applyE(DistributedLock lock) throws IOException {
                             return acquireLockOnExecutorThread(lock);
                         }
                     });
@@ -241,8 +225,8 @@ class BKLogReadHandler extends BKLogHandler {
      * Begin asynchronous lock acquire, but ensure that the returned future is satisfied on an
      * executor service thread.
      */
-    Future<Void> acquireLockOnExecutorThread(DistributedReentrantLock lock) throws LockingException {
-        final Future<DistributedReentrantLock> acquireFuture = lock.asyncAcquire();
+    Future<Void> acquireLockOnExecutorThread(DistributedLock lock) throws LockingException {
+        final Future<DistributedLock> acquireFuture = lock.asyncAcquire();
 
         // The future we return must be satisfied on an executor service thread. If we simply
         // return the future returned by asyncAcquire, user callbacks may end up running in
@@ -256,9 +240,9 @@ class BKLogReadHandler extends BKLogHandler {
                 return null;
             }
         });
-        acquireFuture.addEventListener(new FutureEventListener<DistributedReentrantLock>() {
+        acquireFuture.addEventListener(new FutureEventListener<DistributedLock>() {
             @Override
-            public void onSuccess(DistributedReentrantLock lock) {
+            public void onSuccess(DistributedLock lock) {
                 LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
                 satisfyPromiseAsync(threadAcquirePromise, new Return<Void>(null));
             }

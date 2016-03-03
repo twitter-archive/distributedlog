@@ -26,7 +26,7 @@ import com.twitter.distributedlog.WriteLimiter;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
 import com.twitter.util.Await;
@@ -123,7 +123,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     private final LedgerHandle lh;
     private final AtomicInteger transmitResult
         = new AtomicInteger(BKException.Code.OK);
-    private final DistributedReentrantLock lock;
+    private final DistributedLock lock;
     private LogRecord.Writer writer;
     private long lastTxId = DistributedLogConstants.INVALID_TXID;
     private long lastTxIdFlushed = DistributedLogConstants.INVALID_TXID;
@@ -159,7 +159,7 @@ class BKPerStreamLogWriter implements LogWriter, AddCallback, Runnable {
     protected BKPerStreamLogWriter(String streamName,
                                    DistributedLogConfiguration conf,
                                    LedgerHandle lh,
-                                   DistributedReentrantLock lock,
+                                   DistributedLock lock,
                                    long startTxId,
                                    ScheduledExecutorService executorService,
                                    StatsLogger statsLogger,

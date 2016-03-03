@@ -10,9 +10,9 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
-import com.twitter.distributedlog.lock.DistributedLockFactory;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
-import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
+import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.DistributedLock;
+import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -49,7 +49,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
 
     private static final int LAYOUT_VERSION = -1;
 
-    private final DistributedReentrantLock lock;
+    private final DistributedLock lock;
     protected final OrderedScheduler lockStateExecutor;
     private final String maxTxIdPath;
     private final MaxTxId maxTxId;
@@ -190,7 +190,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new ZKException("Exception when creating zookeeper lock " + lockPath, e);
             }
         }
-        DistributedLockFactory lockFactory = new ZKDistributedLockFactory(
+        SessionLockFactory lockFactory = new ZKSessionLockFactory(
                 zooKeeperClient,
                 clientId,
                 lockStateExecutor,
@@ -198,7 +198,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 conf.getLockTimeoutMilliSeconds(),
                 conf.getZKRetryBackoffStartMillis(),
                 statsLogger);
-        lock = new DistributedReentrantLock(lockStateExecutor, lockFactory, lockPath,
+        lock = new DistributedLock(lockStateExecutor, lockFactory, lockPath,
                 conf.getLockTimeoutMilliSeconds(), statsLogger);
         FutureUtils.result(lock.asyncAcquire());
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);

@@ -37,10 +37,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Function1;
-import scala.PartialFunction;
 import scala.runtime.AbstractFunction1;
-import scala.runtime.AbstractPartialFunction;
 import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
@@ -118,9 +115,9 @@ import static com.google.common.base.Charsets.UTF_8;
  * <li>unlock: opstats. latency spent on unlock operations.
  * </ul>
  */
-class ZKDistributedLock implements DistributedLock {
+class ZKSessionLock implements SessionLock {
 
-    static final Logger LOG = LoggerFactory.getLogger(ZKDistributedLock.class);
+    static final Logger LOG = LoggerFactory.getLogger(ZKSessionLock.class);
 
     private static final String LOCK_PATH_PREFIX = "/member_";
     private static final String LOCK_PART_SEP = "_";
@@ -276,10 +273,10 @@ class ZKDistributedLock implements DistributedLock {
     private final Counter tryTimeouts;
     private final OpStatsLogger unlockStats;
 
-    ZKDistributedLock(ZooKeeperClient zkClient,
-                      String lockPath,
-                      String clientId,
-                      OrderedScheduler lockStateExecutor)
+    ZKSessionLock(ZooKeeperClient zkClient,
+                  String lockPath,
+                  String clientId,
+                  OrderedScheduler lockStateExecutor)
             throws IOException {
         this(zkClient,
                 lockPath,
@@ -299,13 +296,13 @@ class ZKDistributedLock implements DistributedLock {
      * @param lockOpTimeout timeout of lock operations
      * @param statsLogger stats logger
      */
-    public ZKDistributedLock(ZooKeeperClient zkClient,
-                             String lockPath,
-                             String clientId,
-                             OrderedScheduler lockStateExecutor,
-                             long lockOpTimeout,
-                             StatsLogger statsLogger,
-                             DistributedLockContext lockContext)
+    public ZKSessionLock(ZooKeeperClient zkClient,
+                         String lockPath,
+                         String clientId,
+                         OrderedScheduler lockStateExecutor,
+                         long lockOpTimeout,
+                         StatsLogger statsLogger,
+                         DistributedLockContext lockContext)
             throws IOException {
         this.zkClient = zkClient;
         try {
@@ -334,7 +331,7 @@ class ZKDistributedLock implements DistributedLock {
                 // This will set the lock state to closed, and begin to cleanup the zk lock node.
                 // We have to be careful not to block here since doing so blocks the ordered lock
                 // state executor which can cause deadlocks depending on how futures are chained.
-                ZKDistributedLock.this.asyncUnlock(t);
+                ZKSessionLock.this.asyncUnlock(t);
                 // Note re. logging and exceptions: errors are already logged by unlockAsync.
                 return BoxedUnit.UNIT;
             }
@@ -342,7 +339,7 @@ class ZKDistributedLock implements DistributedLock {
     }
 
     @Override
-    public ZKDistributedLock setLockListener(LockListener lockListener) {
+    public ZKSessionLock setLockListener(LockListener lockListener) {
         this.lockListener = lockListener;
         return this;
     }
@@ -387,7 +384,7 @@ class ZKDistributedLock implements DistributedLock {
         lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                if (ZKDistributedLock.this.epoch.get() == lockEpoch) {
+                if (ZKSessionLock.this.epoch.get() == lockEpoch) {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("{} executing lock action '{}' under epoch {} for lock {}",
                                 new Object[]{lockId, func.getActionName(), lockEpoch, lockPath});
@@ -400,7 +397,7 @@ class ZKDistributedLock implements DistributedLock {
                 } else {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("{} skipped executing lock action '{}' for lock {}, since epoch is changed from {} to {}.",
-                                new Object[]{lockId, func.getActionName(), lockPath, lockEpoch, ZKDistributedLock.this.epoch.get()});
+                                new Object[]{lockId, func.getActionName(), lockPath, lockEpoch, ZKSessionLock.this.epoch.get()});
                     }
                 }
             }
@@ -423,7 +420,7 @@ class ZKDistributedLock implements DistributedLock {
         lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                int currentEpoch = ZKDistributedLock.this.epoch.get();
+                int currentEpoch = ZKSessionLock.this.epoch.get();
                 if (currentEpoch == lockEpoch) {
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("{} executed lock action '{}' under epoch {} for lock {}",
@@ -880,7 +877,7 @@ class ZKDistributedLock implements DistributedLock {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Notify lock waiters on {} at {} : watcher epoch {}, lock epoch {}",
                     new Object[] { lockPath, System.currentTimeMillis(),
-                            lockEpoch, ZKDistributedLock.this.epoch.get() });
+                            lockEpoch, ZKSessionLock.this.epoch.get() });
         }
         acquireFuture.updateIfEmpty(new Return<Boolean>(true));
     }
@@ -998,7 +995,7 @@ class ZKDistributedLock implements DistributedLock {
                 }
 
                 // increment epoch to avoid any ongoing locking action
-                ZKDistributedLock.this.epoch.incrementAndGet();
+                ZKSessionLock.this.epoch.incrementAndGet();
 
                 // if session expired, just notify the waiter. as the lock acquire doesn't succeed.
                 // we don't even need to clean up the lock as the znode will disappear after session expired
@@ -1290,7 +1287,7 @@ class ZKDistributedLock implements DistributedLock {
         @Override
         public void process(WatchedEvent event) {
             LOG.info("Received event {} from lock {} at {} : watcher epoch {}, lock epoch {}.",
-                    new Object[] { event, lockPath, System.currentTimeMillis(), epoch, ZKDistributedLock.this.epoch.get() });
+                    new Object[] { event, lockPath, System.currentTimeMillis(), epoch, ZKSessionLock.this.epoch.get() });
             if (event.getType() == Watcher.Event.EventType.None) {
                 switch (event.getState()) {
                     case SyncConnected:

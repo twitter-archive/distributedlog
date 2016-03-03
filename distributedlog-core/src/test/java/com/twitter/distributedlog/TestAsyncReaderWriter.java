@@ -27,7 +27,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.OverCapacityException;
 import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.FailpointUtils;
@@ -1214,7 +1214,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         writer.flushAndSyncAll();
 
         BKLogSegmentWriter perStreamWriter = writer.getCachedLogWriter();
-        DistributedReentrantLock lock = perStreamWriter.getLock();
+        DistributedLock lock = perStreamWriter.getLock();
         FutureUtils.result(lock.close());
 
         // Get second writer, steal lock
