@@ -8,6 +8,7 @@ import com.twitter.distributedlog.feature.DeciderFeatureProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.server.AbstractTwitterServer;
+import org.apache.bookkeeper.stats.CachingStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.stats.twitter.finagle.FinagleStatsProvider;
 import org.slf4j.Logger;
@@ -79,7 +80,8 @@ public class DistributedLogTwitterServer extends AbstractTwitterServer {
 
     public void runServer(Optional<String> optionalUri) throws Throwable {
         StatsReceiver statsReceiver = statsReceiver();
-        StatsProvider statsProvider = new FinagleStatsProvider(statsReceiver);
+        StatsProvider statsProvider =
+                new CachingStatsProvider(new FinagleStatsProvider(statsReceiver));
         final DistributedLogServer server = new DistributedLogTwitterServerInternal(
                 optionalUri,
                 getOptionalFlag(confFlag),
