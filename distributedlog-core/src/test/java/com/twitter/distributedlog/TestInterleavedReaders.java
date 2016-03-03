@@ -250,9 +250,9 @@ public class TestInterleavedReaders extends TestDistributedLogBase {
                     writer1.setForceRecovery(true);
                 }
                 DLSN dlsn1 = FutureUtils.result(writer1.write(DLMTestUtil.getLogRecordInstance(txid++)));
-                LOG.info("writer1 write record {}", dlsn1);
+                LOG.info("writer1 write record {} - txid = {}", dlsn1, txid-1);
                 DLSN dlsn0 = FutureUtils.result(writer0.write(DLMTestUtil.getLogRecordInstance(txid++)));
-                LOG.info("writer0 write record {}", dlsn0);
+                LOG.info("writer0 write record {} - txid = {}", dlsn0, txid-1);
                 writer0.setForceRecovery(false);
                 writer1.setForceRecovery(false);
             }

@@ -4,12 +4,12 @@ import java.net.URI;
 
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LocalDLMEmulator;
-import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogWriter;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
+import com.twitter.distributedlog.exceptions.ZKException;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.lang3.tuple.Pair;
@@ -182,9 +182,9 @@ public class TestDistributedLogManagerFactory {
             // Reopening and writing again with a different un will fail.
             initDlogMeta("/" + runtime.getMethodName(), "not-test-un", streamName);
             fail("write should have failed due to perms");
-        } catch (LockingException ex) {
+        } catch (ZKException ex) {
             LOG.info("caught exception trying to write with no perms {}", ex);
-            assertEquals(KeeperException.NoAuthException.class, ex.getCause().getClass());
+            assertEquals(KeeperException.Code.NOAUTH, ex.getKeeperExceptionCode());
         }
 
         // Should work again.

@@ -1215,7 +1215,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         BKLogSegmentWriter perStreamWriter = writer.getCachedLogWriter();
         DistributedReentrantLock lock = perStreamWriter.getLock();
-        lock.close();
+        FutureUtils.result(lock.close());
 
         // Get second writer, steal lock
         BKAsyncLogWriter writer2 = (BKAsyncLogWriter)(dlm1.startAsyncLogSegmentNonPartitioned());

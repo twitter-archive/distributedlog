@@ -208,7 +208,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         final int WRITE_LEN = 5;
         final int SECTION_WRITES = 10;
         long read = writeRecordsAndReadThemBackAfterInjectingAFailedTransmit(conf, name, WRITE_LEN, SECTION_WRITES);
-        assertEquals(2*SECTION_WRITES*WRITE_LEN, read);
+        assertEquals((2*SECTION_WRITES + 1)*WRITE_LEN, read);
     }
 
     @Test(timeout = 60000)

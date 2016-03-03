@@ -14,6 +14,8 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.LockCancelledException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
+import com.twitter.distributedlog.lock.DistributedLockFactory;
+import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.readahead.ReadAheadWorker;
@@ -110,6 +112,7 @@ class BKLogReadHandler extends BKLogHandler {
     protected ReadAheadWorker readAheadWorker = null;
     private final boolean isHandleForReading;
 
+    private final DistributedLockFactory lockFactory;
     private final OrderedScheduler lockStateExecutor;
     private final Optional<String> subscriberId;
     private final String readLockPath;
@@ -172,6 +175,14 @@ class BKLogReadHandler extends BKLogHandler {
         this.subscriberId = subscriberId;
         this.readLockPath = logMetadata.getReadLockPath(subscriberId);
         this.lockStateExecutor = lockStateExecutor;
+        this.lockFactory = new ZKDistributedLockFactory(
+                zooKeeperClient,
+                getLockClientId(),
+                lockStateExecutor,
+                conf.getZKNumRetries(),
+                conf.getLockTimeoutMilliSeconds(),
+                conf.getZKRetryBackoffStartMillis(),
+                statsLogger.scope("read_lock"));
 
         this.isHandleForReading = isHandleForReading;
     }
@@ -202,14 +213,10 @@ class BKLogReadHandler extends BKLogHandler {
                     // ZK completion thread
                     BKLogReadHandler.this.readLock = new DistributedReentrantLock(
                             lockStateExecutor,
-                            zooKeeperClient,
+                            lockFactory,
                             readLockPath,
                             conf.getLockTimeoutMilliSeconds(),
-                            getLockClientId(),
-                            statsLogger.scope("read_lock"),
-                            conf.getZKNumRetries(),
-                            conf.getLockReacquireTimeoutMilliSeconds(),
-                            conf.getLockOpTimeoutMilliSeconds());
+                            statsLogger.scope("read_lock"));
 
                     LOG.info("acquiring readlock {} at {}", getLockClientId(), readLockPath);
                     return BKLogReadHandler.this.readLock;
@@ -235,8 +242,7 @@ class BKLogReadHandler extends BKLogHandler {
      * executor service thread.
      */
     Future<Void> acquireLockOnExecutorThread(DistributedReentrantLock lock) throws LockingException {
-        final Future<Boolean> acquireFuture = lock.asyncAcquire(
-            DistributedReentrantLock.LockReason.READHANDLER);
+        final Future<DistributedReentrantLock> acquireFuture = lock.asyncAcquire();
 
         // The future we return must be satisfied on an executor service thread. If we simply
         // return the future returned by asyncAcquire, user callbacks may end up running in
@@ -250,9 +256,9 @@ class BKLogReadHandler extends BKLogHandler {
                 return null;
             }
         });
-        acquireFuture.addEventListener(new FutureEventListener<Boolean>() {
+        acquireFuture.addEventListener(new FutureEventListener<DistributedReentrantLock>() {
             @Override
-            public void onSuccess(Boolean acquired) {
+            public void onSuccess(DistributedReentrantLock lock) {
                 LOG.info("acquired readlock {} at {}", getLockClientId(), readLockPath);
                 satisfyPromiseAsync(threadAcquirePromise, new Return<Void>(null));
             }
@@ -305,7 +311,7 @@ class BKLogReadHandler extends BKLogHandler {
                     // effect will be to abort any acquire
                     // attempts.
                     LOG.info("closing readlock {} at {}", getLockClientId(), readLockPath);
-                    readLock.close();
+                    Utils.closeQuietly(readLock);
                 }
             }
         }

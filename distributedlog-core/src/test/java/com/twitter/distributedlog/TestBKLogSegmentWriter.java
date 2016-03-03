@@ -4,10 +4,13 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
+import com.twitter.distributedlog.lock.DistributedLockFactory;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.Utils;
@@ -31,6 +34,7 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import scala.runtime.AbstractFunction0;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -117,23 +121,56 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         return confLocal;
     }
 
-    private DistributedReentrantLock createLock(String path, ZooKeeperClient zkClient) throws Exception {
+    private DistributedReentrantLock createLock(String path,
+                                                ZooKeeperClient zkClient,
+                                                boolean acquireLock)
+            throws Exception {
         try {
             Await.result(Utils.zkAsyncCreateFullPathOptimistic(zkClient, path, new byte[0],
                     ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT));
         } catch (KeeperException.NodeExistsException nee) {
             // node already exists
         }
-        return new DistributedReentrantLock(
-                lockStateExecutor,
+        DistributedLockFactory lockFactory = new ZKDistributedLockFactory(
                 zkClient,
+                "test-lock",
+                lockStateExecutor,
+                0,
+                Long.MAX_VALUE,
+                conf.getZKSessionTimeoutMilliseconds(),
+                NullStatsLogger.INSTANCE
+        );
+        DistributedReentrantLock lock = new DistributedReentrantLock(
+                lockStateExecutor,
+                lockFactory,
                 path,
                 Long.MAX_VALUE,
-                "test-lock",
-                NullStatsLogger.INSTANCE,
-                0,
-                DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
-                DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
+                NullStatsLogger.INSTANCE);
+        if (acquireLock) {
+            return FutureUtils.result(lock.asyncAcquire());
+        } else {
+            return lock;
+        }
+    }
+
+    private void closeWriterAndLock(BKLogSegmentWriter writer,
+                                    DistributedReentrantLock lock)
+            throws IOException {
+        try {
+            writer.close();
+        } finally {
+            Utils.closeQuietly(lock);
+        }
+    }
+
+    private void abortWriterAndLock(BKLogSegmentWriter writer,
+                                    DistributedReentrantLock lock)
+            throws IOException {
+        try {
+            writer.abort();
+        } finally {
+            Utils.closeQuietly(lock);
+        }
     }
 
     private BKLogSegmentWriter createLogSegmentWriter(DistributedLogConfiguration conf,
@@ -187,12 +224,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
-        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0, false);
+        Future<DistributedReentrantLock> lockFuture0 = lock0.asyncAcquire();
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -208,9 +245,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         assertEquals("Position should be " + numRecords,
                 10, writer.getPositionWithinLogSegment());
         // close the writer should flush buffered data and release lock
-        writer.close();
-        assertEquals("Lock should be released from the writer",
-                0, lock.getLockCount());
+        closeWriterAndLock(writer, lock);
         Await.result(lockFuture0);
         lock0.checkOwnership();
         assertEquals("Last tx id should still be " + (numRecords - 1),
@@ -251,12 +286,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
-        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0, false);
+        Future<DistributedReentrantLock> lockFuture0 = lock0.asyncAcquire();
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -272,9 +307,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         assertEquals("Position should be " + numRecords,
                 10, writer.getPositionWithinLogSegment());
         // close the writer should flush buffered data and release lock
-        writer.abort();
-        assertEquals("Lock should be released from the writer",
-                0, lock.getLockCount());
+        abortWriterAndLock(writer, lock);
         Await.result(lockFuture0);
         lock0.checkOwnership();
         assertEquals("Last tx id should still be " + (numRecords - 1),
@@ -329,12 +362,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
-        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0, false);
+        Future<DistributedReentrantLock> lockFuture0 = lock0.asyncAcquire();
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -352,14 +385,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         writer.setTransmitResult(rcToFailComplete);
         // close the writer should release lock but not flush data
         try {
-            writer.close();
+            closeWriterAndLock(writer, lock);
             fail("Close a log segment writer in error state should throw exception");
         } catch (BKTransmitException bkte) {
             assertEquals("Inconsistent rc is thrown",
                     rcToFailComplete, bkte.getBKResultCode());
         }
-        assertEquals("Lock should be released from the writer",
-                0, lock.getLockCount());
         Await.result(lockFuture0);
         lock0.checkOwnership();
         assertEquals("Last tx id should still be " + (numRecords - 1),
@@ -403,12 +434,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
-        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0, false);
+        Future<DistributedReentrantLock> lockFuture0 = lock0.asyncAcquire();
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -427,15 +458,13 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         fenceLedger(getLedgerHandle(writer));
         // close the writer: it should release the lock, fail on flushing data and throw exception
         try {
-            writer.close();
+            closeWriterAndLock(writer, lock);
             fail("Close a log segment writer when ledger is fenced should throw exception");
         } catch (BKTransmitException bkte) {
             assertEquals("Inconsistent rc is thrown",
                     BKException.Code.LedgerFencedException, bkte.getBKResultCode());
         }
 
-        assertEquals("Lock should be released from the writer",
-                0, lock.getLockCount());
         Await.result(lockFuture0);
         lock0.checkOwnership();
 
@@ -477,12 +506,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // Use another lock to wait for writer releasing lock
-        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0);
-        Future<Boolean> lockFuture0 = lock0.asyncAcquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        DistributedReentrantLock lock0 = createLock("/test/lock-" + runtime.getMethodName(), zkc0, false);
+        Future<DistributedReentrantLock> lockFuture0 = lock0.asyncAcquire();
         // add 10 records
         int numRecords = 10;
         List<Future<DLSN>> futureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -535,10 +564,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 2 * numRecords, writer.getPositionWithinLogSegment());
 
         // abort the writer: it waits for outstanding transmits and abort buffered data
-        writer.abort();
+        abortWriterAndLock(writer, lock);
 
-        assertEquals("Lock should be released from the writer",
-                0, lock.getLockCount());
         Await.result(lockFuture0);
         lock0.checkOwnership();
 
@@ -597,7 +624,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setImmediateFlushEnabled(false);
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
         // add 10 records
@@ -619,7 +646,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 numRecords, writer.getPositionWithinLogSegment());
 
         // close the writer to flush the output buffer
-        writer.close();
+        closeWriterAndLock(writer, lock);
 
         List<DLSN> dlsns = Await.result(Future.collect(futureList));
         assertEquals("All 11 records should be written",
@@ -663,11 +690,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
         confLocal.setDurableWriteEnabled(false);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
         // close the writer
+        closeWriterAndLock(writer, lock);
         writer.close();
 
         try {
@@ -690,7 +718,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
         confLocal.setDurableWriteEnabled(false);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
@@ -702,6 +730,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         } catch (EndOfStreamException we) {
             // expected
         }
+
+        closeWriterAndLock(writer, lock);
     }
 
     /**
@@ -716,7 +746,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
         confLocal.setDurableWriteEnabled(false);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
@@ -739,6 +769,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         } catch (WriteException we) {
             // expected
         }
+
+        abortWriterAndLock(writer, lock);
     }
 
     /**
@@ -753,13 +785,15 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         confLocal.setOutputBufferSize(Integer.MAX_VALUE);
         confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
         confLocal.setDurableWriteEnabled(false);
-        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc);
+        DistributedReentrantLock lock = createLock("/test/lock-" + runtime.getMethodName(), zkc, true);
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
         assertEquals(DLSN.InvalidDLSN,
                 Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(2))));
+        assertEquals(-1L, ((BKLogSegmentEntryWriter) writer.getEntryWriter())
+                .getLedgerHandle().getLastAddPushed());
 
-        assertEquals(-1L, getLedgerHandle(writer).getLastAddPushed());
+        closeWriterAndLock(writer, lock);
     }
 }

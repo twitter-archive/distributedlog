@@ -11,9 +11,10 @@ import com.google.common.base.Optional;
 import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.io.AsyncCloseable;
+import com.twitter.distributedlog.lock.DistributedReentrantLock;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
@@ -22,17 +23,22 @@ import com.twitter.util.Throw;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.ZooKeeper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scala.runtime.BoxedUnit;
+
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
-import scala.runtime.BoxedUnit;
 
 /**
  * Basic Utilities.
  */
 public class Utils {
+
+    private static final Logger logger = LoggerFactory.getLogger(Utils.class);
 
     /**
      * Current time from some arbitrary time base in the past, counting in
@@ -454,6 +460,20 @@ public class Utils {
     public static void close(Closeable closeable) {
         try {
             Closeables.close(closeable, true);
+        } catch (IOException e) {
+            // no-op. the exception is swallowed.
+        }
+    }
+
+    /**
+     * Close an lock.
+     *
+     * @param lock
+     *          lock to close
+     */
+    public static void closeQuietly(DistributedReentrantLock lock) {
+        try {
+            FutureUtils.result(lock.close());
         } catch (IOException e) {
             // no-op. the exception is swallowed.
         }

@@ -107,6 +107,10 @@ public class TestDistributedLogBase {
     }
 
     protected void ensureURICreated(URI uri) throws Exception {
+        ensureURICreated(zkc, uri);
+    }
+
+    protected void ensureURICreated(ZooKeeper zkc, URI uri) throws Exception {
         try {
             zkc.create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         } catch (KeeperException.NodeExistsException nee) {

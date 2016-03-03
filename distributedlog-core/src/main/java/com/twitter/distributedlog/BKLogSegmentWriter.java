@@ -182,7 +182,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  DistributedLogConfiguration conf,
                                  int logSegmentMetadataVersion,
                                  LogSegmentEntryWriter entryWriter,
-                                 DistributedReentrantLock lock,
+                                 DistributedReentrantLock lock, /** the lock needs to be acquired **/
                                  long startTxId,
                                  long logSegmentSequenceNumber,
                                  ScheduledExecutorService executorService,
@@ -253,7 +253,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.logSegmentMetadataVersion = logSegmentMetadataVersion;
         this.entryWriter = entryWriter;
         this.lock = lock;
-        this.lock.acquire(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
+        this.lock.checkOwnershipAndReacquire();
 
         final int configuredTransmissionThreshold = dynConf.getOutputBufferSize();
         if (configuredTransmissionThreshold > MAX_LOGRECORDSET_SIZE) {
@@ -572,8 +572,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                 }
             }
         }
-
-        lock.release(DistributedReentrantLock.LockReason.PERSTREAMWRITER);
 
         // If add entry failed because of closing ledger above, we don't need to fail the close operation
         if (!abort && null == throwExc && shouldFailCompleteLogSegment()) {
@@ -972,7 +970,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                     + getFullyQualifiedLogSegment());
         }
         if (enforceLock) {
-            lock.checkOwnershipAndReacquire(false);
+            lock.checkOwnershipAndReacquire();
         }
     }
 
@@ -1276,7 +1274,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     synchronized private void backgroundFlush(boolean controlFlushOnly)  {
         if (closed) {
             // if the log segment is closing, skip any background flushing
-            LOG.info("Skip background flushing since log segment {} is closing.", getFullyQualifiedLogSegment());
+            LOG.debug("Skip background flushing since log segment {} is closing.", getFullyQualifiedLogSegment());
             return;
         }
         try {

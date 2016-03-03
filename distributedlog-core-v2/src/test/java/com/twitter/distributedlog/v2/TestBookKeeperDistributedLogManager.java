@@ -322,11 +322,9 @@ public class TestBookKeeperDistributedLogManager {
     public void testTwoWriters() throws Exception {
         long start = 1;
         BKLogPartitionWriteHandler bkdlm1 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
-        BKLogPartitionWriteHandler bkdlm2 = DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
 
-        bkdlm1.startLogSegment(start);
         try {
-            bkdlm2.startLogSegment(start);
+            DLMTestUtil.createNewBKDLM(conf, "distrlog-dualWriter");
             fail("Shouldn't have been able to open the second writer");
         } catch (OwnershipAcquireFailedException ioe) {
             assertEquals(ioe.getCurrentOwner(), "localhost");

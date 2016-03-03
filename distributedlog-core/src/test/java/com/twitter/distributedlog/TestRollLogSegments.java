@@ -393,8 +393,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                 perStreamWriter.getStartTxId(), perStreamWriter.getLastTxId(),
                 perStreamWriter.getPositionWithinLogSegment() - 1,
                 9,
-                0,
-                true);
+                0);
 
         BKSyncLogWriter anotherWriter = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();
         anotherWriter.write(DLMTestUtil.getLogRecordInstance(numEntries + 3));

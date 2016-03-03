@@ -335,11 +335,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
     }
 
     static class ReadRecordsListener implements FutureEventListener<AsyncLogReader> {
-        CountDownLatch latch = new CountDownLatch(1);
-        boolean failed = false;
-        AtomicReference<DLSN> currentDLSN;
-        String name;
+
+        final AtomicReference<DLSN> currentDLSN;
+        final String name;
         final ExecutorService executorService;
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        boolean failed = false;
 
         public ReadRecordsListener(AtomicReference<DLSN> currentDLSN,
                                    String name,
@@ -360,6 +362,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         @Override
         public void onSuccess(final AsyncLogReader reader) {
+            LOG.info("Reader {} is ready to read entries", name);
             executorService.submit(new Runnable() {
                 @Override
                 public void run() {
@@ -383,12 +386,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         @Override
         public void onFailure(Throwable cause) {
+            LOG.error("{} failed to open reader", name, cause);
             failed = true;
             latch.countDown();
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReaderLockMultiReadersScenario() throws Exception {
         final String name = runtime.getMethodName();
         URI uri = createDLMURI("/" + name);
@@ -401,9 +405,10 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         localConf.setOutputBufferSize(0);
         // Otherwise, we won't be able to run scheduled threads for readahead when we're in a callback.
         localConf.setNumWorkerThreads(2);
+        localConf.setLockTimeout(Long.MAX_VALUE);
 
         DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(localConf).uri(uri).build();
+                .conf(localConf).uri(uri).clientId("main").build();
 
         DistributedLogManager dlm0 = namespace.openLog(name);
         DLMTestUtil.generateCompletedLogSegments(dlm0, localConf, 9, 100);
@@ -412,26 +417,35 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         int recordCount = 0;
         AtomicReference<DLSN> currentDLSN = new AtomicReference<DLSN>(DLSN.InitialDLSN);
 
+        String clientId1 = "reader1";
         DistributedLogNamespace namespace1 = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(localConf).uri(uri).clientId("gabbagoo").build();
+                .conf(localConf).uri(uri).clientId(clientId1).build();
         DistributedLogManager dlm1 = namespace1.openLog(name);
+        String clientId2 = "reader2";
         DistributedLogNamespace namespace2 = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(localConf).uri(uri).clientId("tortellinin").build();
+                .conf(localConf).uri(uri).clientId(clientId2).build();
         DistributedLogManager dlm2 = namespace2.openLog(name);
+        String clientId3 = "reader3";
         DistributedLogNamespace namespace3 = DistributedLogNamespaceBuilder.newBuilder()
-                .conf(localConf).uri(uri).clientId("parmigianino").build();
+                .conf(localConf).uri(uri).clientId(clientId3).build();
         DistributedLogManager dlm3 = namespace3.openLog(name);
 
+        LOG.info("{} is opening reader on stream {}", clientId1, name);
         Future<AsyncLogReader> futureReader1 = dlm1.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
         AsyncLogReader reader1 = Await.result(futureReader1);
+        LOG.info("{} opened reader on stream {}", clientId1, name);
 
+        LOG.info("{} is opening reader on stream {}", clientId2, name);
         Future<AsyncLogReader> futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
+        LOG.info("{} is opening reader on stream {}", clientId3, name);
         Future<AsyncLogReader> futureReader3 = dlm3.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
 
         ExecutorService executorService = Executors.newCachedThreadPool();
 
-        ReadRecordsListener listener2 = new ReadRecordsListener(currentDLSN, "reader-2", executorService);
-        ReadRecordsListener listener3 = new ReadRecordsListener(currentDLSN, "reader-3", executorService);
+        ReadRecordsListener listener2 =
+                new ReadRecordsListener(currentDLSN, clientId2, executorService);
+        ReadRecordsListener listener3 =
+                new ReadRecordsListener(currentDLSN, clientId3, executorService);
         futureReader2.addEventListener(listener2);
         futureReader3.addEventListener(listener3);
 

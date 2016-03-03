@@ -98,15 +98,9 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     protected void closeAndComplete(boolean shouldThrow) throws IOException {
         try {
             if (null != perStreamWriter && null != writeHandler) {
-                try {
-                    waitForTruncation();
-                    writeHandler.completeAndCloseLogSegment(perStreamWriter);
-                } finally {
-                    // ensure write handler is closed
-                    writeHandler.close();
-                }
+                waitForTruncation();
+                writeHandler.completeAndCloseLogSegment(perStreamWriter);
                 perStreamWriter = null;
-                writeHandler = null;
             }
         } catch (IOException exc) {
             LOG.error("Completing Log segments encountered exception", exc);
@@ -185,11 +179,11 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     }
 
     synchronized protected BKLogWriteHandler createAndCacheWriteHandler(String streamIdentifier,
-                                                                                 FuturePool orderedFuturePool)
+                                                                        FuturePool orderedFuturePool)
             throws IOException {
         BKLogWriteHandler ledgerManager = getCachedWriteHandler();
         if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool);
+            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool, false);
             cacheWriteHandler(ledgerManager);
         }
         return ledgerManager;
@@ -206,16 +200,21 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
 
         // Handle the case where the last call to write actually caused an error in the log
         if ((null != ledgerWriter) && (ledgerWriter.isLogSegmentInError() || forceRecovery) && resetOnError) {
-
+            BKLogSegmentWriter ledgerWriterToClose = ledgerWriter;
             // Close the ledger writer so that we will recover and start a new log segment
-            ledgerWriter.close();
+            if (ledgerWriterToClose.isLogSegmentInError()) {
+                ledgerWriterToClose.abort();
+            } else {
+                ledgerWriterToClose.close();
+            }
             ledgerWriter = null;
             removeCachedLogWriter();
 
-            // This is strictly not necessary - but its safe nevertheless
-            BKLogWriteHandler ledgerManager = removeCachedWriteHandler();
-            if (null != ledgerManager) {
-                ledgerManager.close();
+            if (!ledgerWriterToClose.isLogSegmentInError()) {
+                BKLogWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
+                if (null != writeHandler) {
+                    writeHandler.completeAndCloseLogSegment(ledgerWriterToClose);
+                }
             }
         }
 

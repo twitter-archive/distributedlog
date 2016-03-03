@@ -32,7 +32,6 @@ import com.twitter.distributedlog.zk.ZKOp;
 import com.twitter.distributedlog.zk.ZKTransaction;
 import com.twitter.distributedlog.zk.ZKVersionedSetOp;
 import com.twitter.util.Function;
-import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.FuturePool;
@@ -56,13 +55,11 @@ import org.apache.zookeeper.data.ACL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.runtime.AbstractFunction1;
-import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -84,8 +81,6 @@ class BKLogWriteHandler extends BKLogHandler {
     static final Logger LOG = LoggerFactory.getLogger(BKLogReadHandler.class);
 
     protected final DistributedReentrantLock lock;
-    protected final DistributedReentrantLock deleteLock;
-    protected final AtomicInteger startLogSegmentCount = new AtomicInteger(0);
     protected final int ensembleSize;
     protected final int writeQuorumSize;
     protected final int ackQuorumSize;
@@ -98,7 +93,7 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
-    protected boolean lockHandler = false;
+    protected Future<DistributedReentrantLock> lockFuture = null;
     protected final PermitLimiter writeLimiter;
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
@@ -142,8 +137,7 @@ class BKLogWriteHandler extends BKLogHandler {
                       PermitLimiter writeLimiter,
                       FeatureProvider featureProvider,
                       DynamicDistributedLogConfiguration dynConf,
-                      DistributedReentrantLock lock, /** owned by handler **/
-                      DistributedReentrantLock deleteLock /** owned by handler **/) {
+                      DistributedReentrantLock lock /** owned by handler **/) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.perLogStatsLogger = perLogStatsLogger;
@@ -153,7 +147,6 @@ class BKLogWriteHandler extends BKLogHandler {
         this.dynConf = dynConf;
         this.ledgerAllocator = allocator;
         this.lock = lock;
-        this.deleteLock = deleteLock;
         this.metadataUpdater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, metadataStore);
 
         ensembleSize = conf.getEnsembleSize();
@@ -295,24 +288,22 @@ class BKLogWriteHandler extends BKLogHandler {
      * 1) increase latency when re-lock on starting new log segment. 2) increase the
      * possibility of a stream being re-acquired by other instances.
      *
-     * @return write handler
-     * @throws LockingException
+     * @return future represents the lock result
      */
-    BKLogWriteHandler lockHandler() throws LockingException {
-        if (lockHandler) {
-            return this;
+    Future<DistributedReentrantLock> lockHandler() {
+        if (null != lockFuture) {
+            return lockFuture;
         }
-        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
-        lockHandler = true;
-        return this;
+        lockFuture = lock.asyncAcquire();
+        return lockFuture;
     }
 
-    BKLogWriteHandler unlockHandler() throws LockingException {
-        if (lockHandler) {
-            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
-            lockHandler = false;
+    Future<Void> unlockHandler() {
+        if (null != lockFuture) {
+            return lock.close();
+        } else {
+            return Future.Void();
         }
-        return this;
     }
 
     void checkMetadataException() throws IOException {
@@ -415,8 +406,7 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
-        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
-        startLogSegmentCount.incrementAndGet();
+        lock.checkOwnershipAndReacquire();
         Promise<BKLogSegmentWriter> promise = new Promise<BKLogSegmentWriter>();
         doStartLogSegment(txId, bestEffort, allowMaxTxID, promise);
         return FutureUtils.result(promise);
@@ -525,8 +515,10 @@ class BKLogWriteHandler extends BKLogHandler {
         final LogSegmentMetadata l =
             new LogSegmentMetadata.LogSegmentMetadataBuilder(inprogressZnodePath,
                 conf.getDLLedgerMetadataLayoutVersion(), lh.getId(), txId)
-                .setLogSegmentSequenceNo(logSegmentSeqNo)
-                .setRegionId(regionId).build();
+                    .setLogSegmentSequenceNo(logSegmentSeqNo)
+                    .setRegionId(regionId)
+                    .setEnvelopeEntries(LogSegmentMetadata.supportsEnvelopedEntries(conf.getDLLedgerMetadataLayoutVersion()))
+                    .build();
 
         // Create an inprogress segment
         writeLogSegment(
@@ -608,15 +600,11 @@ class BKLogWriteHandler extends BKLogHandler {
 
         @Override
         Long processOp() throws IOException {
-            lock.acquire(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
-            try {
-                completeAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo, ledgerId, firstTxId, lastTxId,
-                        recordCount, lastEntryId, lastSlotId, false);
-                LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
-                return lastTxId;
-            } finally {
-                lock.release(DistributedReentrantLock.LockReason.COMPLETEANDCLOSE);
-            }
+            lock.checkOwnershipAndReacquire();
+            completeAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo, ledgerId, firstTxId, lastTxId,
+                    recordCount, lastEntryId, lastSlotId);
+            LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
+            return lastTxId;
         }
 
         @Override
@@ -645,7 +633,7 @@ class BKLogWriteHandler extends BKLogHandler {
             completeAndCloseLogSegment(
                     inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
                     writer.getLogSegmentSequenceNumber(), writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
-                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId(), true);
+                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
             return writer.getLastTxId();
         }
 
@@ -675,7 +663,7 @@ class BKLogWriteHandler extends BKLogHandler {
     void completeAndCloseLogSegment(long logSegmentSeqNo, long ledgerId, long firstTxId, long lastTxId, int recordCount)
         throws IOException {
         completeAndCloseLogSegment(inprogressZNodeName(ledgerId, firstTxId, logSegmentSeqNo), logSegmentSeqNo,
-            ledgerId, firstTxId, lastTxId, recordCount, -1, -1, true);
+            ledgerId, firstTxId, lastTxId, recordCount, -1, -1);
     }
 
     /**
@@ -689,14 +677,14 @@ class BKLogWriteHandler extends BKLogHandler {
      */
     void completeAndCloseLogSegment(String inprogressZnodeName, long logSegmentSeqNo,
                                     long ledgerId, long firstTxId, long lastTxId,
-                                    int recordCount, long lastEntryId, long lastSlotId, boolean shouldReleaseLock)
+                                    int recordCount, long lastEntryId, long lastSlotId)
             throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             doCompleteAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo,
                                          ledgerId, firstTxId, lastTxId, recordCount,
-                                         lastEntryId, lastSlotId, shouldReleaseLock);
+                                         lastEntryId, lastSlotId);
             success = true;
         } finally {
             if (success) {
@@ -725,14 +713,16 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     /**
-     * Close the log segment.
+     * Close log segment
      *
+     * @param inprogressZnodeName
+     * @param logSegmentSeqNo
+     * @param ledgerId
      * @param firstTxId
      * @param lastTxId
      * @param recordCount
      * @param lastEntryId
      * @param lastSlotId
-     * @param shouldReleaseLock
      * @throws IOException
      */
     protected void doCompleteAndCloseLogSegment(String inprogressZnodeName,
@@ -742,8 +732,7 @@ class BKLogWriteHandler extends BKLogHandler {
                                                 long lastTxId,
                                                 int recordCount,
                                                 long lastEntryId,
-                                                long lastSlotId,
-                                                boolean shouldReleaseLock)
+                                                long lastSlotId)
             throws IOException {
         Promise<Void> promise = new Promise<Void>();
         doCompleteAndCloseLogSegment(
@@ -755,7 +744,6 @@ class BKLogWriteHandler extends BKLogHandler {
                 recordCount,
                 lastEntryId,
                 lastSlotId,
-                shouldReleaseLock,
                 promise);
         FutureUtils.result(promise);
     }
@@ -768,10 +756,9 @@ class BKLogWriteHandler extends BKLogHandler {
                                                 int recordCount,
                                                 long lastEntryId,
                                                 long lastSlotId,
-                                                final boolean shouldReleaseLock,
                                                 final Promise<Void> promise) {
         try {
-            lock.checkOwnershipAndReacquire(true);
+            lock.checkOwnershipAndReacquire();
         } catch (IOException ioe) {
             FutureUtils.setException(promise, ioe);
             return;
@@ -855,21 +842,12 @@ class BKLogWriteHandler extends BKLogHandler {
             public void onSuccess(Void value) {
                 LOG.info("Completed {} to {} for {} : {}",
                         new Object[] { inprogressZnodeName, nameForCompletedLedger, getFullyQualifiedName(), completedLogSegment });
-                releaseLockIfNecessary();
                 FutureUtils.setValue(promise, value);
             }
 
             @Override
             public void onFailure(Throwable cause) {
-                releaseLockIfNecessary();
                 FutureUtils.setException(promise, cause);
-            }
-
-            void releaseLockIfNecessary() {
-                if (shouldReleaseLock && startLogSegmentCount.get() > 0) {
-                    lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
-                    startLogSegmentCount.decrementAndGet();
-                }
             }
 
         }, scheduler));
@@ -945,15 +923,9 @@ class BKLogWriteHandler extends BKLogHandler {
             long lastEntryId = -1;
             long lastSlotId = -1;
 
-            LogRecordWithDLSN record;
-            lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
-            try {
-                LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
-                record = recoverLastRecordInLedger(l, true, true, true);
-                LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
-            } finally {
-                lock.release(DistributedReentrantLock.LockReason.RECOVER);
-            }
+            LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
+            LogRecordWithDLSN record = recoverLastRecordInLedger(l, true, true, true);
+            LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
 
             if (null != record) {
                 endTxId = record.getTransactionId();
@@ -987,21 +959,11 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     public void deleteLog() throws IOException {
-        try {
-            deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
-        } catch (LockingException lockExc) {
-            throw new IOException("deleteLog could not acquire exclusive lock on the log " + getFullyQualifiedName());
-        }
+        lock.checkOwnershipAndReacquire();
+        FutureUtils.result(purgeLogSegmentsOlderThanTxnId(-1));
 
         try {
-            FutureUtils.result(purgeLogSegmentsOlderThanTxnId(-1));
-        } finally {
-            deleteLock.release(DistributedReentrantLock.LockReason.DELETELOG);
-        }
-
-        try {
-            lock.close();
-            deleteLock.close();
+            Utils.closeQuietly(lock);
             zooKeeperClient.get().exists(logMetadata.getLogSegmentsPath(), false);
             zooKeeperClient.get().exists(logMetadata.getMaxTxIdPath(), false);
             if (logMetadata.getLogRootPath().toLowerCase().contains("distributedlog")) {
@@ -1276,17 +1238,13 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     public void close() {
-        closed = true;
-        if (startLogSegmentCount.get() > 0) {
-            while (startLogSegmentCount.decrementAndGet() >= 0) {
-                lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
+        synchronized (this) {
+            if (closed) {
+                return;
             }
+            closed = true;
         }
-        if (lockHandler) {
-            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
-        }
-        lock.close();
-        deleteLock.close();
+        Utils.closeQuietly(lock);
         ledgerAllocator.close();
         // close the zookeeper client & bookkeeper client after closing the lock
         super.close();

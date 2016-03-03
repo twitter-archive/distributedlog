@@ -21,6 +21,8 @@ import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.impl.ZKLogMetadataStore;
 import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.federated.FederatedZKLogMetadataStore;
+import com.twitter.distributedlog.lock.DistributedLockFactory;
+import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.LogMetadataStore;
@@ -275,6 +277,8 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     // log segment metadata store
     private final LogSegmentMetadataStore writerSegmentMetadataStore;
     private final LogSegmentMetadataStore readerSegmentMetadataStore;
+    // lock factory
+    private final DistributedLockFactory lockFactory;
 
     // feature provider
     private final FeatureProvider featureProvider;
@@ -418,6 +422,15 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         } else {
             allocator = null;
         }
+        // Build the lock factory
+        this.lockFactory = new ZKDistributedLockFactory(
+                sharedWriterZKCForDL,
+                clientId,
+                lockStateExecutor,
+                conf.getZKNumRetries(),
+                conf.getLockTimeoutMilliSeconds(),
+                conf.getZKRetryBackoffStartMillis(),
+                statsLogger);
 
         // Stats Loggers
         this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
@@ -834,6 +847,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 readerZKCForBK,                     /* ZKC for BookKeeper for DL Readers */
                 writerBKCBuilder,                   /* BookKeeper Builder for DL Writers */
                 readerBKCBuilder,                   /* BookKeeper Builder for DL Readers */
+                lockFactory,                        /* Lock Factory */
                 writerSegmentMetadataStore,         /* Log Segment Metadata Store for DL Writers */
                 readerSegmentMetadataStore,         /* Log Segment Metadata Store for DL Readers */
                 scheduler,                          /* DL scheduler */

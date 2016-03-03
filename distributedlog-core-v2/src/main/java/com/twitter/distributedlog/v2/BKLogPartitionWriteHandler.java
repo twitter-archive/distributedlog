@@ -1,8 +1,8 @@
 package com.twitter.distributedlog.v2;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
-import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
@@ -10,7 +10,9 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.lock.DistributedLockFactory;
 import com.twitter.distributedlog.lock.DistributedReentrantLock;
+import com.twitter.distributedlog.lock.ZKDistributedLockFactory;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -39,9 +41,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Stopwatch;
-
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DLSNUtil.*;
 
@@ -51,14 +50,12 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     private static final int LAYOUT_VERSION = -1;
 
     private final DistributedReentrantLock lock;
-    private final DistributedReentrantLock deleteLock;
     protected final OrderedScheduler lockStateExecutor;
     private final String maxTxIdPath;
     private final MaxTxId maxTxId;
     private final int ensembleSize;
     private final int writeQuorumSize;
     private final int ackQuorumSize;
-    private boolean lockAcquired;
     private LedgerHandle currentLedger = null;
     private long currentLedgerStartTxId = DistributedLogConstants.INVALID_TXID;
     private volatile boolean recovered = false;
@@ -193,15 +190,19 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                 throw new ZKException("Exception when creating zookeeper lock " + lockPath, e);
             }
         }
-        lock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(),
-                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
-        deleteLock = new DistributedReentrantLock(lockStateExecutor, zooKeeperClient, lockPath,
-                conf.getLockTimeoutMilliSeconds(), clientId, statsLogger, conf.getZKNumRetries(),
-                conf.getLockReacquireTimeoutMilliSeconds(), conf.getLockOpTimeoutMilliSeconds());
+        DistributedLockFactory lockFactory = new ZKDistributedLockFactory(
+                zooKeeperClient,
+                clientId,
+                lockStateExecutor,
+                conf.getZKNumRetries(),
+                conf.getLockTimeoutMilliSeconds(),
+                conf.getZKRetryBackoffStartMillis(),
+                statsLogger);
+        lock = new DistributedReentrantLock(lockStateExecutor, lockFactory, lockPath,
+                conf.getLockTimeoutMilliSeconds(), statsLogger);
+        FutureUtils.result(lock.asyncAcquire());
         maxTxId = new MaxTxId(zooKeeperClient, maxTxIdPath);
         lastLedgerRollingTimeMillis = Utils.nowInMillis();
-        lockAcquired = false;
 
         // Stats
         StatsLogger segmentsStatsLogger = statsLogger.scope("segments");
@@ -238,8 +239,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     private BKPerStreamLogWriter doStartLogSegment(long txId) throws IOException {
-        lock.acquire(DistributedReentrantLock.LockReason.WRITEHANDLER);
-        lockAcquired = true;
+        lock.checkOwnershipAndReacquire();
         long highestTxIdWritten = maxTxId.get();
         if (highestTxIdWritten == DistributedLogConstants.MAX_TXID) {
             LOG.error("We've already marked the stream as ended and attempting to start a new log segment");
@@ -346,7 +346,11 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      public void completeAndCloseLogSegment(BKPerStreamLogWriter writer)
         throws IOException {
          writer.closeToFinalize();
-         completeAndCloseLogSegment(inprogressZNodeName(currentLedgerStartTxId), currentLedgerStartTxId, writer.getLastTxId(), writer.getRecordCount(), true);
+         completeAndCloseLogSegment(
+                 inprogressZNodeName(currentLedgerStartTxId),
+                 currentLedgerStartTxId,
+                 writer.getLastTxId(),
+                 writer.getRecordCount());
      }
 
     /**
@@ -358,28 +362,15 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    @VisibleForTesting
-    public void completeAndCloseLogSegment(String inprogressZnodeName, long firstTxId, long lastTxId, int recordCount)
-        throws IOException {
-        completeAndCloseLogSegment(inprogressZnodeName, firstTxId, lastTxId, recordCount, true);
-    }
-
-    /**
-     * Finalize a log segment. If the journal manager is currently
-     * writing to a ledger, ensure that this is the ledger of the log segment
-     * being finalized.
-     * <p/>
-     * Otherwise this is the recovery case. In the recovery case, ensure that
-     * the firstTxId of the ledger matches firstTxId for the segment we are
-     * trying to finalize.
-     */
-    public void completeAndCloseLogSegment(String inprogressZnodeName, long firstTxId, long lastTxId,
-                                           int recordCount, boolean shouldReleaseLock)
+    public void completeAndCloseLogSegment(String inprogressZnodeName,
+                                           long firstTxId,
+                                           long lastTxId,
+                                           int recordCount)
             throws IOException {
         Stopwatch stopwatch = new Stopwatch().start();
         boolean success = false;
         try {
-            doCompleteAndCloseLogSegment(inprogressZnodeName, firstTxId, lastTxId, recordCount, shouldReleaseLock);
+            doCompleteAndCloseLogSegment(inprogressZnodeName, firstTxId, lastTxId, recordCount);
             success = true;
         } finally {
             if (success) {
@@ -390,8 +381,10 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         }
     }
 
-    private void doCompleteAndCloseLogSegment(String inprogressZnodeName, long firstTxId, long lastTxId,
-                                              int recordCount, boolean shouldReleaseLock)
+    private void doCompleteAndCloseLogSegment(String inprogressZnodeName,
+                                              long firstTxId,
+                                              long lastTxId,
+                                              int recordCount)
             throws IOException {
         LOG.debug("Completing and Closing Log Segment {} {}", firstTxId, lastTxId);
         String inprogressPath = inprogressZNode(inprogressZnodeName);
@@ -402,7 +395,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
                     + " doesn't exist");
             }
 
-            lock.checkOwnershipAndReacquire(true);
+            lock.checkOwnershipAndReacquire();
             LogSegmentLedgerMetadata l
                 = LogSegmentLedgerMetadata.read(zooKeeperClient, inprogressPath);
 
@@ -460,11 +453,6 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
         } catch (KeeperException e) {
             throw new IOException("Error when finalising stream " + partitionRootPath, e);
-        } finally {
-            if (shouldReleaseLock && lockAcquired) {
-                lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
-                lockAcquired = false;
-            }
         }
     }
 
@@ -488,70 +476,60 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
             return;
         }
         LOG.info("Initiating Recovery For {}", getFullyQualifiedName());
-        lock.acquire(DistributedReentrantLock.LockReason.RECOVER);
+        lock.checkOwnershipAndReacquire();
         synchronized (this) {
-            try {
-                if (recovered) {
-                    return;
-                }
-                for (LogSegmentLedgerMetadata l : getLedgerList()) {
-                    if (!l.isInProgress()) {
-                        continue;
-                    }
-                    long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
-                    int recordCount = 0;
-
-                    LogRecord record = recoverLastRecordInLedger(l, true, true, true);
-
-                    if (null != record) {
-                        endTxId = record.getTransactionId();
-                        recordCount = getPositionWithinLogSegment(record);
-                    }
-
-                    if (endTxId == DistributedLogConstants.INVALID_TXID) {
-                        LOG.error("Unrecoverable corruption has occurred in segment "
-                            + l.toString() + " at path " + l.getZkPath()
-                            + ". Unable to continue recovery.");
-                        throw new IOException("Unrecoverable corruption,"
-                            + " please check logs.");
-                    } else if (endTxId == DistributedLogConstants.EMPTY_LEDGER_TX_ID) {
-                        // TODO: Empty ledger - Ideally we should just remove it?
-                        endTxId = l.getFirstTxId();
-                    }
-
-                    // Make the lock release symmetric by having this function acquire and
-                    // release the lock and have complete and close only release the lock
-                    // that's acquired in start log segment
-                    completeAndCloseLogSegment(l.getZNodeName(), l.getFirstTxId(), endTxId, recordCount, false);
-                    LOG.info("Recovered {} FirstTxId:{} LastTxId:{}", new Object[]{getFullyQualifiedName(), l.getFirstTxId(), endTxId});
-
-                }
-                if (lastLedgerRollingTimeMillis < 0) {
-                    lastLedgerRollingTimeMillis = Utils.nowInMillis();
-                }
-                recovered = true;
-            } finally {
-                lock.release(DistributedReentrantLock.LockReason.RECOVER);
+            if (recovered) {
+                return;
             }
+            for (LogSegmentLedgerMetadata l : getLedgerList()) {
+                if (!l.isInProgress()) {
+                    continue;
+                }
+                long endTxId = DistributedLogConstants.EMPTY_LEDGER_TX_ID;
+                int recordCount = 0;
+
+                LogRecord record = recoverLastRecordInLedger(l, true, true, true);
+
+                if (null != record) {
+                    endTxId = record.getTransactionId();
+                    recordCount = getPositionWithinLogSegment(record);
+                }
+
+                if (endTxId == DistributedLogConstants.INVALID_TXID) {
+                    LOG.error("Unrecoverable corruption has occurred in segment "
+                        + l.toString() + " at path " + l.getZkPath()
+                        + ". Unable to continue recovery.");
+                    throw new IOException("Unrecoverable corruption,"
+                        + " please check logs.");
+                } else if (endTxId == DistributedLogConstants.EMPTY_LEDGER_TX_ID) {
+                    // TODO: Empty ledger - Ideally we should just remove it?
+                    endTxId = l.getFirstTxId();
+                }
+
+                // Make the lock release symmetric by having this function acquire and
+                // release the lock and have complete and close only release the lock
+                // that's acquired in start log segment
+                completeAndCloseLogSegment(
+                        l.getZNodeName(),
+                        l.getFirstTxId(),
+                        endTxId,
+                        recordCount);
+                LOG.info("Recovered {} FirstTxId:{} LastTxId:{}", new Object[]{getFullyQualifiedName(), l.getFirstTxId(), endTxId});
+
+            }
+            if (lastLedgerRollingTimeMillis < 0) {
+                lastLedgerRollingTimeMillis = Utils.nowInMillis();
+            }
+            recovered = true;
         }
     }
 
     public void deleteLog() throws IOException {
-        try {
-            deleteLock.acquire(DistributedReentrantLock.LockReason.DELETELOG);
-        } catch (LockingException lockExc) {
-            throw new IOException("deleteLog could not acquire exclusive lock on the partition" + getFullyQualifiedName());
-        }
+        lock.checkOwnershipAndReacquire();
+        purgeAllLogs();
 
         try {
-            purgeAllLogs();
-        } finally {
-            deleteLock.release(DistributedReentrantLock.LockReason.DELETELOG);
-        }
-
-        try {
-            lock.close();
-            deleteLock.close();
+            FutureUtils.result(lock.close());
             zooKeeperClient.get().exists(ledgerPath, false);
             zooKeeperClient.get().exists(maxTxIdPath, false);
             if (partitionRootPath.toLowerCase().contains("distributedlog")) {
@@ -728,12 +706,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
     }
 
     public void close() throws IOException {
-        if (lockAcquired) {
-            lock.release(DistributedReentrantLock.LockReason.WRITEHANDLER);
-            lockAcquired = false;
-        }
-        lock.close();
-        deleteLock.close();
+        Utils.closeQuietly(lock);
         // close the zookeeper client & bookkeeper client after closing the lock
         super.close();
     }

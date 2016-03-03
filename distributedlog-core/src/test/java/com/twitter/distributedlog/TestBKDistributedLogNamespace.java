@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.BKDLUtils;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
@@ -62,6 +63,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testCreateIfNotExists() throws Exception {
         URI uri = createDLMURI("/" + runtime.getMethodName());
+        ensureURICreated(zooKeeperClient.get(), uri);
         DistributedLogConfiguration newConf = new DistributedLogConfiguration();
         newConf.addConfiguration(conf);
         newConf.setCreateStreamIfNotExists(false);
@@ -69,8 +71,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
                 .conf(newConf).uri(uri).build();
         DistributedLogManager dlm = namespace.openLog(streamName);
-        LogWriter writer = dlm.startLogSegmentNonPartitioned();
+        LogWriter writer;
         try {
+            writer = dlm.startLogSegmentNonPartitioned();
             writer.write(DLMTestUtil.getLogRecordInstance(1L));
             fail("Should fail to write data if stream doesn't exist.");
         } catch (IOException ioe) {
@@ -282,7 +285,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         namespace.close();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testAclPermsZkAccessConflict() throws Exception {
 
         String namespace = "/" + runtime.getMethodName();
@@ -312,7 +315,7 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testAclPermsZkAccessNoConflict() throws Exception {
 
         String namespace = "/" + runtime.getMethodName();
@@ -330,9 +333,8 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         zkc.get().getData(uri.getPath() + "/test-stream", false, new Stat());
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testAclModifyPermsDlmConflict() throws Exception {
-
         String streamName = "test-stream";
 
         // Reopening and writing again with the same un will succeed.
@@ -342,9 +344,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
             // Reopening and writing again with a different un will fail.
             initDlogMeta("/" + runtime.getMethodName(), "not-test-un", streamName);
             fail("write should have failed due to perms");
-        } catch (LockingException ex) {
+        } catch (ZKException ex) {
             LOG.info("caught exception trying to write with no perms {}", ex);
-            assertEquals(KeeperException.NoAuthException.class, ex.getCause().getClass());
+            assertEquals(KeeperException.Code.NOAUTH, ex.getKeeperExceptionCode());
         } catch (Exception ex) {
             LOG.info("caught wrong exception trying to write with no perms {}", ex);
             fail("wrong exception " + ex.getClass().getName() + " expected " + LockingException.class.getName());
@@ -354,9 +356,8 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         initDlogMeta("/" + runtime.getMethodName(), "test-un", streamName);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testAclModifyPermsDlmNoConflict() throws Exception {
-
         String streamName = "test-stream";
 
         // Establish the uri.

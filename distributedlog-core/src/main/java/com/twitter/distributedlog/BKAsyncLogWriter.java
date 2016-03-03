@@ -216,9 +216,9 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
         // to release underlying lock when rolling or completing log segments, which would reduce
         // the possibility of ownership change during rolling / completing log segments.
-        writeHandler.lockHandler();
         boolean success = false;
         try {
+            FutureUtils.result(writeHandler.lockHandler());
             setLastTxId(writeHandler.recoverIncompleteLogSegments());
             success = true;
             return this;

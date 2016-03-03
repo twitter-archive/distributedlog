@@ -334,7 +334,7 @@ class ZKDistributedLock implements DistributedLock {
                 // This will set the lock state to closed, and begin to cleanup the zk lock node.
                 // We have to be careful not to block here since doing so blocks the ordered lock
                 // state executor which can cause deadlocks depending on how futures are chained.
-                ZKDistributedLock.this.asyncUnlock();
+                ZKDistributedLock.this.asyncUnlock(t);
                 // Note re. logging and exceptions: errors are already logged by unlockAsync.
                 return BoxedUnit.UNIT;
             }
@@ -570,23 +570,24 @@ class ZKDistributedLock implements DistributedLock {
         return result.map(new AbstractFunction1<String, LockWaiter>() {
             @Override
             public LockWaiter apply(final String currentOwner) {
+                final Exception acquireException = new OwnershipAcquireFailedException(lockPath, currentOwner);
                 FutureUtils.raiseWithin(
                         acquireFuture,
                         timeout,
                         unit,
-                        new LockTimeoutException(lockPath, timeout, unit),
+                        acquireException,
                         lockStateExecutor,
                         lockPath
                 ).addEventListener(new FutureEventListener<Boolean>() {
 
                     @Override
                     public void onSuccess(Boolean acquired) {
-                        completeOrFail(new OwnershipAcquireFailedException(lockPath, currentOwner));
+                        completeOrFail(acquireException);
                     }
 
                     @Override
                     public void onFailure(final Throwable acquireCause) {
-                        completeOrFail(acquireCause);
+                        completeOrFail(acquireException);
                     }
 
                     private void completeOrFail(final Throwable acquireCause) {
@@ -834,6 +835,10 @@ class ZKDistributedLock implements DistributedLock {
 
     @Override
     public Future<BoxedUnit> asyncUnlock() {
+        return asyncUnlock(new LockClosedException(lockPath, lockId, lockState.getState()));
+    }
+
+    Future<BoxedUnit> asyncUnlock(final Throwable cause) {
         final Promise<BoxedUnit> promise = new Promise<BoxedUnit>();
 
         // Use lock executor here rather than lock action, because we want this opertaion to be applied
@@ -842,8 +847,7 @@ class ZKDistributedLock implements DistributedLock {
         lockStateExecutor.submit(lockPath, new SafeRunnable() {
             @Override
             public void safeRun() {
-                acquireFuture.updateIfEmpty(new Throw<Boolean>(
-                    new LockClosedException(lockPath, lockId, lockState.getState())));
+                acquireFuture.updateIfEmpty(new Throw<Boolean>(cause));
                 unlockInternal(promise);
                 promise.addEventListener(new OpStatsListener<BoxedUnit>(unlockStats));
             }

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.Await;
@@ -120,7 +121,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         BKDistributedLogManager dlm = createNewDLM(conf, dlName);
 
         // Get full list.
-        BKLogWriteHandler writeHandler0 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler0 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
         List<LogSegmentMetadata> cachedFullLedgerList =
                 writeHandler0.getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR);
         assertTrue(cachedFullLedgerList.size() <= 1);
@@ -128,7 +129,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         assertEquals(11, fullLedgerList.size());
 
         // Get filtered list.
-        BKLogWriteHandler writeHandler1 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler1 = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
         List<LogSegmentMetadata> filteredLedgerListDesc = writeHandler1.getFilteredLedgerListDesc(false, false);
         assertEquals(1, filteredLedgerListDesc.size());
         assertEquals(fullLedgerList.get(0), filteredLedgerListDesc.get(0));
@@ -445,6 +446,8 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         try {
             Await.result(s11Handler.lockStream(), Duration.apply(10000, TimeUnit.MILLISECONDS));
             fail("Should fail lock stream using same subscriber id");
+        } catch (OwnershipAcquireFailedException oafe) {
+            // expected
         } catch (TimeoutException te) {
             // expected.
         }

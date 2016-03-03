@@ -36,6 +36,49 @@ public class FutureUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(FutureUtils.class);
 
+    public static class OrderedFutureEventListener<R>
+            implements FutureEventListener<R> {
+
+        public static <R> OrderedFutureEventListener<R> of(
+                FutureEventListener<R> listener,
+                OrderedScheduler scheduler,
+                Object key) {
+            return new OrderedFutureEventListener<R>(scheduler, key, listener);
+        }
+
+        private final OrderedScheduler scheduler;
+        private final Object key;
+        private final FutureEventListener<R> listener;
+
+        private OrderedFutureEventListener(OrderedScheduler scheduler,
+                                           Object key,
+                                           FutureEventListener<R> listener) {
+            this.scheduler = scheduler;
+            this.key = key;
+            this.listener = listener;
+        }
+
+        @Override
+        public void onSuccess(final R value) {
+            scheduler.submit(key, new Runnable() {
+                @Override
+                public void run() {
+                    listener.onSuccess(value);
+                }
+            });
+        }
+
+        @Override
+        public void onFailure(final Throwable cause) {
+            scheduler.submit(key, new Runnable() {
+                @Override
+                public void run() {
+                    listener.onFailure(cause);
+                }
+            });
+        }
+    }
+
     public static class FutureEventListenerRunnable<R>
             implements FutureEventListener<R> {
 
@@ -288,18 +331,39 @@ public class FutureUtils {
                                              final Throwable cause,
                                              final OrderedScheduler scheduler,
                                              final Object key) {
-        if (timeout == DistributedLogConstants.FUTURE_TIMEOUT_INFINITE || promise.isDefined()) {
+        if (timeout < DistributedLogConstants.FUTURE_TIMEOUT_IMMEDIATE || promise.isDefined()) {
             return promise;
         }
         scheduler.schedule(key, new Runnable() {
             @Override
             public void run() {
-                logger.info("Raise exception {}", cause);
+                logger.info("Raise exception", cause);
                 // interrupt the promise
                 promise.raise(cause);
             }
         }, timeout, unit);
         return promise;
+    }
+
+    /**
+     * Satisfy the <i>promise</i> with provide value in an ordered scheduler.
+     * <p>If the promise was already satisfied, nothing will be changed.
+     *
+     * @param promise promise to satisfy
+     * @param value value to satisfy
+     * @param scheduler scheduler to satisfy the promise with provided value
+     * @param key the submit key of the ordered scheduler
+     */
+    public static <T> void setValue(final Promise<T> promise,
+                                    final T value,
+                                    OrderedScheduler scheduler,
+                                    Object key) {
+        scheduler.submit(key, new Runnable() {
+            @Override
+            public void run() {
+                setValue(promise, value);
+            }
+        });
     }
 
     /**
@@ -317,6 +381,26 @@ public class FutureUtils {
                     promise.poll(), value);
         }
         return success;
+    }
+
+    /**
+     * Satisfy the <i>promise</i> with provided <i>cause</i> in an ordered scheduler.
+     *
+     * @param promise promise to satisfy
+     * @param cause cause to satisfy
+     * @param scheduler the scheduler to satisfy the promise
+     * @param key submit key of the ordered scheduler
+     */
+    public static <T> void setException(final Promise<T> promise,
+                                        final Throwable throwable,
+                                        OrderedScheduler scheduler,
+                                        Object key) {
+        scheduler.submit(key, new Runnable() {
+            @Override
+            public void run() {
+                setException(promise, throwable);
+            }
+        });
     }
 
     /**

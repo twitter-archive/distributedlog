@@ -19,32 +19,27 @@ package com.twitter.distributedlog.lock;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.LockingException;
-import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.FutureUtils.OrderedFutureEventListener;
 import com.twitter.distributedlog.util.OrderedScheduler;
-import com.twitter.util.Await;
-import com.twitter.util.Duration;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
-import com.twitter.util.TimeoutException;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
 import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicIntegerArray;
 
 /**
  * Distributed lock, using ZooKeeper.
@@ -55,371 +50,249 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
  * acquired the lock and started writing to bookkeeper. Therefore other
  * mechanisms are required to ensure correctness (i.e. Fencing).
  * <p/>
- * There are sync (acquire) and async (asyncAcquire) apis available in the
- * lock interface. It is inadvisable to use them together. Doing so will
- * essentialy render timeouts meaningless because the async interface doesn't
- * support timeouts. I.e. if you asyncAcquire and then sync acquire with a
- * timeout, the sync acquire timeout will cancel the lock, and cause the
- * asyncAcquire to abort. That said, using both together is considered safe
- * and is tested.
+ * The lock is only allowed to acquire once. If the lock is acquired successfully,
+ * the caller holds the ownership until it loses the ownership either because of
+ * others already acquired the lock when session expired or explicitly close it.
+ * <p>
+ * The caller could use {@link #checkOwnership()} or {@link #checkOwnershipAndReacquire()}
+ * to check if it still holds the lock. If it doesn't hold the lock, the caller should
+ * give up the ownership and close the lock.
  * <h3>Metrics</h3>
  * All the lock related stats are exposed under `lock`.
  * <ul>
  * <li>lock/acquire: opstats. latency spent on acquiring a lock.
- * <li>lock/release: opstats. latency spent on releasing a lock.
  * <li>lock/reacquire: opstats. latency spent on re-acquiring a lock.
  * <li>lock/internalTryRetries: counter. the number of retries on re-creating internal locks.
- * <li>lock/acquireTimeouts: counter. the number of timeouts on acquiring locks
  * </ul>
  * Other internal lock related stats are also exposed under `lock`. See {@link DistributedLock}
  * for details.
  */
-public class DistributedReentrantLock {
+public class DistributedReentrantLock implements LockListener {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedReentrantLock.class);
 
+    private final DistributedLockFactory lockFactory;
     private final OrderedScheduler lockStateExecutor;
     private final String lockPath;
+    private final long lockTimeout;
+    private final DistributedLockContext lockContext = new DistributedLockContext();
 
     // We have two lock acquire futures:
-    // 1. lock acquire future (in lockAcquireInfo): for the initial acquire op, unset only on full lock release
+    // 1. lock acquire future: for the initial acquire op
     // 2. lock reacquire future: for reacquire necessary when session expires, lock is closed
-    // Future [2] is set and unset every time expire/close occurs, behind the scenes, whereas
-    // future [1] is set and completed for the lifetime of one underlying acquire.
+    private Future<DistributedReentrantLock> lockAcquireFuture = null;
+    private Future<DistributedReentrantLock> lockReacquireFuture = null;
+    // following variable tracking the status of acquire process
+    //   => create (internalLock) => tryLock (tryLockFuture) => waitForAcquire (lockWaiter)
+    private DistributedLock internalLock = null;
+    private Future<LockWaiter> tryLockFuture = null;
     private LockWaiter lockWaiter = null;
-    private Future<String> lockReacquireFuture = null;
+    // exception indicating if the reacquire failed
     private LockingException lockReacquireException = null;
-
-    private final AtomicInteger lockCount = new AtomicInteger(0);
-    private final AtomicIntegerArray lockAcqTracker;
-    private ZKDistributedLock internalLock;
-    private final ZooKeeperClient zooKeeperClient;
-    private final String clientId;
-    private final long lockTimeout;
-    private final long lockReacquireTimeout;
-    private final long lockOpTimeout;
-    private final int lockCreationRetries;
-    private boolean logUnbalancedWarning = true;
+    // closeFuture
     private volatile boolean closed = false;
-    private final DistributedLockContext lockContext = new DistributedLockContext();
+    private Future<Void> closeFuture = null;
 
     // A counter to track how many re-acquires happened during a lock's life cycle.
     private final AtomicInteger reacquireCount = new AtomicInteger(0);
-
-    public enum LockReason {
-        WRITEHANDLER (0), PERSTREAMWRITER(1), RECOVER(2), COMPLETEANDCLOSE(3), DELETELOG(4),
-        READHANDLER(5), MAXREASON(6);
-        private final int value;
-
-        private LockReason(int value) {
-            this.value = value;
-        }
-    }
-
     private final StatsLogger lockStatsLogger;
     private final OpStatsLogger acquireStats;
-    private final OpStatsLogger releaseStats;
     private final OpStatsLogger reacquireStats;
     private final Counter internalTryRetries;
-    private final Counter checkAndReacquireTimeouts;
-
-    private final FutureEventListener<Boolean> RESET_ACQUIRE_STATE_ON_FAILURE = new FutureEventListener<Boolean>() {
-        @Override
-        public void onSuccess(Boolean acquired) {
-        }
-        @Override
-        public void onFailure(Throwable cause) {
-            synchronized (DistributedReentrantLock.this) {
-                lockWaiter = null;
-            }
-        }
-    };
-
-    /**
-     * Construct a lock.
-     * NOTE: ensure the lockpath is created before constructing the lock.
-     *
-     * @param zkc
-     *          zookeeper client.
-     * @param lockPath
-     *          lock path.
-     * @param lockTimeout
-     *          lock timeout.
-     * @param clientId
-     *          client id.
-     * @throws IOException
-     */
-    DistributedReentrantLock(
-        OrderedScheduler lockStateExecutor,
-        ZooKeeperClient zkc,
-        String lockPath,
-        long lockTimeout,
-        String clientId,
-        StatsLogger statsLogger) throws IOException {
-        this(lockStateExecutor, zkc, lockPath, lockTimeout, clientId, statsLogger, 0,
-             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
-             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
-    }
-
-    DistributedReentrantLock(
-        OrderedScheduler lockStateExecutor,
-        ZooKeeperClient zkc,
-        String lockPath,
-        long lockTimeout,
-        String clientId,
-        StatsLogger statsLogger,
-        int lockCreationRetries) throws IOException {
-        this(lockStateExecutor, zkc, lockPath, lockTimeout, clientId, statsLogger, lockCreationRetries,
-             DistributedLogConstants.LOCK_REACQUIRE_TIMEOUT_DEFAULT * 1000,
-             DistributedLogConstants.LOCK_OP_TIMEOUT_DEFAULT * 1000);
-    }
 
     public DistributedReentrantLock(
             OrderedScheduler lockStateExecutor,
-            ZooKeeperClient zkc,
+            DistributedLockFactory lockFactory,
             String lockPath,
             long lockTimeout,
-            String clientId,
-            StatsLogger statsLogger,
-            int lockCreationRetries,
-            long lockReacquireTimeout,
-            long lockOpTimeout) throws IOException {
+            StatsLogger statsLogger) throws IOException {
         this.lockStateExecutor = lockStateExecutor;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
-        this.zooKeeperClient = zkc;
-        this.clientId = clientId;
-        this.lockCreationRetries = lockCreationRetries;
-        this.lockAcqTracker = new AtomicIntegerArray(LockReason.MAXREASON.value);
-        this.lockReacquireTimeout = lockReacquireTimeout;
-        this.lockOpTimeout = lockOpTimeout;
+        this.lockFactory = lockFactory;
 
         lockStatsLogger = statsLogger.scope("lock");
         acquireStats = lockStatsLogger.getOpStatsLogger("acquire");
-        releaseStats = lockStatsLogger.getOpStatsLogger("release");
         reacquireStats = lockStatsLogger.getOpStatsLogger("reacquire");
         internalTryRetries = lockStatsLogger.getCounter("internalTryRetries");
-        checkAndReacquireTimeouts = lockStatsLogger.getCounter("acquireTimeouts");
-
-        // Initialize the internal lock
-        this.internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
     }
 
-    public void acquire(LockReason reason) throws LockingException {
-        Stopwatch stopwatch = Stopwatch.createStarted();
-        boolean success = false;
-        try {
-            doAcquire(reason);
-            success = true;
-        } finally {
-            if (success) {
-                acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            } else {
-                acquireStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            }
-        }
+    private LockClosedException newLockClosedException() {
+        return new LockClosedException(lockPath, "Lock is already closed");
     }
 
     private synchronized void checkLockState() throws LockingException {
         if (closed) {
-            throw new LockingException(lockPath, "Lock is closed");
+            throw newLockClosedException();
         }
         if (null != lockReacquireException) {
             throw lockReacquireException;
         }
     }
 
-    void doAcquire(LockReason reason) throws LockingException {
-        LOG.trace("Lock Acquire {}, {}", lockPath, reason);
-        checkLockState();
-        while (true) {
-            if (lockCount.get() == 0) {
-                synchronized (this) {
-                    if (lockCount.get() > 0) {
-                        lockCount.incrementAndGet();
-                        break;
-                    }
-                    if (internalLock.isLockExpired()) {
-                        try {
-                            internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
-                        } catch (IOException e) {
-                            throw new LockingException(lockPath, "Failed to create new internal lock", e);
-                        }
-                    }
-                    if (null != lockWaiter) {
-                        if (!lockWaiter.waitForAcquireQuietly()) {
-                            throw new OwnershipAcquireFailedException(lockPath, lockWaiter.getCurrentOwner());
-                        }
-                        lockCount.getAndIncrement();
-                    } else {
-                        final Stopwatch stopwatch = Stopwatch.createStarted();
-                        LockWaiter waiter = internalLock.waitForTry(stopwatch,
-                                internalLock.asyncTryLock(lockTimeout, TimeUnit.MILLISECONDS));
-                        boolean acquired = waiter.waitForAcquireQuietly();
-                        if (!acquired) {
-                            throw new OwnershipAcquireFailedException(lockPath, waiter.getCurrentOwner());
-                        }
-                        lockWaiter = waiter;
-
-                        lockCount.set(1);
-                    }
-                    break;
-                }
-            } else {
-                int ret = lockCount.getAndIncrement();
-                if (ret == 0) {
-                    lockCount.decrementAndGet();
-                } else {
-                    break;
-                }
-            }
-        }
-        lockAcqTracker.incrementAndGet(reason.value);
-    }
-
     /**
      * Asynchronously acquire the lock. Technically the try phase of this operation--which adds us to the waiter
      * list--is executed synchronously, but the lock wait itself doesn't block.
      */
-    public synchronized Future<Boolean> asyncAcquire(final LockReason reason) throws LockingException {
-        final Stopwatch stopwatch = Stopwatch.createStarted();
-        return doAsyncAcquire(reason).addEventListener(new FutureEventListener<Boolean>() {
+    public synchronized Future<DistributedReentrantLock> asyncAcquire() {
+        if (null != lockAcquireFuture) {
+            return Future.exception(new UnexpectedException("Someone is already acquiring/acquired lock " + lockPath));
+        }
+        final Promise<DistributedReentrantLock> promise =
+                new Promise<DistributedReentrantLock>(new Function<Throwable, BoxedUnit>() {
             @Override
-            public void onSuccess(Boolean acquired) {
+            public BoxedUnit apply(Throwable cause) {
+                lockStateExecutor.submit(lockPath, new Runnable() {
+                    @Override
+                    public void run() {
+                        close();
+                    }
+                });
+                return BoxedUnit.UNIT;
+            }
+        });
+        final Stopwatch stopwatch = Stopwatch.createStarted();
+        promise.addEventListener(new FutureEventListener<DistributedReentrantLock>() {
+            @Override
+            public void onSuccess(DistributedReentrantLock lock) {
                 acquireStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
             @Override
             public void onFailure(Throwable cause) {
                 acquireStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                // release the lock if fail to acquire
+                close();
             }
         });
+        this.lockAcquireFuture = promise;
+        lockStateExecutor.submit(lockPath, new Runnable() {
+            @Override
+            public void run() {
+                doAsyncAcquire(promise, lockTimeout);
+            }
+        });
+        return promise;
     }
 
-    synchronized Future<Boolean> doAsyncAcquire(final LockReason reason) throws LockingException {
-        LOG.trace("Async Lock Acquire {}, {}", lockPath, reason);
-        checkLockState();
-
-        if (null == lockWaiter) {
-            if (internalLock.isLockExpired()) {
-                try {
-                    internalLock = createInternalLock(new AtomicInteger(lockCreationRetries));
-                } catch (IOException ioe) {
-                    LockingException lex = new LockingException(lockPath, "Failed to create new internal lock", ioe);
-                    return Future.exception(lex);
-                }
-            }
-
-            // We've got a valid internal lock, we need to try-acquire (which will begin the lock wait process)
-            // synchronously. There's no lock blocking on the try operation, so this shouldn't take long.
-            final Stopwatch stopwatch = Stopwatch.createStarted();
-            Future<LockWaiter> result = internalLock.asyncTryLock(DistributedLogConstants.LOCK_TIMEOUT_INFINITE, TimeUnit.MILLISECONDS);
-            LockWaiter waiter = internalLock.waitForTry(stopwatch, result);
-
-            // Failure should return us to a valid state.
-            waiter.getAcquireFuture().addEventListener(RESET_ACQUIRE_STATE_ON_FAILURE);
-            lockWaiter = waiter;
+    void doAsyncAcquire(final Promise<DistributedReentrantLock> acquirePromise,
+                        final long lockTimeout) {
+        LOG.trace("Async Lock Acquire {}", lockPath);
+        try {
+            checkLockState();
+        } catch (IOException ioe) {
+            FutureUtils.setException(acquirePromise, ioe);
+            return;
         }
 
-        // Bump use counts as soon as we acquire the lock.
-        return lockWaiter.getAcquireFuture().addEventListener(new FutureEventListener<Boolean>() {
+        lockFactory.createLock(lockPath, lockContext).addEventListener(OrderedFutureEventListener.of(
+                new FutureEventListener<DistributedLock>() {
             @Override
-            public void onSuccess(Boolean acquired) {
+            public void onSuccess(DistributedLock lock) {
                 synchronized (DistributedReentrantLock.this) {
-                    lockCount.getAndIncrement();
-                    lockAcqTracker.incrementAndGet(reason.value);
+                    if (closed) {
+                        LOG.info("Skipping tryLocking lock {} since it is already closed", lockPath);
+                        FutureUtils.setException(acquirePromise, newLockClosedException());
+                        return;
+                    }
                 }
+                synchronized (DistributedReentrantLock.this) {
+                    internalLock = lock;
+                    internalLock.setLockListener(DistributedReentrantLock.this);
+                }
+                asyncTryLock(lock, acquirePromise, lockTimeout);
             }
+
             @Override
             public void onFailure(Throwable cause) {
+                FutureUtils.setException(acquirePromise, cause);
             }
-        });
+        }, lockStateExecutor, lockPath));
     }
 
-    public void release(LockReason reason) {
-        Stopwatch stopwatch = Stopwatch.createStarted();
-        boolean success = false;
-        try {
-            doRelease(reason, false);
-            success = true;
-        } finally {
-            if (success) {
-                releaseStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            } else {
-                releaseStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-            }
+    void asyncTryLock(DistributedLock lock,
+                      final Promise<DistributedReentrantLock> acquirePromise,
+                      final long lockTimeout) {
+        if (null != tryLockFuture) {
+            tryLockFuture.cancel();
         }
-    }
-
-    void doRelease(LockReason reason, boolean exceptionOnUnbalancedHandling) {
-        LOG.trace("Lock Release {}, {}", lockPath, reason);
-        int perReasonLockCount = lockAcqTracker.decrementAndGet(reason.value);
-        Future<BoxedUnit> unlockFuture = Future.Done();
-        synchronized (this) {
-            if ((perReasonLockCount < 0) && logUnbalancedWarning) {
-                LOG.warn("Unbalanced lock handling for {} type {}, lockCount is {} ",
-                    new Object[]{lockPath, reason, perReasonLockCount});
-                if (exceptionOnUnbalancedHandling) {
-                    throw new IllegalStateException(
-                        String.format("Unbalanced lock handling for %s type %s, lockCount is %s",
-                            lockPath, reason, perReasonLockCount));
-                }
-            }
-            if (lockCount.decrementAndGet() <= 0) {
-                if (logUnbalancedWarning && (lockCount.get() < 0)) {
-                    LOG.warn("Unbalanced lock handling for {}, lockCount is {} ",
-                        lockPath, lockCount.get());
-                    logUnbalancedWarning = false;
-                }
-                if (lockCount.get() <= 0) {
-                    if (internalLock.isLockHeld()) {
-                        LOG.info("Lock Release {}, {}", lockPath, reason);
-                        unlockFuture = internalLock.asyncUnlock();
+        tryLockFuture = lock.asyncTryLock(lockTimeout, TimeUnit.MILLISECONDS);
+        tryLockFuture.addEventListener(OrderedFutureEventListener.of(
+                new FutureEventListener<LockWaiter>() {
+                    @Override
+                    public void onSuccess(LockWaiter waiter) {
+                        synchronized (DistributedReentrantLock.this) {
+                            if (closed) {
+                                LOG.info("Skipping acquiring lock {} since it is already closed", lockPath);
+                                waiter.getAcquireFuture().raise(new LockingException(lockPath, "lock is already closed."));
+                                FutureUtils.setException(acquirePromise, newLockClosedException());
+                                return;
+                            }
+                        }
+                        tryLockFuture = null;
+                        lockWaiter = waiter;
+                        waitForAcquire(waiter, acquirePromise);
                     }
-                    lockWaiter = null;
-                }
-            }
-        }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        FutureUtils.setException(acquirePromise, cause);
+                    }
+                }, lockStateExecutor, lockPath));
+    }
+
+    void waitForAcquire(final LockWaiter waiter,
+                        final Promise<DistributedReentrantLock> acquirePromise) {
+        waiter.getAcquireFuture().addEventListener(OrderedFutureEventListener.of(
+                new FutureEventListener<Boolean>() {
+                    @Override
+                    public void onSuccess(Boolean acquired) {
+                        LOG.info("{} acquired lock {}", waiter, lockPath);
+                        if (acquired) {
+                            FutureUtils.setValue(acquirePromise, DistributedReentrantLock.this);
+                        } else {
+                            FutureUtils.setException(acquirePromise,
+                                    new OwnershipAcquireFailedException(lockPath, waiter.getCurrentOwner()));
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        FutureUtils.setException(acquirePromise, cause);
+                    }
+                }, lockStateExecutor, lockPath));
+    }
+
+    /**
+     * NOTE: The {@link LockListener#onExpired()} is already executed in lock executor.
+     */
+    @Override
+    public void onExpired() {
         try {
-            Await.result(unlockFuture);
-        } catch (Exception e) {
-            LOG.warn("{} failed to unlock {} : ", lockPath, e);
+            reacquireLock(false);
+        } catch (LockingException le) {
+            // should not happen
+            LOG.error("Locking exception on re-acquiring lock {} : ", lockPath, le);
         }
     }
 
     /**
      * Check if hold lock, if it doesn't, then re-acquire the lock.
      *
-     * @param sync  should we wait for the reacquire attempt to complete
      * @throws LockingException     if the lock attempt fails
      */
-    public void checkOwnershipAndReacquire(boolean sync) throws LockingException {
-        Future<String> futureToWaitFor;
-        synchronized (this) {
-            if (haveLock()) {
-                return;
-            }
-
-            // We may have just lost the lock because of a ZK session timeout
-            // not necessarily because someone else acquired the lock.
-            // In such cases just try to reacquire. If that fails, it will throw
-            futureToWaitFor = reacquireLock(true);
+    public synchronized void checkOwnershipAndReacquire() throws LockingException {
+        if (null == lockAcquireFuture || !lockAcquireFuture.isDefined()) {
+            throw new LockingException(lockPath, "check ownership before acquiring");
         }
 
-        if (null != futureToWaitFor && sync) {
-            try {
-                Await.result(futureToWaitFor, Duration.fromMilliseconds(lockReacquireTimeout));
-            } catch (TimeoutException toe) {
-                // Should rarely happen--if it does, higher layer expected to cleanup the lock.
-                checkAndReacquireTimeouts.inc();
-                throw new LockingException(lockPath, "Timeout re-acquiring lock : ", toe);
-            } catch (Exception e) {
-                if (e instanceof LockingException) {
-                    throw (LockingException) e;
-                } else {
-                    throw new LockingException(lockPath, "Exception on re-acquiring lock : ", e);
-                }
-            }
+        if (haveLock()) {
+            return;
         }
+
+        // We may have just lost the lock because of a ZK session timeout
+        // not necessarily because someone else acquired the lock.
+        // In such cases just try to reacquire. If that fails, it will throw
+        reacquireLock(true);
     }
 
     /**
@@ -429,11 +302,12 @@ public class DistributedReentrantLock {
      *
      * @throws LockingException     if the lock attempt fails
      */
-    public void checkOwnership() throws LockingException {
-        synchronized (this) {
-            if (!haveLock()) {
-                throw new LockingException(lockPath, "Lost lock ownership");
-            }
+    public synchronized void checkOwnership() throws LockingException {
+        if (null == lockAcquireFuture || !lockAcquireFuture.isDefined()) {
+            throw new LockingException(lockPath, "check ownership before acquiring");
+        }
+        if (!haveLock()) {
+            throw new LockingException(lockPath, "Lost lock ownership");
         }
     }
 
@@ -443,136 +317,162 @@ public class DistributedReentrantLock {
     }
 
     @VisibleForTesting
-    Future<String> getLockReacquireFuture() {
+    Future<DistributedReentrantLock> getLockReacquireFuture() {
         return lockReacquireFuture;
     }
 
     @VisibleForTesting
-    public int getLockCount() {
-        return lockCount.get();
+    Future<DistributedReentrantLock> getLockAcquireFuture() {
+        return lockAcquireFuture;
     }
 
     @VisibleForTesting
-    ZKDistributedLock getInternalLock() {
+    synchronized DistributedLock getInternalLock() {
         return internalLock;
     }
 
-    boolean haveLock() {
-        return internalLock.isLockHeld();
+    @VisibleForTesting
+    LockWaiter getLockWaiter() {
+        return lockWaiter;
     }
 
-    public void close() {
-        Future<String> lockReacquireFutureSaved = null;
-        DistributedLock internalLockSaved;
+    synchronized boolean haveLock() {
+        return !closed && internalLock != null && internalLock.isLockHeld();
+    }
+
+    void closeWaiter(final LockWaiter waiter,
+                     final Promise<Void> closePromise) {
+        if (null == waiter) {
+            interruptTryLock(tryLockFuture, closePromise);
+        } else {
+            waiter.getAcquireFuture().addEventListener(OrderedFutureEventListener.of(
+                    new FutureEventListener<Boolean>() {
+                        @Override
+                        public void onSuccess(Boolean value) {
+                            unlockInternalLock(closePromise);
+                        }
+                        @Override
+                        public void onFailure(Throwable cause) {
+                            unlockInternalLock(closePromise);
+                        }
+                    }, lockStateExecutor, lockPath));
+            FutureUtils.cancel(waiter.getAcquireFuture());
+        }
+    }
+
+    void interruptTryLock(final Future<LockWaiter> tryLockFuture,
+                          final Promise<Void> closePromise) {
+        if (null == tryLockFuture) {
+            unlockInternalLock(closePromise);
+        } else {
+            tryLockFuture.addEventListener(OrderedFutureEventListener.of(
+                    new FutureEventListener<LockWaiter>() {
+                        @Override
+                        public void onSuccess(LockWaiter waiter) {
+                            closeWaiter(waiter, closePromise);
+                        }
+                        @Override
+                        public void onFailure(Throwable cause) {
+                            unlockInternalLock(closePromise);
+                        }
+                    }, lockStateExecutor, lockPath));
+            FutureUtils.cancel(tryLockFuture);
+        }
+    }
+
+    synchronized void unlockInternalLock(final Promise<Void> closePromise) {
+        if (internalLock == null) {
+            FutureUtils.setValue(closePromise, null);
+        } else {
+            internalLock.asyncUnlock().ensure(new AbstractFunction0<BoxedUnit>() {
+                @Override
+                public BoxedUnit apply() {
+                    FutureUtils.setValue(closePromise, null);
+                    return BoxedUnit.UNIT;
+                }
+            });
+        }
+    }
+
+    public Future<Void> close() {
+        final Promise<Void> closePromise;
         synchronized (this) {
             if (closed) {
-                return;
+                return closeFuture;
             }
             closed = true;
-            lockReacquireFutureSaved = lockReacquireFuture;
-            internalLockSaved = internalLock;
+            closeFuture = closePromise = new Promise<Void>();
         }
-        if (null != lockReacquireFutureSaved) {
-            try {
-                Await.result(lockReacquireFutureSaved, Duration.fromMilliseconds(lockReacquireTimeout));
-            } catch (TimeoutException toe) {
-                LOG.error("Timeout re-acquiring lock {} : ", lockPath, toe);
-            } catch (Exception e) {
-                LOG.warn("Exception while waiting to re-acquire lock {} : ", lockPath, e);
+        final Promise<Void> closeWaiterFuture = new Promise<Void>();
+        closeWaiterFuture.addEventListener(OrderedFutureEventListener.of(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                complete();
             }
-        }
-        internalLockSaved.unlock();
+            @Override
+            public void onFailure(Throwable cause) {
+                complete();
+            }
+
+            private void complete() {
+                FutureUtils.setValue(closePromise, null);
+            }
+        }, lockStateExecutor, lockPath));
+        lockStateExecutor.submit(lockPath, new Runnable() {
+            @Override
+            public void run() {
+                closeWaiter(lockWaiter, closeWaiterFuture);
+            }
+        });
+        return closePromise;
     }
 
-    void internalTryLock(final AtomicInteger numRetries, final long lockTimeout,
-                         final Promise<String> result) {
-        internalTryRetries.inc();
-        lockStateExecutor.submit(lockPath, new SafeRunnable() {
+    void internalReacquireLock(final AtomicInteger numRetries,
+                               final long lockTimeout,
+                               final Promise<DistributedReentrantLock> reacquirePromise) {
+        lockStateExecutor.submit(lockPath, new Runnable() {
             @Override
-            public void safeRun() {
-                ZKDistributedLock lock;
-                synchronized (DistributedReentrantLock.this) {
-                    try {
-                        lock = createInternalLock(numRetries);
-                    } catch (IOException ioe) {
-                        result.setException(ioe);
-                        return;
-                    }
-                    internalLock = lock;
-                }
-                lock.asyncTryLock(lockTimeout, TimeUnit.MILLISECONDS)
-                        .addEventListener(new FutureEventListener<LockWaiter>() {
-                            @Override
-                            public void onSuccess(LockWaiter waiter) {
-                                // Try lock success means *either* we got the lock or we discovered someone
-                                // else owns it. Failure means indicates some internal failure, ex. connection
-                                // issue. Handle both here.
-                                if (internalLock.isLockHeld()) {
-                                    result.setValue(waiter.getCurrentOwner());
-                                } else {
-                                    result.setException(new OwnershipAcquireFailedException(lockPath, waiter.getCurrentOwner()));
-                                }
-                            }
-
-                            @Override
-                            public void onFailure(Throwable cause) {
-                                if (numRetries.getAndDecrement() > 0 && !closed) {
-                                    internalTryLock(numRetries, lockTimeout, result);
-                                } else {
-                                    result.setException(cause);
-                                }
-                            }
-                        });
+            public void run() {
+                doInternalReacquireLock(numRetries, lockTimeout, reacquirePromise);
             }
         });
     }
 
-    ZKDistributedLock createInternalLock(AtomicInteger numRetries) throws IOException {
-        ZKDistributedLock lock;
-        do {
-            if (closed) {
-                throw new LockingException(lockPath, "Lock is closed");
+    void doInternalReacquireLock(final AtomicInteger numRetries,
+                                 final long lockTimeout,
+                                 final Promise<DistributedReentrantLock> reacquirePromise) {
+        internalTryRetries.inc();
+        Promise<DistributedReentrantLock> tryPromise = new Promise<DistributedReentrantLock>();
+        tryPromise.addEventListener(new FutureEventListener<DistributedReentrantLock>() {
+            @Override
+            public void onSuccess(DistributedReentrantLock lock) {
+                FutureUtils.setValue(reacquirePromise, lock);
             }
-            try {
-                lock = new ZKDistributedLock(
-                        zooKeeperClient,
-                        lockPath,
-                        clientId,
-                        lockStateExecutor,
-                        lockOpTimeout,
-                        lockStatsLogger,
-                        lockContext)
-                .setLockListener(new LockListener() {
-                    @Override
-                    public void onExpired() {
-                        try {
-                            reacquireLock(false);
-                        } catch (LockingException e) {
-                            // should not happen
-                            LOG.error("Locking exception on re-acquiring lock {} : ", lockPath, e);
-                        }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                if (cause instanceof OwnershipAcquireFailedException) {
+                    // the lock has been acquired by others
+                    FutureUtils.setException(reacquirePromise, cause);
+                } else {
+                    if (numRetries.getAndDecrement() > 0 && !closed) {
+                        internalReacquireLock(numRetries, lockTimeout, reacquirePromise);
+                    } else {
+                        FutureUtils.setException(reacquirePromise, cause);
                     }
-                });
-            } catch (DLInterruptedException dlie) {
-                // if the creation is interrupted, throw the exception without retrie.
-                throw dlie;
-            } catch (IOException ioe) {
-                lock = null;
-                if (numRetries.getAndDecrement() < 0) {
-                    throw ioe;
                 }
             }
-        } while (null == lock);
-        return lock;
+        });
+        doAsyncAcquire(tryPromise, 0);
     }
 
-    private Future<String> reacquireLock(boolean throwLockAcquireException) throws LockingException {
+    private Future<DistributedReentrantLock> reacquireLock(boolean throwLockAcquireException) throws LockingException {
         LOG.info("reacquiring lock at {}", lockPath);
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        Promise<String> lockPromise;
+        Promise<DistributedReentrantLock> lockPromise;
         synchronized (this) {
             if (closed) {
-                throw new LockingException(lockPath, "Lock is closed");
+                throw newLockClosedException();
             }
             if (null != lockReacquireException) {
                 if (throwLockAcquireException) {
@@ -584,10 +484,10 @@ public class DistributedReentrantLock {
             if (null != lockReacquireFuture) {
                 return lockReacquireFuture;
             }
-            lockReacquireFuture = lockPromise = new Promise<String>();
-            lockReacquireFuture.addEventListener(new FutureEventListener<String>() {
+            lockReacquireFuture = lockPromise = new Promise<DistributedReentrantLock>();
+            lockReacquireFuture.addEventListener(new FutureEventListener<DistributedReentrantLock>() {
                 @Override
-                public void onSuccess(String value) {
+                public void onSuccess(DistributedReentrantLock lock) {
                     // if re-acquire successfully, clear the state.
                     synchronized (DistributedReentrantLock.this) {
                         lockReacquireFuture = null;
@@ -610,7 +510,7 @@ public class DistributedReentrantLock {
             });
         }
         reacquireCount.incrementAndGet();
-        internalTryLock(new AtomicInteger(Integer.MAX_VALUE), 0, lockPromise);
+        internalReacquireLock(new AtomicInteger(Integer.MAX_VALUE), 0, lockPromise);
         return lockPromise;
     }
 

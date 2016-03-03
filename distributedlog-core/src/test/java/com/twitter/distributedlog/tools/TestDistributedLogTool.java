@@ -2,16 +2,6 @@ package com.twitter.distributedlog.tools;
 
 import java.net.URI;
 
-import org.apache.bookkeeper.util.ReflectionUtils;
-
-import org.apache.zookeeper.KeeperException.NoAuthException;
-import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
-
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
@@ -19,7 +9,15 @@ import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogReader;
+import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.tools.DistributedLogTool.*;
+import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
+import org.apache.bookkeeper.util.ReflectionUtils;
+import org.apache.zookeeper.KeeperException;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.*;
 
@@ -98,8 +96,8 @@ public class TestDistributedLogTool extends TestDistributedLogBase {
             DistributedLogManager dlm = DLMTestUtil.createNewDLM("0CreateAclStream", conf, defaultUri);
             DLMTestUtil.generateCompletedLogSegments(dlm, conf, 3, 1000);
             dlm.close();
-        } catch (com.twitter.distributedlog.LockingException ex) {
-            assertEquals(NoAuthException.class, ex.getCause().getClass());
+        } catch (ZKException ex) {
+            assertEquals(KeeperException.Code.NOAUTH, ex.getKeeperExceptionCode());
         }
     }
 
