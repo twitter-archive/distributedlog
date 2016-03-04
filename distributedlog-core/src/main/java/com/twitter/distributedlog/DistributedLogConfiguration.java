@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.collect.Sets;
+import com.twitter.distributedlog.bk.QuorumConfig;
 import com.twitter.distributedlog.feature.DefaultFeatureProvider;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.net.DNSResolverForRacks;
@@ -900,6 +901,21 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public DistributedLogConfiguration setAckQuorumSize(int quorumSize) {
         setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE, quorumSize);
         return this;
+    }
+
+    /**
+     * Get the quorum config for each log segment (ledger).
+     *
+     * @return quorum config that used by log segments
+     * @see #getEnsembleSize()
+     * @see #getWriteQuorumSize()
+     * @see #getAckQuorumSize()
+     */
+    public QuorumConfig getQuorumConfig() {
+        return new QuorumConfig(
+                getEnsembleSize(),
+                getWriteQuorumSize(),
+                getAckQuorumSize());
     }
 
     /**

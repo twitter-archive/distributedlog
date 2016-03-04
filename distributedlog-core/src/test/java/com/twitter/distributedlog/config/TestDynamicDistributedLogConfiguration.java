@@ -2,6 +2,7 @@ package com.twitter.distributedlog.config;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
 
+import com.twitter.distributedlog.bk.QuorumConfig;
 import org.junit.Test;
 
 import static com.twitter.distributedlog.DistributedLogConfiguration.*;
@@ -105,5 +106,127 @@ public class TestDynamicDistributedLogConfiguration {
         // get value from new key of default config
         dynConf.setProperty(BKDL_READAHEAD_MAX_RECORDS, BKDL_READAHEAD_MAX_RECORDS_DEFAULT  + 4);
         assertEquals(BKDL_READAHEAD_MAX_RECORDS_DEFAULT  + 4, dynConf.getReadAheadMaxRecords());
+    }
+
+    void assertQuorumConfig(QuorumConfig config,
+                            int expectedEnsembleSize,
+                            int expectedWriteQuorumSize,
+                            int expectedAckQuorumSize) {
+        assertEquals(expectedEnsembleSize, config.getEnsembleSize());
+        assertEquals(expectedWriteQuorumSize, config.getWriteQuorumSize());
+        assertEquals(expectedAckQuorumSize, config.getAckQuorumSize());
+    }
+
+    @Test(timeout = 20000)
+    public void testGetQuorumConfig() {
+        ConcurrentBaseConfiguration defaultConfig = new ConcurrentBaseConfiguration();
+        DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(defaultConfig);
+        // get default value
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+
+        // Test Ensemble Size
+
+        // get value from old key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD, BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 1);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 1,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from new key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 2);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 2,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from old key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD, BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 3);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 3,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from new key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_ENSEMBLE_SIZE, BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+
+        // Test Write Quorum Size
+
+        // get value from old key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 1);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 1,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from new key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 2);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 2,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from old key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 3);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 3,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+        // get value from new key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT);
+
+        // Test Ack Quorum Size
+
+        // get value from old key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 1);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 1);
+        // get value from new key of default config
+        defaultConfig.setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 2);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 2);
+        // get value from old key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 3);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 3);
+        // get value from new key of dynamic config
+        dynConf.setProperty(BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 4);
+        assertQuorumConfig(
+                dynConf.getQuorumConfig(),
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 4);
     }
 }

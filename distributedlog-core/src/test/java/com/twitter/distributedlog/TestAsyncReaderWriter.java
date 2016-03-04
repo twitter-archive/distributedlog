@@ -10,7 +10,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.base.Optional;
+import com.twitter.distributedlog.config.ConcurrentBaseConfiguration;
+import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookKeeperAccessor;
+import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Rule;
@@ -1844,5 +1851,59 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         reader.close();
         writer.close();
         dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testCreateLogStreamWithDifferentReplicationFactor() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(testConf);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(false);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+
+        ConcurrentBaseConfiguration baseConf = new ConcurrentConstConfiguration(confLocal);
+        DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(baseConf);
+        dynConf.setProperty(DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
+                DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT - 1);
+
+        URI uri = createDLMURI("/" + name);
+        ensureURICreated(uri);
+        DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+                .conf(confLocal).uri(uri).build();
+
+        // use the pool
+        DistributedLogManager dlm = namespace.openLog(name + "-pool");
+        AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
+        FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        List<LogSegmentMetadata> segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+        long ledgerId = segments.get(0).getLedgerId();
+        LedgerHandle lh = ((BKDistributedLogNamespace) namespace).getReaderBKC()
+                .get().openLedgerNoRecovery(ledgerId, BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
+        LedgerMetadata metadata = BookKeeperAccessor.getLedgerMetadata(lh);
+        assertEquals(DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT, metadata.getEnsembleSize());
+        lh.close();
+        writer.close();
+        dlm.close();
+
+        // use customized configuration
+        dlm = namespace.openLog(
+                name + "-custom",
+                Optional.<DistributedLogConfiguration>absent(),
+                Optional.of(dynConf));
+        writer = dlm.startAsyncLogSegmentNonPartitioned();
+        FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(1L)));
+        segments = dlm.getLogSegments();
+        assertEquals(1, segments.size());
+        ledgerId = segments.get(0).getLedgerId();
+        lh = ((BKDistributedLogNamespace) namespace).getReaderBKC()
+                .get().openLedgerNoRecovery(ledgerId, BookKeeper.DigestType.CRC32, confLocal.getBKDigestPW().getBytes(UTF_8));
+        metadata = BookKeeperAccessor.getLedgerMetadata(lh);
+        assertEquals(DistributedLogConfiguration.BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT - 1, metadata.getEnsembleSize());
+        lh.close();
+        writer.close();
+        dlm.close();
+        namespace.close();
     }
 }

@@ -42,6 +42,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     static final Logger logger = LoggerFactory.getLogger(LedgerAllocatorPool.class);
 
     private final DistributedLogConfiguration conf;
+    private final QuorumConfigProvider quorumConfigProvider;
     private final BookKeeperClient bkc;
     private final ZooKeeperClient zkc;
     private final ScheduledExecutorService scheduledExecutorService;
@@ -67,6 +68,8 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         this.poolPath = poolPath;
         this.corePoolSize = corePoolSize;
         this.conf = conf;
+        this.quorumConfigProvider =
+                new ImmutableQuorumConfigProvider(conf.getQuorumConfig());
         this.zkc = zkc;
         this.bkc = bkc;
         this.scheduledExecutorService = scheduledExecutorService;
@@ -180,7 +183,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                 Versioned<byte[]> allocatorData =
                         new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
                 SimpleLedgerAllocator allocator =
-                        new SimpleLedgerAllocator(path, allocatorData, conf, zkc, bkc);
+                        new SimpleLedgerAllocator(path, allocatorData, quorumConfigProvider, zkc, bkc);
                 allocator.start();
                 pendingList.add(allocator);
                 if (numPendings.decrementAndGet() == 0 && numFailures.get() == 0) {
@@ -239,7 +242,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
                         Versioned<byte[]> allocatorData =
                                 new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
                         logger.info("Rescuing ledger allocator {}.", path);
-                        newAllocator = new SimpleLedgerAllocator(path, allocatorData, conf, zkc, bkc);
+                        newAllocator = new SimpleLedgerAllocator(path, allocatorData, quorumConfigProvider, zkc, bkc);
                         newAllocator.start();
                         logger.info("Rescued ledger allocator {}.", path);
                     } else if (KeeperException.Code.NONODE.intValue() == rc) {

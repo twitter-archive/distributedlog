@@ -2,7 +2,6 @@ package com.twitter.distributedlog.bk;
 
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.BookKeeperClient;
-import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.distributedlog.util.Transaction;
@@ -94,9 +93,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
             new LinkedList<Future<Void>>();
 
     // Ledger configuration
-    private final int ensembleSize;
-    private final int writeQuorumSize;
-    private final int ackQuorumSize;
+    private final QuorumConfigProvider quorumConfigProvider;
 
     static Future<Versioned<byte[]>> getAndCreateAllocationData(final String allocatePath,
                                                                 final ZooKeeperClient zkc) {
@@ -142,18 +139,20 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
 
     public static Future<SimpleLedgerAllocator> of(final String allocatePath,
                                                    final Versioned<byte[]> allocationData,
-                                                   final DistributedLogConfiguration conf,
+                                                   final QuorumConfigProvider quorumConfigProvider,
                                                    final ZooKeeperClient zkc,
                                                    final BookKeeperClient bkc) {
         if (null != allocationData && null != allocationData.getValue()
                 && null != allocationData.getVersion()) {
-            return Future.value(new SimpleLedgerAllocator(allocatePath, allocationData, conf, zkc, bkc));
+            return Future.value(new SimpleLedgerAllocator(allocatePath, allocationData,
+                    quorumConfigProvider, zkc, bkc));
         }
         return getAndCreateAllocationData(allocatePath, zkc)
                 .map(new AbstractFunction1<Versioned<byte[]>, SimpleLedgerAllocator>() {
             @Override
             public SimpleLedgerAllocator apply(Versioned<byte[]> allocationData) {
-                return new SimpleLedgerAllocator(allocatePath, allocationData, conf, zkc, bkc);
+                return new SimpleLedgerAllocator(allocatePath, allocationData,
+                        quorumConfigProvider, zkc, bkc);
             }
         });
     }
@@ -165,8 +164,8 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
      *          znode path to store the allocated ledger.
      * @param allocationData
      *          allocation data.
-     * @param conf
-     *          DistributedLog configuration.
+     * @param quorumConfigProvider
+     *          Quorum configuration provider.
      * @param zkc
      *          zookeeper client.
      * @param bkc
@@ -174,27 +173,13 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
      */
     public SimpleLedgerAllocator(String allocatePath,
                                  Versioned<byte[]> allocationData,
-                                 DistributedLogConfiguration conf,
+                                 QuorumConfigProvider quorumConfigProvider,
                                  ZooKeeperClient zkc,
                                  BookKeeperClient bkc) {
         this.zkc = zkc;
         this.bkc = bkc;
         this.allocatePath = allocatePath;
-        this.ensembleSize = conf.getEnsembleSize();
-        if (this.ensembleSize < conf.getWriteQuorumSize()) {
-            this.writeQuorumSize = this.ensembleSize;
-            LOG.warn("Setting write quorum size {} greater than ensemble size {}",
-                conf.getWriteQuorumSize(), this.ensembleSize);
-        } else {
-            this.writeQuorumSize = conf.getWriteQuorumSize();
-        }
-        if (this.writeQuorumSize < conf.getAckQuorumSize()) {
-            this.ackQuorumSize = this.writeQuorumSize;
-            LOG.warn("Setting write ack quorum size {} greater than write quorum size {}",
-                conf.getAckQuorumSize(), this.writeQuorumSize);
-        } else {
-            this.ackQuorumSize = conf.getAckQuorumSize();
-        }
+        this.quorumConfigProvider = quorumConfigProvider;
         initialize(allocationData);
     }
 
@@ -327,8 +312,12 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
         }
         setPhase(Phase.ALLOCATING);
         allocatePromise = new Promise<LedgerHandle>();
-        bkc.createLedger(ensembleSize, writeQuorumSize, ackQuorumSize)
-                .addEventListener(this);
+        QuorumConfig quorumConfig = quorumConfigProvider.getQuorumConfig();
+        bkc.createLedger(
+                quorumConfig.getEnsembleSize(),
+                quorumConfig.getWriteQuorumSize(),
+                quorumConfig.getAckQuorumSize()
+        ).addEventListener(this);
     }
 
     private synchronized void completeAllocation(LedgerHandle lh) {

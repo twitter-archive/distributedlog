@@ -4,8 +4,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.twitter.distributedlog.bk.DynamicQuorumConfigProvider;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.bk.LedgerAllocatorDelegator;
+import com.twitter.distributedlog.bk.QuorumConfig;
+import com.twitter.distributedlog.bk.QuorumConfigProvider;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -518,6 +521,26 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 isHandleForReading);
     }
 
+    // Create Ledger Allocator
+
+    LedgerAllocator createLedgerAllocator(ZKLogMetadataForWriter logMetadata) throws IOException {
+        LedgerAllocator ledgerAllocatorDelegator;
+        if (!dynConf.getEnableLedgerAllocatorPool()) {
+            QuorumConfigProvider quorumConfigProvider =
+                    new DynamicQuorumConfigProvider(dynConf);
+            LedgerAllocator allocator = new SimpleLedgerAllocator(
+                    logMetadata.getAllocationPath(),
+                    logMetadata.getAllocationData(),
+                    quorumConfigProvider,
+                    writerZKC,
+                    writerBKC);
+            ledgerAllocatorDelegator = new LedgerAllocatorDelegator(allocator, true);
+        } else {
+            ledgerAllocatorDelegator = ledgerAllocator;
+        }
+        return ledgerAllocatorDelegator;
+    }
+
     // Create Write Handler
 
     public BKLogWriteHandler createWriteLedgerHandler(String streamIdentifier,
@@ -556,19 +579,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 conf.getLockTimeoutMilliSeconds(),
                 statsLogger);
 
-        LedgerAllocator ledgerAllocatorDelegator;
-        if (ownAllocator) {
-            LedgerAllocator allocator = new SimpleLedgerAllocator(
-                    logMetadata.getAllocationPath(),
-                    logMetadata.getAllocationData(),
-                    conf,
-                    writerZKC,
-                    writerBKC);
-            ledgerAllocatorDelegator = new LedgerAllocatorDelegator(allocator, true);
-        } else {
-            ledgerAllocatorDelegator = ledgerAllocator;
-        }
-
         // Make sure writer handler created before resources are initialized
         BKLogWriteHandler writeHandler = new BKLogWriteHandler(
                 logMetadata,
@@ -578,7 +588,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 writerMetadataStore,
                 scheduler,
                 orderedFuturePool,
-                ledgerAllocatorDelegator,
+                createLedgerAllocator(logMetadata),
                 statsLogger,
                 perLogStatsLogger,
                 alertStatsLogger,

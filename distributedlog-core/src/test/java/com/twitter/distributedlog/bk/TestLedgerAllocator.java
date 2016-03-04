@@ -87,6 +87,10 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         zkc.close();
     }
 
+    private QuorumConfigProvider newQuorumConfigProvider(DistributedLogConfiguration conf) {
+        return new ImmutableQuorumConfigProvider(conf.getQuorumConfig());
+    }
+
     private ZKTransaction newTxn() {
         return new ZKTransaction(zkc);
     }
@@ -97,7 +101,7 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
 
     private SimpleLedgerAllocator createAllocator(String allocationPath,
                                                   DistributedLogConfiguration conf) throws IOException {
-        return FutureUtils.result(SimpleLedgerAllocator.of(allocationPath, null, conf, zkc, bkc));
+        return FutureUtils.result(SimpleLedgerAllocator.of(allocationPath, null, newQuorumConfigProvider(conf), zkc, bkc));
     }
 
     @Test(timeout = 60000)
@@ -140,8 +144,10 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         byte[] data = zkc.get().getData(allocationPath, false, stat);
         Versioned<byte[]> allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
 
-        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
-        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
+        SimpleLedgerAllocator allocator1 =
+                new SimpleLedgerAllocator(allocationPath, allocationData, newQuorumConfigProvider(dlConf), zkc, bkc);
+        SimpleLedgerAllocator allocator2 =
+                new SimpleLedgerAllocator(allocationPath, allocationData, newQuorumConfigProvider(dlConf), zkc, bkc);
         allocator1.allocate();
         // wait until allocated
         ZKTransaction txn1 = newTxn();
@@ -204,7 +210,8 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
 
         Versioned<byte[]> allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
 
-        SimpleLedgerAllocator allocator1 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
+        SimpleLedgerAllocator allocator1 =
+                new SimpleLedgerAllocator(allocationPath, allocationData, newQuorumConfigProvider(dlConf), zkc, bkc);
         allocator1.allocate();
         // wait until allocated
         ZKTransaction txn1 = newTxn();
@@ -214,7 +221,8 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         stat = new Stat();
         data = zkc.get().getData(allocationPath, false, stat);
         allocationData = new Versioned<byte[]>(data, new ZkVersion(stat.getVersion()));
-        SimpleLedgerAllocator allocator2 = new SimpleLedgerAllocator(allocationPath, allocationData, dlConf, zkc, bkc);
+        SimpleLedgerAllocator allocator2 =
+                new SimpleLedgerAllocator(allocationPath, allocationData, newQuorumConfigProvider(dlConf), zkc, bkc);
         allocator2.allocate();
         // wait until allocated
         ZKTransaction txn2 = newTxn();

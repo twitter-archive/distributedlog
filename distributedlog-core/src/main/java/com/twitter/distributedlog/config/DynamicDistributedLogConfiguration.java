@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.config;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.bk.QuorumConfig;
 
 import static com.twitter.distributedlog.DistributedLogConfiguration.*;
 
@@ -233,5 +234,51 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
                         BKDL_READAHEAD_MAX_RECORDS_OLD,
                         BKDL_READAHEAD_MAX_RECORDS_DEFAULT)
         );
+    }
+
+    /**
+     * Whether to enable ledger allocator pool or not.
+     * It is disabled by default.
+     *
+     * @return whether using ledger allocator pool or not.
+     */
+    public boolean getEnableLedgerAllocatorPool() {
+        return getBoolean(BKDL_ENABLE_LEDGER_ALLOCATOR_POOL,
+                defaultConfig.getBoolean(
+                        BKDL_ENABLE_LEDGER_ALLOCATOR_POOL,
+                        BKDL_ENABLE_LEDGER_ALLOCATOR_POOL_DEFAULT));
+    }
+
+    /**
+     * Get the quorum config.
+     *
+     * @return quorum config
+     */
+    public QuorumConfig getQuorumConfig() {
+        int ensembleSize = getInt(
+                this,
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
+                BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD,
+                getInt(defaultConfig,
+                        BKDL_BOOKKEEPER_ENSEMBLE_SIZE,
+                        BKDL_BOOKKEEPER_ENSEMBLE_SIZE_OLD,
+                        BKDL_BOOKKEEPER_ENSEMBLE_SIZE_DEFAULT));
+        int writeQuorumSize = getInt(
+                this,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD,
+                getInt(defaultConfig,
+                        BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE,
+                        BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_OLD,
+                        BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT));
+        int ackQuorumSize = getInt(
+                this,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
+                BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD,
+                getInt(defaultConfig,
+                        BKDL_BOOKKEEPER_ACK_QUORUM_SIZE,
+                        BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_OLD,
+                        BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT));
+        return new QuorumConfig(ensembleSize, writeQuorumSize, ackQuorumSize);
     }
 }

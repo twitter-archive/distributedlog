@@ -16,4 +16,8 @@ public class BookKeeperAccessor {
                                           BookkeeperInternalCallbacks.GenericCallback<Void> cb) {
         lh.recover(cb, null, true);
     }
+
+    public static LedgerMetadata getLedgerMetadata(LedgerHandle lh) {
+        return lh.getLedgerMetadata();
+    }
 }
