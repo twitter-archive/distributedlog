@@ -1,3 +1,9 @@
+0.3.46
+------
+- Append only reader/writer fixes
+- Lock improvements for reliability
+- Async Ledger Allocator uses zookeeper multi
+
 0.3.45
 ------
 - ReadAhead Refactor
