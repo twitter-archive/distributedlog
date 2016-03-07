@@ -18,6 +18,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.BulkWriteOp;
+import com.twitter.distributedlog.service.stream.CreateOp;
 import com.twitter.distributedlog.service.stream.DeleteOp;
 import com.twitter.distributedlog.service.stream.HeartbeatOp;
 import com.twitter.distributedlog.service.stream.ReleaseOp;
@@ -55,7 +56,6 @@ import com.twitter.util.Timer;
 import com.twitter.util.ScheduledThreadPoolTimer;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
-import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -70,7 +70,6 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -191,7 +190,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 executorService,
                 (FatalErrorHandler) this,
                 requestTimer);
-        this.streamManager = new StreamManagerImpl(clientId, executorService, streamFactory);
+        this.streamManager = new StreamManagerImpl(clientId, executorService, streamFactory, dlNamespace);
 
         // Service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
@@ -348,7 +347,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                     // if it is closed, we would not acquire stream again.
                     return null;
                 }
-                writer = streamManager.createStream(stream);
+                writer = streamManager.getOrCreateStream(stream);
             } finally {
                 closeLock.readLock().unlock();
             }
@@ -423,6 +422,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     public Future<WriteResponse> release(String stream, WriteContext ctx) {
         ReleaseOp op = new ReleaseOp(stream, statsLogger, perStreamStatsLogger, streamManager, getChecksum(ctx),
             featureChecksumDisabled, accessControlManager);
+        executeStreamOp(op);
+        return op.result();
+    }
+
+    @Override
+    public Future<WriteResponse> create(String stream, WriteContext ctx) {
+        CreateOp op = new CreateOp(stream, statsLogger, streamManager, getChecksum(ctx), featureChecksumDisabled);
         executeStreamOp(op);
         return op.result();
     }

@@ -5,25 +5,24 @@ import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogNotFoundException;
-import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
-import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
+import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.routing.LocalRoutingService;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
-import com.twitter.distributedlog.service.DistributedLogClient;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
+import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
-import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.finagle.NoBrokersAvailableException;
 import com.twitter.finagle.builder.ClientBuilder;
@@ -48,7 +47,11 @@ import java.util.Set;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class TestDistributedLogServer extends DistributedLogServerTestCase {
     static final Logger logger = LoggerFactory.getLogger(TestDistributedLogServer.class);
@@ -453,6 +456,61 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         reader201.close();
         dlm201.close();
     }
+
+    @Test(timeout = 60000)
+    public void testCreateStream() throws Exception {
+        try {
+            setupNoAdHocCluster();
+            final String name = "dlserver-create-stream";
+
+            noAdHocClient.routingService.addHost("dlserver-create-stream", noAdHocServer.getAddress());
+            assertFalse(noAdHocServer.dlServer.getKey().getStreamManager().isAcquired(name));
+            assertTrue(Await.ready(noAdHocClient.dlClient.create(name)).isReturn());
+
+            long txid = 101;
+            for (long i = 1; i <= 10; i++) {
+                long curTxId = txid++;
+                logger.debug("Write entry {} to stream {}.", curTxId, name);
+                noAdHocClient.dlClient.write(name,
+                    ByteBuffer.wrap(("" + curTxId).getBytes())).get();
+            }
+
+            assertTrue(noAdHocServer.dlServer.getKey().getStreamManager().isAcquired(name));
+        } finally {
+            tearDownNoAdHocCluster();
+        }
+    }
+
+    /** This tests that create has touch like behavior in that trying to create the stream twice, simply does nothing */
+    @Test(timeout = 60000)
+    public void testCreateStreamTwice() throws Exception {
+        try {
+            setupNoAdHocCluster();
+            final String name = "dlserver-create-stream-twice";
+
+            noAdHocClient.routingService.addHost("dlserver-create-stream-twice", noAdHocServer.getAddress());
+            assertFalse(noAdHocServer.dlServer.getKey().getStreamManager().isAcquired(name));
+            assertTrue(Await.ready(noAdHocClient.dlClient.create(name)).isReturn());
+
+            long txid = 101;
+            for (long i = 1; i <= 10; i++) {
+                long curTxId = txid++;
+                logger.debug("Write entry {} to stream {}.", curTxId, name);
+                noAdHocClient.dlClient.write(name,
+                    ByteBuffer.wrap(("" + curTxId).getBytes())).get();
+            }
+
+            assertTrue(noAdHocServer.dlServer.getKey().getStreamManager().isAcquired(name));
+
+            // create again
+            assertTrue(Await.ready(noAdHocClient.dlClient.create(name)).isReturn());
+            assertTrue(noAdHocServer.dlServer.getKey().getStreamManager().isAcquired(name));
+        } finally {
+            tearDownNoAdHocCluster();
+        }
+    }
+
+
 
     @Test(timeout = 60000)
     public void testTruncateStream() throws Exception {

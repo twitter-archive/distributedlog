@@ -1,7 +1,10 @@
 package com.twitter.distributedlog.service.stream;
 
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.util.Await;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -28,7 +31,7 @@ public class TestStreamManager {
         when(mockStream.getStreamName()).thenReturn("stream1");
         StreamFactory mockStreamFactory = mock(StreamFactory.class);
         when(mockStreamFactory.create((String)any(), (StreamManager)any())).thenReturn(mockStream);
-        StreamManager streamManager = new StreamManagerImpl("", mockExecutorService, mockStreamFactory);
+        StreamManager streamManager = new StreamManagerImpl("", mockExecutorService, mockStreamFactory, mock(DistributedLogNamespace.class));
 
         assertFalse(streamManager.isAcquired("stream1"));
         assertEquals(0, streamManager.numAcquired());
@@ -63,5 +66,21 @@ public class TestStreamManager {
         assertFalse(streamManager.isAcquired("stream1"));
         assertEquals(0, streamManager.numAcquired());
         assertEquals(0, streamManager.numCached());
+    }
+
+    @Test
+    public void testCreateStream() throws Exception {
+        Stream mockStream = mock(Stream.class);
+        final String streamName = "stream1";
+        when(mockStream.getStreamName()).thenReturn(streamName);
+        StreamFactory mockStreamFactory = mock(StreamFactory.class);
+        when(mockStreamFactory.create((String)any(), (StreamManager)any())).thenReturn(mockStream);
+        DistributedLogNamespace dlNamespace = mock(DistributedLogNamespace.class);
+        ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
+
+        StreamManager streamManager = new StreamManagerImpl("", executorService, mockStreamFactory, dlNamespace);
+
+        assertTrue(Await.ready(streamManager.createStreamAsync(streamName)).isReturn());
+        verify(dlNamespace).createLog(streamName);
     }
 }

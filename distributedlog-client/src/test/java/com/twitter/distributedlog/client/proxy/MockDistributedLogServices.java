@@ -72,6 +72,11 @@ public class MockDistributedLogServices {
         }
 
         @Override
+        public Future<WriteResponse> create(String stream, WriteContext ctx) {
+            return Future.value(new WriteResponse());
+        }
+
+        @Override
         public Future<WriteResponse> delete(String stream,
                                             WriteContext ctx) {
             return Future.value(new WriteResponse());

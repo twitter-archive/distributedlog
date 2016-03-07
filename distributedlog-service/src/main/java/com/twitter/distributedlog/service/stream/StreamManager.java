@@ -30,7 +30,14 @@ public interface StreamManager {
      * @param stream name
      * @return future satisfied once close complete
      */
-    Stream createStream(String stream) throws IOException;
+    Stream getOrCreateStream(String stream) throws IOException;
+
+    /**
+     * Asynchronously create a new stream.
+     * @param stream
+     * @return Future satisfied once the stream is created
+     */
+    Future<Void> createStreamAsync(String stream);
 
     /**
      * Notify the manager that a stream was acquired.

@@ -36,7 +36,11 @@ public abstract class DistributedLogServerTestCase {
     protected static DistributedLogConfiguration conf =
             new DistributedLogConfiguration().setLockTimeout(10)
                     .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
+    protected static DistributedLogConfiguration noAdHocConf =
+            new DistributedLogConfiguration().setLockTimeout(10).setCreateStreamIfNotExists(false)
+                    .setOutputBufferSize(0).setPeriodicFlushFrequencyMilliSeconds(10);
     protected static DistributedLogCluster dlCluster;
+    protected static DistributedLogCluster noAdHocCluster;
 
     protected static class DLClient {
         public final LocalRoutingService routingService;
@@ -103,25 +107,48 @@ public abstract class DistributedLogServerTestCase {
         }
     }
 
-    protected DistributedLogCluster.DLServer dlServer;
+    protected DLServer dlServer;
     protected DLClient dlClient;
+    protected DLServer noAdHocServer;
+    protected DLClient noAdHocClient;
+
+    public static DistributedLogCluster createCluster(DistributedLogConfiguration conf) throws Exception {
+        return DistributedLogCluster.newBuilder()
+            .numBookies(3)
+            .shouldStartZK(true)
+            .zkServers("127.0.0.1")
+            .shouldStartProxy(false)
+            .dlConf(conf)
+            .bkConf(DLMTestUtil.loadTestBkConf())
+            .build();
+    }
 
     @BeforeClass
     public static void setupCluster() throws Exception {
-        dlCluster = DistributedLogCluster.newBuilder()
-                .numBookies(3)
-                .shouldStartZK(true)
-                .zkServers("127.0.0.1")
-                .shouldStartProxy(false)
-                .dlConf(conf)
-                .bkConf(DLMTestUtil.loadTestBkConf())
-                .build();
+        dlCluster = createCluster(conf);
         dlCluster.start();
+    }
+
+    public void setupNoAdHocCluster() throws Exception {
+        noAdHocCluster = createCluster(noAdHocConf);
+        noAdHocCluster.start();
+        noAdHocServer = new DLServer(noAdHocConf, noAdHocCluster.getUri(), 7002);
+        noAdHocClient = createDistributedLogClient("no-ad-hoc-client");
+    }
+
+    public void tearDownNoAdHocCluster() throws Exception {
+        if (null != noAdHocClient) {
+            noAdHocClient.shutdown();
+        }
+        if (null != noAdHocServer) {
+            noAdHocServer.shutdown();
+        }
     }
 
     @AfterClass
     public static void teardownCluster() throws Exception {
         dlCluster.stop();
+        noAdHocCluster.stop();
     }
 
     protected static URI getUri() {

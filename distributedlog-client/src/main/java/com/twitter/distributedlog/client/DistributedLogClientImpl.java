@@ -460,6 +460,32 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
     }
 
+    class CreateOp extends AbstractWriteOp {
+
+        CreateOp(String name) {
+            super(name, clientStats.getOpStats("create"));
+        }
+
+        @Override
+        Future<WriteResponse> sendWriteRequest(ProxyClient sc) {
+            return sc.getService().create(stream, ctx);
+        }
+
+        @Override
+        void beforeComplete(ProxyClient sc, ResponseHeader header) {
+            ownershipCache.updateOwner(stream, sc.getAddress());
+        }
+
+        Future<Void> result() {
+            return result.map(new AbstractFunction1<WriteResponse, Void>() {
+                @Override
+                public Void apply(WriteResponse v1) {
+                    return null;
+                }
+            }).voided();
+        }
+    }
+
     class HeartbeatOp extends AbstractWriteOp {
         HeartbeatOptions options;
 
@@ -699,6 +725,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     @Override
     public Future<Void> release(String stream) {
         final ReleaseOp op = new ReleaseOp(stream);
+        sendRequest(op);
+        return op.result();
+    }
+
+    @Override
+    public Future<Void> create(String stream) {
+        final CreateOp op = new CreateOp(stream);
         sendRequest(op);
         return op.result();
     }

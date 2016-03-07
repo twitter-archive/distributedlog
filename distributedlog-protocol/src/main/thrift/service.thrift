@@ -162,6 +162,8 @@ service DistributedLogService {
 
     WriteResponse release(string stream, WriteContext ctx);
 
+    WriteResponse create(string stream, WriteContext ctx);
+
     WriteResponse delete(string stream, WriteContext ctx);
 
     // Admin Methods

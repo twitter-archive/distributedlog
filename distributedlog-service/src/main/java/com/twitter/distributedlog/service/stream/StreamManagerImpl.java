@@ -5,6 +5,7 @@ import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.DistributedLogServiceImpl;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
@@ -52,11 +53,13 @@ public class StreamManagerImpl implements StreamManager {
     private final String clientId;
     private boolean closed = false;
     private final StreamFactory streamFactory;
+    private final DistributedLogNamespace dlNamespace;
 
-    public StreamManagerImpl(String clientId, ScheduledExecutorService executorService, StreamFactory streamFactory) {
+    public StreamManagerImpl(String clientId, ScheduledExecutorService executorService, StreamFactory streamFactory, DistributedLogNamespace dlNamespace) {
         this.clientId = clientId;
         this.executorService = executorService;
         this.streamFactory = streamFactory;
+        this.dlNamespace = dlNamespace;
     }
 
     /**
@@ -97,6 +100,27 @@ public class StreamManagerImpl implements StreamManager {
                 new ServiceUnavailableException("Couldn't schedule a release task."));
         }
         return releasePromise;
+    }
+
+    @Override
+    public Future<Void> createStreamAsync(final String stream) {
+        final Promise<Void> createPromise = new Promise<Void>();
+        java.util.concurrent.Future<?> scheduleFuture = schedule(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    dlNamespace.createLog(stream);
+                    createPromise.setValue(null);
+                } catch (Exception e) {
+                    createPromise.setException(e);
+                }
+            }
+        }, 0);
+        if (null == scheduleFuture) {
+            return Future.exception(
+                new ServiceUnavailableException("Couldn't schedule a create task."));
+        }
+        return createPromise;
     }
 
     @Override
@@ -147,7 +171,7 @@ public class StreamManagerImpl implements StreamManager {
     }
 
     @Override
-    public Stream createStream(String streamName) throws IOException {
+    public Stream getOrCreateStream(String streamName) throws IOException {
         Stream stream = streams.get(streamName);
         if (null == stream) {
             closeLock.readLock().lock();

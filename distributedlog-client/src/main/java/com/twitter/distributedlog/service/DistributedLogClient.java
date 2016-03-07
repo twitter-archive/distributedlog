@@ -62,6 +62,15 @@ public interface DistributedLogClient {
     Future<Void> delete(String stream);
 
     /**
+     * Create a stream with name <i>stream</i>.
+     *
+     * @param stream
+     *          Stream Name to create.
+     * @return a future representing the create operation.
+     */
+    Future<Void> create(String stream);
+
+    /**
      * Close the client.
      */
     void close();
