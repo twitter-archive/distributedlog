@@ -280,7 +280,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.flushTimeoutSeconds = conf.getLogFlushTimeoutSeconds();
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
-        this.isDurableWriteEnabled = conf.isDurableWriteEnabled();
+        this.isDurableWriteEnabled = dynConf.isDurableWriteEnabled();
 
         // Failure injection
         if (conf.getEIInjectWriteDelay()) {

@@ -312,4 +312,16 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
         );
     }
 
+    /**
+     * Check whether the durable write is enabled.
+     *
+     * @return true if durable write is enabled. otherwise, false.
+     */
+    public boolean isDurableWriteEnabled() {
+        return getBoolean(BKDL_IS_DURABLE_WRITE_ENABLED,
+                defaultConfig.getBoolean(
+                        BKDL_IS_DURABLE_WRITE_ENABLED,
+                        BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT));
+    }
+
 }

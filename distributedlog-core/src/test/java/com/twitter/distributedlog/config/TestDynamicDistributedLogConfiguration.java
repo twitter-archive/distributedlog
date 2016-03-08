@@ -229,4 +229,17 @@ public class TestDynamicDistributedLogConfiguration {
                 BKDL_BOOKKEEPER_WRITE_QUORUM_SIZE_DEFAULT + 4,
                 BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 4);
     }
+
+
+    @Test(timeout = 20000)
+    public void testIsDurableWriteEnabled() {
+        ConcurrentBaseConfiguration defaultConfig = new ConcurrentBaseConfiguration();
+        DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(defaultConfig);
+
+        assertTrue(dynConf.isDurableWriteEnabled());
+        defaultConfig.setProperty(BKDL_IS_DURABLE_WRITE_ENABLED, false);
+        assertFalse(dynConf.isDurableWriteEnabled());
+        dynConf.setProperty(BKDL_IS_DURABLE_WRITE_ENABLED, true);
+        assertTrue(dynConf.isDurableWriteEnabled());
+    }
 }
