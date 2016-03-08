@@ -397,6 +397,14 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BPS_STREAM_ACQUIRE_SERVICE_LIMIT = "bpsStreamAcquireServiceLimit";
     public static final int BKDL_BPS_STREAM_ACQUIRE_SERVICE_LIMIT_DEFAULT = -1;
 
+    // Settings for Partitioning
+
+    public static final String BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY = "maxAcquiredPartitionsPerProxy";
+    public static final int BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY_DEFAULT = -1;
+
+    public static final String BKDL_MAX_CACHED_PARTITIONS_PER_PROXY = "maxCachedPartitionsPerProxy";
+    public static final int BKDL_MAX_CACHED_PARTITIONS_PER_PROXY_DEFAULT = -1;
+
     //
     // Settings for Error Injection
     //
@@ -2920,6 +2928,60 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public int getRpsHardWriteLimit() {
         return getInt(BKDL_RPS_HARD_WRITE_LIMIT, BKDL_RPS_HARD_WRITE_LIMIT_DEFAULT);
+    }
+
+    //
+    // Settings for partitioning
+    //
+
+    /**
+     * Get the maximum number of partitions of each stream allowed to be acquired per proxy.
+     * <p>This setting is able to configure per stream. This is the default setting if it is
+     * not configured per stream. Default value is -1, which means no limit on the number of
+     * partitions could be acquired each stream.
+     *
+     * @return maximum number of partitions of each stream allowed to be acquired per proxy.
+     */
+    public int getMaxAcquiredPartitionsPerProxy() {
+        return getInt(BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY, BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY_DEFAULT);
+    }
+
+    /**
+     * Set the maximum number of partitions of each stream allowed to be acquired per proxy.
+     *
+     * @param numPartitions
+     *          number of partitions of each stream allowed to be acquired
+     * @return distributedlog configuration
+     * @see #getMaxAcquiredPartitionsPerProxy()
+     */
+    public DistributedLogConfiguration setMaxAcquiredPartitionsPerProxy(int numPartitions) {
+        setProperty(BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY, numPartitions);
+        return this;
+    }
+
+    /**
+     * Get the maximum number of partitions of each stream allowed to cache per proxy.
+     * <p>This setting is able to configure per stream. This is the default setting if it is
+     * not configured per stream. Default value is -1, which means no limit on the number of
+     * partitions could be acquired each stream.
+     *
+     * @return maximum number of partitions of each stream allowed to be acquired per proxy.
+     */
+    public int getMaxCachedPartitionsPerProxy() {
+        return getInt(BKDL_MAX_CACHED_PARTITIONS_PER_PROXY, BKDL_MAX_CACHED_PARTITIONS_PER_PROXY_DEFAULT);
+    }
+
+    /**
+     * Set the maximum number of partitions of each stream allowed to cache per proxy.
+     *
+     * @param numPartitions
+     *          number of partitions of each stream allowed to cache
+     * @return distributedlog configuration
+     * @see #getMaxAcquiredPartitionsPerProxy()
+     */
+    public DistributedLogConfiguration setMaxCachedPartitionsPerProxy(int numPartitions) {
+        setProperty(BKDL_MAX_CACHED_PARTITIONS_PER_PROXY, numPartitions);
+        return this;
     }
 
     // Error Injection Settings

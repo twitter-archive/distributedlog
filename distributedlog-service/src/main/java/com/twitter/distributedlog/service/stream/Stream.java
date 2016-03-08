@@ -1,5 +1,7 @@
 package com.twitter.distributedlog.service.stream;
 
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.service.streamset.Partition;
 import com.twitter.util.Future;
 import java.io.IOException;
 
@@ -8,6 +10,13 @@ import java.io.IOException;
  * the proxy are managed by StreamManager.
  */
 public interface Stream {
+
+    /**
+     * Get the stream configuration for this stream
+     *
+     * @return stream configuration
+     */
+    DynamicDistributedLogConfiguration getStreamConfiguration();
 
     /**
      * Get the stream's last recorded current owner (may be out of date). Used
@@ -21,6 +30,13 @@ public interface Stream {
      * @param stream name
      */
     String getStreamName();
+
+    /**
+     * Get the represented partition name.
+     *
+     * @return represented partition name.
+     */
+    Partition getPartition();
 
     /**
      * Expensive initialization code run after stream has been allocated in

@@ -13,6 +13,8 @@ import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.ServiceStreamConfigProvider;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
+import com.twitter.distributedlog.service.streamset.IdentityStreamPartitionConverter;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -29,6 +31,7 @@ import com.twitter.util.Duration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
+import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -108,6 +111,14 @@ public class DistributedLogServer {
                         + configFile + ".");
             }
         }
+
+        // server configuration and dynamic configuration
+        ServerConfiguration serverConf = new ServerConfiguration();
+        serverConf.loadConf(dlConf);
+        serverConf.validate();
+
+        DynamicDistributedLogConfiguration dynDlConf = getServiceDynConf(dlConf);
+
         logger.info("Starting stats provider : {}", statsProvider.getClass());
         statsProvider.start(dlConf);
 
@@ -127,13 +138,18 @@ public class DistributedLogServer {
                         .setDaemon(true)
                         .build());
 
-        StreamConfigProvider streamConfProvider = getStreamConfigProvider(dlConf);
+        // Build the stream partition converter
+        StreamPartitionConverter converter;
+        try {
+            converter = ReflectionUtils.newInstance(serverConf.getStreamPartitionConverterClass());
+        } catch (ConfigurationException e) {
+            logger.warn("Failed to load configured stream-to-partition converter. Fallback to use {}",
+                    IdentityStreamPartitionConverter.class.getName());
+            converter = new IdentityStreamPartitionConverter();
+        }
 
-        ServerConfiguration serverConf = new ServerConfiguration();
-        serverConf.loadConf(dlConf);
-        serverConf.validate();
-
-        DynamicDistributedLogConfiguration dynDlConf = getServiceDynConf(dlConf);
+        StreamConfigProvider streamConfProvider =
+                getStreamConfigProvider(dlConf, converter);
 
         // pre-run
         preRun(dlConf, serverConf);
@@ -143,6 +159,7 @@ public class DistributedLogServer {
                 dlConf,
                 dynDlConf,
                 dlUri,
+                converter,
                 statsProvider,
                 port.or(0),
                 keepAliveLatch,
@@ -178,14 +195,20 @@ public class DistributedLogServer {
         }
     }
 
-    private StreamConfigProvider getStreamConfigProvider(DistributedLogConfiguration dlConf)
+    private StreamConfigProvider getStreamConfigProvider(DistributedLogConfiguration dlConf,
+                                                         StreamPartitionConverter partitionConverter)
             throws ConfigurationException {
         StreamConfigProvider streamConfProvider = new NullStreamConfigProvider();
         if (streamConf.isPresent() && conf.isPresent()) {
             String dynConfigPath = streamConf.get();
             String defaultConfigFile = conf.get();
-            streamConfProvider = new ServiceStreamConfigProvider(dynConfigPath, defaultConfigFile, dlConf.getStreamConfigRouterClass(),
-                    configExecutorService, dlConf.getDynamicConfigReloadIntervalSec(), TimeUnit.SECONDS);
+            streamConfProvider = new ServiceStreamConfigProvider(
+                    dynConfigPath,
+                    defaultConfigFile,
+                    partitionConverter,
+                    configExecutorService,
+                    dlConf.getDynamicConfigReloadIntervalSec(),
+                    TimeUnit.SECONDS);
         } else if (conf.isPresent()) {
             String configFile = conf.get();
             streamConfProvider = new DefaultStreamConfigProvider(configFile, configExecutorService,
@@ -198,6 +221,7 @@ public class DistributedLogServer {
             ServerConfiguration serverConf,
             DistributedLogConfiguration dlConf,
             URI dlUri,
+            StreamPartitionConverter converter,
             StatsProvider provider,
             int port) throws IOException {
 
@@ -205,6 +229,7 @@ public class DistributedLogServer {
                 dlConf,
                 ConfUtils.getConstDynConf(dlConf),
                 dlUri,
+                converter,
                 provider,
                 port,
                 new CountDownLatch(0),
@@ -218,6 +243,7 @@ public class DistributedLogServer {
             DistributedLogConfiguration dlConf,
             DynamicDistributedLogConfiguration dynDlConf,
             URI dlUri,
+            StreamPartitionConverter partitionConverter,
             StatsProvider provider,
             int port,
             CountDownLatch keepAliveLatch,
@@ -241,6 +267,7 @@ public class DistributedLogServer {
                 dynDlConf,
                 streamConfProvider,
                 dlUri,
+                partitionConverter,
                 provider.getStatsLogger(""),
                 perStreamStatsLogger,
                 keepAliveLatch);
@@ -322,12 +349,20 @@ public class DistributedLogServer {
     /**
      * Running distributedlog server.
      *
-     * @param args
-     *          distributedlog server args
-     * @param statsReceiver
-     *          stats receiver
-     * @param statsProvider
-     *          stats provider
+     * @param uri distributedlog namespace
+     * @param conf distributedlog configuration file location
+     * @param streamConf per stream configuration dir location
+     * @param port listen port
+     * @param statsPort stats port
+     * @param shardId shard id
+     * @param announcePath server set announce path
+     * @param thriftmux flag to enable thrift mux
+     * @param statsReceiver receiver to receive finagle stats
+     * @param statsProvider provider to receive dl stats
+     * @return distributedlog server
+     * @throws ConfigurationException
+     * @throws IllegalArgumentException
+     * @throws IOException
      */
     public static DistributedLogServer runServer(
                Optional<String> uri,

@@ -147,8 +147,12 @@ public abstract class DistributedLogServerTestCase {
 
     @AfterClass
     public static void teardownCluster() throws Exception {
-        dlCluster.stop();
-        noAdHocCluster.stop();
+        if (null != dlCluster) {
+            dlCluster.stop();
+        }
+        if (null != noAdHocCluster) {
+            noAdHocCluster.stop();
+        }
     }
 
     protected static URI getUri() {

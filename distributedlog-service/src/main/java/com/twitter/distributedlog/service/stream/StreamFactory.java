@@ -1,18 +1,18 @@
 package com.twitter.distributedlog.service.stream;
 
-import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.service.FatalErrorHandler;
-import com.twitter.distributedlog.service.config.StreamConfigProvider;
-import com.twitter.distributedlog.service.stream.StreamOpStats;
-import java.util.concurrent.ScheduledExecutorService;
-import org.apache.bookkeeper.feature.FeatureProvider;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 
 public interface StreamFactory {
 
     /**
      * Create a stream object.
-     * @param last known owner for the stream
+     *
+     * @param name stream name
+     * @param streamConf stream configuration
+     * @param streamManager manager of streams
+     * @return stream object
      */
-    Stream create(String name, StreamManager streamManager);
+    Stream create(String name,
+                  DynamicDistributedLogConfiguration streamConf,
+                  StreamManager streamManager);
 }

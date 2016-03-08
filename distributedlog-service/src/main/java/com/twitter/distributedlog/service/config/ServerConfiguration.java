@@ -4,13 +4,26 @@ import com.google.common.base.Preconditions;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
+import com.twitter.distributedlog.service.streamset.IdentityStreamPartitionConverter;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
+import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.CompositeConfiguration;
+import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.SystemConfiguration;
 
 /**
  * Configuration for DistributedLog Server
  */
 public class ServerConfiguration extends CompositeConfiguration {
+
+    private static ClassLoader defaultLoader;
+
+    static {
+        defaultLoader = Thread.currentThread().getContextClassLoader();
+        if (null == defaultLoader) {
+            defaultLoader = DistributedLogConfiguration.class.getClassLoader();
+        }
+    }
 
     // Server DLSN version
     protected final static String SERVER_DLSN_VERSION = "server_dlsn_version";
@@ -53,6 +66,9 @@ public class ServerConfiguration extends CompositeConfiguration {
     public static final String SERVER_STREAM_PROBATION_TIMEOUT_MS = "server_stream_probation_timeout_ms";
     public static final String SERVER_STREAM_PROBATION_TIMEOUT_MS_OLD = "streamProbationTimeoutMs";
     public static final long SERVER_STREAM_PROBATION_TIMEOUT_MS_DEFAULT = 60*1000*5;
+
+    // Server stream to partition converter
+    protected final static String SERVER_STREAM_PARTITION_CONVERTER_CLASS = "stream_partition_converter_class";
 
     public ServerConfiguration() {
         super();
@@ -282,6 +298,34 @@ public class ServerConfiguration extends CompositeConfiguration {
     public ServerConfiguration setStreamProbationTimeoutMs(long timeoutMs) {
         setProperty(SERVER_STREAM_PROBATION_TIMEOUT_MS, timeoutMs);
         return this;
+    }
+
+    /**
+     * Set the stream partition converter class.
+     *
+     * @param converterClass
+     *          stream partition converter class
+     * @return server configuration
+     */
+    public ServerConfiguration setStreamPartitionConverterClass(Class<? extends StreamPartitionConverter> converterClass) {
+        setProperty(SERVER_STREAM_PARTITION_CONVERTER_CLASS, converterClass.getName());
+        return this;
+    }
+
+    /**
+     * Get the stream partition converter class.
+     *
+     * @return the stream partition converter class.
+     * @throws ConfigurationException
+     */
+    public Class<? extends StreamPartitionConverter> getStreamPartitionConverterClass()
+            throws ConfigurationException {
+        return ReflectionUtils.getClass(
+                this,
+                SERVER_STREAM_PARTITION_CONVERTER_CLASS,
+                IdentityStreamPartitionConverter.class,
+                StreamPartitionConverter.class,
+                defaultLoader);
     }
 
     /**

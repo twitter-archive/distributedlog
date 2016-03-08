@@ -22,6 +22,7 @@ import com.twitter.distributedlog.service.ServerFeatureKeys;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.limiter.StreamRequestLimiter;
+import com.twitter.distributedlog.service.streamset.Partition;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.TimeSequencer;
@@ -86,6 +87,7 @@ public class StreamImpl extends Thread implements Stream {
     }
 
     private final String name;
+    private final Partition partition;
     private DistributedLogManager manager;
 
     // A write has been attempted since the last stream acquire.
@@ -139,11 +141,13 @@ public class StreamImpl extends Thread implements Stream {
     // must not do any expensive intialization here (particularly any locking or
     // significant resource allocation etc.).
     StreamImpl(final String name,
+               final Partition partition,
                String clientId,
                StreamManager streamManager,
                StreamOpStats streamOpStats,
                ServerConfiguration serverConfig,
                DistributedLogConfiguration dlConfig,
+               DynamicDistributedLogConfiguration streamConf,
                FeatureProvider featureProvider,
                StreamConfigProvider streamConfigProvider,
                DistributedLogNamespace dlNamespace,
@@ -155,6 +159,7 @@ public class StreamImpl extends Thread implements Stream {
         this.dlConfig = dlConfig;
         this.streamManager = streamManager;
         this.name = name;
+        this.partition = partition;
         this.status = StreamStatus.UNINITIALIZED;
         this.lastException = new IOException("Fail to write record to stream " + name);
         this.nextAcquireWaitTimeMs = dlConfig.getZKSessionTimeoutMilliseconds() * 3 / 5;
@@ -167,12 +172,10 @@ public class StreamImpl extends Thread implements Stream {
         this.streamProbationTimeoutMs = serverConfig.getStreamProbationTimeoutMs();
         this.failFastOnStreamNotReady = dlConfig.getFailFastOnStreamNotReady();
         this.fatalErrorHandler = fatalErrorHandler;
-        this.dynConf = getDynConf(name, streamConfigProvider, dlConfig);
-
+        this.dynConf = streamConf;
         StatsLogger limiterStatsLogger = BroadCastStatsLogger.two(
             streamOpStats.baseScope("stream_limiter"),
             streamOpStats.streamRequestScope(name, "limiter"));
-
         this.limiter = new StreamRequestLimiter(name, dynConf, limiterStatsLogger, featureRateLimitDisabled);
         this.requestTimer = requestTimer;
 
@@ -190,19 +193,6 @@ public class StreamImpl extends Thread implements Stream {
         setDaemon(true);
     }
 
-    private static DynamicDistributedLogConfiguration getDynConf(
-            String streamName,
-            StreamConfigProvider streamConfigProvider,
-            DistributedLogConfiguration dlConfig) {
-        Optional<DynamicDistributedLogConfiguration> dynDlConf =
-                streamConfigProvider.getDynamicStreamConfig(streamName);
-        if (dynDlConf.isPresent()) {
-            return dynDlConf.get();
-        } else {
-            return ConfUtils.getConstDynConf(dlConfig);
-        }
-    }
-
     @Override
     public String getOwner() {
         return owner;
@@ -211,6 +201,16 @@ public class StreamImpl extends Thread implements Stream {
     @Override
     public String getStreamName() {
         return name;
+    }
+
+    @Override
+    public DynamicDistributedLogConfiguration getStreamConfiguration() {
+        return dynConf;
+    }
+
+    @Override
+    public Partition getPartition() {
+        return partition;
     }
 
     private DistributedLogManager openLog(String name) throws IOException {
@@ -662,6 +662,25 @@ public class StreamImpl extends Thread implements Stream {
                 oldPendingOps = pendingOps;
                 pendingOps = new ArrayDeque<StreamOp>();
                 success = true;
+            }
+            // check if the stream is allowed to be acquired
+            if (!streamManager.allowAcquire(this)) {
+                if (null != oldWriter) {
+                    Abortables.abortQuietly(oldWriter);
+                }
+                int maxAcquiredPartitions = dynConf.getMaxAcquiredPartitionsPerProxy();
+                StreamUnavailableException sue = new StreamUnavailableException("Stream " + partition.getStream()
+                        + " is not allowed to acquire more than " + maxAcquiredPartitions + " partitions");
+                countException(sue, exceptionStatLogger);
+                logger.error("Failed to acquire stream {} because it is unavailable : {}",
+                        name, sue.getMessage());
+                synchronized (this) {
+                    oldWriter = setStreamStatus(StreamStatus.ERROR,
+                            StreamStatus.INITIALIZED, null, null, sue);
+                    // we don't switch the pending ops since they are already switched
+                    // when setting the status to initialized
+                    success = false;
+                }
             }
         } catch (final AlreadyClosedException ace) {
             countException(ace, streamExceptionStatLogger);

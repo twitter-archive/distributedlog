@@ -4,6 +4,7 @@ import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LocalDLMEmulator;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
+import com.twitter.distributedlog.service.streamset.IdentityStreamPartitionConverter;
 import com.twitter.finagle.builder.Server;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
@@ -186,7 +187,12 @@ public class DistributedLogCluster {
                     serverConf.loadConf(dlConf);
                     serverConf.setServerShardId(proxyPort);
                     serverPair = DistributedLogServer.runServer(
-                            serverConf, dlConf, uri, new NullStatsProvider(), proxyPort);
+                            serverConf,
+                            dlConf,
+                            uri,
+                            new IdentityStreamPartitionConverter(),
+                            new NullStatsProvider(),
+                            proxyPort);
                     success = true;
                 } catch (BindException be) {
                     retries++;

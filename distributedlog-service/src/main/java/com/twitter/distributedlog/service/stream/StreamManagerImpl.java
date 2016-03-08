@@ -3,10 +3,17 @@ package com.twitter.distributedlog.service.stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.RateLimiter;
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.ServiceUnavailableException;
+import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.service.DistributedLogServiceImpl;
+import com.twitter.distributedlog.service.config.StreamConfigProvider;
+import com.twitter.distributedlog.service.streamset.Partition;
+import com.twitter.distributedlog.service.streamset.PartitionMap;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import java.io.IOException;
@@ -48,18 +55,53 @@ public class StreamManagerImpl implements StreamManager {
         new ConcurrentHashMap<String, Stream>();
     private final AtomicInteger numAcquired = new AtomicInteger(0);
 
+    //
+    // Partitions
+    //
+    private final StreamPartitionConverter partitionConverter;
+    private final PartitionMap cachedPartitions = new PartitionMap();
+    private final PartitionMap acquiredPartitions = new PartitionMap();
+
     final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
     private final ScheduledExecutorService executorService;
+    private final DistributedLogConfiguration dlConfig;
+    private final StreamConfigProvider streamConfigProvider;
     private final String clientId;
     private boolean closed = false;
     private final StreamFactory streamFactory;
     private final DistributedLogNamespace dlNamespace;
 
-    public StreamManagerImpl(String clientId, ScheduledExecutorService executorService, StreamFactory streamFactory, DistributedLogNamespace dlNamespace) {
+    public StreamManagerImpl(String clientId,
+                             DistributedLogConfiguration dlConfig,
+                             ScheduledExecutorService executorService,
+                             StreamFactory streamFactory,
+                             StreamPartitionConverter partitionConverter,
+                             StreamConfigProvider streamConfigProvider,
+                             DistributedLogNamespace dlNamespace) {
         this.clientId = clientId;
         this.executorService = executorService;
         this.streamFactory = streamFactory;
+        this.partitionConverter = partitionConverter;
+        this.dlConfig = dlConfig;
+        this.streamConfigProvider = streamConfigProvider;
         this.dlNamespace = dlNamespace;
+    }
+
+    private DynamicDistributedLogConfiguration getDynConf(String streamName) {
+        Optional<DynamicDistributedLogConfiguration> dynDlConf =
+                streamConfigProvider.getDynamicStreamConfig(streamName);
+        if (dynDlConf.isPresent()) {
+            return dynDlConf.get();
+        } else {
+            return ConfUtils.getConstDynConf(dlConfig);
+        }
+    }
+
+    @Override
+    public boolean allowAcquire(Stream stream) {
+        return acquiredPartitions.addPartition(
+                stream.getPartition(),
+                stream.getStreamConfiguration().getMaxAcquiredPartitionsPerProxy());
     }
 
     /**
@@ -125,6 +167,7 @@ public class StreamManagerImpl implements StreamManager {
 
     @Override
     public void notifyReleased(Stream stream) {
+        acquiredPartitions.removePartition(stream.getPartition());
         if (acquiredStreams.remove(stream.getStreamName(), stream)) {
             numAcquired.getAndDecrement();
         }
@@ -139,6 +182,7 @@ public class StreamManagerImpl implements StreamManager {
 
     @Override
     public boolean notifyRemoved(Stream stream) {
+        cachedPartitions.removePartition(stream.getPartition());
         if (streams.remove(stream.getStreamName(), stream)) {
             numCached.getAndDecrement();
             return true;
@@ -179,7 +223,19 @@ public class StreamManagerImpl implements StreamManager {
                 if (closed) {
                     return null;
                 }
-                stream = newStream(streamName);
+                DynamicDistributedLogConfiguration dynConf = getDynConf(streamName);
+                int maxCachedPartitions = dynConf.getMaxCachedPartitionsPerProxy();
+
+                // get partition from the stream name
+                Partition partition = partitionConverter.convert(streamName);
+
+                // add partition to cached map
+                if (!cachedPartitions.addPartition(partition, maxCachedPartitions)) {
+                    throw new StreamUnavailableException("Stream " + stream
+                            + " is not allowed to cache more than " + maxCachedPartitions + " partitions");
+                }
+
+                stream = newStream(streamName, dynConf);
                 Stream oldWriter = streams.putIfAbsent(streamName, stream);
                 if (null != oldWriter) {
                     stream = oldWriter;
@@ -267,8 +323,8 @@ public class StreamManagerImpl implements StreamManager {
         return Future.collect(futures);
     }
 
-    private Stream newStream(String name) {
-        return streamFactory.create(name, this);
+    private Stream newStream(String name, DynamicDistributedLogConfiguration streamConf) {
+        return streamFactory.create(name, streamConf, this);
     }
 
     public Future<Void> doCloseAndRemoveAsync(final String streamName) {

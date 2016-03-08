@@ -1,26 +1,16 @@
 package com.twitter.distributedlog.service.config;
 
 import com.google.common.base.Optional;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
-import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
-import com.twitter.distributedlog.config.ConfigurationSubscription;
 import com.twitter.distributedlog.config.DynamicConfigurationFactory;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
-import com.twitter.distributedlog.config.PropertiesConfigurationBuilder;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.net.MalformedURLException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
-import org.apache.bookkeeper.util.ReflectionUtils;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
 import org.apache.commons.configuration.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Provide per stream configuration to DistributedLog service layer.
@@ -30,13 +20,17 @@ public class ServiceStreamConfigProvider implements StreamConfigProvider {
 
     private final File configBaseDir;
     private final File defaultConfigFile;
-    private final StreamConfigRouter configRouter;
+    private final StreamPartitionConverter partitionConverter;
     private final DynamicConfigurationFactory configFactory;
     private final DynamicDistributedLogConfiguration defaultDynConf;
     private final static String CONFIG_EXTENSION = "conf";
 
-    public ServiceStreamConfigProvider(String configPath, String defaultConfigPath, String routerClass,
-                                       ScheduledExecutorService executorService, int reloadPeriod, TimeUnit reloadUnit)
+    public ServiceStreamConfigProvider(String configPath,
+                                       String defaultConfigPath,
+                                       StreamPartitionConverter partitionConverter,
+                                       ScheduledExecutorService executorService,
+                                       int reloadPeriod,
+                                       TimeUnit reloadUnit)
                                        throws ConfigurationException {
         this.configBaseDir = new File(configPath);
         if (!configBaseDir.exists()) {
@@ -48,7 +42,7 @@ public class ServiceStreamConfigProvider implements StreamConfigProvider {
         }
 
         // Construct reloading default configuration
-        this.configRouter = ReflectionUtils.newInstance(routerClass, StreamConfigRouter.class);
+        this.partitionConverter = partitionConverter;
         this.configFactory = new DynamicConfigurationFactory(executorService, reloadPeriod, reloadUnit);
         // We know it exists from the check above.
         this.defaultDynConf = configFactory.getDynamicConfiguration(defaultConfigPath).get();
@@ -56,7 +50,7 @@ public class ServiceStreamConfigProvider implements StreamConfigProvider {
 
     @Override
     public Optional<DynamicDistributedLogConfiguration> getDynamicStreamConfig(String streamName) {
-        String configName = configRouter.getConfig(streamName);
+        String configName = partitionConverter.convert(streamName).getStream();
         String configPath = getConfigPath(configName);
         Optional<DynamicDistributedLogConfiguration> dynConf = Optional.<DynamicDistributedLogConfiguration>absent();
         try {

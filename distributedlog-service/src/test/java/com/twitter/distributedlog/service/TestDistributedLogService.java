@@ -7,14 +7,17 @@ import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.exceptions.StreamUnavailableException;
 import com.twitter.distributedlog.service.config.NullStreamConfigProvider;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.service.stream.StreamImpl.StreamStatus;
 import com.twitter.distributedlog.service.stream.StreamImpl;
 import com.twitter.distributedlog.service.stream.StreamManagerImpl;
-import com.twitter.distributedlog.service.stream.StreamManager;
 import com.twitter.distributedlog.service.stream.Stream;
+import com.twitter.distributedlog.service.streamset.DelimiterStreamPartitionConverter;
+import com.twitter.distributedlog.service.streamset.IdentityStreamPartitionConverter;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -24,6 +27,8 @@ import com.twitter.util.Await;
 import com.twitter.util.Future;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.util.ReflectionUtils;
+import org.apache.commons.configuration.ConfigurationException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -105,12 +110,22 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             ServerConfiguration serverConf,
             DistributedLogConfiguration dlConf,
             CountDownLatch latch) throws Exception {
+        // Build the stream partition converter
+        StreamPartitionConverter converter;
+        try {
+            converter = ReflectionUtils.newInstance(serverConf.getStreamPartitionConverterClass());
+        } catch (ConfigurationException e) {
+            logger.warn("Failed to load configured stream-to-partition converter. Fallback to use {}",
+                    IdentityStreamPartitionConverter.class.getName());
+            converter = new IdentityStreamPartitionConverter();
+        }
         return new DistributedLogServiceImpl(
                 serverConf,
                 dlConf,
                 ConfUtils.getConstDynConf(dlConf),
                 new NullStreamConfigProvider(),
                 uri,
+                converter,
                 NullStatsLogger.INSTANCE,
                 NullStatsLogger.INSTANCE,
                 latch);
@@ -180,6 +195,101 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertTrue(s1.getLastException() instanceof OwnershipAcquireFailedException);
 
         service1.shutdown();
+    }
+
+    @Test(timeout = 60000)
+    public void testAcquireStreamsWhenExceedMaxCachedPartitions() throws Exception {
+        String streamName = testName.getMethodName() + "_0000";
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(dlConf);
+        confLocal.setMaxCachedPartitionsPerProxy(1);
+
+        ServerConfiguration serverConfLocal = new ServerConfiguration();
+        serverConfLocal.addConfiguration(serverConf);
+        serverConfLocal.setStreamPartitionConverterClass(DelimiterStreamPartitionConverter.class);
+
+        DistributedLogServiceImpl serviceLocal = createService(serverConfLocal, confLocal);
+        Stream stream = serviceLocal.getLogWriter(streamName);
+
+        // stream is cached
+        assertNotNull(stream);
+        assertEquals(1, serviceLocal.getStreamManager().numCached());
+
+        // create write ops
+        WriteOp op0 = createWriteOp(service, streamName, 0L);
+        stream.submit(op0);
+        WriteResponse wr0 = Await.result(op0.result());
+        assertEquals("Op 0 should succeed",
+                StatusCode.SUCCESS, wr0.getHeader().getCode());
+        assertEquals(1, serviceLocal.getStreamManager().numAcquired());
+
+        // should fail to acquire another partition
+        try {
+            serviceLocal.getLogWriter(testName.getMethodName() + "_0001");
+            fail("Should fail to acquire new streams");
+        } catch (StreamUnavailableException sue) {
+            // expected
+        }
+        assertEquals(1, serviceLocal.getStreamManager().numCached());
+        assertEquals(1, serviceLocal.getStreamManager().numAcquired());
+
+        // should be able to acquire partitions from other streams
+        String anotherStreamName = testName.getMethodName() + "-another_0001";
+        Stream anotherStream = serviceLocal.getLogWriter(anotherStreamName);
+        assertNotNull(anotherStream);
+        assertEquals(2, serviceLocal.getStreamManager().numCached());
+
+        // create write ops
+        WriteOp op1 = createWriteOp(service, anotherStreamName, 0L);
+        anotherStream.submit(op1);
+        WriteResponse wr1 = Await.result(op1.result());
+        assertEquals("Op 1 should succeed",
+                StatusCode.SUCCESS, wr1.getHeader().getCode());
+        assertEquals(2, serviceLocal.getStreamManager().numAcquired());
+    }
+
+    @Test(timeout = 60000)
+    public void testAcquireStreamsWhenExceedMaxAcquiredPartitions() throws Exception {
+        String streamName = testName.getMethodName() + "_0000";
+
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(dlConf);
+        confLocal.setMaxCachedPartitionsPerProxy(-1);
+        confLocal.setMaxAcquiredPartitionsPerProxy(1);
+
+        ServerConfiguration serverConfLocal = new ServerConfiguration();
+        serverConfLocal.addConfiguration(serverConf);
+        serverConfLocal.setStreamPartitionConverterClass(DelimiterStreamPartitionConverter.class);
+
+        DistributedLogServiceImpl serviceLocal = createService(serverConfLocal, confLocal);
+        Stream stream = serviceLocal.getLogWriter(streamName);
+
+        // stream is cached
+        assertNotNull(stream);
+        assertEquals(1, serviceLocal.getStreamManager().numCached());
+
+        // create write ops
+        WriteOp op0 = createWriteOp(service, streamName, 0L);
+        stream.submit(op0);
+        WriteResponse wr0 = Await.result(op0.result());
+        assertEquals("Op 0 should succeed",
+                StatusCode.SUCCESS, wr0.getHeader().getCode());
+        assertEquals(1, serviceLocal.getStreamManager().numAcquired());
+
+        // should be able to cache partitions from same stream
+        String anotherStreamName = testName.getMethodName() + "_0001";
+        Stream anotherStream = serviceLocal.getLogWriter(anotherStreamName);
+        assertNotNull(anotherStream);
+        assertEquals(2, serviceLocal.getStreamManager().numCached());
+
+        // create write ops
+        WriteOp op1 = createWriteOp(service, anotherStreamName, 0L);
+        anotherStream.submit(op1);
+        WriteResponse wr1 = Await.result(op1.result());
+        assertEquals("Op 1 should fail",
+                StatusCode.STREAM_UNAVAILABLE, wr1.getHeader().getCode());
+        assertEquals(1, serviceLocal.getStreamManager().numAcquired());
     }
 
     @Test(timeout = 60000)

@@ -281,4 +281,35 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
                         BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT));
         return new QuorumConfig(ensembleSize, writeQuorumSize, ackQuorumSize);
     }
+
+    /**
+     * Get the maximum number of partitions of each stream allowed to be acquired per proxy.
+     *
+     * @return maximum number of partitions of each stream allowed to be acquired
+     * @see DistributedLogConfiguration#getMaxAcquiredPartitionsPerProxy()
+     */
+    public int getMaxAcquiredPartitionsPerProxy() {
+        return getInt(
+                BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY,
+                defaultConfig.getInt(
+                        BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY,
+                        BKDL_MAX_ACQUIRED_PARTITIONS_PER_PROXY_DEFAULT)
+        );
+    }
+
+    /**
+     * Get the maximum number of partitions of each stream allowed to cache per proxy.
+     *
+     * @return maximum number of partitions of each stream allowed to cache
+     * @see DistributedLogConfiguration#getMaxAcquiredPartitionsPerProxy()
+     */
+    public int getMaxCachedPartitionsPerProxy() {
+        return getInt(
+                BKDL_MAX_CACHED_PARTITIONS_PER_PROXY,
+                defaultConfig.getInt(
+                        BKDL_MAX_CACHED_PARTITIONS_PER_PROXY,
+                        BKDL_MAX_CACHED_PARTITIONS_PER_PROXY_DEFAULT)
+        );
+    }
+
 }

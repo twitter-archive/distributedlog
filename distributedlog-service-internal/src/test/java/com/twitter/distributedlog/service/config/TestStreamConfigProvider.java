@@ -2,7 +2,6 @@ package com.twitter.distributedlog.service.config;
 
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.config.PropertiesWriter;
 import java.io.File;
@@ -10,6 +9,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
+import com.twitter.distributedlog.service.streamset.EventBusStreamPartitionConverter;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +20,6 @@ import static com.twitter.distributedlog.DistributedLogConfiguration.BKDL_RETENT
 import static org.junit.Assert.*;
 
 public class TestStreamConfigProvider {
-    private static final Logger LOG = LoggerFactory.getLogger(TestStreamConfigProvider.class);
     private static final String DEFAULT_CONFIG_PATH = "conf";
     private final String defaultConfigFile;
     private final ScheduledExecutorService configExecutorService;
@@ -32,12 +32,14 @@ public class TestStreamConfigProvider {
         this.defaultConfigFile = writer.getFile().getPath();
     }
 
-    StreamConfigProvider getServiceProvider(String routerName) throws Exception {
-        return getServiceProvider(routerName, DEFAULT_CONFIG_PATH);
+    StreamConfigProvider getServiceProvider(StreamPartitionConverter converter)
+            throws Exception {
+        return getServiceProvider(converter, DEFAULT_CONFIG_PATH);
     }
 
-    StreamConfigProvider getServiceProvider(String routerName, String configPath) throws Exception {
-        return new ServiceStreamConfigProvider(configPath, defaultConfigFile, routerName,
+    StreamConfigProvider getServiceProvider(StreamPartitionConverter converter, String configPath)
+            throws Exception {
+        return new ServiceStreamConfigProvider(configPath, defaultConfigFile, converter,
                                                configExecutorService, 1, TimeUnit.SECONDS);
     }
 
@@ -57,7 +59,7 @@ public class TestStreamConfigProvider {
         writer = new PropertiesWriter(new File(tempDir, "stream2.conf"));
         writer.setProperty(BKDL_RETENTION_PERIOD_IN_HOURS, "88");
         writer.save();
-        StreamConfigProvider provider = getServiceProvider(EventbusPartitionConfigRouter.class.getName(), tempDir.getPath());
+        StreamConfigProvider provider = getServiceProvider(new EventBusStreamPartitionConverter(), tempDir.getPath());
         Optional<DynamicDistributedLogConfiguration> config1 = provider.getDynamicStreamConfig("stream1");
         Optional<DynamicDistributedLogConfiguration> config2 = provider.getDynamicStreamConfig("stream2");
         Optional<DynamicDistributedLogConfiguration> config3 = provider.getDynamicStreamConfig("stream3");

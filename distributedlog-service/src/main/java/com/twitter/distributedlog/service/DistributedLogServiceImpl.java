@@ -33,6 +33,7 @@ import com.twitter.distributedlog.service.stream.TruncateOp;
 import com.twitter.distributedlog.service.stream.WriteOpWithPayload;
 import com.twitter.distributedlog.service.stream.WriteOp;
 import com.twitter.distributedlog.service.stream.limiter.ServiceRequestLimiter;
+import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ClientInfo;
 import com.twitter.distributedlog.thrift.service.DistributedLogService;
@@ -43,9 +44,9 @@ import com.twitter.distributedlog.thrift.service.ServerStatus;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
-import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.rate.MovingAverageRateFactory;
 import com.twitter.distributedlog.rate.MovingAverageRate;
+import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -81,11 +82,6 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                                                   FatalErrorHandler {
 
     static final Logger logger = LoggerFactory.getLogger(DistributedLogServiceImpl.class);
-
-    public static enum ServerMode {
-        DURABLE,
-        MEM
-    }
 
     private final int MOVING_AVERAGE_WINDOW_SECS = 60;
 
@@ -135,6 +131,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                               DynamicDistributedLogConfiguration dynDlConf,
                               StreamConfigProvider streamConfigProvider,
                               URI uri,
+                              StreamPartitionConverter converter,
                               StatsLogger statsLogger,
                               StatsLogger perStreamStatsLogger,
                               CountDownLatch keepAliveLatch)
@@ -186,11 +183,19 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 dlConf,
                 featureProvider,
                 streamConfigProvider,
+                converter,
                 dlNamespace,
                 executorService,
-                (FatalErrorHandler) this,
+                this,
                 requestTimer);
-        this.streamManager = new StreamManagerImpl(clientId, executorService, streamFactory, dlNamespace);
+        this.streamManager = new StreamManagerImpl(
+                clientId,
+                dlConf,
+                executorService,
+                streamFactory,
+                converter,
+                streamConfigProvider,
+                dlNamespace);
 
         // Service features
         this.featureRegionStopAcceptNewStream = this.featureProvider.getFeature(
@@ -335,7 +340,8 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return Future.value(serverInfo);
     }
 
-    private Stream getLogWriter(String stream) throws IOException {
+    @VisibleForTesting
+    Stream getLogWriter(String stream) throws IOException {
         Stream writer = streamManager.getStream(stream);
         if (null == writer) {
             closeLock.readLock().lock();
@@ -614,9 +620,19 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     // Test methods.
 
+    private DynamicDistributedLogConfiguration getDynConf(String streamName) {
+        Optional<DynamicDistributedLogConfiguration> dynDlConf =
+                streamConfigProvider.getDynamicStreamConfig(streamName);
+        if (dynDlConf.isPresent()) {
+            return dynDlConf.get();
+        } else {
+            return ConfUtils.getConstDynConf(dlConfig);
+        }
+    }
+
     @VisibleForTesting
     Stream newStream(String name) {
-        return streamFactory.create(name, streamManager);
+        return streamFactory.create(name, getDynConf(name), streamManager);
     }
 
     @VisibleForTesting

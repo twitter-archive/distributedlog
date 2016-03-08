@@ -40,6 +40,15 @@ public interface StreamManager {
     Future<Void> createStreamAsync(String stream);
 
     /**
+     * Is acquiring stream allowed?
+     *
+     * @param stream
+     *          stream instance
+     * @return true if it is allowed to acquire this stream, otherwise false.
+     */
+    boolean allowAcquire(Stream stream);
+
+    /**
      * Notify the manager that a stream was acquired.
      * @param stream being acquired
      */
