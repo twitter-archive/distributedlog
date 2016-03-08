@@ -112,6 +112,12 @@ public class DistributedLogServer {
             }
         }
 
+        this.configExecutorService = Executors.newScheduledThreadPool(1,
+                new ThreadFactoryBuilder()
+                        .setNameFormat("DistributedLogService-Dyncfg-%d")
+                        .setDaemon(true)
+                        .build());
+
         // server configuration and dynamic configuration
         ServerConfiguration serverConf = new ServerConfiguration();
         serverConf.loadConf(dlConf);
@@ -131,12 +137,6 @@ public class DistributedLogServer {
         } else {
             announcer = new NOPAnnouncer();
         }
-
-        this.configExecutorService = Executors.newScheduledThreadPool(1,
-                new ThreadFactoryBuilder()
-                        .setNameFormat("DistributedLogService-Dyncfg-%d")
-                        .setDaemon(true)
-                        .build());
 
         // Build the stream partition converter
         StreamPartitionConverter converter;
