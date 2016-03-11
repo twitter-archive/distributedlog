@@ -436,7 +436,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
         this.readAheadExceptionsLogger = new ReadAheadExceptionsLogger(statsLogger);
 
         // log metadata store
-        if (bkdlConfig.isFederatedNamespace()) {
+        if (bkdlConfig.isFederatedNamespace() || conf.isFederatedNamespaceEnabled()) {
             this.metadataStore = new FederatedZKLogMetadataStore(conf, namespace, sharedReaderZKCForDL, scheduler);
         } else {
             this.metadataStore = new ZKLogMetadataStore(conf, namespace, sharedReaderZKCForDL, scheduler);

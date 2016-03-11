@@ -359,6 +359,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     // Settings for Namespaces
     //
 
+    public static final String BKDL_FEDERATED_NAMESPACE_ENABLED = "federatedNamespaceEnabled";
+    public static final boolean BKDL_FEDERATED_NAMESPACE_ENABLED_DEFAULT = false;
     public static final String BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE = "federatedMaxLogsPerSubnamespace";
     public static final int BKDL_FEDERATED_MAX_LOGS_PER_SUBNAMESPACE_DEFAULT = 15000;
     public static final String BKDL_FEDERATED_CHECK_EXISTENCE_WHEN_CACHE_MISS = "federatedCheckExistenceWhenCacheMiss";
@@ -2797,6 +2799,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
     // Settings for Namespaces
     //
+
+    /**
+     * Is federated namespace implementation enabled.
+     *
+     * @return true if federated namespace is enabled. otherwise, false.
+     */
+    public boolean isFederatedNamespaceEnabled() {
+        return getBoolean(BKDL_FEDERATED_NAMESPACE_ENABLED, BKDL_FEDERATED_NAMESPACE_ENABLED_DEFAULT);
+    }
+
+    /**
+     * Use federated namespace implementation if this flag is enabled.
+     *
+     * @param enabled flag to enable federated namespace implementation
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setFederatedNamespaceEnabled(boolean enabled) {
+        setProperty(BKDL_FEDERATED_NAMESPACE_ENABLED, enabled);
+        return this;
+    }
 
     /**
      * Get the max logs per sub namespace for federated namespace.
