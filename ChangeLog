@@ -1,3 +1,10 @@
+0.3.47
+------
+- Add create command to service and client
+- Distributed Lock improvements
+- Cache finagle stats
+- Allow configuring replication factors per DL stream
+
 0.3.46
 ------
 - Append only reader/writer fixes
