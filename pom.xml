@@ -43,6 +43,7 @@
     <module>distributedlog-example</module>
     <module>distributedlog-example-internal</module>
     <module>distributedlog-core-v2</module>
+    <module>distributedlog-tutorials</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -858,6 +858,11 @@ public class LogSegmentMetadata {
         }
     }
 
+    public static LogSegmentMetadata parseData(String path, byte[] data)
+            throws IOException {
+        return parseData(path, data, false);
+    }
+
     static LogSegmentMetadata parseData(String path, byte[] data, boolean skipMinVersionCheck) throws IOException {
         String[] parts = new String(data, UTF_8).split(";");
         long version;

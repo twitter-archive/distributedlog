@@ -199,7 +199,7 @@ public class LogRecord {
         metadata = metadata | (((long) positionWithinLogSegment) << LOGRECORD_METADATA_POSITION_SHIFT);
     }
 
-    int getPositionWithinLogSegment() {
+    public int getPositionWithinLogSegment() {
         long ret = (metadata & LOGRECORD_METADATA_POSITION_MASK) >> LOGRECORD_METADATA_POSITION_SHIFT;
         if (ret < 0 || ret > Integer.MAX_VALUE) {
             throw new IllegalArgumentException
