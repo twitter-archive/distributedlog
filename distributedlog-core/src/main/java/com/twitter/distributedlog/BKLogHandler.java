@@ -1195,7 +1195,7 @@ public abstract class BKLogHandler implements Watcher {
                     final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (final String segment: segmentsAdded) {
-                        LogSegmentMetadata.read(zooKeeperClient, logMetadata.getLogSegmentPath(segment))
+                        metadataStore.getLogSegment(logMetadata.getLogSegmentPath(segment))
                                 .addEventListener(new FutureEventListener<LogSegmentMetadata>() {
 
                                     @Override
@@ -1217,8 +1217,14 @@ public abstract class BKLogHandler implements Watcher {
                                         } else {
                                             // fail fast
                                             if (1 == numFailures.incrementAndGet()) {
+                                                int rcToReturn = KeeperException.Code.SYSTEMERROR.intValue();
+                                                if (cause instanceof KeeperException) {
+                                                    rcToReturn = ((KeeperException) cause).code().intValue();
+                                                } else if (cause instanceof ZKException) {
+                                                    rcToReturn = ((ZKException) cause).getKeeperExceptionCode().intValue();
+                                                }
                                                 // :( properly we need dlog related response code.
-                                                callback.operationComplete(rc, null);
+                                                callback.operationComplete(rcToReturn, null);
                                                 return;
                                             }
                                         }
