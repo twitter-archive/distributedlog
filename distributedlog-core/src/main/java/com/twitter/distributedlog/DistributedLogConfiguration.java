@@ -137,6 +137,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
 
     // General Settings
+    // @Deprecated
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
     public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
