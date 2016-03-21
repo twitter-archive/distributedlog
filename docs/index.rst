@@ -9,8 +9,8 @@ Documentation
    basics/main
    api/main
    configuration/main
+   architecture/main
    design/main
-   implementation/main
    operations/main
    globalreplicatedlog/main
    performance/main
