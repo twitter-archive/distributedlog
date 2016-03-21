@@ -306,10 +306,11 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
-    void checkMetadataException() throws IOException {
+    BKLogWriteHandler checkMetadataException() throws IOException {
         if (null != metadataException.get()) {
             throw metadataException.get();
         }
+        return this;
     }
 
     void register(Watcher watcher) {
@@ -849,7 +850,6 @@ class BKLogWriteHandler extends BKLogHandler {
             public void onFailure(Throwable cause) {
                 FutureUtils.setException(promise, cause);
             }
-
         }, scheduler));
     }
 

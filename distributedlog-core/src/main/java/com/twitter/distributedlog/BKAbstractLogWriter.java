@@ -5,102 +5,109 @@ import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.io.Abortable;
 import com.twitter.distributedlog.io.Abortables;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.Utils;
-import com.twitter.util.FutureEventListener;
+import com.twitter.util.Future;
 import com.twitter.util.FuturePool;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 abstract class BKAbstractLogWriter implements Closeable, Abortable {
     static final Logger LOG = LoggerFactory.getLogger(BKAbstractLogWriter.class);
 
+    protected final DistributedLogConfiguration conf;
+    private final DynamicDistributedLogConfiguration dynConf;
     protected final BKDistributedLogManager bkDistributedLogManager;
-    // Used by tests
-    private Long minTimestampToKeepOverride = null;
+
+    // States
     private boolean closed = false;
     private boolean forceRolling = false;
     private boolean forceRecovery = false;
-    private LogTruncationTask lastTruncationAttempt = null;
-    protected final DistributedLogConfiguration conf;
-    private final DynamicDistributedLogConfiguration dynConf;
+
+    // Truncation Related
+    private Future<List<LogSegmentMetadata>> lastTruncationAttempt = null;
+    @VisibleForTesting
+    private Long minTimestampToKeepOverride = null;
 
     // Log Segment Writers
-    protected BKLogSegmentWriter perStreamWriter = null;
-    protected BKLogSegmentWriter allocatedPerStreamWriter = null;
+    protected BKLogSegmentWriter segmentWriter = null;
+    protected BKLogSegmentWriter allocatedSegmentWriter = null;
     protected BKLogWriteHandler writeHandler = null;
 
-    public BKAbstractLogWriter(DistributedLogConfiguration conf,
-                               DynamicDistributedLogConfiguration dynConf,
-                               BKDistributedLogManager bkdlm) {
+    BKAbstractLogWriter(DistributedLogConfiguration conf,
+                        DynamicDistributedLogConfiguration dynConf,
+                        BKDistributedLogManager bkdlm) {
         this.conf = conf;
         this.dynConf = dynConf;
         this.bkDistributedLogManager = bkdlm;
-        LOG.info("Initial retention period for {} : {}", bkdlm.getStreamName(),
+        LOG.debug("Initial retention period for {} : {}", bkdlm.getStreamName(),
                 TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS));
     }
 
-    protected BKLogWriteHandler getCachedWriteHandler() {
+    // manage write handler
+
+    synchronized protected BKLogWriteHandler getCachedWriteHandler() {
         return writeHandler;
     }
 
-    protected void cacheWriteHandler(BKLogWriteHandler ledgerHandler) {
-        this.writeHandler = ledgerHandler;
+    synchronized protected BKLogWriteHandler getWriteHandler() throws IOException {
+        return createAndCacheWriteHandler(null).checkMetadataException();
     }
 
-    protected BKLogWriteHandler removeCachedWriteHandler() {
-        try {
+    synchronized protected BKLogWriteHandler createAndCacheWriteHandler(FuturePool orderedFuturePool)
+            throws IOException {
+        if (writeHandler != null) {
             return writeHandler;
-        } finally {
-            writeHandler = null;
         }
+        writeHandler = bkDistributedLogManager.createWriteHandler(orderedFuturePool, false);
+        return writeHandler;
     }
+
+    // manage log segment writers
 
     protected BKLogSegmentWriter getCachedLogWriter() {
-        return perStreamWriter;
+        return segmentWriter;
     }
 
     protected void cacheLogWriter(BKLogSegmentWriter logWriter) {
-        this.perStreamWriter = logWriter;
+        this.segmentWriter = logWriter;
     }
 
     protected BKLogSegmentWriter removeCachedLogWriter() {
         try {
-            return perStreamWriter;
+            return segmentWriter;
         } finally {
-            perStreamWriter = null;
+            segmentWriter = null;
         }
     }
 
     protected BKLogSegmentWriter getAllocatedLogWriter() {
-        return allocatedPerStreamWriter;
+        return allocatedSegmentWriter;
     }
 
     protected void cacheAllocatedLogWriter(BKLogSegmentWriter logWriter) {
-        this.allocatedPerStreamWriter = logWriter;
+        this.allocatedSegmentWriter = logWriter;
     }
 
     protected BKLogSegmentWriter removeAllocatedLogWriter() {
         try {
-            return allocatedPerStreamWriter;
+            return allocatedSegmentWriter;
         } finally {
-            allocatedPerStreamWriter = null;
+            allocatedSegmentWriter = null;
         }
     }
 
     protected void closeAndComplete(boolean shouldThrow) throws IOException {
         try {
-            if (null != perStreamWriter && null != writeHandler) {
-                waitForTruncation();
-                writeHandler.completeAndCloseLogSegment(perStreamWriter);
-                perStreamWriter = null;
+            if (null != segmentWriter && null != writeHandler) {
+                writeHandler.completeAndCloseLogSegment(segmentWriter);
+                segmentWriter = null;
             }
         } catch (IOException exc) {
             LOG.error("Completing Log segments encountered exception", exc);
@@ -132,7 +139,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             }
             closed = true;
         }
-        waitForTruncation();
+        cancelTruncation();
         BKLogSegmentWriter writer = getCachedLogWriter();
         if (null != writer) {
             try {
@@ -163,7 +170,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             }
             closed = true;
         }
-        waitForTruncation();
+        cancelTruncation();
         Abortables.abortQuietly(getCachedLogWriter());
         Abortables.abortQuietly(getAllocatedLogWriter());
         BKLogWriteHandler writeHandler = getCachedWriteHandler();
@@ -172,30 +179,13 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         }
     }
 
-    synchronized protected BKLogWriteHandler getWriteLedgerHandler(String streamIdentifier) throws IOException {
-        BKLogWriteHandler ledgerManager = createAndCacheWriteHandler(streamIdentifier, null);
-        ledgerManager.checkMetadataException();
-        return ledgerManager;
-    }
-
-    synchronized protected BKLogWriteHandler createAndCacheWriteHandler(String streamIdentifier,
-                                                                        FuturePool orderedFuturePool)
+    synchronized protected BKLogSegmentWriter getLedgerWriter(long startTxId, boolean allowMaxTxID)
             throws IOException {
-        BKLogWriteHandler ledgerManager = getCachedWriteHandler();
-        if (null == ledgerManager) {
-            ledgerManager = bkDistributedLogManager.createWriteLedgerHandler(streamIdentifier, orderedFuturePool, false);
-            cacheWriteHandler(ledgerManager);
-        }
-        return ledgerManager;
+        BKLogSegmentWriter ledgerWriter = getLedgerWriter( true);
+        return rollLogSegmentIfNecessary(ledgerWriter, startTxId, true /* bestEffort */, allowMaxTxID);
     }
 
-    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, long startTxId, boolean allowMaxTxID)
-            throws IOException {
-        BKLogSegmentWriter ledgerWriter = getLedgerWriter(streamIdentifier, true);
-        return rollLogSegmentIfNecessary(ledgerWriter, streamIdentifier, startTxId, true /* bestEffort */, allowMaxTxID);
-    }
-
-    synchronized protected BKLogSegmentWriter getLedgerWriter(String streamIdentifier, boolean resetOnError) throws IOException {
+    synchronized protected BKLogSegmentWriter getLedgerWriter(boolean resetOnError) throws IOException {
         BKLogSegmentWriter ledgerWriter = getCachedLogWriter();
 
         // Handle the case where the last call to write actually caused an error in the log
@@ -211,7 +201,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             removeCachedLogWriter();
 
             if (!ledgerWriterToClose.isLogSegmentInError()) {
-                BKLogWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
+                BKLogWriteHandler writeHandler = getWriteHandler();
                 if (null != writeHandler) {
                     writeHandler.completeAndCloseLogSegment(ledgerWriterToClose);
                 }
@@ -221,57 +211,108 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         return ledgerWriter;
     }
 
-    synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter, String streamIdentifier) throws IOException {
-        BKLogWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
+    synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter) throws IOException {
+        BKLogWriteHandler ledgerManager = getWriteHandler();
         return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }
 
-    synchronized protected BKLogSegmentWriter rollLogSegmentIfNecessary(BKLogSegmentWriter ledgerWriter,
-                                                                        String streamIdentifier,
+    private void truncateLogSegmentsIfNecessary(BKLogWriteHandler writeHandler) {
+        boolean truncationEnabled = false;
+
+        long minTimestampToKeep = 0;
+
+        long retentionPeriodInMillis = TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS);
+        if (retentionPeriodInMillis > 0) {
+            minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
+            truncationEnabled = true;
+        }
+
+        if (null != minTimestampToKeepOverride) {
+            minTimestampToKeep = minTimestampToKeepOverride;
+            truncationEnabled = true;
+        }
+
+        // skip scheduling if there is task that's already running
+        //
+        if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDefined())) {
+            lastTruncationAttempt = writeHandler.purgeLogSegmentsOlderThanTimestamp(minTimestampToKeep);
+        }
+    }
+
+    private BKLogSegmentWriter startNewLogSegment(BKLogWriteHandler writeHandler,
+                                                  long startTxId,
+                                                  boolean allowMaxTxID)
+            throws IOException {
+        writeHandler.recoverIncompleteLogSegments();
+        // if exceptions thrown during initialize we should not catch it.
+        BKLogSegmentWriter ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
+        cacheLogWriter(ledgerWriter);
+        return ledgerWriter;
+    }
+
+    private BKLogSegmentWriter closeOldLogSegmentAndStartNewOne(BKLogSegmentWriter oldSegmentWriter,
+                                                                BKLogWriteHandler writeHandler,
+                                                                long startTxId,
+                                                                boolean bestEffort,
+                                                                boolean allowMaxTxID)
+            throws IOException {
+        // we switch only when we could allocate a new log segment.
+        BKLogSegmentWriter newSegmentWriter = getAllocatedLogWriter();
+        if (null == newSegmentWriter) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
+                        writeHandler.getFullyQualifiedName());
+            }
+            newSegmentWriter = writeHandler.startLogSegment(startTxId, bestEffort, allowMaxTxID);
+            if (null == newSegmentWriter) {
+                assert (bestEffort);
+                return oldSegmentWriter;
+            }
+
+            cacheAllocatedLogWriter(newSegmentWriter);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
+                        writeHandler.getFullyQualifiedName());
+            }
+        }
+
+        // complete the log segment
+        writeHandler.completeAndCloseLogSegment(oldSegmentWriter);
+        try {
+            return newSegmentWriter;
+        } finally {
+            cacheLogWriter(newSegmentWriter);
+            removeAllocatedLogWriter();
+        }
+    }
+
+    synchronized protected BKLogSegmentWriter rollLogSegmentIfNecessary(BKLogSegmentWriter segmentWriter,
                                                                         long startTxId,
                                                                         boolean bestEffort,
-                                                                        boolean allowMaxTxID) throws IOException {
+                                                                        boolean allowMaxTxID)
+            throws IOException {
         boolean shouldCheckForTruncation = false;
-        BKLogWriteHandler ledgerManager = getWriteLedgerHandler(streamIdentifier);
-        if (null != ledgerWriter && (ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling)) {
+        BKLogWriteHandler writeHandler = getWriteHandler();
+        if (null != segmentWriter && (writeHandler.shouldStartNewSegment(segmentWriter) || forceRolling)) {
             PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
             try {
                 if (switchPermit.isAllowed()) {
                     try {
-                        // we switch only when we could allocate a new log segment.
-                        BKLogSegmentWriter newLedgerWriter = getAllocatedLogWriter();
-                        if (null == newLedgerWriter) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
-                                        ledgerManager.getFullyQualifiedName());
-                            }
-                            newLedgerWriter = ledgerManager.startLogSegment(startTxId, bestEffort, allowMaxTxID);
-                            if (null == newLedgerWriter) {
-                                assert (bestEffort);
-                                return ledgerWriter;
-                            }
-
-                            cacheAllocatedLogWriter(newLedgerWriter);
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
-                                        ledgerManager.getFullyQualifiedName());
-                            }
-                        }
-
-                        // complete the log segment
-                        ledgerManager.completeAndCloseLogSegment(ledgerWriter);
-                        ledgerWriter = newLedgerWriter;
-                        cacheLogWriter(ledgerWriter);
-                        removeAllocatedLogWriter();
+                        segmentWriter = closeOldLogSegmentAndStartNewOne(
+                                segmentWriter,
+                                writeHandler,
+                                startTxId,
+                                bestEffort,
+                                allowMaxTxID);
                         shouldCheckForTruncation = true;
                     } catch (LockingException le) {
                         LOG.warn("We lost lock during completeAndClose log segment for {}. Disable ledger rolling until it is recovered : ",
-                                ledgerManager.getFullyQualifiedName(), le);
+                                writeHandler.getFullyQualifiedName(), le);
                         bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                     } catch (ZKException zke) {
                         if (ZKException.isRetryableZKException(zke)) {
                             LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
-                                    " Disable ledger rolling until it is recovered : {}", ledgerManager.getFullyQualifiedName(),
+                                    " Disable ledger rolling until it is recovered : {}", writeHandler.getFullyQualifiedName(),
                                     zke.getKeeperExceptionCode());
                             bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
                         } else {
@@ -282,107 +323,21 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             } finally {
                 bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
             }
-        } else if (null == ledgerWriter) {
-            // recover incomplete log segments if no writer
-            BKLogWriteHandler writeHandler = getWriteLedgerHandler(streamIdentifier);
-            writeHandler.recoverIncompleteLogSegments();
-            // if exceptions thrown during initialize we should not catch it.
-            ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
-            cacheLogWriter(ledgerWriter);
+        } else if (null == segmentWriter) {
+            segmentWriter = startNewLogSegment(writeHandler, startTxId, allowMaxTxID);
             shouldCheckForTruncation = true;
         }
 
         if (shouldCheckForTruncation) {
-            boolean truncationEnabled = false;
-
-            long minTimestampToKeep = 0;
-
-            long retentionPeriodInMillis = TimeUnit.MILLISECONDS.convert(dynConf.getRetentionPeriodHours(), TimeUnit.HOURS);
-            if (retentionPeriodInMillis > 0) {
-                minTimestampToKeep = Utils.nowInMillis() - retentionPeriodInMillis;
-                truncationEnabled = true;
-            }
-
-            if (null != minTimestampToKeepOverride) {
-                minTimestampToKeep = minTimestampToKeepOverride;
-                truncationEnabled = true;
-            }
-
-            // skip scheduling if there is task that's already running
-            //
-            if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDone())) {
-                LogTruncationTask truncationTask = new LogTruncationTask(ledgerManager,
-                        minTimestampToKeep);
-                if (bkDistributedLogManager.scheduleTask(truncationTask)) {
-                    lastTruncationAttempt = truncationTask;
-                }
-            }
+            truncateLogSegmentsIfNecessary(writeHandler);
         }
-
-        return ledgerWriter;
+        return segmentWriter;
     }
 
     protected synchronized void checkClosedOrInError(String operation) throws AlreadyClosedException {
         if (closed) {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
-        }
-    }
-
-    static class LogTruncationTask implements Runnable, FutureEventListener<List<LogSegmentMetadata>> {
-        private final BKLogWriteHandler ledgerManager;
-        private final long minTimestampToKeep;
-        private volatile boolean done = false;
-        private volatile boolean running = false;
-        private final CountDownLatch latch = new CountDownLatch(1);
-
-        LogTruncationTask(BKLogWriteHandler ledgerManager, long minTimestampToKeep) {
-            this.ledgerManager = ledgerManager;
-            this.minTimestampToKeep = minTimestampToKeep;
-        }
-
-        boolean isDone() {
-            return done;
-        }
-
-        @Override
-        public void run() {
-            LOG.info("Try to purge logs older than {} for {}.",
-                     minTimestampToKeep, ledgerManager.getFullyQualifiedName());
-            running = true;
-            ledgerManager.purgeLogSegmentsOlderThanTimestamp(minTimestampToKeep)
-                         .addEventListener(this);
-        }
-
-        public void waitForCompletion() throws InterruptedException {
-            if (running) {
-                latch.await();
-            }
-        }
-
-        @Override
-        public void onSuccess(List<LogSegmentMetadata> value) {
-            LOG.info("Purged logs older than {} for {}.",
-                     minTimestampToKeep, ledgerManager.getFullyQualifiedName());
-            complete();
-        }
-
-        @Override
-        public void onFailure(Throwable cause) {
-            LOG.warn("Log Truncation {} Failed with exception : ", toString(), cause);
-            complete();
-        }
-
-        void complete() {
-            done = true;
-            running = false;
-            latch.countDown();
-        }
-
-        @Override
-        public String toString() {
-            return String.format("LogTruncationTask (%s : minTimestampToKeep=%d, running=%s, done=%s)",
-                    ledgerManager.getFullyQualifiedName(), minTimestampToKeep, running, done);
         }
     }
 
@@ -409,35 +364,14 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
      * becomes full or a certain period of time is elapsed.
      */
     public long flushAndSync() throws IOException {
-        return flushAndSync(true, true);
-    }
-
-    public long flushAndSync(boolean parallel, boolean waitForVisibility) throws IOException {
         checkClosedOrInError("flushAndSync");
 
         LOG.debug("FlushAndSync Started");
-
         long highestTransactionId = 0;
-
         BKLogSegmentWriter writer = getCachedLogWriter();
-
-        if (parallel || !waitForVisibility) {
-            if (null != writer) {
-                highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseOne());
-            }
-        }
-
         if (null != writer) {
-            if (waitForVisibility) {
-                if (parallel) {
-                    highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseTwo());
-                } else {
-                    highestTransactionId = Math.max(highestTransactionId, writer.flushAndSync());
-                }
-            }
-        }
-
-        if (null != writer) {
+            highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseOne());
+            highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseTwo());
             LOG.debug("FlushAndSync Completed");
         } else {
             LOG.debug("FlushAndSync Completed - Nothing to Flush");
@@ -455,13 +389,10 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         this.minTimestampToKeepOverride = minTimestampToKeepOverride;
     }
 
-    protected synchronized void waitForTruncation() {
-        try {
-            if (null != lastTruncationAttempt) {
-                lastTruncationAttempt.waitForCompletion();
-            }
-        } catch (InterruptedException exc) {
-            LOG.info("Wait For truncation failed", exc);
+    protected synchronized void cancelTruncation() {
+        if (null != lastTruncationAttempt) {
+            FutureUtils.cancel(lastTruncationAttempt);
+            lastTruncationAttempt = null;
         }
     }
 

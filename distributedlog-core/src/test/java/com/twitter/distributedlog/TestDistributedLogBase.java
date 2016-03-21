@@ -163,7 +163,7 @@ public class TestDistributedLogBase {
     public DLMTestUtil.BKLogPartitionWriteHandlerAndClients createNewBKDLM(
             DistributedLogConfiguration conf,
             String path) throws Exception {
-        return DLMTestUtil.createNewBKDLM(conf.getUnpartitionedStreamName(), conf, path, zkPort);
+        return DLMTestUtil.createNewBKDLM(conf, path, zkPort);
     }
 
     @SuppressWarnings("deprecation")

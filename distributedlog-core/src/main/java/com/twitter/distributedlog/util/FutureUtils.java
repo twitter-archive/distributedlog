@@ -20,6 +20,8 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractPartialFunction;
+import scala.runtime.BoxedUnit;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
@@ -119,8 +121,10 @@ public class FutureUtils {
     }
 
     private static class ListFutureProcessor<T, R>
+            extends Function<Throwable, BoxedUnit>
             implements FutureEventListener<R>, Runnable {
 
+        private volatile boolean interrupted = false;
         private final Iterator<T> itemsIter;
         private final Function<T, Future<R>> processFunc;
         private final Promise<List<R>> promise;
@@ -133,8 +137,15 @@ public class FutureUtils {
             this.itemsIter = items.iterator();
             this.processFunc = processFunc;
             this.promise = new Promise<List<R>>();
+            this.promise.setInterruptHandler(this);
             this.results = new ArrayList<R>();
             this.callbackExecutor = callbackExecutor;
+        }
+
+        @Override
+        public BoxedUnit apply(Throwable cause) {
+            interrupted = true;
+            return BoxedUnit.UNIT;
         }
 
         @Override
@@ -163,6 +174,10 @@ public class FutureUtils {
 
         @Override
         public void run() {
+            if (interrupted) {
+                logger.debug("ListFutureProcessor is interrupted.");
+                return;
+            }
             if (!itemsIter.hasNext()) {
                 promise.setValue(results);
                 return;

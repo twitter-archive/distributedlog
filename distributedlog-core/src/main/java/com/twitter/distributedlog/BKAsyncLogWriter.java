@@ -175,7 +175,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         this.orderedFuturePool = orderedFuturePool;
 
         // TODO: move write handler out of constructor and make sure i/o or network happen in constructor
-        this.createAndCacheWriteHandler(conf.getUnpartitionedStreamName(), orderedFuturePool);
+        this.createAndCacheWriteHandler(orderedFuturePool);
         this.streamFailFast = conf.getFailFastOnStreamNotReady();
         this.disableRollOnSegmentError = conf.getDisableRollingOnLogSegmentError();
 
@@ -211,8 +211,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     BKAsyncLogWriter recover() throws IOException {
-        BKLogWriteHandler writeHandler =
-                this.getWriteLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogWriteHandler writeHandler = this.getWriteHandler();
         // hold the lock for the handler across the lifecycle of log writer, so we don't need
         // to release underlying lock when rolling or completing log segments, which would reduce
         // the possibility of ownership change during rolling / completing log segments.
@@ -259,10 +258,9 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
             if (encounteredError) {
                 throw new WriteException(bkDistributedLogManager.getStreamName(), "writer has been closed due to error.");
             }
-            BKLogSegmentWriter writer = getLedgerWriter(conf.getUnpartitionedStreamName(), !disableRollOnSegmentError);
+            BKLogSegmentWriter writer = getLedgerWriter(!disableRollOnSegmentError);
             if (null == writer || rollLog) {
                 writer = rollLogSegmentIfNecessary(writer,
-                                                   conf.getUnpartitionedStreamName(),
                                                    firstTxid,
                                                    bestEffort,
                                                    allowMaxTxID);
@@ -312,7 +310,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     boolean shouldRollLog(BKLogSegmentWriter w) {
         try {
             return !disableLogSegmentRollingFeature.isAvailable() &&
-                    shouldStartNewSegment(w, conf.getUnpartitionedStreamName());
+                    shouldStartNewSegment(w);
         } catch (IOException ioe) {
             return false;
         }
@@ -513,7 +511,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         return orderedFuturePool.apply(new ExceptionalFunction0<BKLogWriteHandler>() {
             @Override
             public BKLogWriteHandler applyE() throws Throwable {
-                return getWriteLedgerHandler(conf.getUnpartitionedStreamName());
+                return getWriteHandler();
             }
             @Override
             public String toString() {

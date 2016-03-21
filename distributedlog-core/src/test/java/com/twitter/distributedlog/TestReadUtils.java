@@ -72,7 +72,7 @@ public class TestReadUtils extends TestDistributedLogBase {
     }
 
     private Future<LogRecordWithDLSN> getLastUserRecord(BKDistributedLogManager bkdlm, int ledgerNo) throws Exception {
-        BKLogReadHandler readHandler = bkdlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+        BKLogReadHandler readHandler = bkdlm.createReadHandler();
         List<LogSegmentMetadata> ledgerList = readHandler.getLedgerList(false, false, LogSegmentMetadata.COMPARATOR, false);
         final LedgerHandleCache handleCache = LedgerHandleCache.newBuilder()
                 .bkc(bkdlm.getWriterBKC())

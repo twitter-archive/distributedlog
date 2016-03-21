@@ -19,7 +19,7 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
      */
     @Override
     public void write(LogRecord record) throws IOException {
-        getLedgerWriter(conf.getUnpartitionedStreamName(), record.getTransactionId(), false).write(record);
+        getLedgerWriter(record.getTransactionId(), false).write(record);
     }
 
     /**
@@ -30,8 +30,7 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
     @Override
     @Deprecated
     public int writeBulk(List<LogRecord> records) throws IOException {
-        return getLedgerWriter(conf.getUnpartitionedStreamName(),
-                records.get(0).getTransactionId(), false).writeBulk(records);
+        return getLedgerWriter(records.get(0).getTransactionId(), false).writeBulk(records);
     }
 
     /**
@@ -42,8 +41,7 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
      */
     @Override
     public void markEndOfStream() throws IOException {
-        getLedgerWriter(conf.getUnpartitionedStreamName(),
-            DistributedLogConstants.MAX_TXID, true).markEndOfStream();
+        getLedgerWriter(DistributedLogConstants.MAX_TXID, true).markEndOfStream();
         closeAndComplete();
     }
 

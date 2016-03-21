@@ -110,7 +110,7 @@ class NonBlockingReadsTestUtil {
                 TimeUnit.MILLISECONDS.sleep(300);
                 writer.abort();
                 LOG.debug("Recovering Segments");
-                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
                 blplm.recoverIncompleteLogSegments();
                 blplm.close();
                 LOG.debug("Recovered Segments");
