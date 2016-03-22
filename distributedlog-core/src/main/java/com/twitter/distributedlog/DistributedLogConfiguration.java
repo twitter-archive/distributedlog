@@ -318,6 +318,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
             "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
     public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
+    public static final String BKDL_READAHEAD_SKIP_BROKEN_ENTRIES = "readAheadSkipBrokenEntries";
+    public static final boolean BKDL_READAHEAD_SKIP_BROKEN_ENTRIES_DEFAULT = false;
 
     // Scan Settings
     public static final String BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "firstNumEntriesEachPerLastRecordScan";
@@ -425,6 +427,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT = 0;
     public static final String BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT = "eiInjectReadAheadDelayPercent";
     public static final int BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT = 10;
+    public static final String BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES = "eiInjectReadAheadBrokenEntries";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES_DEFAULT = false;
 
     // Whitelisted stream-level configuration settings.
     private static final Set<String> streamSettings = Sets.newHashSet(
@@ -2517,6 +2521,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * When corruption is encountered in an entry, skip it and move on. Must disable gap detection for
+     * this to work.
+     *
+     * @return should broken records be skipped
+     */
+    public boolean getReadAheadSkipBrokenEntries() {
+        return getBoolean(BKDL_READAHEAD_SKIP_BROKEN_ENTRIES, BKDL_READAHEAD_SKIP_BROKEN_ENTRIES_DEFAULT);
+    }
+
+    /**
+     * Set the percentage of operations to delay in read ahead.
+     *
+     * @param enabled
+     *          should brokenn records be skipped
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setReadAheadSkipBrokenEntries(boolean enabled) {
+        setProperty(BKDL_READAHEAD_SKIP_BROKEN_ENTRIES, enabled);
+        return this;
+    }
+
     //
     // DL Reader Scan Settings
     //
@@ -3083,6 +3109,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get the flag whether to inject broken entries in readahead.
+     *
+     * @return true if to inject corruption in read ahead, otherwise false.
+     */
+    public boolean getEIInjectReadAheadBrokenEntries() {
+        return getBoolean(BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES, BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES_DEFAULT);
+    }
+
+    /**
+     * Set the flag whether to inject broken entries in read ahead.
+     *
+     * @param enabled
+     *          flag to inject corruption in read ahead.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setEIInjectReadAheadBrokenEntries(boolean enabled) {
+        setProperty(BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES, enabled);
+        return this;
+    }
+
+    /**
      * Get the flag whether to inject delay in read ahead.
      *
      * @return true if to inject delays in read ahead, otherwise false.
@@ -3144,4 +3191,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, percent);
         return this;
     }
+
+
 }

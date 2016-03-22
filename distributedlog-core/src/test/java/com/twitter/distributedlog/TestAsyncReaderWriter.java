@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
@@ -1854,6 +1855,154 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
     }
 
     @Test(timeout = 60000)
+    public void testReadBrokenEntries() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+
+        confLocal.setOutputBufferSize(0);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setPositionGapDetectionEnabled(false);
+        confLocal.setReadAheadSkipBrokenEntries(true);
+        confLocal.setEIInjectReadAheadBrokenEntries(true);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+
+        int numLogSegments = 3;
+        int numRecordsPerLogSegment = 10;
+
+        long txid = 1L;
+        txid = writeRecords(dlm, numLogSegments, numRecordsPerLogSegment, txid, false);
+
+        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+
+        // 3 segments, 10 records each, immediate flush, batch size 1, so just the first
+        // record in each ledger is discarded, for 30 - 3 = 27 records.
+        for (int i = 0; i < 27; i++) {
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            assertFalse(record.getDlsn().getEntryId() % 10 == 0);
+        }
+
+        reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testReadBrokenEntriesWithGapDetection() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+
+        confLocal.setOutputBufferSize(0);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(1);
+        confLocal.setPositionGapDetectionEnabled(true);
+        confLocal.setReadAheadSkipBrokenEntries(true);
+        confLocal.setEIInjectReadAheadBrokenEntries(true);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+
+        int numLogSegments = 1;
+        int numRecordsPerLogSegment = 100;
+
+        long txid = 1L;
+        txid = writeRecords(dlm, numLogSegments, numRecordsPerLogSegment, txid, false);
+
+        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+
+        try {
+            // 3 segments, 10 records each, immediate flush, batch size 1, so just the first
+            // record in each ledger is discarded, for 30 - 3 = 27 records.
+            for (int i = 0; i < 30; i++) {
+                LogRecordWithDLSN record = Await.result(reader.readNext());
+                assertFalse(record.getDlsn().getEntryId() % 10 == 0);
+            }
+            fail("should have thrown");
+        } catch (DLIllegalStateException e) {
+        }
+
+        reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testReadBrokenEntriesAndLargeBatchSize() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+
+        confLocal.setOutputBufferSize(0);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(5);
+        confLocal.setPositionGapDetectionEnabled(false);
+        confLocal.setReadAheadSkipBrokenEntries(true);
+        confLocal.setEIInjectReadAheadBrokenEntries(true);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+
+        int numLogSegments = 1;
+        int numRecordsPerLogSegment = 100;
+
+        long txid = 1L;
+        txid = writeRecords(dlm, numLogSegments, numRecordsPerLogSegment, txid, false);
+
+        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+
+        // Every 10th record broken. Reading 5 at once, beginning from 0:
+        // 1. range 0-4 will be corrupted and discarded
+        // 2. ranges 1-5, 2-6, 3-7, 4-8, 5-9 will be ok
+        // 3. ranges 6-10, 7-11, 8-12, 9-13 will be bad
+        // And so on, so 5 records in each 10 will be discarded, for 50 good records.
+        for (int i = 0; i < 50; i++) {
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            assertFalse(record.getDlsn().getEntryId() % 10 == 0);
+        }
+
+        reader.close();
+        dlm.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testReadBrokenEntriesAndLargeBatchSizeCrossSegment() throws Exception {
+        String name = runtime.getMethodName();
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.loadConf(testConf);
+
+        confLocal.setOutputBufferSize(0);
+        confLocal.setPeriodicFlushFrequencyMilliSeconds(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setReadAheadWaitTime(10);
+        confLocal.setReadAheadBatchSize(8);
+        confLocal.setPositionGapDetectionEnabled(false);
+        confLocal.setReadAheadSkipBrokenEntries(true);
+        confLocal.setEIInjectReadAheadBrokenEntries(true);
+        DistributedLogManager dlm = createNewDLM(confLocal, name);
+
+        int numLogSegments = 3;
+        int numRecordsPerLogSegment = 5;
+
+        long txid = 1L;
+        txid = writeRecords(dlm, numLogSegments, numRecordsPerLogSegment, txid, false);
+
+        AsyncLogReader reader = dlm.getAsyncLogReader(DLSN.InvalidDLSN);
+
+        // Every 10th record broken. Reading 8 at once, beginning from 0:
+        // 1. range 0-7 will be corrupted and discarded
+        // 2. range 1-8 will be good, but only contain 4 records
+        // And so on for the next segment, so 4 records in each segment, for 12 good records
+        for (int i = 0; i < 12; i++) {
+            LogRecordWithDLSN record = Await.result(reader.readNext());
+            assertFalse(record.getDlsn().getEntryId() % 10 == 0);
+        }
+
+        reader.close();
+        dlm.close();
+    }
+
     public void testCreateLogStreamWithDifferentReplicationFactor() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();

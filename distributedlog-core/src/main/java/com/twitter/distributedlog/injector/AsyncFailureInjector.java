@@ -42,6 +42,11 @@ public interface AsyncFailureInjector {
         }
 
         @Override
+        public boolean shouldInjectCorruption() {
+            return false;
+        }
+
+        @Override
         public String toString() {
             return "NULL";
         }
@@ -97,4 +102,10 @@ public interface AsyncFailureInjector {
      */
     boolean shouldInjectStops();
 
+    /**
+     * Return the flag indicating if should inject corruption.
+     *
+     * @return true to inject corruption otherwise false.
+     */
+    boolean shouldInjectCorruption();
 }

@@ -214,6 +214,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                               bkdlm.getConf().getEIInjectMaxReadAheadDelayMs())
                 .injectErrors(false, 10)
                 .injectStops(bkdlm.getConf().getEIInjectReadAheadStall(), 10)
+                .injectCorruption(bkdlm.getConf().getEIInjectReadAheadBrokenEntries())
                 .build();
 
         // Stats

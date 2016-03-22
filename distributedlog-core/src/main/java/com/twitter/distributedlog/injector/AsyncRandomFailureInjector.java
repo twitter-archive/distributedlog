@@ -20,6 +20,7 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
         private boolean _simulateDelays = false;
         private boolean _simulateErrors = false;
         private boolean _simulateStops = false;
+        private boolean _simulateCorruption = false;
         private int _injectedDelayPercent = 0;
         private int _injectedErrorPercent = 0;
         private int _injectedStopPercent = 0;
@@ -43,6 +44,11 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
             return this;
         }
 
+        public Builder injectCorruption(boolean simulateCorruption) {
+            this._simulateCorruption = simulateCorruption;
+            return this;
+        }
+
         public Builder injectStops(boolean simulateStops,
                                    int injectedStopPercent) {
             this._simulateStops = simulateStops;
@@ -58,7 +64,8 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
                     _simulateErrors,
                     _injectedErrorPercent,
                     _simulateStops,
-                    _injectedStopPercent);
+                    _injectedStopPercent,
+                    _simulateCorruption);
         }
 
     }
@@ -66,6 +73,7 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
     private boolean simulateDelays;
     private boolean simulateErrors;
     private boolean simulateStops;
+    private boolean simulateCorruption;
     private final int injectedDelayPercent;
     private final int injectedErrorPercent;
     private final int injectedStopPercent;
@@ -77,7 +85,8 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
                                        boolean simulateErrors,
                                        int injectedErrorPercent,
                                        boolean simulateStops,
-                                       int injectedStopPercent) {
+                                       int injectedStopPercent,
+                                       boolean simulateCorruption) {
         this.simulateDelays = simulateDelays;
         this.injectedDelayPercent = injectedDelayPercent;
         this.maxInjectedDelayMs = maxInjectedDelayMs;
@@ -85,6 +94,7 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
         this.injectedErrorPercent = injectedErrorPercent;
         this.simulateStops = simulateStops;
         this.injectedStopPercent = injectedStopPercent;
+        this.simulateCorruption = simulateCorruption;
     }
 
     @Override
@@ -126,6 +136,11 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
     }
 
     @Override
+    public boolean shouldInjectCorruption() {
+        return simulateCorruption;
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("FailureInjector[");
@@ -136,6 +151,7 @@ public class AsyncRandomFailureInjector implements AsyncFailureInjector {
                 .append(maxInjectedDelayMs).append("), ");
         sb.append("stops=(").append(simulateStops).append(", pct=")
                 .append(injectedStopPercent).append(")");
+        sb.append("corruption=(").append(simulateCorruption).append(")");
         sb.append("]");
         return sb.toString();
     }
