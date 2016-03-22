@@ -28,6 +28,7 @@ import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
@@ -719,15 +720,7 @@ public abstract class BKLogHandler implements Watcher {
                                                           boolean includeControl,
                                                           boolean includeEndOfStream)
         throws IOException {
-        try {
-            return Await.result(asyncReadLastRecord(l, fence, includeControl, includeEndOfStream));
-        } catch (Throwable t) {
-            if (t instanceof IOException) {
-                throw (IOException) t;
-            } else {
-                throw new IOException("Error on reading last record in ledger " + l + " for " + getFullyQualifiedName(), t);
-            }
-        }
+        return FutureUtils.result(asyncReadLastRecord(l, fence, includeControl, includeEndOfStream));
     }
 
     public Future<LogRecordWithDLSN> asyncReadLastUserRecord(final LogSegmentMetadata l) {

@@ -218,7 +218,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         boolean success = false;
         try {
             FutureUtils.result(writeHandler.lockHandler());
-            setLastTxId(writeHandler.recoverIncompleteLogSegments());
+            setLastTxId(FutureUtils.result(writeHandler.recoverIncompleteLogSegments()));
             success = true;
             return this;
         } finally {

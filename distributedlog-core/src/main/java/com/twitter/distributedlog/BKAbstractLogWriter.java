@@ -243,7 +243,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
                                                   long startTxId,
                                                   boolean allowMaxTxID)
             throws IOException {
-        writeHandler.recoverIncompleteLogSegments();
+        FutureUtils.result(writeHandler.recoverIncompleteLogSegments());
         // if exceptions thrown during initialize we should not catch it.
         BKLogSegmentWriter ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
         cacheLogWriter(ledgerWriter);

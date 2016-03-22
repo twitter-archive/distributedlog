@@ -1136,7 +1136,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         checkClosedOrInError("recoverInternal");
         BKLogWriteHandler ledgerHandler = createWriteHandler(true);
         try {
-            ledgerHandler.recoverIncompleteLogSegments();
+            FutureUtils.result(ledgerHandler.recoverIncompleteLogSegments());
         } finally {
             ledgerHandler.close();
         }

@@ -19,6 +19,7 @@ package com.twitter.distributedlog;
 
 import java.io.IOException;
 
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -53,7 +54,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLogSegmentId(), 1, out.getLogSegmentSequenceNumber()), false));
 
-        bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
+        FutureUtils.result(bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments());
 
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLogSegmentId(), 1, out.getLogSegmentSequenceNumber()), false));
@@ -220,7 +221,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, outEmpty.getLogSegmentSequenceNumber()), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(outEmpty.getLogSegmentId(), 101, outEmpty.getLogSegmentSequenceNumber()), false));
 
-        bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments();
+        FutureUtils.result(bkdlmAndClients.getWriteHandler().recoverIncompleteLogSegments());
 
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(outEmpty.getLogSegmentId(), outEmpty.getLogSegmentSequenceNumber(), 101), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, outEmpty.getLogSegmentSequenceNumber()), false));

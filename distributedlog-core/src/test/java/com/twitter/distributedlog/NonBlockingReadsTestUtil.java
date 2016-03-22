@@ -111,7 +111,7 @@ class NonBlockingReadsTestUtil {
                 writer.abort();
                 LOG.debug("Recovering Segments");
                 BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
-                blplm.recoverIncompleteLogSegments();
+                FutureUtils.result(blplm.recoverIncompleteLogSegments());
                 blplm.close();
                 LOG.debug("Recovered Segments");
             } else {
