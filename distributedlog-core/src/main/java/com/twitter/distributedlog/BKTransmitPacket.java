@@ -11,7 +11,7 @@ class BKTransmitPacket {
 
     private final LogRecordSetBuffer recordSet;
     private final long transmitTime;
-    private Promise<Integer> transmitComplete;
+    private final Promise<Integer> transmitComplete;
 
     BKTransmitPacket(LogRecordSetBuffer recordSet) {
         this.recordSet = recordSet;
@@ -21,6 +21,10 @@ class BKTransmitPacket {
 
     LogRecordSetBuffer getRecordSet() {
         return recordSet;
+    }
+
+    Promise<Integer> getTransmitFuture() {
+        return transmitComplete;
     }
 
     /**

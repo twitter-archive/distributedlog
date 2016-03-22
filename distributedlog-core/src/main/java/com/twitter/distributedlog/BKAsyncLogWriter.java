@@ -18,7 +18,6 @@ import com.twitter.util.FuturePool;
 import com.twitter.util.Futures;
 import com.twitter.util.Promise;
 import com.twitter.util.Try;
-
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.Counter;
@@ -26,6 +25,10 @@ import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Function1;
+import scala.Option;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,11 +36,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
-import scala.Function1;
-import scala.Option;
-import scala.runtime.AbstractFunction1;
-import scala.runtime.BoxedUnit;
 
 /**
  * BookKeeper based {@link AsyncLogWriter} implementation.
@@ -240,7 +238,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         return write(record);
     }
 
-    private BKLogSegmentWriter getCachedPerStreamLogWriter() throws WriteException {
+    private BKLogSegmentWriter getCachedLogSegmentWriter() throws WriteException {
         if (encounteredError) {
             throw new WriteException(bkDistributedLogManager.getStreamName(),
                     "writer has been closed due to error.");
@@ -248,10 +246,10 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         return getCachedLogWriter();
     }
 
-    private BKLogSegmentWriter getPerStreamLogWriter(long firstTxid,
-                                                     boolean bestEffort,
-                                                     boolean rollLog,
-                                                     boolean allowMaxTxID) throws IOException {
+    private BKLogSegmentWriter getLogSegmentWriter(long firstTxid,
+                                                   boolean bestEffort,
+                                                   boolean rollLog,
+                                                   boolean allowMaxTxID) throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
@@ -280,17 +278,17 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
      * We write end of stream marker by writing a record with MAX_TXID, so we need to allow using
      * max txid when rolling for this case only.
      */
-    private BKLogSegmentWriter getPerStreamLogWriterForEndOfStream() throws IOException {
-        return getPerStreamLogWriter(DistributedLogConstants.MAX_TXID,
+    private BKLogSegmentWriter getLogSegmentWriterForEndOfStream() throws IOException {
+        return getLogSegmentWriter(DistributedLogConstants.MAX_TXID,
                                      false /* bestEffort */,
                                      false /* roll log */,
                                      true /* allow max txid */);
     }
 
-    private BKLogSegmentWriter getPerStreamLogWriter(long firstTxid,
-                                                     boolean bestEffort,
-                                                     boolean rollLog) throws IOException {
-        return getPerStreamLogWriter(firstTxid, bestEffort, rollLog, false /* allow max txid */);
+    private BKLogSegmentWriter getLogSegmentWriter(long firstTxid,
+                                                   boolean bestEffort,
+                                                   boolean rollLog) throws IOException {
+        return getLogSegmentWriter(firstTxid, bestEffort, rollLog, false /* allow max txid */);
     }
 
     Future<DLSN> queueRequest(LogRecord record) {
@@ -327,7 +325,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     }
 
     private Future<DLSN> asyncWrite(LogRecord record, boolean flush) throws IOException {
-        BKLogSegmentWriter w = getPerStreamLogWriter(record.getTransactionId(), false, false);
+        BKLogSegmentWriter w = getLogSegmentWriter(record.getTransactionId(), false, false);
         return asyncWrite(w, record, flush);
     }
 
@@ -339,7 +337,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
         // The passed in writer may be stale since we acquire the writer outside of sync
         // lock. If we recently rolled and the new writer is cached, use that instead.
         Future<DLSN> result = null;
-        BKLogSegmentWriter w = getCachedPerStreamLogWriter();
+        BKLogSegmentWriter w = getCachedLogSegmentWriter();
         if (null == w) {
             w = writer;
         }
@@ -398,7 +396,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     private void rollLogSegmentAndIssuePendingRequests(LogRecord record) {
         try {
-            BKLogSegmentWriter writer = getPerStreamLogWriter(record.getTransactionId(), true, true);
+            BKLogSegmentWriter writer = getLogSegmentWriter(record.getTransactionId(), true, true);
             synchronized (this) {
                 for (PendingLogRecord pendingLogRecord : pendingRequests) {
 
@@ -469,7 +467,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
     /**
      * Write many log records to the stream. The return type here is unfortunate but its a direct result
      * of having to combine FuturePool and the asyncWriteBulk method which returns a future as well. The
-     * problem is the List that asyncWriteBulk returns can't be materialized until getPerStreamLogWriter
+     * problem is the List that asyncWriteBulk returns can't be materialized until getLogSegmentWriter
      * completes, so it has to be wrapped in a future itself.
      *
      * @param records list of records
@@ -522,37 +520,36 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
 
     // Ordered sync operation. Calling fsync outside of the ordered future pool may result in
     // fsync happening out of program order. For certain applications this is a problem.
-    Future<Long> flushAndSyncAll() {
-        return orderedFuturePool.apply(new ExceptionalFunction0<Long>() {
+    Future<Long> flushAndCommit() {
+        return Futures.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<Long>>() {
             @Override
-            public Long applyE() throws Throwable {
-                setReadyToFlush();
-                return flushAndSync();
+            public Future<Long> applyE() throws Throwable {
+                BKLogSegmentWriter writer = getCachedLogSegmentWriter();
+                return writer.flushAndCommit();
             }
 
             @Override
             public String toString() {
                 return String.format("FlushAndSyncAll(Stream=%s)", getStreamName());
             }
-        });
+        }));
     }
 
-    Future<Void> markEndOfStream() {
+    Future<Long> markEndOfStream() {
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        return orderedFuturePool.apply(new ExceptionalFunction0<Void>() {
+        return Futures.flatten(orderedFuturePool.apply(new ExceptionalFunction0<Future<Long>>() {
             @Override
-            public Void applyE() throws IOException {
+            public Future<Long> applyE() throws IOException {
                 markEndOfStreamQueueOpStatsLogger.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-                BKLogSegmentWriter w = getPerStreamLogWriterForEndOfStream();
-                w.markEndOfStream();
-                return null;
+                BKLogSegmentWriter w = getLogSegmentWriterForEndOfStream();
+                return w.markEndOfStream();
             }
 
             @Override
             public String toString() {
                 return String.format("markEndOfStream(Stream=%s)", getStreamName());
             }
-        }).addEventListener(new OpStatsListener<Void>(markEndOfStreamOpStatsLogger, stopwatch));
+        })).addEventListener(new OpStatsListener<Long>(markEndOfStreamOpStatsLogger, stopwatch));
     }
 
     @Override

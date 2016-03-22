@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 
 import com.twitter.distributedlog.util.FutureUtils;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -30,7 +31,7 @@ import static org.junit.Assert.*;
 public class TestFailureAndRecovery extends TestDistributedLogBase {
     static final Log LOG = LogFactory.getLog(TestFailureAndRecovery.class);
 
-    @Test
+    @Test(timeout = 60000)
     public void testSimpleRecovery() throws Exception {
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-simplerecovery");
         BKLogSegmentWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
@@ -39,17 +40,14 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
             if ((i % 10) == 0) {
-                out.setReadyToFlush();
-                out.flushAndSync();
+                FutureUtils.result(out.flushAndCommit());
             }
 
         }
-        out.setReadyToFlush();
-        out.flushAndSync();
+        FutureUtils.result(out.flushAndCommit());
 
         out.abort();
-        out.close();
-
+        FutureUtils.result(out.close());
 
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLogSegmentId(), 1, out.getLogSegmentSequenceNumber()), false));
@@ -65,7 +63,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
      * writes the bookkeeper will fail. Test that when once again
      * an ensemble is available, it can continue to write.
      */
-    @Test
+    @Test(timeout = 60000)
     public void testAllBookieFailure() throws Exception {
         BookieServer bookieToFail = bkutil.newBookie();
         BookieServer replacementBookie = null;
@@ -89,8 +87,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
             }
-            out.setReadyToFlush();
-            out.flushAndSync();
+            FutureUtils.result(out.flushAndCommit());
             bookieToFail.shutdown();
             assertEquals("New bookie didn't die",
                 numBookies, bkutil.checkBookiesUp(numBookies, 10));
@@ -101,13 +98,12 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                     out.write(op);
                     txid++;
                 }
-                out.setReadyToFlush();
-                out.flushAndSync();
+                FutureUtils.result(out.flushAndCommit());
                 fail("should not get to this stage");
-            } catch (IOException ioe) {
-                LOG.debug("Error writing to bookkeeper", ioe);
-                assertTrue("Invalid exception message",
-                    ioe.getMessage().contains("Failed to write to bookkeeper"));
+            } catch (BKTransmitException bkte) {
+                LOG.debug("Error writing to bookkeeper", bkte);
+                assertEquals("Invalid exception message",
+                        BKException.Code.NotEnoughBookiesException, bkte.getBKResultCode());
             }
             replacementBookie = bkutil.newBookie();
 
@@ -119,9 +115,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                 out.write(op);
             }
 
-            out.setReadyToFlush();
-            out.flushAndSync();
-
+            FutureUtils.result(out.flushAndCommit());
         } catch (Exception e) {
             LOG.error("Exception in test", e);
             throw e;
@@ -142,7 +136,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
      * failure of a bookie. This should be handled transparently
      * by bookkeeper.
      */
-    @Test
+    @Test(timeout = 60000)
     public void testOneBookieFailure() throws Exception {
         BookieServer bookieToFail = bkutil.newBookie();
         BookieServer replacementBookie = null;
@@ -165,8 +159,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
             }
-            out.setReadyToFlush();
-            out.flushAndSync();
+            FutureUtils.result(out.flushAndCommit());
 
             replacementBookie = bkutil.newBookie();
             assertEquals("replacement bookie didn't start",
@@ -179,8 +172,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                 LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
                 out.write(op);
             }
-            out.setReadyToFlush();
-            out.flushAndSync();
+            FutureUtils.result(out.flushAndCommit());
         } catch (Exception e) {
             LOG.error("Exception in test", e);
             throw e;
@@ -196,7 +188,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testRecoveryEmptyLedger() throws Exception {
         DLMTestUtil.BKLogPartitionWriteHandlerAndClients bkdlmAndClients = createNewBKDLM(conf, "distrlog-recovery-empty-ledger");
         BKLogSegmentWriter out = bkdlmAndClients.getWriteHandler().startLogSegment(1);
@@ -205,14 +197,12 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
             LogRecord op = DLMTestUtil.getLogRecordInstance(txid++);
             out.write(op);
             if ((i % 10) == 0) {
-                out.setReadyToFlush();
-                out.flushAndSync();
+                FutureUtils.result(out.flushAndCommit());
             }
 
         }
-        out.setReadyToFlush();
-        out.flushAndSync();
-        out.close();
+        FutureUtils.result(out.flushAndCommit());
+        FutureUtils.result(out.close());
         bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(out.getLogSegmentSequenceNumber(), out.getLogSegmentId(), 1, 100, 100);
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         BKLogSegmentWriter outEmpty = bkdlmAndClients.getWriteHandler().startLogSegment(101);
@@ -227,7 +217,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, outEmpty.getLogSegmentSequenceNumber()), false));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testRecoveryAPI() throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, "distrlog-recovery-api");
         BKSyncLogWriter out = (BKSyncLogWriter) dlm.startLogSegmentNonPartitioned();

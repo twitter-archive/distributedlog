@@ -448,8 +448,7 @@ public class DLMTestUtil {
             for (long j = 1; j <= segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            FutureUtils.result(writer.flushAndCommit());
         }
         if (completeLogSegment) {
             writeHandler.completeAndCloseLogSegment(writer);
@@ -505,7 +504,7 @@ public class DLMTestUtil {
         }
         assertNotNull(wrongDLSN);
         if (recordWrongLastDLSN) {
-            writer.close();
+            FutureUtils.result(writer.close());
             writeHandler.completeAndCloseLogSegment(
                     writeHandler.inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
                     writer.getLogSegmentSequenceNumber(),
@@ -543,7 +542,7 @@ public class DLMTestUtil {
 
     public static <T> void validateFutureFailed(Future<T> future, Class exClass) {
         try {
-            Await.result(future, Duration.fromSeconds(10));
+            Await.result(future);
         } catch (Exception ex) {
             LOG.info("Expected: {} Actual: {}", exClass.getName(), ex.getClass().getName());
             assertTrue("exceptions types equal", exClass.isInstance(ex));

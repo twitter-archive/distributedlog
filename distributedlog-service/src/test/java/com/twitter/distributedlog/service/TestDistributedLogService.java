@@ -458,8 +458,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         // those write ops should be aborted
         for (int i = 0; i < numWrites - 1; i++) {
             WriteResponse response = Await.result(futureList.get(i));
-            assertEquals("Op should fail with " + StatusCode.WRITE_CANCELLED_EXCEPTION,
-                    StatusCode.WRITE_CANCELLED_EXCEPTION, response.getHeader().getCode());
+            assertTrue("Op should fail with " + StatusCode.WRITE_CANCELLED_EXCEPTION,
+                    StatusCode.BK_TRANSMIT_ERROR == response.getHeader().getCode() ||
+                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode() ||
+                    StatusCode.WRITE_CANCELLED_EXCEPTION == response.getHeader().getCode());
         }
 
         while (streamManager.getCachedStreams().containsKey(streamName)) {

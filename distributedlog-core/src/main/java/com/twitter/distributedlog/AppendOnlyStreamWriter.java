@@ -35,7 +35,7 @@ public class AppendOnlyStreamWriter implements Closeable {
     public void force(boolean metadata) throws IOException {
         long pos = 0;
         try {
-            pos = Await.result(logWriter.flushAndSyncAll()).longValue();
+            pos = Await.result(logWriter.flushAndCommit());
         } catch (IOException ioe) {
             throw ioe;
         } catch (Exception ex) {

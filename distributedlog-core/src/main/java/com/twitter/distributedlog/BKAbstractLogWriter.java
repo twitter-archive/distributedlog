@@ -143,7 +143,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         BKLogSegmentWriter writer = getCachedLogWriter();
         if (null != writer) {
             try {
-                writer.close();
+                FutureUtils.result(writer.close());
             } catch (IOException ioe) {
                 LOG.error("Failed to close per stream writer : ", ioe);
             }
@@ -151,7 +151,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         writer = getAllocatedLogWriter();
         if (null != writer) {
             try {
-                writer.close();
+                FutureUtils.result(writer.close());
             } catch (IOException ioe) {
                 LOG.error("Failed to close allocated per stream writer : ", ioe);
             }
@@ -195,7 +195,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             if (ledgerWriterToClose.isLogSegmentInError()) {
                 ledgerWriterToClose.abort();
             } else {
-                ledgerWriterToClose.close();
+                FutureUtils.result(ledgerWriterToClose.close());
             }
             ledgerWriter = null;
             removeCachedLogWriter();
@@ -339,44 +339,6 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
         }
-    }
-
-    /**
-     * All data that has been written to the stream so far will be flushed.
-     * New data can be still written to the stream while flush is ongoing.
-     */
-    public long setReadyToFlush() throws IOException {
-        checkClosedOrInError("setReadyToFlush");
-        long highestTransactionId = 0;
-        BKLogSegmentWriter writer = getCachedLogWriter();
-        if (null != writer) {
-            highestTransactionId = Math.max(highestTransactionId, writer.setReadyToFlush());
-        }
-        return highestTransactionId;
-    }
-
-    /**
-     * Flush and sync all data that is ready to be flush
-     * {@link #setReadyToFlush()} into underlying persistent store.
-     * <p/>
-     * This API is optional as the writer implements a policy for automatically syncing
-     * the log records in the buffer. The buffered edits can be flushed when the buffer
-     * becomes full or a certain period of time is elapsed.
-     */
-    public long flushAndSync() throws IOException {
-        checkClosedOrInError("flushAndSync");
-
-        LOG.debug("FlushAndSync Started");
-        long highestTransactionId = 0;
-        BKLogSegmentWriter writer = getCachedLogWriter();
-        if (null != writer) {
-            highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseOne());
-            highestTransactionId = Math.max(highestTransactionId, writer.commitPhaseTwo());
-            LOG.debug("FlushAndSync Completed");
-        } else {
-            LOG.debug("FlushAndSync Completed - Nothing to Flush");
-        }
-        return highestTransactionId;
     }
 
     @VisibleForTesting

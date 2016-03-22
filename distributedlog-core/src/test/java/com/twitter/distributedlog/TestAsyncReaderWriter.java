@@ -1219,7 +1219,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
         // First write succeeds since lock isnt checked until transmit, which is scheduled
         Await.result(writer.write(DLMTestUtil.getLogRecordInstance(txid++)));
-        writer.flushAndSyncAll();
+        writer.flushAndCommit();
 
         BKLogSegmentWriter perStreamWriter = writer.getCachedLogWriter();
         DistributedLock lock = perStreamWriter.getLock();
@@ -1565,7 +1565,7 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         confLocal.setReadAheadBatchSize(1);
         confLocal.setReadAheadMaxRecords(1);
         confLocal.setReaderIdleWarnThresholdMillis(100);
-        confLocal.setReaderIdleErrorThresholdMillis(2000);
+        confLocal.setReaderIdleErrorThresholdMillis(20000);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         final Thread currentThread = Thread.currentThread();
         final int segmentSize = 10;

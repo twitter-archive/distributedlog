@@ -1592,6 +1592,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return log flush timeout in seconds.
      */
+    // @Deprecated
     public int getLogFlushTimeoutSeconds() {
         return this.getInt(BKDL_LOG_FLUSH_TIMEOUT, BKDL_LOG_FLUSH_TIMEOUT_DEFAULT);
     }

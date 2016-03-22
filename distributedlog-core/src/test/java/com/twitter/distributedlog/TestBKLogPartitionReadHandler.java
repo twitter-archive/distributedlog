@@ -2,6 +2,7 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.Await;
@@ -42,7 +43,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
                 out.write(record);
                 ++txid;
             }
-            out.close();
+            FutureUtils.result(out.close());
             bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(
                     out.getLogSegmentSequenceNumber(),
                     out.getLogSegmentId(),

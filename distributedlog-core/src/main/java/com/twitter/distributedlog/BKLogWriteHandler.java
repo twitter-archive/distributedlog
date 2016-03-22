@@ -607,7 +607,7 @@ class BKLogWriteHandler extends BKLogHandler {
      */
     public LogSegmentMetadata completeAndCloseLogSegment(BKLogSegmentWriter writer)
         throws IOException {
-        writer.close();
+        FutureUtils.result(writer.close());
         // in theory closeToFinalize should throw exception if a stream is in error.
         // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
         if (writer.shouldFailCompleteLogSegment()) {

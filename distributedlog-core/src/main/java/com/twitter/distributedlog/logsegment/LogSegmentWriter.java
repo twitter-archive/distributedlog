@@ -4,6 +4,7 @@ import com.google.common.annotations.Beta;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.io.Abortable;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.util.Future;
 
 import java.io.Closeable;
@@ -13,7 +14,7 @@ import java.io.IOException;
  * An interface class to write log records into a log segment.
  */
 @Beta
-public interface LogSegmentWriter extends Closeable, Abortable {
+public interface LogSegmentWriter extends AsyncCloseable, Abortable {
 
     /**
      * Get the unique log segment id.
@@ -50,18 +51,19 @@ public interface LogSegmentWriter extends Closeable, Abortable {
     public void write(LogRecord record) throws IOException;
 
     /**
-     * All data that has been written to the stream so far will be sent to
-     * persistent storage.
-     * The transmission is asynchronous and new data can be still written to the
-     * stream while flushing is performed.
+     * Transmit the buffered data and wait for it being persisted and return the last acknowledged
+     * transaction id.
+     *
+     * @return future representing the transmit result with last acknowledged transaction id.
      */
-    public long setReadyToFlush() throws IOException;
+    public Future<Long> flush();
 
     /**
-     * Flush and sync all data that is ready to be flush
-     * {@link #setReadyToFlush()} into underlying persistent store.
-     * @throws java.io.IOException
+     * Commit the current acknowledged data. It is the consequent operation of {@link #flush()},
+     * which makes all the acknowledged data visible to
+     *
+     * @return
      */
-    public long flushAndSync() throws IOException;
+    public Future<Long> commit();
 
 }

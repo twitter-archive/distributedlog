@@ -773,7 +773,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         } catch (LogRecordTooLongException exc) {
             exceptionEncountered = true;
         } finally {
-            out.close();
+            FutureUtils.result(out.close());
         }
         bkdlmAndClients.close();
         assert(exceptionEncountered);
@@ -799,7 +799,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         } catch (LogRecordTooLongException exc) {
             exceptionEncountered = true;
         } finally {
-            out.close();
+            FutureUtils.result(out.close());
         }
         bkdlmAndClients.close();
         assert(!exceptionEncountered);
