@@ -817,7 +817,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     // status code NOT_READY is returned if failfast is enabled in the server. don't redirect
                     // since the proxy may still own the stream.
                     case STREAM_NOT_READY:
-                        logger.error("Failed to write request to {} : {}", op.stream, header);
                         op.fail(addr, DLException.of(header));
                         break;
                     case SERVICE_UNAVAILABLE:
@@ -883,7 +882,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                                          StreamOp op,
                                          ResponseHeader header) {
         if (streamFailfast) {
-            logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
             op.fail(addr, DLException.of(header));
         } else {
             redirect(op, null);
