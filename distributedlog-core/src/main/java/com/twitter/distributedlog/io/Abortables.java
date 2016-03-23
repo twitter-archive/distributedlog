@@ -23,6 +23,17 @@ public final class Abortables {
 
     private Abortables() {}
 
+    public static Future<Void> asyncAbort(@Nullable AsyncAbortable abortable,
+                                          boolean swallowIOException) {
+        if (null == abortable) {
+            return Future.Void();
+        } else if (swallowIOException) {
+            return FutureUtils.ignore(abortable.asyncAbort());
+        } else {
+            return abortable.asyncAbort();
+        }
+    }
+
     /**
      * Aborts a {@link Abortable}, with control over whether an {@link IOException} may be thrown.
      * This is primarily useful in a finally block, where a thrown exception needs to be logged but

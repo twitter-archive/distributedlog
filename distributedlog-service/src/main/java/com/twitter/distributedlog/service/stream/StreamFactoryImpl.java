@@ -6,9 +6,8 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.FatalErrorHandler;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.service.config.StreamConfigProvider;
-import java.util.concurrent.ScheduledExecutorService;
-
 import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.jboss.netty.util.HashedWheelTimer;
 
@@ -21,7 +20,7 @@ public class StreamFactoryImpl implements StreamFactory {
     private final StreamConfigProvider streamConfigProvider;
     private final StreamPartitionConverter streamPartitionConverter;
     private final DistributedLogNamespace dlNamespace;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
     private final FatalErrorHandler fatalErrorHandler;
     private final HashedWheelTimer requestTimer;
 
@@ -33,7 +32,7 @@ public class StreamFactoryImpl implements StreamFactory {
         StreamConfigProvider streamConfigProvider,
         StreamPartitionConverter streamPartitionConverter,
         DistributedLogNamespace dlNamespace,
-        ScheduledExecutorService executorService,
+        OrderedScheduler scheduler,
         FatalErrorHandler fatalErrorHandler,
         HashedWheelTimer requestTimer) {
 
@@ -45,7 +44,7 @@ public class StreamFactoryImpl implements StreamFactory {
         this.streamConfigProvider = streamConfigProvider;
         this.streamPartitionConverter = streamPartitionConverter;
         this.dlNamespace = dlNamespace;
-        this.executorService = executorService;
+        this.scheduler = scheduler;
         this.fatalErrorHandler = fatalErrorHandler;
         this.requestTimer = requestTimer;
     }
@@ -65,7 +64,7 @@ public class StreamFactoryImpl implements StreamFactory {
             featureProvider,
             streamConfigProvider,
             dlNamespace,
-            executorService,
+            scheduler,
             fatalErrorHandler,
             requestTimer);
     }

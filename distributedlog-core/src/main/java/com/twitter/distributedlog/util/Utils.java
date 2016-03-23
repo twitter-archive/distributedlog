@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
@@ -26,15 +27,14 @@ import com.twitter.util.Throw;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.ZooKeeper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import scala.runtime.BoxedUnit;
-
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scala.runtime.BoxedUnit;
 
 /**
  * Basic Utilities.
@@ -416,6 +416,17 @@ public class Utils {
         return promise;
     }
 
+    public static Future<Void> asyncClose(@Nullable AsyncCloseable closeable,
+                                          boolean swallowIOException) {
+        if (null == closeable) {
+            return Future.Void();
+        } else if (swallowIOException) {
+            return FutureUtils.ignore(closeable.asyncClose());
+        } else {
+            return closeable.asyncClose();
+        }
+    }
+
     /**
      * Sync zookeeper client on given <i>path</i>.
      *
@@ -460,7 +471,10 @@ public class Utils {
      * @param closeable
      *          closeable to close
      */
-    public static void close(Closeable closeable) {
+    public static void close(@Nullable Closeable closeable) {
+        if (null == closeable) {
+            return;
+        }
         try {
             Closeables.close(closeable, true);
         } catch (IOException e) {
@@ -474,8 +488,11 @@ public class Utils {
      * @param closeable
      *          closeable to close
      */
-    public static void close(AsyncCloseable closeable)
+    public static void close(@Nullable AsyncCloseable closeable)
             throws IOException {
+        if (null == closeable) {
+            return;
+        }
         FutureUtils.result(closeable.asyncClose());
     }
 
@@ -485,7 +502,10 @@ public class Utils {
      * @param closeable
      *          closeable to close
      */
-    public static void closeQuietly(AsyncCloseable closeable) {
+    public static void closeQuietly(@Nullable AsyncCloseable closeable) {
+        if (null == closeable) {
+            return;
+        }
         try {
             FutureUtils.result(closeable.asyncClose());
         } catch (IOException e) {

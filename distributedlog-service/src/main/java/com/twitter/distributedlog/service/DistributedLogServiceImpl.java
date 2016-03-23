@@ -47,6 +47,7 @@ import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.rate.MovingAverageRateFactory;
 import com.twitter.distributedlog.rate.MovingAverageRate;
 import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -72,9 +73,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -95,7 +94,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     private final CountDownLatch keepAliveLatch;
     private final byte dlsnVersion;
     private final String clientId;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
     private final AccessControlManager accessControlManager;
     private final StreamConfigProvider streamConfigProvider;
     private final StreamManager streamManager;
@@ -167,8 +166,12 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         this.streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
 
         // Executor Service.
-        this.executorService = Executors.newScheduledThreadPool(numThreads,
-                new ThreadFactoryBuilder().setNameFormat("DistributedLogService-Executor-%d").build());
+        this.scheduler = OrderedScheduler.newBuilder()
+                .corePoolSize(numThreads)
+                .name("DistributedLogService-Executor")
+                .traceTaskExecution(true)
+                .statsLogger(statsLogger.scope("scheduler"))
+                .build();
 
         // Timer, kept separate to ensure reliability of timeouts.
         this.requestTimer = new HashedWheelTimer(
@@ -185,13 +188,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
                 streamConfigProvider,
                 converter,
                 dlNamespace,
-                executorService,
+                scheduler,
                 this,
                 requestTimer);
         this.streamManager = new StreamManagerImpl(
                 clientId,
                 dlConf,
-                executorService,
+                scheduler,
                 streamFactory,
                 converter,
                 streamConfigProvider,
@@ -576,7 +579,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             timer.stop();
 
             // shutdown the executor after requesting closing streams.
-            SchedulerUtils.shutdownScheduler(executorService, 60, TimeUnit.SECONDS);
+            SchedulerUtils.shutdownScheduler(scheduler, 60, TimeUnit.SECONDS);
         } catch (Exception ex) {
             logger.info("Exception while shutting down distributedlog service.");
         } finally {
@@ -605,9 +608,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             if (serverStatus != ServerStatus.WRITE_AND_ACCEPT) {
                 return null;
             } else if (delayMs > 0) {
-                return executorService.schedule(runnable, delayMs, TimeUnit.MILLISECONDS);
+                return scheduler.schedule(runnable, delayMs, TimeUnit.MILLISECONDS);
             } else {
-                return executorService.submit(runnable);
+                return scheduler.submit(runnable);
             }
         } catch (RejectedExecutionException ree) {
             logger.error("Failed to schedule task {} in {} ms : ",
