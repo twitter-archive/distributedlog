@@ -17,8 +17,7 @@
  */
 package com.twitter.distributedlog;
 
-import java.io.IOException;
-
+import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookieServer;
@@ -46,8 +45,8 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
         }
         FutureUtils.result(out.flushAndCommit());
 
-        out.abort();
-        FutureUtils.result(out.close());
+        Abortables.abort(out, false);
+        FutureUtils.result(out.asyncClose());
 
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(out.getLogSegmentId(), 1, out.getLogSegmentSequenceNumber()), false));
@@ -202,11 +201,11 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
 
         }
         FutureUtils.result(out.flushAndCommit());
-        FutureUtils.result(out.close());
+        FutureUtils.result(out.asyncClose());
         bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(out.getLogSegmentSequenceNumber(), out.getLogSegmentId(), 1, 100, 100);
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(1, 100, out.getLogSegmentSequenceNumber()), false));
         BKLogSegmentWriter outEmpty = bkdlmAndClients.getWriteHandler().startLogSegment(101);
-        outEmpty.abort();
+        Abortables.abort(outEmpty, false);
 
         assertNull(zkc.exists(bkdlmAndClients.getWriteHandler().completedLedgerZNode(101, 101, outEmpty.getLogSegmentSequenceNumber()), false));
         assertNotNull(zkc.exists(bkdlmAndClients.getWriteHandler().inprogressZNode(outEmpty.getLogSegmentId(), 101, outEmpty.getLogSegmentSequenceNumber()), false));
@@ -250,7 +249,7 @@ public class TestFailureAndRecovery extends TestDistributedLogBase {
                                                              perStreamLogWriter.getLogSegmentSequenceNumber()), false));
         assertNull(zkc.exists(blplm1.inprogressZNode(perStreamLogWriter.getLogSegmentId(), 1,
                                                      perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-        blplm1.close();
+        FutureUtils.result(blplm1.asyncClose());
         assertEquals(100, dlm.getLogRecordCount());
         dlm.close();
     }

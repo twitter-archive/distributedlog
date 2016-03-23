@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.LogSegmentMetadata.LogSegmentMetadataVersion;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.distributedlog.readahead.ReadAheadWorker;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -79,7 +80,7 @@ public class TestReadAhead extends TestDistributedLogBase {
             expectedTxId++;
         }
 
-        reader.close();
+        Utils.close(reader);
         readDLM.close();
 
     }
@@ -138,7 +139,7 @@ public class TestReadAhead extends TestDistributedLogBase {
         assertEquals(31L, record.getTransactionId());
         DLMTestUtil.verifyLogRecord(record);
 
-        reader.close();
+        Utils.close(reader);
         readDLM.close();
 
         dlm.close();

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;

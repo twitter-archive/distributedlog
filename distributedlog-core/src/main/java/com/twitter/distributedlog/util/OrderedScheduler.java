@@ -420,6 +420,17 @@ public class OrderedScheduler implements ScheduledExecutorService {
     // Ordered Functions
 
     /**
+     * Return a future pool used by <code>key</code>.
+     *
+     * @param key
+     *          key to order in the future pool
+     * @return future pool
+     */
+    public FuturePool getFuturePool(Object key) {
+        return chooseFuturePool(key);
+    }
+
+    /**
      * Execute the <code>function</code> in the executor that assigned by <code>key</code>.
      *
      * @see com.twitter.util.Future

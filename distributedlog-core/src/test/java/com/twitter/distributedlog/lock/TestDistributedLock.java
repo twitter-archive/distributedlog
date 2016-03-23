@@ -235,7 +235,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
             assertTrue(lock.haveLock());
             assertEquals(lockId1, Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
 
-            lock.close();
+            lock.asyncClose();
         } finally {
             FailpointUtils.removeFailpoint(FailpointUtils.FailPointName.FP_ZooKeeperConnectionLoss);
         }
@@ -260,7 +260,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
         assertTrue(lock.haveLock());
         assertEquals(lockId1, Await.result(asyncParseClientID(zkc0.get(), lockPath, children.get(0))));
 
-        FutureUtils.result(lock.close());
+        FutureUtils.result(lock.asyncClose());
 
         children = getLockWaiters(zkc, lockPath);
         assertEquals(0, children.size());
@@ -279,7 +279,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
 
         assertEquals(lockId1, lockId2);
 
-        FutureUtils.result(lock.close());
+        FutureUtils.result(lock.asyncClose());
 
         children = getLockWaiters(zkc, lockPath);
         assertEquals(0, children.size());
@@ -443,7 +443,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
         assertEquals(clientId, lock0_2.getLeft());
         assertFalse(lockId0_1.equals(lock0_2));
 
-        FutureUtils.result(lock0.close());
+        FutureUtils.result(lock0.asyncClose());
 
         children = getLockWaiters(zkc, lockPath);
         assertEquals(0, children.size());
@@ -564,8 +564,8 @@ public class TestDistributedLock extends TestDistributedLogBase {
         assertEquals(((ZKSessionLock) lock1.getInternalLock()).getLockId(),
                 Await.result(asyncParseClientID(zkc.get(), lockPath, children.get(0))));
 
-        FutureUtils.result(lock0.close());
-        FutureUtils.result(lock1.close());
+        FutureUtils.result(lock0.asyncClose());
+        FutureUtils.result(lock1.asyncClose());
 
         children = getLockWaiters(zkc, lockPath);
         assertEquals(0, children.size());
@@ -603,8 +603,8 @@ public class TestDistributedLock extends TestDistributedLogBase {
             exceptionEncountered = true;
         }
         assertTrue(exceptionEncountered);
-        FutureUtils.result(lock.close());
-        FutureUtils.result(lock2.close());
+        FutureUtils.result(lock.asyncClose());
+        FutureUtils.result(lock2.asyncClose());
     }
 
     @Test(timeout = 60000)
@@ -639,9 +639,9 @@ public class TestDistributedLock extends TestDistributedLogBase {
             exceptionEncountered = true;
         }
         assertTrue(exceptionEncountered);
-        FutureUtils.result(lock2.close());
+        FutureUtils.result(lock2.asyncClose());
 
-        FutureUtils.result(lock.close());
+        FutureUtils.result(lock.asyncClose());
         assertEquals(false, lock.haveLock());
         assertEquals(false, lock.getInternalLock().isLockHeld());
 
@@ -652,7 +652,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
         FutureUtils.result(lock3.asyncAcquire());
         assertEquals(true, lock3.haveLock());
         assertEquals(true, lock3.getInternalLock().isLockHeld());
-        FutureUtils.result(lock3.close());
+        FutureUtils.result(lock3.asyncClose());
     }
 
     void assertLatchesSet(CountDownLatch[] latches, int endIndex) {
@@ -711,7 +711,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
             latches[i].await();
             assertLatchesSet(latches, i+1);
             Await.result(results.get(i));
-            FutureUtils.result(lockArray[i].close());
+            FutureUtils.result(lockArray[i].asyncClose());
         }
     }
 
@@ -744,13 +744,13 @@ public class TestDistributedLock extends TestDistributedLogBase {
         }
         assertLockState(lock0, true, true, lock1, false, false, 2, locks.getLockPath());
 
-        FutureUtils.result(lock0.close());
+        FutureUtils.result(lock0.asyncClose());
         Await.result(lock1.getLockAcquireFuture());
 
         assertLockState(lock0, false, false, lock1, true, true, 1, locks.getLockPath());
 
         // Release lock1
-        FutureUtils.result(lock1.close());
+        FutureUtils.result(lock1.asyncClose());
         assertLockState(lock0, false, false, lock1, false, false, 0, locks.getLockPath());
     }
 
@@ -776,8 +776,8 @@ public class TestDistributedLock extends TestDistributedLogBase {
         }
 
         assertLockState(lock0, true, true, lock1, false, false, 1, locks.getLockPath());
-        lock0.close();
-        lock1.close();
+        lock0.asyncClose();
+        lock1.asyncClose();
     }
 
     @Test(timeout = 60000)
@@ -788,7 +788,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
 
         FutureUtils.result(lock0.asyncAcquire());
         Future<DistributedLock> result = lock1.asyncAcquire();
-        FutureUtils.result(lock1.close());
+        FutureUtils.result(lock1.asyncClose());
         try {
             Await.result(result);
             fail("future should have been failed");
@@ -796,7 +796,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
         }
 
         assertLockState(lock0, true, true, lock1, false, false, 1, locks.getLockPath());
-        lock0.close();
+        lock0.asyncClose();
     }
 
     @Test(timeout = 60000)
@@ -806,7 +806,7 @@ public class TestDistributedLock extends TestDistributedLogBase {
 
         Future<DistributedLock> result = lock0.asyncAcquire();
         Await.result(result);
-        FutureUtils.result(lock0.close());
+        FutureUtils.result(lock0.asyncClose());
 
         // Already have this, stays satisfied.
         Await.result(result);

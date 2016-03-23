@@ -56,9 +56,9 @@ public class LedgerAllocatorDelegator implements LedgerAllocator {
     }
 
     @Override
-    public Future<Void> close() {
+    public Future<Void> asyncClose() {
         if (ownAllocator) {
-            return this.allocator.close();
+            return this.allocator.asyncClose();
         } else {
             return Future.value(null);
         }

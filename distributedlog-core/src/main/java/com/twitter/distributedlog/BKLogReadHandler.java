@@ -1,7 +1,6 @@
 package com.twitter.distributedlog;
 
 import java.io.IOException;
-import java.util.concurrent.ScheduledExecutorService;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -42,6 +41,7 @@ import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Function0;
+import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 /**
@@ -92,7 +92,7 @@ class BKLogReadHandler extends BKLogHandler {
     protected final ReadAheadCache readAheadCache;
     protected final LedgerHandleCache handleCache;
 
-    protected final ScheduledExecutorService readAheadExecutor;
+    protected final OrderedScheduler readAheadExecutor;
     protected final DynamicDistributedLogConfiguration dynConf;
     protected ReadAheadWorker readAheadWorker = null;
     private final boolean isHandleForReading;
@@ -122,7 +122,7 @@ class BKLogReadHandler extends BKLogHandler {
                             LogSegmentMetadataStore metadataStore,
                             OrderedScheduler scheduler,
                             OrderedScheduler lockStateExecutor,
-                            ScheduledExecutorService readAheadExecutor,
+                            OrderedScheduler readAheadExecutor,
                             AlertStatsLogger alertStatsLogger,
                             ReadAheadExceptionsLogger readAheadExceptionsLogger,
                             StatsLogger statsLogger,
@@ -272,34 +272,32 @@ class BKLogReadHandler extends BKLogHandler {
         readLock.checkOwnership();
     }
 
-    public void close() {
-        try {
-            if (null != readAheadWorker) {
-                LOG.info("Stopping Readahead worker for {}", getFullyQualifiedName());
-                readAheadWorker.stop();
+    public Future<Void> asyncClose() {
+        DistributedLock lockToClose;
+        synchronized (this) {
+            if (null != lockAcquireFuture && !lockAcquireFuture.isDefined()) {
+                FutureUtils.cancel(lockAcquireFuture);
             }
-            if (null != readAheadCache) {
-                readAheadCache.clear();
-            }
-            if (null != handleCache) {
-                handleCache.clear();
-            }
-            super.close();
-        } finally {
-            synchronized (this) {
-                if (null != lockAcquireFuture && !lockAcquireFuture.isDefined()) {
-                    FutureUtils.cancel(lockAcquireFuture);
-                }
-                if (null != readLock) {
-                    // Force close--we may or may not have
-                    // actually acquired the lock by now. The
-                    // effect will be to abort any acquire
-                    // attempts.
-                    LOG.info("closing readlock {} at {}", getLockClientId(), readLockPath);
-                    Utils.closeQuietly(readLock);
-                }
-            }
+            lockToClose = readLock;
         }
+        return Utils.closeSequence(scheduler, readAheadWorker, lockToClose)
+                .flatMap(new AbstractFunction1<Void, Future<Void>>() {
+            @Override
+            public Future<Void> apply(Void result) {
+                if (null != readAheadCache) {
+                    readAheadCache.clear();
+                }
+                if (null != handleCache) {
+                    handleCache.clear();
+                }
+                return BKLogReadHandler.super.asyncClose();
+            }
+        });
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        return asyncClose();
     }
 
     public void startReadAhead(LedgerReadPosition startPosition,
@@ -339,7 +337,7 @@ class BKLogReadHandler extends BKLogHandler {
         promise.setInterruptHandler(new com.twitter.util.Function<Throwable, BoxedUnit>() {
             @Override
             public BoxedUnit apply(Throwable t) {
-                promise.setException(new LockCancelledException(readLockPath, "Could not ensure read lock path", t));
+                FutureUtils.setException(promise, new LockCancelledException(readLockPath, "Could not ensure read lock path", t));
                 return null;
             }
         });
@@ -353,19 +351,19 @@ class BKLogReadHandler extends BKLogHandler {
                             @Override
                             public void run() {
                                 if (KeeperException.Code.NONODE.intValue() == rc) {
-                                    promise.setException(new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
+                                    FutureUtils.setException(promise, new LogNotFoundException(String.format("Log %s does not exist or has been deleted", getFullyQualifiedName())));
                                 } else if (KeeperException.Code.OK.intValue() == rc) {
-                                    promise.setValue(null);
+                                    FutureUtils.setValue(promise, null);
                                     LOG.trace("Created path {}.", path);
                                 } else if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
-                                    promise.setValue(null);
+                                    FutureUtils.setValue(promise, null);
                                     LOG.trace("Path {} is already existed.", path);
                                 } else if (DistributedLogConstants.ZK_CONNECTION_EXCEPTION_RESULT_CODE == rc) {
-                                    promise.setException(new ZooKeeperClient.ZooKeeperConnectionException(path));
+                                    FutureUtils.setException(promise, new ZooKeeperClient.ZooKeeperConnectionException(path));
                                 } else if (DistributedLogConstants.DL_INTERRUPTED_EXCEPTION_RESULT_CODE == rc) {
-                                    promise.setException(new DLInterruptedException(path));
+                                    FutureUtils.setException(promise, new DLInterruptedException(path));
                                 } else {
-                                    promise.setException(KeeperException.create(KeeperException.Code.get(rc)));
+                                    FutureUtils.setException(promise, KeeperException.create(KeeperException.Code.get(rc)));
                                 }
                             }
                         });

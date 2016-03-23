@@ -1,12 +1,13 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.io.Abortable;
+import com.twitter.distributedlog.io.AsyncAbortable;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.util.Future;
 
 import java.io.Closeable;
 import java.util.List;
 
-public interface AsyncLogWriter extends Closeable, Abortable {
+public interface AsyncLogWriter extends AsyncCloseable, AsyncAbortable {
 
     /**
      * Get the last committed transaction id.

@@ -64,7 +64,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static com.twitter.distributedlog.impl.BKDLUtils.*;
@@ -241,7 +240,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     private final URI namespace;
     private final BKDLConfig bkdlConfig;
     private final OrderedScheduler scheduler;
-    private final ScheduledExecutorService readAheadExecutor;
+    private final OrderedScheduler readAheadExecutor;
     private final OrderedScheduler lockStateExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
@@ -324,12 +323,13 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
                 .build();
         if (conf.getNumReadAheadWorkerThreads() > 0) {
-            this.readAheadExecutor = new MonitoredScheduledThreadPoolExecutor(
-                    conf.getNumReadAheadWorkerThreads(),
-                    new ThreadFactoryBuilder().setNameFormat("DLM-" + uri.getPath() + "-readahead-executor-%d").build(),
-                    statsLogger.scope("factory").scope("readahead_thread_pool"),
-                    conf.getTraceReadAheadDeliveryLatency()
-            );
+            this.readAheadExecutor = OrderedScheduler.newBuilder()
+                    .name("DLM-" + uri.getPath() + "-readahead-executor-%d")
+                    .corePoolSize(conf.getNumReadAheadWorkerThreads())
+                    .statsLogger(statsLogger.scope("factory").scope("readahead_thread_pool"))
+                    .traceTaskExecution(conf.getTraceReadAheadDeliveryLatency())
+                    .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
+                    .build();
             LOG.info("Created dedicated readahead executor : threads = {}", conf.getNumReadAheadWorkerThreads());
         } else {
             this.readAheadExecutor = this.scheduler;
@@ -1014,7 +1014,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
 
         // Close the allocator
         if (null != allocator) {
-            Utils.close(allocator);
+            Utils.closeQuietly(allocator);
             LOG.info("Ledger Allocator stopped.");
         }
 

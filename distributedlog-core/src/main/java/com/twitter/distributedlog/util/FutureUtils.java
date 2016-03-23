@@ -435,6 +435,42 @@ public class FutureUtils {
     }
 
     /**
+     * Ignore exception from the <i>future</i>.
+     *
+     * @param future the original future
+     * @return a transformed future ignores exceptions
+     */
+    public static <T> Promise<Void> ignore(Future<T> future) {
+        return ignore(future, null);
+    }
+
+    /**
+     * Ignore exception from the <i>future</i> and log <i>errorMsg</i> on exceptions
+     *
+     * @param future the original future
+     * @param errorMsg the error message to log on exceptions
+     * @return a transformed future ignores exceptions
+     */
+    public static <T> Promise<Void> ignore(Future<T> future, final String errorMsg) {
+        final Promise<Void> promise = new Promise<Void>();
+        future.addEventListener(new FutureEventListener<T>() {
+            @Override
+            public void onSuccess(T value) {
+                setValue(promise, null);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                if (null != errorMsg) {
+                    logger.error(errorMsg, cause);
+                }
+                setValue(promise, null);
+            }
+        });
+        return promise;
+    }
+
+    /**
      * Create transmit exception from transmit result.
      *
      * @param transmitResult

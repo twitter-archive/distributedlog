@@ -35,7 +35,6 @@ import com.twitter.distributedlog.zk.ZKVersionedSetOp;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
-import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -90,7 +89,6 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final MaxLogSegmentSequenceNo maxLogSegmentSequenceNo;
     protected final boolean sanityCheckTxnId;
     protected final int regionId;
-    protected FuturePool orderedFuturePool;
     protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
@@ -127,18 +125,6 @@ class BKLogWriteHandler extends BKLogHandler {
     private final OpStatsLogger recoverOpStats;
     private final OpStatsLogger deleteOpStats;
 
-    abstract class MetadataOp<T> {
-
-        T process() throws IOException {
-            if (null != metadataException.get()) {
-                throw metadataException.get();
-            }
-            return processOp();
-        }
-
-        abstract T processOp() throws IOException;
-    }
-
     /**
      * Construct a Bookkeeper journal manager.
      */
@@ -148,7 +134,6 @@ class BKLogWriteHandler extends BKLogHandler {
                       BookKeeperClientBuilder bkcBuilder,
                       LogSegmentMetadataStore metadataStore,
                       OrderedScheduler scheduler,
-                      FuturePool orderedFuturePool,
                       LedgerAllocator allocator,
                       StatsLogger statsLogger,
                       StatsLogger perLogStatsLogger,
@@ -162,7 +147,6 @@ class BKLogWriteHandler extends BKLogHandler {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.perLogStatsLogger = perLogStatsLogger;
-        this.orderedFuturePool = orderedFuturePool;
         this.writeLimiter = writeLimiter;
         this.featureProvider = featureProvider;
         this.dynConf = dynConf;
@@ -321,7 +305,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
     Future<Void> unlockHandler() {
         if (null != lockFuture) {
-            return lock.close();
+            return lock.asyncClose();
         } else {
             return Future.Void();
         }
@@ -428,10 +412,21 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
-        lock.checkOwnershipAndReacquire();
+        return FutureUtils.result(asyncStartLogSegment(txId, bestEffort, allowMaxTxID));
+    }
+
+    protected Future<BKLogSegmentWriter> asyncStartLogSegment(long txId,
+                                                              boolean bestEffort,
+                                                              boolean allowMaxTxID) {
         Promise<BKLogSegmentWriter> promise = new Promise<BKLogSegmentWriter>();
+        try {
+            lock.checkOwnershipAndReacquire();
+        } catch (LockingException e) {
+            FutureUtils.setException(promise, e);
+            return promise;
+        }
         doStartLogSegment(txId, bestEffort, allowMaxTxID, promise);
-        return FutureUtils.result(promise);
+        return promise;
     }
 
     protected void doStartLogSegment(final long txId,
@@ -573,7 +568,6 @@ class BKLogWriteHandler extends BKLogHandler {
                             txId,
                             logSegmentSeqNo,
                             scheduler,
-                            orderedFuturePool,
                             statsLogger,
                             perLogStatsLogger,
                             alertStatsLogger,
@@ -605,18 +599,41 @@ class BKLogWriteHandler extends BKLogHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public LogSegmentMetadata completeAndCloseLogSegment(BKLogSegmentWriter writer)
-        throws IOException {
-        FutureUtils.result(writer.close());
-        // in theory closeToFinalize should throw exception if a stream is in error.
-        // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
-        if (writer.shouldFailCompleteLogSegment()) {
-            throw new IOException("PerStreamLogWriter for " + writer.getFullyQualifiedLogSegment() + " is already in error.");
-        }
-        return completeAndCloseLogSegment(
-                inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
-                writer.getLogSegmentSequenceNumber(), writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
-                writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
+    Future<LogSegmentMetadata> completeAndCloseLogSegment(final BKLogSegmentWriter writer) {
+        final Promise<LogSegmentMetadata> promise = new Promise<LogSegmentMetadata>();
+        completeAndCloseLogSegment(writer, promise);
+        return promise;
+    }
+
+    private void completeAndCloseLogSegment(final BKLogSegmentWriter writer,
+                                            final Promise<LogSegmentMetadata> promise) {
+        writer.asyncClose().addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                // in theory closeToFinalize should throw exception if a stream is in error.
+                // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
+                if (writer.shouldFailCompleteLogSegment()) {
+                    FutureUtils.setException(promise,
+                            new IOException("LogSegmentWriter for " + writer.getFullyQualifiedLogSegment() + " is already in error."));
+                    return;
+                }
+                doCompleteAndCloseLogSegment(
+                        inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
+                        writer.getLogSegmentSequenceNumber(),
+                        writer.getLogSegmentId(),
+                        writer.getStartTxId(),
+                        writer.getLastTxId(),
+                        writer.getPositionWithinLogSegment(),
+                        writer.getLastDLSN().getEntryId(),
+                        writer.getLastDLSN().getSlotId(),
+                        promise);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                FutureUtils.setException(promise, cause);
+            }
+        });
     }
 
     @VisibleForTesting
@@ -818,7 +835,7 @@ class BKLogWriteHandler extends BKLogHandler {
         }, scheduler));
     }
 
-    public synchronized Future<Long> recoverIncompleteLogSegments() {
+    public Future<Long> recoverIncompleteLogSegments() {
         try {
             FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
         } catch (IOException ioe) {
@@ -1167,17 +1184,22 @@ class BKLogWriteHandler extends BKLogHandler {
         });
     }
 
-    public void close() {
-        synchronized (this) {
-            if (closed) {
-                return;
+    @Override
+    public Future<Void> asyncClose() {
+        return Utils.closeSequence(scheduler,
+                lock,
+                ledgerAllocator
+        ).flatMap(new AbstractFunction1<Void, Future<Void>>() {
+            @Override
+            public Future<Void> apply(Void result) {
+                return BKLogWriteHandler.super.asyncClose();
             }
-            closed = true;
-        }
-        Utils.closeQuietly(lock);
-        ledgerAllocator.close();
-        // close the zookeeper client & bookkeeper client after closing the lock
-        super.close();
+        });
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        return asyncClose();
     }
 
     String completedLedgerZNodeName(long firstTxId, long lastTxId, long logSegmentSeqNo) {

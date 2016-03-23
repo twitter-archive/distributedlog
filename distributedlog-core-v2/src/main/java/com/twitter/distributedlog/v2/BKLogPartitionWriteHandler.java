@@ -529,7 +529,7 @@ class BKLogPartitionWriteHandler extends BKLogPartitionHandler {
         purgeAllLogs();
 
         try {
-            FutureUtils.result(lock.close());
+            FutureUtils.result(lock.asyncClose());
             zooKeeperClient.get().exists(ledgerPath, false);
             zooKeeperClient.get().exists(maxTxIdPath, false);
             if (partitionRootPath.toLowerCase().contains("distributedlog")) {

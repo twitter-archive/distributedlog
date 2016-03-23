@@ -25,6 +25,8 @@ import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
+import com.twitter.distributedlog.io.AsyncAbortable;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
@@ -97,7 +99,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see {@link BKLogWriteHandler} for writers
  * @see {@link BKLogReadHandler} for readers
  */
-public abstract class BKLogHandler implements Watcher {
+public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbortable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -691,9 +693,16 @@ public abstract class BKLogHandler implements Watcher {
         }
     }
 
-    public void close() {
+    @Override
+    public Future<Void> asyncClose() {
         // No-op
         this.zooKeeperClient.getWatcherManager().unregisterChildWatcher(logMetadata.getLogSegmentsPath(), this);
+        return Future.Void();
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        return asyncClose();
     }
 
     /**

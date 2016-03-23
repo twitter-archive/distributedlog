@@ -502,7 +502,7 @@ public class SimpleLedgerAllocator implements LedgerAllocator, FutureEventListen
     }
 
     @Override
-    public Future<Void> close() {
+    public Future<Void> asyncClose() {
         return closeInternal(false);
     }
 

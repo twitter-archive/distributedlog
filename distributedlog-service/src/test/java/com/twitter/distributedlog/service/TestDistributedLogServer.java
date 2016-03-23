@@ -429,7 +429,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         } catch (LogNotFoundException lnfe) {
             // expected
         }
-        reader101.close();
+        FutureUtils.result(reader101.asyncClose());
         dlm101.close();
 
         txid = 201;

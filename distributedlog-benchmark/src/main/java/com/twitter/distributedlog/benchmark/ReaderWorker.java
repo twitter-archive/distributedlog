@@ -16,6 +16,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.StatsReceiver;
@@ -314,7 +315,7 @@ public class ReaderWorker implements Worker {
 
         if (logReaders[idx] != null) {
             try {
-                logReaders[idx].close();
+                FutureUtils.result(logReaders[idx].asyncClose());
             } catch (IOException e) {
                 LOG.warn("Failed on closing stream reader {} : ", streamName, e);
             }
@@ -380,7 +381,7 @@ public class ReaderWorker implements Worker {
         this.running = false;
         for (AsyncLogReader reader : logReaders) {
             if (null != reader) {
-                reader.close();
+                FutureUtils.result(reader.asyncClose());
             }
         }
         for (DistributedLogManager dlm : dlms) {

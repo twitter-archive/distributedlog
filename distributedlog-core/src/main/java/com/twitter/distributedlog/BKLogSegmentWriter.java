@@ -20,7 +20,6 @@ package com.twitter.distributedlog;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +48,7 @@ import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.OpStatsListener;
 import com.twitter.distributedlog.util.FailpointUtils;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SafeQueueingFuturePool;
 import com.twitter.distributedlog.util.SimplePermitLimiter;
@@ -145,7 +145,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final long logSegmentSequenceNumber;
     // Used only for values that *could* change (e.g. buffer size etc.)
     private final DistributedLogConfiguration conf;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
 
     // stats
     private final StatsLogger envelopeStatsLogger;
@@ -199,8 +199,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                  DistributedLock lock, /** the lock needs to be acquired **/
                                  long startTxId,
                                  long logSegmentSequenceNumber,
-                                 ScheduledExecutorService executorService,
-                                 FuturePool orderedFuturePool,
+                                 OrderedScheduler scheduler,
                                  StatsLogger statsLogger,
                                  StatsLogger perLogStatsLogger,
                                  AlertStatsLogger alertStatsLogger,
@@ -293,6 +292,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.enableRecordCounts = conf.getEnableRecordCounts();
         this.immediateFlushEnabled = conf.getImmediateFlushEnabled();
         this.isDurableWriteEnabled = dynConf.isDurableWriteEnabled();
+        this.scheduler = scheduler;
 
         // Failure injection
         if (conf.getEIInjectWriteDelay()) {
@@ -306,8 +306,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         final int configuredPeriodicFlushFrequency = dynConf.getPeriodicFlushFrequencyMilliSeconds();
         if (!immediateFlushEnabled || (0 != this.transmissionThreshold)) {
             int periodicFlushFrequency = configuredPeriodicFlushFrequency;
-            if (periodicFlushFrequency > 0 && executorService != null) {
-                periodicFlushSchedule = executorService.scheduleAtFixedRate(this,
+            if (periodicFlushFrequency > 0 && scheduler != null) {
+                periodicFlushSchedule = scheduler.scheduleAtFixedRate(this,
                         periodicFlushFrequency/2, periodicFlushFrequency/2, TimeUnit.MILLISECONDS);
             }
         } else {
@@ -317,13 +317,12 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         }
 
         this.conf = conf;
-        this.executorService = executorService;
-        if (null != orderedFuturePool) {
-            this.addCompleteFuturePool = new SafeQueueingFuturePool<Void>(orderedFuturePool);
+        if (null != scheduler) {
+            this.addCompleteFuturePool = new SafeQueueingFuturePool<Void>(scheduler.getFuturePool(streamName));
         } else {
             this.addCompleteFuturePool = null;
         }
-        assert(!this.immediateFlushEnabled || (null != this.executorService));
+        assert(!this.immediateFlushEnabled || (null != this.scheduler));
         this.lastTransmit = Stopwatch.createStarted();
     }
 
@@ -334,6 +333,14 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     @VisibleForTesting
     DistributedLock getLock() {
         return this.lock;
+    }
+
+    @VisibleForTesting
+    FuturePool getFuturePool() {
+        if (null == scheduler) {
+            return null;
+        }
+        return scheduler.getFuturePool(streamName);
     }
 
     @VisibleForTesting
@@ -440,13 +447,13 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     }
 
     @Override
-    public Future<Void> close() {
+    public Future<Void> asyncClose() {
         return closeInternal(false);
     }
 
     @Override
-    public void abort() throws IOException {
-        FutureUtils.result(closeInternal(true));
+    public Future<Void> asyncAbort() {
+        return closeInternal(true);
     }
 
     private void flushAddCompletes() {
@@ -924,7 +931,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         final long delayMs = Math.max(0, minDelayBetweenImmediateFlushMs - lastTransmit.elapsed(TimeUnit.MILLISECONDS));
         final ScheduledFuture<?> scheduledFuture = scheduledFutureRef.get();
         if ((null == scheduledFuture) || scheduledFuture.isDone()) {
-            scheduledFutureRef.set(executorService.schedule(new Runnable() {
+            scheduledFutureRef.set(scheduler.schedule(new Runnable() {
                 @Override
                 public void run() {
                     synchronized(this) {

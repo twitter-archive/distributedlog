@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 
@@ -195,7 +196,7 @@ public class TestReadUtils extends TestDistributedLogBase {
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, false)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, true)));
         Await.result(out.write(DLMTestUtil.getLargeLogRecordInstance(txid++, true)));
-        out.close();
+        Utils.close(out);
 
         Future<LogRecordWithDLSN> futureLogrec = getLastUserRecord(bkdlm, 0);
         LogRecordWithDLSN logrec = Await.result(futureLogrec);
@@ -342,7 +343,7 @@ public class TestReadUtils extends TestDistributedLogBase {
             Await.result(out.write(record));
             txid += 1;
         }
-        out.close();
+        Utils.close(out);
         Optional<LogRecordWithDLSN> result =
                 FutureUtils.result(getLogRecordNotLessThanTxId(bkdlm, 0, txidToSearch));
         assertTrue(result.isPresent());

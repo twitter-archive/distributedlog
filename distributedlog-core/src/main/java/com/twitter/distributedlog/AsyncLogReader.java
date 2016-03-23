@@ -1,12 +1,12 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.util.Future;
 
-import java.io.Closeable;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-public interface AsyncLogReader extends Closeable {
+public interface AsyncLogReader extends AsyncCloseable {
 
     /**
      * Get stream name that the reader reads from.

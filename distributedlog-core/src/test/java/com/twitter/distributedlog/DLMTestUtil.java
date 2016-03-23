@@ -25,6 +25,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -126,7 +127,7 @@ public class DLMTestUtil {
         public void close() {
             bookKeeperClient.close();
             zooKeeperClient.close();
-            writeHandler.close();
+            Utils.closeQuietly(writeHandler);
         }
 
         public BKLogWriteHandler getWriteHandler() {
@@ -401,7 +402,7 @@ public class DLMTestUtil {
             Await.result(out.write(record));
             txid += txidStep;
         }
-        out.close();
+        Utils.close(out);
         return txid - startTxid;
     }
 
@@ -436,7 +437,6 @@ public class DLMTestUtil {
                 startTxID,
                 logSegmentSeqNo,
                 writeHandler.scheduler,
-                writeHandler.orderedFuturePool,
                 writeHandler.statsLogger,
                 writeHandler.statsLogger,
                 writeHandler.alertStatsLogger,
@@ -451,7 +451,7 @@ public class DLMTestUtil {
             FutureUtils.result(writer.flushAndCommit());
         }
         if (completeLogSegment) {
-            writeHandler.completeAndCloseLogSegment(writer);
+            FutureUtils.result(writeHandler.completeAndCloseLogSegment(writer));
         }
         FutureUtils.result(writeHandler.unlockHandler());
     }
@@ -487,7 +487,6 @@ public class DLMTestUtil {
                 startTxID,
                 logSegmentSeqNo,
                 writeHandler.scheduler,
-                writeHandler.orderedFuturePool,
                 writeHandler.statsLogger,
                 writeHandler.statsLogger,
                 writeHandler.alertStatsLogger,
@@ -504,7 +503,7 @@ public class DLMTestUtil {
         }
         assertNotNull(wrongDLSN);
         if (recordWrongLastDLSN) {
-            FutureUtils.result(writer.close());
+            FutureUtils.result(writer.asyncClose());
             writeHandler.completeAndCloseLogSegment(
                     writeHandler.inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
                     writer.getLogSegmentSequenceNumber(),
@@ -515,7 +514,7 @@ public class DLMTestUtil {
                     wrongDLSN.getEntryId(),
                     wrongDLSN.getSlotId());
         } else {
-            writeHandler.completeAndCloseLogSegment(writer);
+            FutureUtils.result(writeHandler.completeAndCloseLogSegment(writer));
         }
         FutureUtils.result(writeHandler.unlockHandler());
     }

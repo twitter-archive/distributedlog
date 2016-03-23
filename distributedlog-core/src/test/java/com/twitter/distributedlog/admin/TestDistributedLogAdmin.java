@@ -3,6 +3,7 @@ package com.twitter.distributedlog.admin;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.distributedlog.util.Utils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
@@ -145,7 +146,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
         assertTrue(dlsn.compareTo(new DLSN(7, Long.MIN_VALUE, Long.MIN_VALUE)) < 0);
         assertTrue(dlsn.compareTo(new DLSN(6, -1, Long.MIN_VALUE)) > 0);
 
-        reader.close();
+        Utils.close(reader);
         readDLM.close();
 
         dlm.close();

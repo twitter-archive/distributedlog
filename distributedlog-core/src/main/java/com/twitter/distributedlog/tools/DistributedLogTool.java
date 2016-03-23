@@ -39,6 +39,8 @@ import java.util.regex.Pattern;
 import com.twitter.distributedlog.BKDistributedLogNamespace;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAccessor;
@@ -1392,7 +1394,7 @@ public class DistributedLogTool extends Tool {
 
                     dumpRecords(reader);
                 } finally {
-                    reader.close();
+                    Utils.close(reader);
                 }
             } finally {
                 dlm.close();
@@ -2553,7 +2555,7 @@ public class DistributedLogTool extends Tool {
                         }
                         return 0;
                     } finally {
-                        writer.close();
+                        Utils.close(writer);
                     }
                 }
             } catch (Exception ex) {

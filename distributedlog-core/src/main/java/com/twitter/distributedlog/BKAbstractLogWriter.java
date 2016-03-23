@@ -2,23 +2,31 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.io.Abortable;
 import com.twitter.distributedlog.io.Abortables;
+import com.twitter.distributedlog.io.AsyncAbortable;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitManager;
 import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.Function;
 import com.twitter.util.Future;
-import com.twitter.util.FuturePool;
+import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction0;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-abstract class BKAbstractLogWriter implements Closeable, Abortable {
+abstract class BKAbstractLogWriter implements Closeable, AsyncCloseable, Abortable, AsyncAbortable {
     static final Logger LOG = LoggerFactory.getLogger(BKAbstractLogWriter.class);
 
     protected final DistributedLogConfiguration conf;
@@ -26,7 +34,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
     protected final BKDistributedLogManager bkDistributedLogManager;
 
     // States
-    private boolean closed = false;
+    private Promise<Void> closePromise = null;
     private boolean forceRolling = false;
     private boolean forceRecovery = false;
 
@@ -37,6 +45,7 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
 
     // Log Segment Writers
     protected BKLogSegmentWriter segmentWriter = null;
+    protected Future<BKLogSegmentWriter> segmentWriterFuture = null;
     protected BKLogSegmentWriter allocatedSegmentWriter = null;
     protected BKLogWriteHandler writeHandler = null;
 
@@ -56,46 +65,70 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         return writeHandler;
     }
 
-    synchronized protected BKLogWriteHandler getWriteHandler() throws IOException {
-        return createAndCacheWriteHandler(null).checkMetadataException();
+    protected BKLogWriteHandler getWriteHandler() throws IOException {
+        return createAndCacheWriteHandler().checkMetadataException();
     }
 
-    synchronized protected BKLogWriteHandler createAndCacheWriteHandler(FuturePool orderedFuturePool)
+    protected BKLogWriteHandler createAndCacheWriteHandler()
             throws IOException {
-        if (writeHandler != null) {
-            return writeHandler;
+        synchronized (this) {
+            if (writeHandler != null) {
+                return writeHandler;
+            }
         }
-        writeHandler = bkDistributedLogManager.createWriteHandler(orderedFuturePool, false);
-        return writeHandler;
+        // This code path will be executed when the handler is not set or has been closed
+        // due to forceRecovery during testing
+        BKLogWriteHandler newHandler =
+                FutureUtils.result(bkDistributedLogManager.asyncCreateWriteHandler(false));
+        boolean success = false;
+        try {
+            synchronized (this) {
+                if (writeHandler == null) {
+                    writeHandler = newHandler;
+                    success = true;
+                }
+                return writeHandler;
+            }
+        } finally {
+            if (!success) {
+                newHandler.asyncAbort();
+            }
+        }
     }
 
     // manage log segment writers
 
-    protected BKLogSegmentWriter getCachedLogWriter() {
+    protected synchronized BKLogSegmentWriter getCachedLogWriter() {
         return segmentWriter;
     }
 
-    protected void cacheLogWriter(BKLogSegmentWriter logWriter) {
-        this.segmentWriter = logWriter;
+    protected synchronized Future<BKLogSegmentWriter> getCachedLogWriterFuture() {
+        return segmentWriterFuture;
     }
 
-    protected BKLogSegmentWriter removeCachedLogWriter() {
+    protected synchronized void cacheLogWriter(BKLogSegmentWriter logWriter) {
+        this.segmentWriter = logWriter;
+        this.segmentWriterFuture = Future.value(logWriter);
+    }
+
+    protected synchronized BKLogSegmentWriter removeCachedLogWriter() {
         try {
             return segmentWriter;
         } finally {
             segmentWriter = null;
+            segmentWriterFuture = null;
         }
     }
 
-    protected BKLogSegmentWriter getAllocatedLogWriter() {
+    protected synchronized BKLogSegmentWriter getAllocatedLogWriter() {
         return allocatedSegmentWriter;
     }
 
-    protected void cacheAllocatedLogWriter(BKLogSegmentWriter logWriter) {
+    protected synchronized void cacheAllocatedLogWriter(BKLogSegmentWriter logWriter) {
         this.allocatedSegmentWriter = logWriter;
     }
 
-    protected BKLogSegmentWriter removeAllocatedLogWriter() {
+    protected synchronized BKLogSegmentWriter removeAllocatedLogWriter() {
         try {
             return allocatedSegmentWriter;
         } finally {
@@ -103,117 +136,185 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         }
     }
 
-    protected void closeAndComplete(boolean shouldThrow) throws IOException {
-        try {
-            if (null != segmentWriter && null != writeHandler) {
-                writeHandler.completeAndCloseLogSegment(segmentWriter);
-                segmentWriter = null;
-            }
-        } catch (IOException exc) {
-            LOG.error("Completing Log segments encountered exception", exc);
-            if (shouldThrow) {
-                throw exc;
-            }
-        } finally {
-            closeNoThrow();
+    private Future<Void> asyncCloseAndComplete(boolean shouldThrow) {
+        BKLogSegmentWriter segmentWriter = getCachedLogWriter();
+        BKLogWriteHandler writeHandler = getCachedWriteHandler();
+        if (null != segmentWriter && null != writeHandler) {
+            cancelTruncation();
+            Promise<Void> completePromise = new Promise<Void>();
+            asyncCloseAndComplete(segmentWriter, writeHandler, completePromise, shouldThrow);
+            return completePromise;
+        } else {
+            return closeNoThrow();
         }
+    }
+
+    private void asyncCloseAndComplete(final BKLogSegmentWriter segmentWriter,
+                                       final BKLogWriteHandler writeHandler,
+                                       final Promise<Void> completePromise,
+                                       final boolean shouldThrow) {
+        writeHandler.completeAndCloseLogSegment(segmentWriter)
+                .addEventListener(new FutureEventListener<LogSegmentMetadata>() {
+                    @Override
+                    public void onSuccess(LogSegmentMetadata segment) {
+                        removeCachedLogWriter();
+                        complete(null);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        LOG.error("Completing Log segments encountered exception", cause);
+                        complete(cause);
+                    }
+
+                    private void complete(final Throwable cause) {
+                        closeNoThrow().ensure(new AbstractFunction0<BoxedUnit>() {
+                            @Override
+                            public BoxedUnit apply() {
+                                if (null != cause && shouldThrow) {
+                                    FutureUtils.setException(completePromise, cause);
+                                } else {
+                                    FutureUtils.setValue(completePromise, null);
+                                }
+                                return BoxedUnit.UNIT;
+                            }
+                        });
+                    }
+                });
     }
 
     @VisibleForTesting
     void closeAndComplete() throws IOException {
-        closeAndComplete(true);
+        FutureUtils.result(asyncCloseAndComplete(true));
+    }
+
+    protected Future<Void> asyncCloseAndComplete() {
+        return asyncCloseAndComplete(true);
     }
 
     @Override
     public void close() throws IOException {
-        closeAndComplete(false);
+        FutureUtils.result(asyncClose());
+    }
+
+    @Override
+    public Future<Void> asyncClose() {
+        return asyncCloseAndComplete(false);
     }
 
     /**
      * Close the writer and release all the underlying resources
      */
-    protected void closeNoThrow() {
+    protected Future<Void> closeNoThrow() {
+        Promise<Void> closeFuture;
         synchronized (this) {
-            if (closed) {
-                return;
+            if (null != closePromise) {
+                return closePromise;
             }
-            closed = true;
+            closeFuture = closePromise = new Promise<Void>();
         }
         cancelTruncation();
-        BKLogSegmentWriter writer = getCachedLogWriter();
-        if (null != writer) {
-            try {
-                FutureUtils.result(writer.close());
-            } catch (IOException ioe) {
-                LOG.error("Failed to close per stream writer : ", ioe);
-            }
-        }
-        writer = getAllocatedLogWriter();
-        if (null != writer) {
-            try {
-                FutureUtils.result(writer.close());
-            } catch (IOException ioe) {
-                LOG.error("Failed to close allocated per stream writer : ", ioe);
-            }
-        }
-        BKLogWriteHandler writeHandler = getCachedWriteHandler();
-        if (null != writeHandler) {
-            writeHandler.close();
-        }
+        Utils.closeSequence(bkDistributedLogManager.getScheduler(),
+                true, /** ignore close errors **/
+                getCachedLogWriter(),
+                getAllocatedLogWriter(),
+                getCachedWriteHandler()
+        ).proxyTo(closeFuture);
+        return closeFuture;
     }
 
     @Override
     public void abort() throws IOException {
+        FutureUtils.result(asyncAbort());
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        Promise<Void> closeFuture;
         synchronized (this) {
-            if (closed) {
-                return;
+            if (null != closePromise) {
+                return closePromise;
             }
-            closed = true;
+            closeFuture = closePromise = new Promise<Void>();
         }
         cancelTruncation();
-        Abortables.abortQuietly(getCachedLogWriter());
-        Abortables.abortQuietly(getAllocatedLogWriter());
-        BKLogWriteHandler writeHandler = getCachedWriteHandler();
-        if (null != writeHandler) {
-            writeHandler.close();
-        }
+        Abortables.abortSequence(bkDistributedLogManager.getScheduler(),
+                getCachedLogWriter(),
+                getAllocatedLogWriter(),
+                getCachedWriteHandler()).proxyTo(closeFuture);
+        return closeFuture;
     }
 
-    synchronized protected BKLogSegmentWriter getLedgerWriter(long startTxId, boolean allowMaxTxID)
+    // used by sync writer
+    protected BKLogSegmentWriter getLedgerWriter(final long startTxId,
+                                                 final boolean allowMaxTxID)
             throws IOException {
-        BKLogSegmentWriter ledgerWriter = getLedgerWriter( true);
-        return rollLogSegmentIfNecessary(ledgerWriter, startTxId, true /* bestEffort */, allowMaxTxID);
+        Future<BKLogSegmentWriter> logSegmentWriterFuture = asyncGetLedgerWriter(true);
+        BKLogSegmentWriter logSegmentWriter = null;
+        if (null != logSegmentWriterFuture) {
+            logSegmentWriter = FutureUtils.result(logSegmentWriterFuture);
+        }
+        if (null == logSegmentWriter || (shouldStartNewSegment(logSegmentWriter) || forceRolling)) {
+            logSegmentWriter = FutureUtils.result(rollLogSegmentIfNecessary(
+                    logSegmentWriter, startTxId, true /* bestEffort */, allowMaxTxID));
+        }
+        return logSegmentWriter;
     }
 
-    synchronized protected BKLogSegmentWriter getLedgerWriter(boolean resetOnError) throws IOException {
-        BKLogSegmentWriter ledgerWriter = getCachedLogWriter();
+    // used by async writer
+    synchronized protected Future<BKLogSegmentWriter> asyncGetLedgerWriter(boolean resetOnError) {
+        final BKLogSegmentWriter ledgerWriter = getCachedLogWriter();
+        Future<BKLogSegmentWriter> ledgerWriterFuture = getCachedLogWriterFuture();
+        if (null == ledgerWriterFuture || null == ledgerWriter) {
+            return null;
+        }
 
         // Handle the case where the last call to write actually caused an error in the log
-        if ((null != ledgerWriter) && (ledgerWriter.isLogSegmentInError() || forceRecovery) && resetOnError) {
-            BKLogSegmentWriter ledgerWriterToClose = ledgerWriter;
+        if ((ledgerWriter.isLogSegmentInError() || forceRecovery) && resetOnError) {
             // Close the ledger writer so that we will recover and start a new log segment
-            if (ledgerWriterToClose.isLogSegmentInError()) {
-                ledgerWriterToClose.abort();
+            Future<Void> closeFuture;
+            if (ledgerWriter.isLogSegmentInError()) {
+                closeFuture = ledgerWriter.asyncAbort();
             } else {
-                FutureUtils.result(ledgerWriterToClose.close());
+                closeFuture = ledgerWriter.asyncClose();
             }
-            ledgerWriter = null;
-            removeCachedLogWriter();
+            return closeFuture.flatMap(
+                    new AbstractFunction1<Void, Future<BKLogSegmentWriter>>() {
+                @Override
+                public Future<BKLogSegmentWriter> apply(Void result) {
+                    removeCachedLogWriter();
 
-            if (!ledgerWriterToClose.isLogSegmentInError()) {
-                BKLogWriteHandler writeHandler = getWriteHandler();
-                if (null != writeHandler) {
-                    writeHandler.completeAndCloseLogSegment(ledgerWriterToClose);
+                    if (ledgerWriter.isLogSegmentInError()) {
+                        return Future.value(null);
+                    }
+
+                    BKLogWriteHandler writeHandler;
+                    try {
+                        writeHandler = getWriteHandler();
+                    } catch (IOException e) {
+                        return Future.exception(e);
+                    }
+                    if (null != writeHandler && forceRecovery) {
+                        return writeHandler.completeAndCloseLogSegment(ledgerWriter)
+                                .map(new AbstractFunction1<LogSegmentMetadata, BKLogSegmentWriter>() {
+                            @Override
+                            public BKLogSegmentWriter apply(LogSegmentMetadata completedLogSegment) {
+                                return null;
+                            }
+                        });
+                    } else {
+                        return Future.value(null);
+                    }
                 }
-            }
+            });
+        } else {
+            return ledgerWriterFuture;
         }
-
-        return ledgerWriter;
     }
 
-    synchronized boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter) throws IOException {
-        BKLogWriteHandler ledgerManager = getWriteHandler();
-        return null == ledgerWriter || ledgerManager.shouldStartNewSegment(ledgerWriter) || forceRolling;
+    boolean shouldStartNewSegment(BKLogSegmentWriter ledgerWriter) throws IOException {
+        BKLogWriteHandler writeHandler = getWriteHandler();
+        return null == ledgerWriter || writeHandler.shouldStartNewSegment(ledgerWriter) || forceRolling;
     }
 
     private void truncateLogSegmentsIfNecessary(BKLogWriteHandler writeHandler) {
@@ -239,23 +340,79 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
         }
     }
 
-    private BKLogSegmentWriter startNewLogSegment(BKLogWriteHandler writeHandler,
-                                                  long startTxId,
-                                                  boolean allowMaxTxID)
-            throws IOException {
-        FutureUtils.result(writeHandler.recoverIncompleteLogSegments());
-        // if exceptions thrown during initialize we should not catch it.
-        BKLogSegmentWriter ledgerWriter = writeHandler.startLogSegment(startTxId, false, allowMaxTxID);
-        cacheLogWriter(ledgerWriter);
-        return ledgerWriter;
+    private Future<BKLogSegmentWriter> asyncStartNewLogSegment(final BKLogWriteHandler writeHandler,
+                                                               final long startTxId,
+                                                               final boolean allowMaxTxID) {
+        return writeHandler.recoverIncompleteLogSegments()
+                .flatMap(new AbstractFunction1<Long, Future<BKLogSegmentWriter>>() {
+            @Override
+            public Future<BKLogSegmentWriter> apply(Long lastTxId) {
+                return writeHandler.asyncStartLogSegment(startTxId, false, allowMaxTxID)
+                        .onSuccess(new AbstractFunction1<BKLogSegmentWriter, BoxedUnit>() {
+                    @Override
+                    public BoxedUnit apply(BKLogSegmentWriter newSegmentWriter) {
+                        cacheLogWriter(newSegmentWriter);
+                        return BoxedUnit.UNIT;
+                    }
+                });
+            }
+        });
     }
 
-    private BKLogSegmentWriter closeOldLogSegmentAndStartNewOne(BKLogSegmentWriter oldSegmentWriter,
-                                                                BKLogWriteHandler writeHandler,
-                                                                long startTxId,
-                                                                boolean bestEffort,
-                                                                boolean allowMaxTxID)
-            throws IOException {
+    private Future<BKLogSegmentWriter> closeOldLogSegmentAndStartNewOneWithPermit(
+            final BKLogSegmentWriter oldSegmentWriter,
+            final BKLogWriteHandler writeHandler,
+            final long startTxId,
+            final boolean bestEffort,
+            final boolean allowMaxTxID) {
+        final PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
+        if (switchPermit.isAllowed()) {
+            return closeOldLogSegmentAndStartNewOne(
+                    oldSegmentWriter,
+                    writeHandler,
+                    startTxId,
+                    bestEffort,
+                    allowMaxTxID
+            ).rescue(new Function<Throwable, Future<BKLogSegmentWriter>>() {
+                @Override
+                public Future<BKLogSegmentWriter> apply(Throwable cause) {
+                    if (cause instanceof LockingException) {
+                        LOG.warn("We lost lock during completeAndClose log segment for {}. Disable ledger rolling until it is recovered : ",
+                                writeHandler.getFullyQualifiedName(), cause);
+                        bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
+                        return Future.value(oldSegmentWriter);
+                    } else if (cause instanceof ZKException) {
+                        ZKException zke = (ZKException) cause;
+                        if (ZKException.isRetryableZKException(zke)) {
+                            LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
+                                    " Disable ledger rolling until it is recovered : {}", writeHandler.getFullyQualifiedName(),
+                                    zke.getKeeperExceptionCode());
+                            bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
+                            return Future.value(oldSegmentWriter);
+                        }
+                    }
+                    return Future.exception(cause);
+                }
+            }).ensure(new AbstractFunction0<BoxedUnit>() {
+                @Override
+                public BoxedUnit apply() {
+                    bkDistributedLogManager.getLogSegmentRollingPermitManager()
+                            .releasePermit(switchPermit);
+                    return BoxedUnit.UNIT;
+                }
+            });
+        } else {
+            bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
+            return Future.value(oldSegmentWriter);
+        }
+    }
+
+    private Future<BKLogSegmentWriter> closeOldLogSegmentAndStartNewOne(
+            final BKLogSegmentWriter oldSegmentWriter,
+            final BKLogWriteHandler writeHandler,
+            final long startTxId,
+            final boolean bestEffort,
+            final boolean allowMaxTxID) {
         // we switch only when we could allocate a new log segment.
         BKLogSegmentWriter newSegmentWriter = getAllocatedLogWriter();
         if (null == newSegmentWriter) {
@@ -263,79 +420,88 @@ abstract class BKAbstractLogWriter implements Closeable, Abortable {
                 LOG.debug("Allocating a new log segment from {} for {}.", startTxId,
                         writeHandler.getFullyQualifiedName());
             }
-            newSegmentWriter = writeHandler.startLogSegment(startTxId, bestEffort, allowMaxTxID);
-            if (null == newSegmentWriter) {
-                assert (bestEffort);
-                return oldSegmentWriter;
-            }
-
-            cacheAllocatedLogWriter(newSegmentWriter);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
-                        writeHandler.getFullyQualifiedName());
-            }
-        }
-
-        // complete the log segment
-        writeHandler.completeAndCloseLogSegment(oldSegmentWriter);
-        try {
-            return newSegmentWriter;
-        } finally {
-            cacheLogWriter(newSegmentWriter);
-            removeAllocatedLogWriter();
+            return writeHandler.asyncStartLogSegment(startTxId, bestEffort, allowMaxTxID)
+                    .flatMap(new AbstractFunction1<BKLogSegmentWriter, Future<BKLogSegmentWriter>>() {
+                        @Override
+                        public Future<BKLogSegmentWriter> apply(BKLogSegmentWriter newSegmentWriter) {
+                            if (null == newSegmentWriter) {
+                                if (bestEffort) {
+                                    return Future.value(oldSegmentWriter);
+                                } else {
+                                    return Future.exception(
+                                            new UnexpectedException("StartLogSegment returns null for bestEffort rolling"));
+                                }
+                            }
+                            cacheAllocatedLogWriter(newSegmentWriter);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Allocated a new log segment from {} for {}.", startTxId,
+                                        writeHandler.getFullyQualifiedName());
+                            }
+                            return completeOldSegmentAndCacheNewLogSegmentWriter(oldSegmentWriter, newSegmentWriter);
+                        }
+                    });
+        } else {
+            return completeOldSegmentAndCacheNewLogSegmentWriter(oldSegmentWriter, newSegmentWriter);
         }
     }
 
-    synchronized protected BKLogSegmentWriter rollLogSegmentIfNecessary(BKLogSegmentWriter segmentWriter,
-                                                                        long startTxId,
-                                                                        boolean bestEffort,
-                                                                        boolean allowMaxTxID)
-            throws IOException {
-        boolean shouldCheckForTruncation = false;
-        BKLogWriteHandler writeHandler = getWriteHandler();
-        if (null != segmentWriter && (writeHandler.shouldStartNewSegment(segmentWriter) || forceRolling)) {
-            PermitManager.Permit switchPermit = bkDistributedLogManager.getLogSegmentRollingPermitManager().acquirePermit();
-            try {
-                if (switchPermit.isAllowed()) {
-                    try {
-                        segmentWriter = closeOldLogSegmentAndStartNewOne(
-                                segmentWriter,
-                                writeHandler,
-                                startTxId,
-                                bestEffort,
-                                allowMaxTxID);
-                        shouldCheckForTruncation = true;
-                    } catch (LockingException le) {
-                        LOG.warn("We lost lock during completeAndClose log segment for {}. Disable ledger rolling until it is recovered : ",
-                                writeHandler.getFullyQualifiedName(), le);
-                        bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
-                    } catch (ZKException zke) {
-                        if (ZKException.isRetryableZKException(zke)) {
-                            LOG.warn("Encountered zookeeper connection issues during completeAndClose log segment for {}." +
-                                    " Disable ledger rolling until it is recovered : {}", writeHandler.getFullyQualifiedName(),
-                                    zke.getKeeperExceptionCode());
-                            bkDistributedLogManager.getLogSegmentRollingPermitManager().disallowObtainPermits(switchPermit);
-                        } else {
-                            throw zke;
-                        }
-                    }
-                }
-            } finally {
-                bkDistributedLogManager.getLogSegmentRollingPermitManager().releasePermit(switchPermit);
-            }
-        } else if (null == segmentWriter) {
-            segmentWriter = startNewLogSegment(writeHandler, startTxId, allowMaxTxID);
-            shouldCheckForTruncation = true;
-        }
+    private Future<BKLogSegmentWriter> completeOldSegmentAndCacheNewLogSegmentWriter(
+            BKLogSegmentWriter oldSegmentWriter,
+            final BKLogSegmentWriter newSegmentWriter) {
+        final Promise<BKLogSegmentWriter> completePromise = new Promise<BKLogSegmentWriter>();
+        // complete the old log segment
+        writeHandler.completeAndCloseLogSegment(oldSegmentWriter)
+                .addEventListener(new FutureEventListener<LogSegmentMetadata>() {
 
-        if (shouldCheckForTruncation) {
-            truncateLogSegmentsIfNecessary(writeHandler);
+                    @Override
+                    public void onSuccess(LogSegmentMetadata value) {
+                        cacheLogWriter(newSegmentWriter);
+                        removeAllocatedLogWriter();
+                        FutureUtils.setValue(completePromise, newSegmentWriter);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        FutureUtils.setException(completePromise, cause);
+                    }
+                });
+        return completePromise;
+    }
+
+    synchronized protected Future<BKLogSegmentWriter> rollLogSegmentIfNecessary(
+            final BKLogSegmentWriter segmentWriter,
+            long startTxId,
+            boolean bestEffort,
+            boolean allowMaxTxID) {
+        final BKLogWriteHandler writeHandler;
+        try {
+            writeHandler = getWriteHandler();
+        } catch (IOException e) {
+            return Future.exception(e);
         }
-        return segmentWriter;
+        Future<BKLogSegmentWriter> rollPromise;
+        if (null != segmentWriter && (writeHandler.shouldStartNewSegment(segmentWriter) || forceRolling)) {
+            rollPromise = closeOldLogSegmentAndStartNewOneWithPermit(
+                    segmentWriter, writeHandler, startTxId, bestEffort, allowMaxTxID);
+        } else if (null == segmentWriter) {
+            rollPromise = asyncStartNewLogSegment(writeHandler, startTxId, allowMaxTxID);
+        } else {
+            rollPromise = Future.value(segmentWriter);
+        }
+        return rollPromise.map(new AbstractFunction1<BKLogSegmentWriter, BKLogSegmentWriter>() {
+            @Override
+            public BKLogSegmentWriter apply(BKLogSegmentWriter newSegmentWriter) {
+                if (segmentWriter == newSegmentWriter) {
+                    return newSegmentWriter;
+                }
+                truncateLogSegmentsIfNecessary(writeHandler);
+                return newSegmentWriter;
+            }
+        });
     }
 
     protected synchronized void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (closed) {
+        if (null != closePromise) {
             LOG.error("Executing " + operation + " on already closed Log Writer");
             throw new AlreadyClosedException("Executing " + operation + " on already closed Log Writer");
         }

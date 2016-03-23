@@ -5,6 +5,8 @@ import com.google.common.base.Optional;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
+import com.twitter.distributedlog.io.Abortables;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.FutureEventListener;
 
 import java.io.IOException;
@@ -212,7 +214,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
             }
             closed = true;
         }
-        reader.close();
+        Utils.closeQuietly(reader);
     }
 
     //

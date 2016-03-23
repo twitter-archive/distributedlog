@@ -3,7 +3,7 @@ package com.twitter.distributedlog.logsegment;
 import com.google.common.annotations.Beta;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.io.Abortable;
+import com.twitter.distributedlog.io.AsyncAbortable;
 import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.util.Future;
 
@@ -14,7 +14,7 @@ import java.io.IOException;
  * An interface class to write log records into a log segment.
  */
 @Beta
-public interface LogSegmentWriter extends AsyncCloseable, Abortable {
+public interface LogSegmentWriter extends AsyncCloseable, AsyncAbortable {
 
     /**
      * Get the unique log segment id.

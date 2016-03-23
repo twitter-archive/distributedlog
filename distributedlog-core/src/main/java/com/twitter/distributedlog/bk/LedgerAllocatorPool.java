@@ -382,7 +382,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @Override
-    public Future<Void> close() {
+    public Future<Void> asyncClose() {
         List<LedgerAllocator> allocatorsToClose;
         synchronized (this) {
             allocatorsToClose = Lists.newArrayListWithExpectedSize(
@@ -400,7 +400,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
         return FutureUtils.processList(allocatorsToClose, new Function<LedgerAllocator, Future<Void>>() {
             @Override
             public Future<Void> apply(LedgerAllocator allocator) {
-                return allocator.close();
+                return allocator.asyncClose();
             }
         }, scheduledExecutorService).map(new AbstractFunction1<List<Void>, Void>() {
             @Override

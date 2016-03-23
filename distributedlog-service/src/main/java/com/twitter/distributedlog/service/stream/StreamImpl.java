@@ -26,6 +26,7 @@ import com.twitter.distributedlog.service.streamset.Partition;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.TimeSequencer;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -807,7 +808,7 @@ public class StreamImpl extends Thread implements Stream {
     void close(AsyncLogWriter writer) {
         if (null != writer) {
             try {
-                writer.close();
+                Utils.close(writer);
             } catch (IOException ioe) {
                 logger.warn("Failed to close async log writer for {} : ", ioe);
             }
@@ -817,7 +818,7 @@ public class StreamImpl extends Thread implements Stream {
     void abort(AsyncLogWriter writer) {
         if (null != writer) {
             try {
-                writer.abort();
+                Abortables.abort(writer, false);
             } catch (IOException e) {
                 logger.warn("Failed to abort async log writer for {} : ", e);
             }
@@ -878,7 +879,7 @@ public class StreamImpl extends Thread implements Stream {
     @Override
     public void delete() throws IOException {
         if (null != writer) {
-            writer.close();
+            Utils.close(writer);
             synchronized (this) {
                 writer = null;
                 lastException = new StreamUnavailableException("Stream was deleted");

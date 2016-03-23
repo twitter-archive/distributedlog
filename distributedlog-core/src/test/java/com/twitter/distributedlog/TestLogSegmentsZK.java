@@ -5,6 +5,7 @@ import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.data.Stat;
@@ -217,12 +218,11 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
         out1.write(DLMTestUtil.getLogRecordInstance(1));
         // before out1 complete, out2 is in on recovery
-        BKAsyncLogWriter out2 = (BKAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
         // it completed the log segments which bump the version of /ledgers znode
-        out2.recover();
+        BKAsyncLogWriter out2 = (BKAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
 
         try {
-            out1.closeAndComplete(true);
+            out1.closeAndComplete();
             fail("Should fail closeAndComplete since other people already completed it.");
         } catch (IOException ioe) {
         }

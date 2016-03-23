@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
 import com.twitter.util.Await;
@@ -43,7 +44,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
                 out.write(record);
                 ++txid;
             }
-            FutureUtils.result(out.close());
+            FutureUtils.result(out.asyncClose());
             bkdlmAndClients.getWriteHandler().completeAndCloseLogSegment(
                     out.getLogSegmentSequenceNumber(),
                     out.getLogSegmentId(),
@@ -169,7 +170,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         assertEquals(new DLSN(1,99,0), last);
         DLSN first = Await.result(dlm1.getFirstDLSNAsync());
         assertEquals(new DLSN(1,0,0), first);
-        out.close();
+        Utils.close(out);
     }
 
     @Test(timeout = 60000)
@@ -352,7 +353,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         count = readHandler.asyncGetLogRecordCount(new DLSN(1, 0, 0));
         assertEquals(2, Await.result(count).longValue());
 
-        out.close();
+        Utils.close(out);
     }
 
     @Test(timeout = 60000)
@@ -377,7 +378,7 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
         count = readHandler.asyncGetLogRecordCount(new DLSN(1, 0, 0));
         assertEquals(7, Await.result(count).longValue());
 
-        out.close();
+        Utils.close(out);
     }
 
     @Test(timeout = 60000)
@@ -418,11 +419,11 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
                 bkdlm20.createReadHandler(Optional.of("s2"));
         Await.result(s20Handler.lockStream());
 
-        readHandler.close();
+        readHandler.asyncClose();
         bkdlm.close();
-        s10Handler.close();
+        s10Handler.asyncClose();
         bkdlm10.close();
-        s20Handler.close();
+        s20Handler.asyncClose();
         bkdlm20.close();
     }
 
@@ -452,11 +453,11 @@ public class TestBKLogPartitionReadHandler extends TestDistributedLogBase {
             // expected.
         }
 
-        readHandler.close();
+        readHandler.asyncClose();
         bkdlm.close();
-        s10Handler.close();
+        s10Handler.asyncClose();
         bkdlm10.close();
-        s11Handler.close();
+        s11Handler.asyncClose();
         bkdlm11.close();
     }
 }

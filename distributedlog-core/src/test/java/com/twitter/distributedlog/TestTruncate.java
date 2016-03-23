@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.Test;
@@ -87,7 +88,7 @@ public class TestTruncate extends TestDistributedLogBase {
 
         assertEquals(6, distributedLogManager.getLogSegments().size());
 
-        writer.close();
+        Utils.close(writer);
         dlm.close();
 
         distributedLogManager.close();
@@ -121,7 +122,7 @@ public class TestTruncate extends TestDistributedLogBase {
         assertTrue(Await.result(pair.getRight().truncate(dlsn)));
         verifyEntries(name, 1, 31, 20);
 
-        pair.getRight().close();
+        Utils.close(pair.getRight());
         pair.getLeft().close();
     }
 
@@ -152,7 +153,7 @@ public class TestTruncate extends TestDistributedLogBase {
         assertTrue(Await.result(pair.getRight().truncate(dlsn)));
         verifyEntries(name, 1, 31, 20);
 
-        pair.getRight().close();
+        Utils.close(pair.getRight());
         pair.getLeft().close();
 
         // Try force truncation
@@ -224,7 +225,7 @@ public class TestTruncate extends TestDistributedLogBase {
 
         assertEquals(5, newDLM.getLogSegments().size());
 
-        newWriter.close();
+        Utils.close(newWriter);
         newDLM.close();
 
         zkc.close();
@@ -271,7 +272,7 @@ public class TestTruncate extends TestDistributedLogBase {
         assertArrayEquals(newSegments.toArray(new LogSegmentMetadata[4]),
                           newSegments2.toArray(new LogSegmentMetadata[4]));
 
-        newWriter.close();
+        Utils.close(newWriter);
         newDLM.close();
         zkc.close();
     }
@@ -290,7 +291,7 @@ public class TestTruncate extends TestDistributedLogBase {
                 DLSN dlsn = Await.result(writer.write(DLMTestUtil.getLogRecordInstance(curTxId)));
                 txid2DLSN.put(curTxId, dlsn);
             }
-            writer.close();
+            Utils.close(writer);
             dlm.close();
         }
 

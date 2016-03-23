@@ -7,6 +7,9 @@ import java.util.concurrent.CountDownLatch;
 
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.Future;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.feature.SettableFeature;
@@ -16,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import com.twitter.distributedlog.annotations.DistributedLogAnnotations.FlakyTest;
 import com.twitter.util.Await;
-import com.twitter.util.Function0;
 import com.twitter.util.FutureEventListener;
 
 import static com.google.common.base.Charsets.UTF_8;
@@ -105,7 +107,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // send requests in parallel to have outstanding requests
         for (int i = 1; i <= numEntries; i++) {
             final int entryId = i;
-            writer.write(DLMTestUtil.getLogRecordInstance(entryId)).addEventListener(new FutureEventListener<DLSN>() {
+            Future<DLSN> writeFuture = writer.write(DLMTestUtil.getLogRecordInstance(entryId)).addEventListener(new FutureEventListener<DLSN>() {
 
                 @Override
                 public void onSuccess(DLSN value) {
@@ -124,6 +126,10 @@ public class TestRollLogSegments extends TestDistributedLogBase {
 
                 }
             });
+            if (i == 1) {
+                // wait for first log segment created
+                FutureUtils.result(writeFuture);
+            }
         }
         latch.await();
 
@@ -173,19 +179,6 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                 FailpointUtils.FailPointActions.FailPointAction_Throw);
 
         try {
-            final CountDownLatch startLatch = new CountDownLatch(1);
-            writer.getOrderedFuturePool().apply(new Function0<Void>() {
-                                                    @Override
-                                                    public Void apply() {
-                    try {
-                        startLatch.await();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                    return null;
-            }
-            });
-
             // If we couldn't open new log segment, we should keep using the old one
             final int numRecords = 10;
             final CountDownLatch latch = new CountDownLatch(numRecords);
@@ -203,8 +196,6 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                 });
             }
 
-            // start writes
-            startLatch.countDown();
             latch.await();
 
             writer.close();
@@ -256,7 +247,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
         // send requests in parallel to have outstanding requests
         for (int i = 1; i <= numLogSegments; i++) {
             final int entryId = i;
-            writer.write(DLMTestUtil.getLogRecordInstance(entryId)).addEventListener(new FutureEventListener<DLSN>() {
+            Future<DLSN> writeFuture = writer.write(DLMTestUtil.getLogRecordInstance(entryId)).addEventListener(new FutureEventListener<DLSN>() {
                 @Override
                 public void onSuccess(DLSN value) {
                     logger.info("Completed entry {} : {}.", entryId, value);
@@ -267,13 +258,14 @@ public class TestRollLogSegments extends TestDistributedLogBase {
                     logger.error("Failed to write entries : {}", cause);
                 }
             });
+            if (i == 1) {
+                // wait for first log segment created
+                FutureUtils.result(writeFuture);
+            }
         }
         latch.await();
 
         logger.info("Took {} ms to completed all requests.", System.currentTimeMillis() - startTime);
-
-        // make sure all ensure blocks were executed.
-        Await.result(writer.nop());
 
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         logger.info("LogSegments : {}", segments);
@@ -289,9 +281,6 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             DLSN newDLSN = Await.result(writer.write(DLMTestUtil.getLogRecordInstance(numLogSegments + i)));
             logger.info("Completed entry {} : {}", numLogSegments + i, newDLSN);
         }
-
-        // make sure all ensure blocks were executed.
-        Await.result(writer.nop());
 
         segments = dlm.getLogSegments();
         logger.info("LogSegments : {}", segments);
@@ -407,7 +396,7 @@ public class TestRollLogSegments extends TestDistributedLogBase {
             assertEquals(i, record.getTransactionId());
         }
 
-        reader.close();
+        Utils.close(reader);
         readDLM.close();
     }
 }
