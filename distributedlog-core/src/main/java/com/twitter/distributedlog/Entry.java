@@ -2,10 +2,8 @@ package com.twitter.distributedlog;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.WriteException;
-import com.twitter.distributedlog.io.Buffer;
 import com.twitter.distributedlog.io.CompressionCodec;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -19,7 +17,7 @@ import java.io.InputStream;
 /**
  * A set of {@link LogRecord}s.
  */
-public class LogRecordSet {
+public class Entry {
 
     /**
      * Create a new log record set.
@@ -36,13 +34,13 @@ public class LogRecordSet {
      *          stats logger to receive stats
      * @return writer to build a log record set.
      */
-    public static Writer newLogRecordSet(
+    public static Writer newEntry(
             String logName,
             int initialBufferSize,
             boolean envelopeBeforeTransmit,
             CompressionCodec.Type codec,
             StatsLogger statsLogger) {
-        return new EnvelopedRecordSetWriter(
+        return new EnvelopedEntryWriter(
                 logName,
                 initialBufferSize,
                 envelopeBeforeTransmit,
@@ -158,12 +156,12 @@ public class LogRecordSet {
             return this;
         }
 
-        public LogRecordSet build() {
+        public Entry build() {
             Preconditions.checkNotNull(data, "Serialized data isn't provided");
             Preconditions.checkArgument(offset >= 0 && length >= 0
                     && (offset + length) <= data.length,
                     "Invalid offset or length of serialized data");
-            return new LogRecordSet(
+            return new Entry(
                     logSegmentSequenceNumber,
                     entryId,
                     startSequenceId,
@@ -187,15 +185,15 @@ public class LogRecordSet {
     private final Optional<Long> txidToSkipTo;
     private final Optional<DLSN> dlsnToSkipTo;
 
-    private LogRecordSet(long logSegmentSequenceNumber,
-                         long entryId,
-                         long startSequenceId,
-                         boolean envelopedEntry,
-                         byte[] data,
-                         int offset,
-                         int length,
-                         Optional<Long> txidToSkipTo,
-                         Optional<DLSN> dlsnToSkipTo) {
+    private Entry(long logSegmentSequenceNumber,
+                  long entryId,
+                  long startSequenceId,
+                  boolean envelopedEntry,
+                  byte[] data,
+                  int offset,
+                  int length,
+                  Optional<Long> txidToSkipTo,
+                  Optional<DLSN> dlsnToSkipTo) {
         this.logSegmentSequenceNumber = logSegmentSequenceNumber;
         this.entryId = entryId;
         this.startSequenceId = startSequenceId;
@@ -224,7 +222,7 @@ public class LogRecordSet {
      */
     public Reader reader() throws IOException {
         InputStream in = new ByteArrayInputStream(data, offset, length);
-        Reader reader = new EnvelopedRecordSetReader(
+        Reader reader = new EnvelopedEntryReader(
                 logSegmentSequenceNumber,
                 entryId,
                 startSequenceId,
@@ -241,9 +239,9 @@ public class LogRecordSet {
     }
 
     /**
-     * Writer to append {@link LogRecord}s to {@link LogRecordSet}.
+     * Writer to append {@link LogRecord}s to {@link Entry}.
      */
-    public interface Writer extends LogRecordSetBuffer {
+    public interface Writer extends EntryBuffer {
 
         /**
          * Write a {@link LogRecord} to this record set.

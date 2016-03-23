@@ -1,12 +1,13 @@
 package com.twitter.distributedlog.logsegment;
 
 import com.google.common.annotations.Beta;
+import com.twitter.distributedlog.Entry;
 import com.twitter.distributedlog.util.Sizable;
 import org.apache.bookkeeper.client.AsyncCallback;
 
 /**
  * An interface class to write the enveloped entry (serialized bytes of
- * {@link com.twitter.distributedlog.LogRecordSet} into the log segment.
+ * {@link Entry} into the log segment.
  *
  * <p>It is typically used by {@link LogSegmentWriter}.
  *

@@ -9,7 +9,7 @@ import java.io.InputStream;
 /**
  * Record reader to read records from an enveloped entry buffer.
  */
-class EnvelopedRecordSetReader implements LogRecordSet.Reader, RecordStream {
+class EnvelopedEntryReader implements Entry.Reader, RecordStream {
 
     private final long logSegmentSeqNo;
     private final long entryId;
@@ -18,12 +18,12 @@ class EnvelopedRecordSetReader implements LogRecordSet.Reader, RecordStream {
     // slot id
     private long slotId = 0;
 
-    EnvelopedRecordSetReader(long logSegmentSeqNo,
-                             long entryId,
-                             long startSequenceId,
-                             InputStream in,
-                             boolean envelopedEntry,
-                             StatsLogger statsLogger)
+    EnvelopedEntryReader(long logSegmentSeqNo,
+                         long entryId,
+                         long startSequenceId,
+                         InputStream in,
+                         boolean envelopedEntry,
+                         StatsLogger statsLogger)
             throws IOException {
         this.logSegmentSeqNo = logSegmentSeqNo;
         this.entryId = entryId;

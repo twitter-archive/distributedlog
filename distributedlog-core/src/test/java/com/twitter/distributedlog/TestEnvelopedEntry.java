@@ -7,12 +7,10 @@ import java.io.DataOutputStream;
 import com.twitter.distributedlog.io.Buffer;
 import com.twitter.distributedlog.io.CompressionCodec;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public class TestEnvelopedEntry {
 
@@ -43,7 +41,7 @@ public class TestEnvelopedEntry {
                                                       new NullStatsLogger());
         readEntry.readFully(new DataInputStream(new ByteArrayInputStream(outBuf.getData())));
         byte[] newData = readEntry.getDecompressedPayload();
-        assertEquals("Written data should equal read data", new String(data), new String(newData));
+        Assert.assertEquals("Written data should equal read data", new String(data), new String(newData));
     }
 
     @Test(timeout = 20000)
@@ -56,11 +54,11 @@ public class TestEnvelopedEntry {
                                                        new NullStatsLogger());
         Buffer outBuf = new Buffer(data.length);
         writeEntry.writeFully(new DataOutputStream(outBuf));
-        assertTrue(data.length > outBuf.size());
+        Assert.assertTrue(data.length > outBuf.size());
         EnvelopedEntry readEntry = new EnvelopedEntry(EnvelopedEntry.CURRENT_VERSION,
                                                       new NullStatsLogger());
         readEntry.readFully(new DataInputStream(new ByteArrayInputStream(outBuf.getData())));
         byte[] newData = readEntry.getDecompressedPayload();
-        assertEquals("Written data should equal read data", new String(data), new String(newData));
+        Assert.assertEquals("Written data should equal read data", new String(data), new String(newData));
     }
 }

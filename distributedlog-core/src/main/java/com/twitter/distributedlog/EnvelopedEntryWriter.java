@@ -1,6 +1,6 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.LogRecordSet.Writer;
+import com.twitter.distributedlog.Entry.Writer;
 import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
 import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
@@ -17,14 +17,14 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
 
 /**
  * {@link com.twitter.distributedlog.io.Buffer} based log record set writer.
  */
-class EnvelopedRecordSetWriter implements Writer {
+class EnvelopedEntryWriter implements Writer {
 
-    static final Logger logger = LoggerFactory.getLogger(EnvelopedRecordSetWriter.class);
+    static final Logger logger = LoggerFactory.getLogger(EnvelopedEntryWriter.class);
 
     private final String logName;
     private final Buffer buffer;
@@ -37,11 +37,11 @@ class EnvelopedRecordSetWriter implements Writer {
     private boolean hasUserData = false;
     private long maxTxId = Long.MIN_VALUE;
 
-    EnvelopedRecordSetWriter(String logName,
-                             int initialBufferSize,
-                             boolean envelopeBeforeTransmit,
-                             CompressionCodec.Type codec,
-                             StatsLogger statsLogger) {
+    EnvelopedEntryWriter(String logName,
+                         int initialBufferSize,
+                         boolean envelopeBeforeTransmit,
+                         CompressionCodec.Type codec,
+                         StatsLogger statsLogger) {
         this.logName = logName;
         this.buffer = new Buffer(initialBufferSize * 6 / 5);
         this.writer = new LogRecord.Writer(new DataOutputStream(buffer));

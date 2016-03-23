@@ -50,7 +50,7 @@ import com.twitter.util.FutureEventListener;
 import junit.framework.Assert;
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureFailed;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
 import static org.junit.Assert.*;
 
 public class TestAsyncReaderWriter extends TestDistributedLogBase {

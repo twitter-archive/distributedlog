@@ -75,8 +75,8 @@ import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORDSET_SIZE;
+import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.Entry.MAX_LOGRECORDSET_SIZE;
 
 /**
  * BookKeeper Based Log Segment Writer.
@@ -107,7 +107,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private final String streamName;
     private final int logSegmentMetadataVersion;
     private BKTransmitPacket packetPrevious;
-    private LogRecordSet.Writer recordSetWriter;
+    private Entry.Writer recordSetWriter;
     private final AtomicInteger outstandingTransmits;
     private final int transmissionThreshold;
     protected final LogSegmentEntryWriter entryWriter;
@@ -279,7 +279,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         this.compressionType = CompressionUtils.stringToType(conf.getCompressionType());
 
         this.logSegmentSequenceNumber = logSegmentSequenceNumber;
-        this.recordSetWriter = LogRecordSet.newLogRecordSet(
+        this.recordSetWriter = Entry.newEntry(
                 streamName,
                 Math.max(transmissionThreshold, 1024),
                 envelopeBeforeTransmit(),
@@ -433,8 +433,8 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         return 0;
     }
 
-    private LogRecordSet.Writer newRecordSetWriter() {
-        return LogRecordSet.newLogRecordSet(
+    private Entry.Writer newRecordSetWriter() {
+        return Entry.newEntry(
                 streamName,
                 Math.max(transmissionThreshold, getAverageTransmitSize()),
                 envelopeBeforeTransmit(),
@@ -465,7 +465,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
     private synchronized void abortPacket(BKTransmitPacket packet) {
         long numRecords = 0;
         if (null != packet) {
-            LogRecordSetBuffer recordSet = packet.getRecordSet();
+            EntryBuffer recordSet = packet.getRecordSet();
             numRecords = recordSet.getNumRecords();
             int rc = transmitResult.get();
             if (BKException.Code.OK == rc) {
@@ -1012,7 +1012,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
      */
     private Future<Integer> transmit()
         throws BKTransmitException, LockingException, WriteException, InvalidEnvelopedEntryException {
-        LogRecordSetBuffer recordSetToTransmit;
+        EntryBuffer recordSetToTransmit;
         transmitLock.lock();
         try {
             synchronized (this) {
@@ -1128,7 +1128,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
             System.nanoTime() - transmitPacket.getTransmitTime(), TimeUnit.NANOSECONDS));
 
         if (BKException.Code.OK == rc) {
-            LogRecordSetBuffer recordSet = transmitPacket.getRecordSet();
+            EntryBuffer recordSet = transmitPacket.getRecordSet();
             if (recordSet.hasUserRecords()) {
                 synchronized (this) {
                     lastTxIdAcknowledged = Math.max(lastTxIdAcknowledged, recordSet.getMaxTxId());
@@ -1177,7 +1177,7 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
                                                final long entryId,
                                                final int rc) {
         boolean cancelPendingPromises = false;
-        LogRecordSetBuffer recordSet = transmitPacket.getRecordSet();
+        EntryBuffer recordSet = transmitPacket.getRecordSet();
         synchronized (this) {
             if (transmitResult.compareAndSet(BKException.Code.OK, rc)) {
                 // If this is the first time we are setting an error code in the transmitResult then

@@ -7,10 +7,10 @@ import com.twitter.distributedlog.io.TransmitListener;
 import java.io.IOException;
 
 /**
- * Write representation of a {@link LogRecordSet}.
+ * Write representation of a {@link Entry}.
  * It is a buffer of log record set, used for transmission.
  */
-public interface LogRecordSetBuffer extends TransmitListener {
+public interface EntryBuffer extends TransmitListener {
 
     /**
      * Return if this record set contains user records.
