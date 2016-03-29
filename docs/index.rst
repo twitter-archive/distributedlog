@@ -11,8 +11,8 @@ Documentation
    configuration/main
    architecture/main
    design/main
-   operations/main
    globalreplicatedlog/main
+   operations/main
    performance/main
    references/main
    runbook/main
