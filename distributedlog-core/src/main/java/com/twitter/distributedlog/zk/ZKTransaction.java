@@ -59,9 +59,9 @@ public class ZKTransaction implements Transaction<Object>, AsyncCallback.MultiCa
         } else {
             KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
             for (int i = 0; i < ops.size(); i++) {
-                ops.get(i).abortOpResult(ke, results.get(i));
+                ops.get(i).abortOpResult(ke, null != results ? results.get(i) : null);
             }
-            result.setException(KeeperException.create(KeeperException.Code.get(rc), ""));
+            result.setException(ke);
         }
     }
 }
