@@ -148,6 +148,9 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         String allocatorPoolName = String.format("allocator_%04d_%010d", serverRegionId, shard);
         dlConf.setLedgerAllocatorPoolName(allocatorPoolName);
         this.featureProvider = AbstractFeatureProvider.getFeatureProvider("", dlConf, statsLogger.scope("features"));
+        if (this.featureProvider instanceof AbstractFeatureProvider) {
+            ((AbstractFeatureProvider) featureProvider).start();
+        }
 
         // Build the namespace
         this.dlNamespace = DistributedLogNamespaceBuilder.newBuilder()
@@ -574,6 +577,11 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
             logger.info("Closing distributedlog namespace ...");
             dlNamespace.close();
             logger.info("Closed distributedlog namespace .");
+
+            // Stop the feature provider
+            if (this.featureProvider instanceof AbstractFeatureProvider) {
+                ((AbstractFeatureProvider) featureProvider).stop();
+            }
 
             // Stop the timer.
             timer.stop();

@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.bk.QuorumConfig;
 import com.twitter.distributedlog.feature.DefaultFeatureProvider;
@@ -17,7 +19,6 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.configuration.SystemConfiguration;
 import org.apache.commons.lang.StringUtils;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,9 +26,6 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
-
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 
 /**
  * DistributedLog Configuration.
@@ -357,6 +355,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
 
     public static final String BKDL_FEATURE_PROVIDER_CLASS = "featureProviderClass";
+
+    //
+    // Settings for Configuration Based Feature Provider
+    //
+
+    public static final String BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH = "fileFeatureProviderBaseConfigPath";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH_DEFAULT = "decider.yml";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH = "fileFeatureProviderOverlayConfigPath";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH_DEFAULT = null;
 
     //
     // Settings for Namespaces
@@ -2824,6 +2831,54 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Get the base config path for file feature provider.
+     *
+     * @return base config path for file feature provider.
+     */
+    public String getFileFeatureProviderBaseConfigPath() {
+        return getString(BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH,
+                BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the base config path for file feature provider.
+     *
+     * @param conf
+     *          distributedlog configuration
+     * @param configPath
+     *          base config path for file feature provider.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setFileFeatureProviderBaseConfigPath(String configPath) {
+        setProperty(BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH, configPath);
+        return this;
+    }
+
+    /**
+     * Get the overlay config path for file feature provider.
+     *
+     * @return overlay config path for file feature provider.
+     */
+    public String getFileFeatureProviderOverlayConfigPath() {
+        return getString(BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH,
+                BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the overlay config path for file feature provider.
+     *
+     * @param conf distributedlog configuration
+     * @param configPath
+     *          overlay config path for file feature provider.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setFileFeatureProviderOverlayConfigPath(String configPath) {
+        setProperty(BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH,
+                configPath);
+        return this;
+    }
+
     //
     // Settings for Namespaces
     //
@@ -2914,7 +2969,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param intervalSec dynamic configuration reload interval in seconds
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
+    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(int intervalSec) {
         setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
         return this;
     }
