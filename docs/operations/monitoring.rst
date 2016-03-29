@@ -134,9 +134,9 @@ All the available stats providers are listed as below:
 * Codahale Stats
 
 Twitter Science Stats
-+++++++++++++++++++++
+_____________________
 
-Use following 
+Use following dependency to enable Twitter science stats provider.
 
 ::
 
@@ -146,17 +146,56 @@ Use following
      <version>${bookkeeper.version}</version>
    </dependency>
 
+Construct the stats provider for clients.
 
-check `Science Stats`__ for more details.
+::
+
+    StatsProvider statsProvider = new TwitterStatsProvider();
+    DistributedLogConfiguration conf = ...;
+
+    // starts the stats provider (optional)
+    statsProvider.start(conf);
+
+    // all the dl related stats are exposed under "dlog"
+    StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+    DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+        .uri(...)
+        .conf(conf)
+        .statsLogger(statsLogger)
+        .build();
+
+    ...
+
+    // stop the stats provider (optional)
+    statsProvider.stop();
+
+
+Expose the stats collected by the stats provider by configuring following settings:
+
+::
+
+    // enable exporting the stats
+    statsExport=true
+    // exporting the stats at port 8080
+    statsHttpPort=8080
+
+
+If exporting stats is enabled, all the stats are exported by the http endpoint.
+You could curl the http endpoint to check the stats.
+
+::
+
+    curl -s <host>:8080/vars
+
+
+check ScienceStats_ for more details.
 
 .. _ScienceStats: https://github.com/twitter/commons/tree/master/src/java/com/twitter/common/stats
 
-__ ScienceStats_
+Twitter Ostrich Stats
+_____________________
 
-
-* *Twitter Ostrich*: check Ostrich_ for more details.
-
-.. _Ostrich: https://github.com/twitter/ostrich
+Use following dependency to enable Twitter ostrich stats provider.
 
 ::
 
@@ -166,12 +205,58 @@ __ ScienceStats_
      <version>${bookkeeper.version}</version>
    </dependency>
 
+Construct the stats provider for clients.
 
-* *Twitter Finagle Metrics*: check `finagle metrics library` for more details.
+::
 
-.. _TwitterServer: https://twitter.github.io/twitter-server/Migration.html
+    StatsProvider statsProvider = new TwitterOstrichProvider();
+    DistributedLogConfiguration conf = ...;
 
-__ TwitterServer_
+    // starts the stats provider (optional)
+    statsProvider.start(conf);
+
+    // all the dl related stats are exposed under "dlog"
+    StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+    DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+        .uri(...)
+        .conf(conf)
+        .statsLogger(statsLogger)
+        .build();
+
+    ...
+
+    // stop the stats provider (optional)
+    statsProvider.stop();
+
+
+Expose the stats collected by the stats provider by configuring following settings:
+
+::
+
+    // enable exporting the stats
+    statsExport=true
+    // exporting the stats at port 8080
+    statsHttpPort=8080
+
+
+If exporting stats is enabled, all the stats are exported by the http endpoint.
+You could curl the http endpoint to check the stats.
+
+::
+
+    curl -s <host>:8080/stats.txt
+
+
+check Ostrich_ for more details.
+
+.. _Ostrich: https://github.com/twitter/ostrich
+
+Twitter Finagle Metrics
+_______________________
+
+Use following dependency to enable bridging finagle stats receiver to bookkeeper's stats provider.
+All the stats exposed by the stats provider will be collected by finagle stats receiver and exposed
+by Twitter's admin service.
 
 ::
 
@@ -181,10 +266,41 @@ __ TwitterServer_
      <version>${bookkeeper.version}</version>
    </dependency>
 
+Construct the stats provider for clients.
 
-* *Codahale Metrics*: check Codehale_ for more details.
+::
 
-.. _Codehale: https://dropwizard.github.io/metrics/3.1.0/
+    StatsReceiver statsReceiver = ...; // finagle stats receiver
+    StatsProvider statsProvider = new FinagleStatsProvider(statsReceiver);
+    DistributedLogConfiguration conf = ...;
+
+    // the stats provider does nothing on start.
+    statsProvider.start(conf);
+
+    // all the dl related stats are exposed under "dlog"
+    StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+    DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+        .uri(...)
+        .conf(conf)
+        .statsLogger(statsLogger)
+        .build();
+
+    ...
+
+    // the stats provider does nothing on stop.
+    statsProvider.stop();
+
+
+check `finagle metrics library`__ for more details on how to expose the stats.
+
+.. _TwitterServer: https://twitter.github.io/twitter-server/Migration.html
+
+__ TwitterServer_
+
+Codahale Metrics
+________________
+
+Use following dependency to enable Twitter ostrich stats provider.
 
 ::
 
@@ -194,4 +310,69 @@ __ TwitterServer_
      <version>${bookkeeper.version}</version>
    </dependency>
 
+Construct the stats provider for clients.
 
+::
+
+    StatsProvider statsProvider = new CodahaleMetricsProvider();
+    DistributedLogConfiguration conf = ...;
+
+    // starts the stats provider (optional)
+    statsProvider.start(conf);
+
+    // all the dl related stats are exposed under "dlog"
+    StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+    DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+        .uri(...)
+        .conf(conf)
+        .statsLogger(statsLogger)
+        .build();
+
+    ...
+
+    // stop the stats provider (optional)
+    statsProvider.stop();
+
+
+Expose the stats collected by the stats provider in different ways by configuring following settings.
+Check Codehale_ on how to configuring report endpoints.
+
+::
+
+    // How frequent report the stats
+    codahaleStatsOutputFrequencySeconds=...
+    // The prefix string of codahale stats
+    codahaleStatsPrefix=...
+
+    //
+    // Report Endpoints
+    //
+
+    // expose the stats to Graphite
+    codahaleStatsGraphiteEndpoint=...
+    // expose the stats to CSV files
+    codahaleStatsCSVEndpoint=...
+    // expose the stats to Slf4j logging
+    codahaleStatsSlf4jEndpoint=...
+    // expose the stats to JMX endpoint
+    codahaleStatsJmxEndpoint=...
+
+
+check Codehale_ for more details.
+
+.. _Codehale: https://dropwizard.github.io/metrics/3.1.0/
+
+Enable Stats Provider on Bookie Servers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The stats provider used by *Bookie Servers* is configured by setting the following option.
+
+::
+
+    // class of stats provider
+    statsProviderClass="org.apache.bookkeeper.stats.CodahaleMetricsProvider"
+
+Metrics
+~~~~~~~
+
+Check the :doc:`../references/metrics` reference page for the metrics exposed by DistributedLog.
