@@ -1,3 +1,11 @@
+0.3.48
+------
+- Improve DL documentation
+- Make write pipeline purely asynchronous
+- Able to skip corrupt entry
+- Don't log stream failfast issues
+- Script improvements
+
 0.3.47
 ------
 - Add create command to service and client
