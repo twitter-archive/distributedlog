@@ -324,4 +324,16 @@ public class DynamicDistributedLogConfiguration extends ConcurrentBaseConfigurat
                         BKDL_IS_DURABLE_WRITE_ENABLED_DEFAULT));
     }
 
+    /**
+     * Get the flag whether to deserialize recordset on reads.
+     *
+     * @return flag whether to deserialize recordset on reads.
+     */
+    public boolean getDeserializeRecordSetOnReads() {
+        return getBoolean(BKDL_DESERIALIZE_RECORDSET_ON_READS,
+                defaultConfig.getBoolean(
+                        BKDL_DESERIALIZE_RECORDSET_ON_READS,
+                        BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT));
+    }
+
 }

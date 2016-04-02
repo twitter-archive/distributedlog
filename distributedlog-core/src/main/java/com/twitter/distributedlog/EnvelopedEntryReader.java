@@ -23,6 +23,7 @@ class EnvelopedEntryReader implements Entry.Reader, RecordStream {
                          long startSequenceId,
                          InputStream in,
                          boolean envelopedEntry,
+                         boolean deserializeRecordSet,
                          StatsLogger statsLogger)
             throws IOException {
         this.logSegmentSeqNo = logSegmentSeqNo;
@@ -31,7 +32,11 @@ class EnvelopedEntryReader implements Entry.Reader, RecordStream {
         if (envelopedEntry) {
             src = EnvelopedEntry.fromInputStream(in, statsLogger);
         }
-        this.reader = new LogRecord.Reader(this, new DataInputStream(src), startSequenceId);
+        this.reader = new LogRecord.Reader(
+                this,
+                new DataInputStream(src),
+                startSequenceId,
+                deserializeRecordSet);
     }
 
     @Override
@@ -54,8 +59,8 @@ class EnvelopedEntryReader implements Entry.Reader, RecordStream {
     //
 
     @Override
-    public void advanceToNextRecord() {
-        slotId++;
+    public void advance(int numRecords) {
+        slotId += numRecords;
     }
 
     @Override

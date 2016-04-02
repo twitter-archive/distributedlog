@@ -55,6 +55,10 @@ public class LogRecordWithDLSN extends LogRecord {
         this.startSequenceIdOfCurrentSegment = startSequenceIdOfCurrentSegment;
     }
 
+    long getStartSequenceIdOfCurrentSegment() {
+        return startSequenceIdOfCurrentSegment;
+    }
+
     /**
      * Get the sequence id of the record in the log.
      *

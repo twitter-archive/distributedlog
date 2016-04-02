@@ -20,8 +20,8 @@ import java.util.List;
 
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureFailed;
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureSucceededAndGetResult;
-import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
-import static com.twitter.distributedlog.Entry.MAX_LOGRECORDSET_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORDSET_SIZE;
 import static org.junit.Assert.*;
 
 /**

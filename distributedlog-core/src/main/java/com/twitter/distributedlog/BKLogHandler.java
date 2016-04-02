@@ -506,7 +506,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
             if (l.isInProgress()) {
                 LogRecord record = recoverLastRecordInLedger(l, false, false, false);
                 if (null != record) {
-                    count += record.getPositionWithinLogSegment();
+                    count += record.getLastPositionWithinLogSegment();
                 }
             } else {
                 count += l.getRecordCount();
@@ -546,7 +546,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
             public Long apply(final LogRecordWithDLSN beginRecord) {
                 long recordCount = 0;
                 if (null != beginRecord) {
-                    recordCount = endPosition + 1 - beginRecord.getPositionWithinLogSegment();
+                    recordCount = endPosition + 1 - beginRecord.getLastPositionWithinLogSegment();
                 }
                 return recordCount;
             }
@@ -564,7 +564,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
             return asyncReadLastUserRecord(ledger).flatMap(new Function<LogRecordWithDLSN, Future<Long>>() {
                 public Future<Long> apply(final LogRecordWithDLSN endRecord) {
                     if (null != endRecord) {
-                        return asyncGetLogRecordCount(ledger, beginDLSN, endRecord.getPositionWithinLogSegment() /* end position */);
+                        return asyncGetLogRecordCount(ledger, beginDLSN, endRecord.getLastPositionWithinLogSegment() /* end position */);
                     } else {
                         return Future.value((long) 0);
                     }
@@ -574,7 +574,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
             return asyncReadLastUserRecord(ledger).map(new Function<LogRecordWithDLSN, Long>() {
                 public Long apply(final LogRecordWithDLSN endRecord) {
                     if (null != endRecord) {
-                        return (long) endRecord.getPositionWithinLogSegment();
+                        return (long) endRecord.getLastPositionWithinLogSegment();
                     } else {
                         return (long) 0;
                     }

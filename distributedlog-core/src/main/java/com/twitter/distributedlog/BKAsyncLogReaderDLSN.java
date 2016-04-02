@@ -194,11 +194,12 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                          DLSN startDLSN,
                          Optional<String> subscriberId,
                          boolean returnEndOfStreamRecord,
+                         boolean deserializeRecordSet,
                          StatsLogger statsLogger) {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
         this.bkLedgerManager = bkDistributedLogManager.createReadHandler(subscriberId,
-                lockStateExecutor, this, true);
+                lockStateExecutor, this, deserializeRecordSet, true);
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;
@@ -567,7 +568,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                     throw new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn());
                                 }
                             }
-                            lastPosition = record.getPositionWithinLogSegment();
+                            lastPosition = record.getLastPositionWithinLogSegment();
 
                             nextRequest.addRecord(record);
                         }

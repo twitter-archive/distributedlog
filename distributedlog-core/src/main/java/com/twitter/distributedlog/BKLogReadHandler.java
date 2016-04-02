@@ -129,7 +129,8 @@ class BKLogReadHandler extends BKLogHandler {
                             StatsLogger perLogStatsLogger,
                             String clientId,
                             AsyncNotification notification,
-                            boolean isHandleForReading) {
+                            boolean isHandleForReading,
+                            boolean deserializeRecordSet) {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore, scheduler,
               statsLogger, alertStatsLogger, notification, LogSegmentFilter.DEFAULT_FILTER, clientId);
         this.logMetadataForReader = logMetadata;
@@ -153,6 +154,7 @@ class BKLogReadHandler extends BKLogHandler {
                 alertStatsLogger,
                 notification,
                 dynConf.getReadAheadMaxRecords(),
+                deserializeRecordSet,
                 conf.getTraceReadAheadDeliveryLatency(),
                 conf.getDataLatencyWarnThresholdMillis(),
                 Ticker.systemTicker());

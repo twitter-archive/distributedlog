@@ -283,6 +283,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
     public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
     public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
+    public static final String BKDL_DESERIALIZE_RECORDSET_ON_READS = "deserializeRecordSetOnReads";
+    public static final boolean BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT = true;
 
     // Idle reader settings
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
@@ -2224,6 +2226,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadLACLongPollTimeout(int readAheadLongPollTimeout) {
         setProperty(BKDL_READLACLONGPOLL_TIMEOUT, readAheadLongPollTimeout);
+        return this;
+    }
+
+    /**
+     * Get the flag whether to deserialize record set on reads.
+     *
+     * @return true if it should deserialize, otherwise false.
+     */
+    public boolean getDeserializeRecordSetOnReads() {
+        return getBoolean(BKDL_DESERIALIZE_RECORDSET_ON_READS, BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT);
+    }
+
+    /**
+     * Enable or disable deserialize recordset on reads.
+     *
+     * @param enabled
+     *          flag whether to deserialize recordset
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setDeserializeRecordSetOnReads(boolean enabled) {
+        setProperty(BKDL_DESERIALIZE_RECORDSET_ON_READS, enabled);
         return this;
     }
 

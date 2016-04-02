@@ -873,7 +873,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
             if (null != lastRecord) {
                 endTxId = lastRecord.getTransactionId();
-                recordCount = lastRecord.getPositionWithinLogSegment();
+                recordCount = lastRecord.getLastPositionWithinLogSegment();
                 lastEntryId = lastRecord.getDlsn().getEntryId();
                 lastSlotId = lastRecord.getDlsn().getSlotId();
             }

@@ -490,12 +490,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized BKLogReadHandler createReadHandler(Optional<String> subscriberId,
                                                     boolean isHandleForReading) {
-        return createReadHandler(subscriberId, getLockStateExecutor(true), null, isHandleForReading);
+        return createReadHandler(
+                subscriberId,
+                getLockStateExecutor(true),
+                null,
+                true, /* deserialize record set */
+                isHandleForReading);
     }
 
     synchronized BKLogReadHandler createReadHandler(Optional<String> subscriberId,
                                                     OrderedScheduler lockExecutor,
                                                     AsyncNotification notification,
+                                                    boolean deserializeRecordSet,
                                                     boolean isHandleForReading) {
         ZKLogMetadataForReader logMetadata = ZKLogMetadataForReader.of(uri, name, streamIdentifier);
         return new BKLogReadHandler(
@@ -507,7 +513,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 readerBKCBuilder,
                 readerMetadataStore,
                 scheduler,
-                lockStateExecutor,
+                lockExecutor,
                 readAheadScheduler,
                 alertStatsLogger,
                 readAheadExceptionsLogger,
@@ -515,7 +521,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 perLogStatsLogger,
                 clientId,
                 notification,
-                isHandleForReading);
+                isHandleForReading,
+                deserializeRecordSet);
     }
 
     // Create Ledger Allocator
@@ -941,6 +948,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN,
                 subscriberId,
                 false,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         return Future.value(reader);
     }
@@ -979,6 +987,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN,
                 subscriberId,
                 false,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         pendingReaders.add(reader);
         final Future<Void> lockFuture = reader.lockStream();
@@ -1065,6 +1074,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN,
                 subscriberId,
                 true,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler, fromTxnId);
     }

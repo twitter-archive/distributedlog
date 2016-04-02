@@ -37,9 +37,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.twitter.distributedlog.BKDistributedLogNamespace;
+import com.twitter.distributedlog.Entry;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -73,7 +73,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.LedgerEntryReader;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
@@ -1609,17 +1608,17 @@ public class DistributedLogTool extends Tool {
                 throw new IOException("Entry " + lac + " isn't found for " + segment);
             }
             LedgerEntry lastEntry = entries.nextElement();
-            LedgerEntryReader reader = new LedgerEntryReader("dlog",
-                                                             segment.getLogSegmentSequenceNumber(),
-                                                             lastEntry,
-                                                             LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()),
-                                                             segment.getStartSequenceId(),
-                                                             NullStatsLogger.INSTANCE);
-            LogRecordWithDLSN record = reader.readOp();
+            Entry.Reader reader = Entry.newBuilder()
+                    .setLogSegmentInfo(segment.getLogSegmentSequenceNumber(), segment.getStartSequenceId())
+                    .setEntryId(lastEntry.getEntryId())
+                    .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()))
+                    .setInputStream(lastEntry.getEntryInputStream())
+                    .buildReader();
+            LogRecordWithDLSN record = reader.nextRecord();
             LogRecordWithDLSN lastRecord = null;
             while (null != record) {
                 lastRecord = record;
-                record = reader.readOp();
+                record = reader.nextRecord();
             }
             if (null == lastRecord) {
                 throw new IOException("No record found in entry " + lac + " for " + segment);
@@ -2185,9 +2184,12 @@ public class DistributedLogTool extends Tool {
                         System.out.println("\tbookie=" + rr.getBookieAddress());
                         System.out.println("\t-------------------------------");
                         if (BKException.Code.OK == rr.getResultCode()) {
-                            LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
-                                                                             LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                             0L, NullStatsLogger.INSTANCE);
+                            Entry.Reader reader = Entry.newBuilder()
+                                    .setLogSegmentInfo(lh.getId(), 0L)
+                                    .setEntryId(eid)
+                                    .setInputStream(rr.getValue())
+                                    .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion))
+                                    .buildReader();
                             printEntry(reader);
                         } else {
                             System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
@@ -2241,16 +2243,19 @@ public class DistributedLogTool extends Tool {
             while (entries.hasMoreElements()) {
                 LedgerEntry entry = entries.nextElement();
                 System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
-                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry,
-                                                                 LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                 0L, NullStatsLogger.INSTANCE);
+                Entry.Reader reader = Entry.newBuilder()
+                        .setLogSegmentInfo(0L, 0L)
+                        .setEntryId(entry.getEntryId())
+                        .setInputStream(entry.getEntryInputStream())
+                        .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion))
+                        .buildReader();
                 printEntry(reader);
                 ++i;
             }
         }
 
-        private void printEntry(LedgerEntryReader reader) throws Exception {
-            LogRecordWithDLSN record = reader.readOp();
+        private void printEntry(Entry.Reader reader) throws Exception {
+            LogRecordWithDLSN record = reader.nextRecord();
             while (null != record) {
                 System.out.println("\t" + record);
                 if (!skipPayload) {
@@ -2261,7 +2266,7 @@ public class DistributedLogTool extends Tool {
                     }
                 }
                 println("");
-                record = reader.readOp();
+                record = reader.nextRecord();
             }
         }
 
