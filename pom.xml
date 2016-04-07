@@ -50,7 +50,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <zookeeper.version>10.0.19-20160128055024-a1c65f2</zookeeper.version>
     <bookkeeper.version>4.3.3-TWTTR</bookkeeper.version>
-    <birdcage.sha>20160224160031-30892c3</birdcage.sha> <!-- go/publishing-birdcage -->
+    <birdcage.sha>20160330160055-2dcdd6c</birdcage.sha> <!-- go/publishing-birdcage -->
     <scrooge-maven-plugin.version>3.17.0</scrooge-maven-plugin.version>
   </properties>
   <build>
