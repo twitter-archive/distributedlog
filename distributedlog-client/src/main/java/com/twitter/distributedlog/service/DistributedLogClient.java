@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.service;
 
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LogRecordSetBuffer;
 import com.twitter.util.Future;
 
 import java.nio.ByteBuffer;
@@ -19,10 +20,19 @@ public interface DistributedLogClient {
     Future<DLSN> write(String stream, ByteBuffer data);
 
     /**
+     * Write record set to a given <i>stream</i>.
+     * <p>The record set is built from {@link com.twitter.distributedlog.LogRecordSet.Writer}
+     *
+     * @param stream stream to write to
+     * @param recordSet record set
+     */
+    void writeRecordSet(String stream, LogRecordSetBuffer recordSet);
+
+    /**
      * Write <i>data</i> in bulk to a given <i>stream</i>. Return a list of
      * Future dlsns, one for each submitted buffer. In the event of a partial
-     * failure--ex. some specific buffer write fails, all subsequent writes 
-     * will also fail. 
+     * failure--ex. some specific buffer write fails, all subsequent writes
+     * will also fail.
      *
      * @param stream
      *          Stream Name.

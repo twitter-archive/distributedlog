@@ -6,6 +6,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LogRecordSetBuffer;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.client.proxy.HostProvider;
 import com.twitter.distributedlog.client.proxy.ProxyClient;
@@ -408,6 +409,16 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
     }
 
+    class WriteRecordSetOp extends WriteOp {
+
+        WriteRecordSetOp(String name, LogRecordSetBuffer recordSet) {
+            super(name, recordSet.getBuffer());
+            ctx.setIsRecordSet(true);
+        }
+
+    }
+
+
     class ReleaseOp extends AbstractWriteOp {
 
         ReleaseOp(String name) {
@@ -695,6 +706,26 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         final WriteOp op = new WriteOp(stream, data);
         sendRequest(op);
         return op.result();
+    }
+
+    @Override
+    public void writeRecordSet(String stream, final LogRecordSetBuffer recordSet) {
+        final WriteRecordSetOp op = new WriteRecordSetOp(stream, recordSet);
+        sendRequest(op);
+        op.result().addEventListener(new FutureEventListener<DLSN>() {
+            @Override
+            public void onSuccess(DLSN dlsn) {
+                recordSet.completeTransmit(
+                        dlsn.getLogSegmentSequenceNo(),
+                        dlsn.getEntryId(),
+                        dlsn.getSlotId());
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                recordSet.abortTransmit(cause);
+            }
+        });
     }
 
     @Override

@@ -29,4 +29,20 @@ public interface LogRecordSetBuffer {
      */
     ByteBuffer getBuffer();
 
+    /**
+     * Complete transmit.
+     *
+     * @param lssn log segment sequence number
+     * @param entryId entry id
+     * @param startSlotId start slot id
+     */
+    void completeTransmit(long lssn, long entryId, long startSlotId);
+
+    /**
+     * Abort transmit.
+     *
+     * @param reason reason to abort.
+     */
+    void abortTransmit(Throwable reason);
+
 }

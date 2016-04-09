@@ -113,6 +113,7 @@ struct BulkWriteResponse {
 struct WriteContext {
     1: optional set<string> triedHosts;
     2: optional i64 crc32;
+    3: optional bool isRecordSet;
 }
 
 // HeartBeat Options
