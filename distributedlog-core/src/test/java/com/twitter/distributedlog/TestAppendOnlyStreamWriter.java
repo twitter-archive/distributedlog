@@ -204,6 +204,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         conf.setImmediateFlushEnabled(false);
         conf.setPeriodicFlushFrequencyMilliSeconds(60*1000);
         conf.setOutputBufferSize(1024*1024);
+        conf.setLogSegmentSequenceNumberValidationEnabled(false);
 
         final int WRITE_LEN = 5;
         final int SECTION_WRITES = 10;

@@ -2,7 +2,6 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -10,6 +9,7 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.function.GetLastTxIdFunction;
 import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
@@ -58,9 +58,9 @@ import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
@@ -88,8 +88,8 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final MaxTxId maxTxId;
     protected final MaxLogSegmentSequenceNo maxLogSegmentSequenceNo;
     protected final boolean sanityCheckTxnId;
+    protected final boolean validateLogSegmentSequenceNumber;
     protected final int regionId;
-    protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
     protected Future<DistributedLock> lockFuture = null;
@@ -97,6 +97,8 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
     protected final MetadataUpdater metadataUpdater;
+    // tracking the inprogress log segments
+    protected final LinkedList<Long> inprogressLSSNs;
 
     // Recover Functions
     private final RecoverLogSegmentFunction recoverLogSegmentFunction =
@@ -110,6 +112,16 @@ class BKLogWriteHandler extends BKLogHandler {
                     synchronized (BKLogWriteHandler.this) {
                         if (lastLedgerRollingTimeMillis < 0) {
                             lastLedgerRollingTimeMillis = Utils.nowInMillis();
+                        }
+                    }
+
+                    if (validateLogSegmentSequenceNumber) {
+                        synchronized (inprogressLSSNs) {
+                            for (LogSegmentMetadata segment : segmentList) {
+                                if (segment.isInProgress()) {
+                                    inprogressLSSNs.addLast(segment.getLogSegmentSequenceNumber());
+                                }
+                            }
                         }
                     }
 
@@ -177,9 +189,11 @@ class BKLogWriteHandler extends BKLogHandler {
             this.regionId = DistributedLogConstants.LOCAL_REGION_ID;
         }
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
+        this.validateLogSegmentSequenceNumber = conf.isLogSegmentSequenceNumberValidationEnabled();
 
         // Construct the max sequence no
         maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(logMetadata.getMaxLSSNData());
+        inprogressLSSNs = new LinkedList<Long>();
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, logMetadata.getMaxTxIdPath(),
                 conf.getSanityCheckTxnID(), logMetadata.getMaxTxIdData());
@@ -209,12 +223,22 @@ class BKLogWriteHandler extends BKLogHandler {
     // Transactional operations for MaxLogSegmentSequenceNo
     void storeMaxSequenceNumber(final Transaction txn,
                                 final MaxLogSegmentSequenceNo maxSeqNo,
-                                final long seqNo) {
+                                final long seqNo,
+                                final boolean isInprogress) {
         byte[] data = DLUtils.serializeLogSegmentSequenceNumber(seqNo);
         Op zkOp = Op.setData(logMetadata.getLogSegmentsPath(), data, maxSeqNo.getZkVersion());
         txn.addOp(new ZKVersionedSetOp(zkOp, new Transaction.OpListener<Version>() {
             @Override
             public void onCommit(Version version) {
+                if (validateLogSegmentSequenceNumber) {
+                    synchronized (inprogressLSSNs) {
+                        if (isInprogress) {
+                            inprogressLSSNs.add(seqNo);
+                        } else {
+                            inprogressLSSNs.removeFirst();
+                        }
+                    }
+                }
                 maxSeqNo.update((ZkVersion) version, seqNo);
             }
 
@@ -311,13 +335,6 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
-    BKLogWriteHandler checkMetadataException() throws IOException {
-        if (null != metadataException.get()) {
-            throw metadataException.get();
-        }
-        return this;
-    }
-
     void register(Watcher watcher) {
         this.zooKeeperClient.register(watcher);
     }
@@ -376,24 +393,27 @@ class BKLogWriteHandler extends BKLogHandler {
         // see no ledger metadata for a stream, we assume that this is the first ledger
         // in the stream
         long logSegmentSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
-        boolean ignoreMaxLogSegmentSeqNo = false;
+        boolean logSegmentsFound = false;
 
         if (LogSegmentMetadata.supportsLogSegmentSequenceNo(conf.getDLLedgerMetadataLayoutVersion())) {
             List<LogSegmentMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
             Long nextLogSegmentSeqNo = DLUtils.nextLogSegmentSequenceNumber(ledgerListDesc);
 
             if (null == nextLogSegmentSeqNo) {
+                logSegmentsFound = false;
                 // we don't find last assigned log segment sequence number
                 // then we start the log segment with configured FirstLogSegmentSequenceNumber.
-                ignoreMaxLogSegmentSeqNo = true;
                 logSegmentSeqNo = conf.getFirstLogSegmentSequenceNumber();
             } else {
+                logSegmentsFound = true;
                 // latest log segment is assigned with a sequence number, start with next sequence number
                 logSegmentSeqNo = nextLogSegmentSeqNo;
             }
         }
 
-        if (ignoreMaxLogSegmentSeqNo ||
+        // We only skip log segment sequence number validation only when no log segments found &
+        // the maximum log segment sequence number is "UNASSIGNED".
+        if (!logSegmentsFound &&
             (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber())) {
             // no ledger seqno stored in /ledgers before
             LOG.info("No max ledger sequence number found while creating log segment {} for {}.",
@@ -401,7 +421,7 @@ class BKLogWriteHandler extends BKLogHandler {
         } else if (maxLogSegmentSequenceNo.getSequenceNumber() + 1 != logSegmentSeqNo) {
             LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
                 new Object[]{maxLogSegmentSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
-                    getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
+                    getCachedLogSegments(LogSegmentMetadata.DESC_COMPARATOR)});
             // there is max log segment number recorded there and it isn't match. throw exception.
             throw new DLIllegalStateException("Unexpected max log segment sequence number "
                 + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
@@ -547,7 +567,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
         // Try storing max sequence number.
         LOG.debug("Try storing max sequence number in startLogSegment {} : {}", inprogressZnodePath, logSegmentSeqNo);
-        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, logSegmentSeqNo);
+        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, logSegmentSeqNo, true);
 
         // Try storing max tx id.
         LOG.debug("Try storing MaxTxId in startLogSegment  {} {}", inprogressZnodePath, txId);
@@ -759,10 +779,53 @@ class BKLogWriteHandler extends BKLogHandler {
                     + ledgerId + " expected"));
             return;
         }
+        // validate the transaction id
         if (inprogressLogSegment.getFirstTxId() != firstTxId) {
             FutureUtils.setException(promise, new IOException("Transaction id not as expected, "
                 + inprogressLogSegment.getFirstTxId() + " found, " + firstTxId + " expected"));
             return;
+        }
+        // validate the log sequence number
+        if (validateLogSegmentSequenceNumber) {
+            synchronized (inprogressLSSNs) {
+                if (inprogressLSSNs.isEmpty()) {
+                    FutureUtils.setException(promise, new UnexpectedException(
+                            "Didn't find matched inprogress log segments when completing inprogress "
+                                    + inprogressLogSegment));
+                    return;
+                }
+                long leastInprogressLSSN = inprogressLSSNs.getFirst();
+                // the log segment sequence number in metadata {@link inprogressLogSegment.getLogSegmentSequenceNumber()}
+                // should be same as the sequence number we are completing (logSegmentSeqNo)
+                // and
+                // it should also be same as the least inprogress log segment sequence number tracked in {@link inprogressLSSNs}
+                if ((inprogressLogSegment.getLogSegmentSequenceNumber() != logSegmentSeqNo) ||
+                        (leastInprogressLSSN != logSegmentSeqNo)) {
+                    FutureUtils.setException(promise, new UnexpectedException(
+                            "Didn't find matched inprogress log segments when completing inprogress "
+                                    + inprogressLogSegment));
+                    return;
+                }
+            }
+        }
+
+        // store max sequence number.
+        long maxSeqNo= Math.max(logSegmentSeqNo, maxLogSegmentSequenceNo.getSequenceNumber());
+        if (maxLogSegmentSequenceNo.getSequenceNumber() == logSegmentSeqNo ||
+                (maxLogSegmentSequenceNo.getSequenceNumber() == logSegmentSeqNo + 1)) {
+            // ignore the case that a new inprogress log segment is pre-allocated
+            // before completing current inprogress one
+            LOG.info("Try storing max sequence number {} in completing {}.",
+                    new Object[] { logSegmentSeqNo, inprogressZnodePath });
+        } else {
+            LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
+                    new Object[] { maxLogSegmentSequenceNo.getSequenceNumber(), logSegmentSeqNo, getFullyQualifiedName() });
+            if (validateLogSegmentSequenceNumber) {
+                FutureUtils.setException(promise, new DLIllegalStateException("Unexpected max log segment sequence number "
+                        + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
+                        + ", expected " + (logSegmentSeqNo - 1)));
+                return;
+            }
         }
 
         // Prepare the completion
@@ -798,24 +861,8 @@ class BKLogWriteHandler extends BKLogHandler {
                 pathForCompletedLedger);
         // delete inprogress log segment
         deleteLogSegment(txn, inprogressZnodeName, inprogressZnodePath);
-        // store max sequence number.
-        long maxSeqNo= Math.max(logSegmentSeqNo, maxLogSegmentSequenceNo.getSequenceNumber());
-        if (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber()) {
-            // no ledger seqno stored in /ledgers before
-            LOG.warn("No max ledger sequence number found while completing log segment {} for {}.",
-                     logSegmentSeqNo, inprogressZnodePath);
-        } else if (maxLogSegmentSequenceNo.getSequenceNumber() != logSegmentSeqNo) {
-            // ignore the case that a new inprogress log segment is pre-allocated
-            // before completing current inprogress one
-            if (maxLogSegmentSequenceNo.getSequenceNumber() != logSegmentSeqNo + 1) {
-                LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
-                        new Object[] { maxLogSegmentSequenceNo.getSequenceNumber(), logSegmentSeqNo, getFullyQualifiedName() });
-            }
-        } else {
-            LOG.info("Try storing max sequence number {} in completing {}.",
-                     new Object[] { logSegmentSeqNo, inprogressZnodePath });
-        }
-        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, maxSeqNo);
+        // store max sequence number
+        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, maxSeqNo, false);
         // update max txn id.
         LOG.debug("Trying storing LastTxId in Finalize Path {} LastTxId {}", pathForCompletedLedger, lastTxId);
         storeMaxTxId(txn, maxTxId, lastTxId);

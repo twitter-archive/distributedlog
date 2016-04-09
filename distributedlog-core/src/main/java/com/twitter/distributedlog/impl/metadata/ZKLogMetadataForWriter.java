@@ -284,6 +284,11 @@ public class ZKLogMetadataForWriter extends ZKLogMetadata {
             // max lssn
             Versioned<byte[]> maxLSSNData = metadatas.get(MetadataIndex.LOGSEGMENTS);
             ensureMetadataExist(maxLSSNData);
+            try {
+                DLUtils.deserializeLogSegmentSequenceNumber(maxLSSNData.getValue());
+            } catch (NumberFormatException nfe) {
+                throw new UnexpectedException("Invalid max sequence number found in log " + logName, nfe);
+            }
             // allocation path
             Versioned<byte[]>  allocationData;
             if (ownAllocator) {

@@ -66,7 +66,9 @@ abstract class BKAbstractLogWriter implements Closeable, AsyncCloseable, Abortab
     }
 
     protected BKLogWriteHandler getWriteHandler() throws IOException {
-        return createAndCacheWriteHandler().checkMetadataException();
+        BKLogWriteHandler writeHandler = createAndCacheWriteHandler();
+        writeHandler.checkMetadataException();
+        return writeHandler;
     }
 
     protected BKLogWriteHandler createAndCacheWriteHandler()

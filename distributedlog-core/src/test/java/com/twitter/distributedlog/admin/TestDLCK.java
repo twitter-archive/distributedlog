@@ -80,8 +80,9 @@ public class TestDLCK extends TestDistributedLogBase {
     public void testCheckAndRepairDLNamespace() throws Exception {
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
         confLocal.loadConf(conf);
-        conf.setImmediateFlushEnabled(true);
-        conf.setOutputBufferSize(0);
+        confLocal.setImmediateFlushEnabled(true);
+        confLocal.setOutputBufferSize(0);
+        confLocal.setLogSegmentSequenceNumberValidationEnabled(false);
         URI uri = createDLMURI("/check-and-repair-dl-namespace");
         zkc.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         com.twitter.distributedlog.DistributedLogManagerFactory factory =
@@ -92,15 +93,15 @@ public class TestDLCK extends TestDistributedLogBase {
 
         // Create completed log segments
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
-        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 1L, 1L, 10, false);
-        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 2L, 11L, 10, true);
-        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 3L, 21L, 10, false);
-        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, conf, 4L, 31L, 10, true);
+        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, confLocal, 1L, 1L, 10, false);
+        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, confLocal, 2L, 11L, 10, true);
+        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, confLocal, 3L, 21L, 10, false);
+        DLMTestUtil.injectLogSegmentWithLastDLSN(dlm, confLocal, 4L, 31L, 10, true);
 
         // dryrun
         BookKeeperClient bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                new DryrunLogSegmentMetadataStoreUpdater(conf, getLogSegmentMetadataStore(factory)),
+                new DryrunLogSegmentMetadataStoreUpdater(confLocal, getLogSegmentMetadataStore(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         Map<Long, LogSegmentMetadata> segments = getLogSegments(dlm);
@@ -113,7 +114,7 @@ public class TestDLCK extends TestDistributedLogBase {
         // check and repair
         bkc = getBookKeeperClient(factory);
         DistributedLogAdmin.checkAndRepairDLNamespace(uri, factory,
-                LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, getLogSegmentMetadataStore(factory)),
+                LogSegmentMetadataStoreUpdater.createMetadataUpdater(confLocal, getLogSegmentMetadataStore(factory)),
                 executorService, bkc, confLocal.getBKDigestPW(), false, false);
 
         segments = getLogSegments(dlm);

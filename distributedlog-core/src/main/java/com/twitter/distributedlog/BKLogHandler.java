@@ -33,7 +33,6 @@ import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Utils;
-import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -71,6 +70,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The base class about log handler on managing log segments.
@@ -109,7 +109,6 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
     protected final ZooKeeperClient zooKeeperClient;
     protected final BookKeeperClient bookKeeperClient;
     protected final LogSegmentMetadataStore metadataStore;
-    protected final String digestpw;
     protected final int firstNumEntriesPerReadLastRecordScan;
     protected final int maxNumEntriesPerReadLastRecordScan;
     protected volatile long lastLedgerRollingTimeMillis = -1;
@@ -120,6 +119,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
     private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
     protected volatile boolean reportGetSegmentStats = false;
     private final String lockClientId;
+    protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
 
     // listener
     protected final CopyOnWriteArraySet<LogSegmentListener> listeners =
@@ -266,7 +266,6 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
         this.filter = filter;
         this.logSegmentCache = new LogSegmentCache(metadata.getLogName());
 
-        digestpw = conf.getBKDigestPW();
         firstNumEntriesPerReadLastRecordScan = conf.getFirstNumEntriesPerReadLastRecordScan();
         maxNumEntriesPerReadLastRecordScan = conf.getMaxNumEntriesPerReadLastRecordScan();
         this.zooKeeperClient = zkcBuilder.build();
@@ -298,6 +297,13 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
         negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
         recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
         recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
+    }
+
+    BKLogHandler checkMetadataException() throws IOException {
+        if (null != metadataException.get()) {
+            throw metadataException.get();
+        }
+        return this;
     }
 
     public void reportGetSegmentStats(boolean enabled) {
@@ -787,12 +793,20 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
 
     // Ledgers Related Functions
     // ***Note***
-    // Get ledger list should go through #getCachedLedgerList as we need to assign start sequence id for inprogress log
+    // Get ledger list should go through #getCachedLogSegments as we need to assign start sequence id for inprogress log
     // segment so the reader could generate the right sequence id.
 
-    protected List<LogSegmentMetadata> getCachedLedgerList(Comparator<LogSegmentMetadata> comparator)
+    protected List<LogSegmentMetadata> getCachedLogSegments(Comparator<LogSegmentMetadata> comparator)
         throws UnexpectedException {
-        return logSegmentCache.getLogSegments(comparator);
+        try {
+            return logSegmentCache.getLogSegments(comparator);
+        } catch (UnexpectedException ue) {
+            // the log segments cache went wrong
+            LOG.error("Unexpected exception on getting log segments from the cache for stream {}",
+                    getFullyQualifiedName(), ue);
+            metadataException.compareAndSet(null, ue);
+            throw ue;
+        }
     }
 
     protected List<LogSegmentMetadata> getFullLedgerList(boolean forceFetch, boolean throwOnEmpty)
@@ -845,7 +859,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
             if (forceFetch || !isFullListFetched.get()) {
                 return forceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
-                return getCachedLedgerList(comparator);
+                return getCachedLogSegments(comparator);
             }
         } else {
             if (forceFetch) {
@@ -855,7 +869,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
                     scheduleGetLedgersTask(true, true);
                 }
                 waitFirstGetLedgersTaskToFinish();
-                return getCachedLedgerList(comparator);
+                return getCachedLogSegments(comparator);
             }
         }
     }
@@ -957,7 +971,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
                 return asyncForceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
                 try {
-                    return Future.value(getCachedLedgerList(comparator));
+                    return Future.value(getCachedLogSegments(comparator));
                 } catch (UnexpectedException ue) {
                     return Future.exception(ue);
                 }
@@ -973,7 +987,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
                     @Override
                     public void onSuccess(List<LogSegmentMetadata> value) {
                         try {
-                            promise.setValue(getCachedLedgerList(comparator));
+                            promise.setValue(getCachedLogSegments(comparator));
                         } catch (UnexpectedException e) {
                             promise.setException(e);
                         }
@@ -1181,7 +1195,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
 
                         List<LogSegmentMetadata> segmentList;
                         try {
-                            segmentList = getCachedLedgerList(comparator);
+                            segmentList = getCachedLogSegments(comparator);
                         } catch (UnexpectedException e) {
                             callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
                             return;
@@ -1238,7 +1252,7 @@ public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbor
                                             logSegmentCache.update(removedSegments, addedSegments);
                                             List<LogSegmentMetadata> segmentList;
                                             try {
-                                                segmentList = getCachedLedgerList(comparator);
+                                                segmentList = getCachedLogSegments(comparator);
                                             } catch (UnexpectedException e) {
                                                 callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
                                                 return;
