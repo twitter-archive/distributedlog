@@ -1,6 +1,7 @@
 package com.twitter.distributedlog.zk;
 
 import com.twitter.distributedlog.ZooKeeperClient;
+import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Op;
 import org.apache.zookeeper.OpResult;
@@ -55,6 +56,22 @@ public class TestZKTransaction {
                 "test-path",
                 null,
                 null);
+        abortLatch.await();
+        assertEquals(0, abortLatch.getCount());
+        assertEquals(numOps, commitLatch.getCount());
+    }
+
+    @Test(timeout = 60000)
+    public void testAbortTransaction() throws Exception {
+        ZooKeeperClient zkc = mock(ZooKeeperClient.class);
+        ZKTransaction transaction = new ZKTransaction(zkc);
+        int numOps = 3;
+        final CountDownLatch commitLatch = new CountDownLatch(numOps);
+        final CountDownLatch abortLatch = new CountDownLatch(numOps);
+        for (int i = 0; i < numOps; i++) {
+            transaction.addOp(new CountDownZKOp(commitLatch, abortLatch));
+        }
+        transaction.abort(new DLIllegalStateException("Illegal State"));
         abortLatch.await();
         assertEquals(0, abortLatch.getCount());
         assertEquals(numOps, commitLatch.getCount());

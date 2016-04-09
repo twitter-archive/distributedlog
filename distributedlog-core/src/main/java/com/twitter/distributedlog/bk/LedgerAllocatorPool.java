@@ -95,7 +95,7 @@ public class LedgerAllocatorPool implements LedgerAllocator {
     }
 
     @VisibleForTesting
-    synchronized int obtainMapSize() {
+    public synchronized int obtainMapSize() {
         return obtainMap.size();
     }
 

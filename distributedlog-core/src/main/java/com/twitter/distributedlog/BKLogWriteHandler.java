@@ -534,6 +534,9 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
+    // once the ledger handle is obtained from allocator, this function should guarantee
+    // either the transaction is executed or aborted. Otherwise, the ledger handle will
+    // just leak from the allocation pool - hence cause "No Ledger Allocator"
     private void createInprogressLogSegment(ZKTransaction txn,
                                             final long txId,
                                             final LedgerHandle lh,
@@ -541,8 +544,12 @@ class BKLogWriteHandler extends BKLogHandler {
                                             final Promise<BKLogSegmentWriter> promise) {
         final long logSegmentSeqNo;
         try {
+            FailpointUtils.checkFailPoint(
+                    FailpointUtils.FailPointName.FP_StartLogSegmentOnAssignLogSegmentSequenceNumber);
             logSegmentSeqNo = assignLogSegmentSequenceNumber();
         } catch (IOException e) {
+            // abort the current prepared transaction
+            txn.abort(e);
             failStartLogSegment(promise, bestEffort, e);
             return;
         }

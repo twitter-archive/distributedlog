@@ -13,6 +13,7 @@ public class FailpointUtils {
         FP_StartLogSegmentBeforeLedgerCreate,
         FP_StartLogSegmentAfterLedgerCreate,
         FP_StartLogSegmentAfterInProgressCreate,
+        FP_StartLogSegmentOnAssignLogSegmentSequenceNumber,
         FP_FinalizeLedgerBeforeDelete,
         FP_TransmitBeforeAddEntry,
         FP_TransmitComplete,
@@ -23,7 +24,7 @@ public class FailpointUtils {
         FP_LockTryAcquire,
         FP_ZooKeeperConnectionLoss,
         FP_RecoverIncompleteLogSegments,
-        FP_LogWriterIssuePending
+        FP_LogWriterIssuePending,
     }
 
     public static interface FailPointAction {
