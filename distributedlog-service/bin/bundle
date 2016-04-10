@@ -8,14 +8,11 @@ shopt -s dotglob
 
 cd ${DISTRIBUTEDLOG_ROOT}
 rm -rf distributedlog-service/lib
-rm -rf distributedlog-service-internal/lib
 rm -rf dist/distributedlog-service*
 mkdir -p dist/distributedlog-service/{conf,lib}
-mvn clean install -pl distributedlog-service,distributedlog-service-internal -am -DskipTests
+mvn clean install -pl distributedlog-service -am -DskipTests
 cp -r distributedlog-service/conf/* dist/distributedlog-service/conf
 cp -r distributedlog-service/lib/* dist/distributedlog-service/lib
-cp -r distributedlog-service-internal/lib/* dist/distributedlog-service/lib
-cp distributedlog-service-internal/target/distributedlog-service-internal*.jar dist/distributedlog-service/lib
 cp distributedlog-service/target/distributedlog-service-*.jar dist/distributedlog-service
 cd dist
 zip -r distributedlog-service.zip distributedlog-service >/dev/null
