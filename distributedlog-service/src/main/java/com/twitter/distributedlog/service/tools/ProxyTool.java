@@ -1,12 +1,9 @@
 package com.twitter.distributedlog.service.tools;
 
 import com.google.common.util.concurrent.RateLimiter;
-import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import com.twitter.distributedlog.service.ClientUtils;
 import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
@@ -19,12 +16,12 @@ import com.twitter.util.Duration;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,26 +32,16 @@ public class ProxyTool extends Tool {
 
     static final Logger logger = LoggerFactory.getLogger(ProxyTool.class);
 
-    private static Iterable<InetSocketAddress> getSdZkEndpointsForDC(String dc) {
-        if ("atla".equals(dc)) {
-            return TwitterZk.ATLA_SD_ZK_ENDPOINTS;
-        } else if ("smf1".equals(dc)) {
-            return TwitterZk.SMF1_SD_ZK_ENDPOINTS;
-        } else {
-            return TwitterZk.SD_ZK_ENDPOINTS;
-        }
-    }
-
     protected abstract static class ClusterCommand extends OptsCommand {
 
         protected Options options = new Options();
         protected String dc;
-        protected TwitterServerSet.Service zkService;
+        protected URI uri;
         protected final List<String> streams = new ArrayList<String>();
 
         protected ClusterCommand(String name, String description) {
             super(name, description);
-            options.addOption("s", "serverset", true, "DistributedLog Proxy ServerSet");
+            options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("r", "prefix", true, "Prefix of stream name. E.g. 'QuantumLeapTest-'.");
             options.addOption("e", "expression", true, "Expression to generate stream suffix. " +
                     "Currently we support range 'x-y', list 'x,y,z' and name 'xyz'");
@@ -70,18 +57,14 @@ public class ProxyTool extends Tool {
                 return -1;
             }
 
-            ZooKeeperClient zkClient = TwitterServerSet
-                    .clientBuilder(zkService)
-                    .zkEndpoints(getSdZkEndpointsForDC(dc))
-                    .build();
-            logger.info("Created zookeeper client for dc {} : {}", dc, zkService);
+            DLZkServerSet serverSet = DLZkServerSet.of(uri, 60000);
+            logger.info("Created serverset for {}", uri);
             try {
-                ServerSet serverSet = TwitterServerSet.create(zkClient, zkService);
                 DistributedLogClient client = DistributedLogClientBuilder.newBuilder()
                         .name("proxy_tool")
                         .clientId(ClientId$.MODULE$.apply("proxy_tool"))
                         .maxRedirects(2)
-                        .serverSet(serverSet)
+                        .serverSet(serverSet.getServerSet())
                         .clientBuilder(ClientBuilder.get()
                             .connectionTimeout(Duration.fromSeconds(2))
                             .tcpConnectTimeout(Duration.fromSeconds(2))
@@ -97,7 +80,7 @@ public class ProxyTool extends Tool {
                     client.close();
                 }
             } finally {
-                zkClient.close();
+                serverSet.close();
             }
         }
 
@@ -109,16 +92,10 @@ public class ProxyTool extends Tool {
         }
 
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
-            if (!cmdline.hasOption("s")) {
-                throw new ParseException("No proxy serverset provided.");
+            if (!cmdline.hasOption("u")) {
+                throw new ParseException("No distributedlog uri provided.");
             }
-            String[] serverSetPathParts = StringUtils.split(cmdline.getOptionValue("s"), '/');
-            if (serverSetPathParts.length != 4) {
-                throw new ParseException("Invalid serverset path : " + cmdline.getOptionValue("s")
-                        + ", Expected: <dc>/<role>/<env>/<job>.");
-            }
-            dc = serverSetPathParts[0];
-            zkService = new TwitterServerSet.Service(serverSetPathParts[1], serverSetPathParts[2], serverSetPathParts[3]);
+            this.uri = URI.create(cmdline.getOptionValue("u"));
 
             // get stream names
             String streamPrefix = cmdline.hasOption("r") ? cmdline.getOptionValue("r") : "";

@@ -130,7 +130,7 @@ public class DistributedLogServer {
 
         if (announcePath.isPresent()) {
             announcer = new ServerSetAnnouncer(
-                    announcePath.get(),
+                    dlUri,
                     port.or(0),
                     statsPort.or(0),
                     shardId.or(0));

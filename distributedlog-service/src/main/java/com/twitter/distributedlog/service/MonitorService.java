@@ -1,12 +1,13 @@
 package com.twitter.distributedlog.service;
 
 
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
@@ -14,26 +15,18 @@ import com.twitter.distributedlog.LogSegmentMetadata;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.finagle.builder.ClientBuilder;
-import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.Stat;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Duration;
 import com.twitter.util.FutureEventListener;
-import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
-import org.apache.bookkeeper.util.ReflectionUtils;
-import org.apache.commons.cli.BasicParser;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,35 +47,47 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class MonitorService implements Runnable, NamespaceListener {
+public class MonitorService implements NamespaceListener {
 
     static final Logger logger = LoggerFactory.getLogger(MonitorService.class);
 
-    final static String USAGE = "MonitorService [-u <uri>] [-c <conf>] [-s serverset]";
-    final String[] args;
-    final Options options = new Options();
+    private DistributedLogNamespace dlNamespace = null;
+    private MonitorServiceClient dlClient = null;
+    private DLZkServerSet[] zkServerSets = null;
+    private final ScheduledExecutorService executorService =
+            Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
+    private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
+    private final Map<String, StreamChecker> knownStreams = new HashMap<String, StreamChecker>();
 
+    // Settings
     private int regionId = DistributedLogConstants.LOCAL_REGION_ID;
     private int interval = 100;
     private String streamRegex = null;
-    private DistributedLogNamespace dlNamespace = null;
-    private ZooKeeperClient[] zkClients = null;
-    private MonitorServiceClient dlClient = null;
-    private StatsProvider statsProvider = null;
     private boolean watchNamespaceChanges = false;
     private boolean handshakeWithClientInfo = false;
     private int heartbeatEveryChecks = 0;
     private int instanceId = -1;
     private int totalInstances = -1;
-    private final ScheduledExecutorService executorService =
-            Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
-    private final CountDownLatch keepAliveLatch = new CountDownLatch(1);
-    private final Map<String, StreamChecker> knownStreams = new HashMap<String, StreamChecker>();
-    private final StatsReceiver statsReceiver = new OstrichStatsReceiver();
+
+    // Options
+    private final Optional<String> uriArg;
+    private final Optional<String> confFileArg;
+    private final Optional<String> serverSetArg;
+    private final Optional<Integer> intervalArg;
+    private final Optional<Integer> regionIdArg;
+    private final Optional<String> streamRegexArg;
+    private final Optional<Integer> instanceIdArg;
+    private final Optional<Integer> totalInstancesArg;
+    private final Optional<Integer> heartbeatEveryChecksArg;
+    private final Optional<Boolean> handshakeWithClientInfoArg;
+    private final Optional<Boolean> watchNamespaceChangesArg;
+
     // Stats
-    private final StatsReceiver monitorReceiver = statsReceiver.scope("monitor");
-    private final Stat successStat = monitorReceiver.stat0("success");
-    private final Stat failureStat = monitorReceiver.stat0("failure");
+    private final StatsProvider statsProvider;
+    private final StatsReceiver statsReceiver;
+    private final StatsReceiver monitorReceiver;
+    private final Stat successStat;
+    private final Stat failureStat;
     // Hash Function
     private final HashFunction hashFunction = Hashing.md5();
 
@@ -191,108 +196,89 @@ public class MonitorService implements Runnable, NamespaceListener {
         }
     }
 
-    MonitorService(String[] args) {
-        this.args = args;
-        // prepare options
-        options.addOption("u", "uri", true, "DistributedLog URI");
-        options.addOption("c", "conf", true, "DistributedLog Configuration File");
-        options.addOption("s", "serverset", true, "Proxy Server Set");
-        options.addOption("i", "interval", true, "Check interval");
-        options.addOption("d", "region", true, "Region ID");
-        options.addOption("p", "provider", true, "DistributedLog Stats Provider");
-        options.addOption("f", "filter", true, "Filter streams by regex");
-        options.addOption("w", "watch", false, "Watch stream changes under a given namespace");
-        options.addOption("n", "instance_id", true, "Instance ID");
-        options.addOption("t", "total_instances", true, "Total instances");
-        options.addOption("hck", "heartbeat-num-checks", true, "Send a heartbeat after num checks");
-        options.addOption("hsci", "handshake-with-client-info", false, "Enable handshaking with client info");
+    MonitorService(Optional<String> uriArg,
+                   Optional<String> confFileArg,
+                   Optional<String> serverSetArg,
+                   Optional<Integer> intervalArg,
+                   Optional<Integer> regionIdArg,
+                   Optional<String> streamRegexArg,
+                   Optional<Integer> instanceIdArg,
+                   Optional<Integer> totalInstancesArg,
+                   Optional<Integer> heartbeatEveryChecksArg,
+                   Optional<Boolean> handshakeWithClientInfoArg,
+                   Optional<Boolean> watchNamespaceChangesArg,
+                   StatsReceiver statsReceiver,
+                   StatsProvider statsProvider) {
+        // options
+        this.uriArg = uriArg;
+        this.confFileArg = confFileArg;
+        this.serverSetArg = serverSetArg;
+        this.intervalArg = intervalArg;
+        this.regionIdArg = regionIdArg;
+        this.streamRegexArg = streamRegexArg;
+        this.instanceIdArg = instanceIdArg;
+        this.totalInstancesArg = totalInstancesArg;
+        this.heartbeatEveryChecksArg = heartbeatEveryChecksArg;
+        this.handshakeWithClientInfoArg = handshakeWithClientInfoArg;
+        this.watchNamespaceChangesArg = watchNamespaceChangesArg;
+
+        // Stats
+        this.statsReceiver = statsReceiver;
+        this.monitorReceiver = statsReceiver.scope("monitor");
+        this.successStat = monitorReceiver.stat0("success");
+        this.failureStat = monitorReceiver.stat0("failure");
+        this.statsProvider = statsProvider;
     }
 
-    void printUsage() {
-        HelpFormatter helpFormatter = new HelpFormatter();
-        helpFormatter.printHelp(USAGE, options);
-    }
-
-    @Override
-    public void run() {
-        try {
-            logger.info("Running monitor service.");
-            BasicParser parser = new BasicParser();
-            CommandLine cmdline = parser.parse(options, args);
-            runCmd(cmdline);
-        } catch (ParseException pe) {
-            printUsage();
-            Runtime.getRuntime().exit(-1);
-        } catch (IOException ie) {
-            logger.error("Failed to start monitor service : ", ie);
-            Runtime.getRuntime().exit(-1);
+    public void runServer() throws IllegalArgumentException, IOException {
+        Preconditions.checkArgument(uriArg.isPresent(),
+                "No distributedlog uri provided.");
+        Preconditions.checkArgument(serverSetArg.isPresent(),
+                "No proxy server set provided.");
+        if (intervalArg.isPresent()) {
+            interval = intervalArg.get();
         }
-    }
-
-    void runCmd(CommandLine cmdline) throws ParseException, IOException {
-        if (!cmdline.hasOption("u")) {
-            throw new ParseException("No distributedlog uri provided.");
+        if (regionIdArg.isPresent()) {
+            regionId = regionIdArg.get();
         }
-        if (!cmdline.hasOption("s")) {
-            throw new ParseException("No proxy server set provided.");
+        if (streamRegexArg.isPresent()) {
+            streamRegex = streamRegexArg.get();
         }
-        if (cmdline.hasOption("i")) {
-            interval = Integer.parseInt(cmdline.getOptionValue("i"));
+        if (instanceIdArg.isPresent()) {
+            instanceId = instanceIdArg.get();
         }
-        if (cmdline.hasOption("d")) {
-            regionId = Integer.parseInt(cmdline.getOptionValue("d"));
+        if (totalInstancesArg.isPresent()) {
+            totalInstances = totalInstancesArg.get();
         }
-        if (cmdline.hasOption("f")) {
-            streamRegex = cmdline.getOptionValue("f");
+        if (heartbeatEveryChecksArg.isPresent()) {
+            heartbeatEveryChecks = heartbeatEveryChecksArg.get();
         }
-        if (cmdline.hasOption("n")) {
-            instanceId = Integer.parseInt(cmdline.getOptionValue("n"));
-        }
-        if (cmdline.hasOption("t")) {
-            totalInstances = Integer.parseInt(cmdline.getOptionValue("t"));
-        }
-        if (cmdline.hasOption("hck")) {
-            heartbeatEveryChecks = Integer.parseInt(cmdline.getOptionValue("hck"));
-        }
-        handshakeWithClientInfo = cmdline.hasOption("hsci");
         if (instanceId < 0 || totalInstances <= 0 || instanceId >= totalInstances) {
-            throw new ParseException("Invalid instance id or total instances number.");
+            throw new IllegalArgumentException("Invalid instance id or total instances number.");
         }
-        watchNamespaceChanges = cmdline.hasOption('w');
-        URI uri = URI.create(cmdline.getOptionValue("u"));
+        handshakeWithClientInfo = handshakeWithClientInfoArg.isPresent();
+        watchNamespaceChanges = watchNamespaceChangesArg.isPresent();
+        URI uri = URI.create(uriArg.get());
         DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
-        if (cmdline.hasOption("c")) {
-            String configFile = cmdline.getOptionValue("c");
+        if (confFileArg.isPresent()) {
+            String configFile = confFileArg.get();
             try {
                 dlConf.loadConf(new File(configFile).toURI().toURL());
             } catch (ConfigurationException e) {
-                throw new ParseException("Failed to load distributedlog configuration from " + configFile + ".");
+                throw new IOException("Failed to load distributedlog configuration from " + configFile + ".");
             } catch (MalformedURLException e) {
-                throw new ParseException("Failed to load distributedlog configuration from malformed "
+                throw new IOException("Failed to load distributedlog configuration from malformed "
                         + configFile + ".");
             }
         }
-        statsProvider = new NullStatsProvider();
-        if (cmdline.hasOption("p")) {
-            String providerClass = cmdline.getOptionValue("p");
-            statsProvider = ReflectionUtils.newInstance(providerClass, StatsProvider.class);
-        }
         logger.info("Starting stats provider : {}.", statsProvider.getClass());
         statsProvider.start(dlConf);
-        String[] serverSetPaths = StringUtils.split(cmdline.getOptionValue("s"), ",");
+        String[] serverSetPaths = StringUtils.split(serverSetArg.get(), ",");
         if (serverSetPaths.length == 0) {
-            throw new ParseException("Invalid serverset paths provided : " + cmdline.getOptionValue("s"));
+            throw new IllegalArgumentException("Invalid serverset paths provided : " + serverSetArg.get());
         }
 
-        ServerSet[] serverSets = new ServerSet[serverSetPaths.length];
-        zkClients = new ZooKeeperClient[serverSetPaths.length];
-        for (int i = 0; i < serverSetPaths.length; i++) {
-            String serverSetPath = serverSetPaths[i];
-            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
-            zkClients[i] = ssPair.getLeft();
-            serverSets[i] = ssPair.getRight();
-        }
-
+        ServerSet[] serverSets = createServerSets(serverSetPaths);
         ServerSet local = serverSets[0];
         ServerSet[] remotes  = new ServerSet[serverSets.length - 1];
         System.arraycopy(serverSets, 1, remotes, 0, remotes.length);
@@ -318,6 +304,21 @@ public class MonitorService implements Runnable, NamespaceListener {
                 .statsReceiver(monitorReceiver.scope("client"))
                 .buildMonitorClient();
         runMonitor(dlConf, uri);
+    }
+
+    ServerSet[] createServerSets(String[] serverSetPaths) {
+        ServerSet[] serverSets = new ServerSet[serverSetPaths.length];
+        zkServerSets = new DLZkServerSet[serverSetPaths.length];
+        for (int i = 0; i < serverSetPaths.length; i++) {
+            String serverSetPath = serverSetPaths[i];
+            zkServerSets[i] = parseServerSet(serverSetPath);
+            serverSets[i] = zkServerSets[i].getServerSet();
+        }
+        return serverSets;
+    }
+
+    protected DLZkServerSet parseServerSet(String serverSetPath) {
+        return DLZkServerSet.of(URI.create(serverSetPath), 60000);
     }
 
     @Override
@@ -390,9 +391,9 @@ public class MonitorService implements Runnable, NamespaceListener {
         if (null != dlClient) {
             dlClient.close();
         }
-        if (null != zkClients) {
-            for (ZooKeeperClient zkClient : zkClients) {
-                zkClient.close();
+        if (null != zkServerSets) {
+            for (DLZkServerSet zkServerSet : zkServerSets) {
+                zkServerSet.close();
             }
         }
         if (null != dlNamespace) {
@@ -417,26 +418,4 @@ public class MonitorService implements Runnable, NamespaceListener {
         keepAliveLatch.await();
     }
 
-    public static MonitorService run(String[] args) {
-        final MonitorService service = new MonitorService(args);
-        service.run();
-        return service;
-    }
-
-    public static void main(String[] args) {
-        final MonitorService service = run(args);
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                logger.info("Closing monitor service.");
-                service.close();
-                logger.info("Closed monitor service.");
-            }
-        });
-        try {
-            service.join();
-        } catch (InterruptedException ie) {
-            logger.warn("Interrupted when waiting monitor service to be finished : ", ie);
-        }
-    }
 }

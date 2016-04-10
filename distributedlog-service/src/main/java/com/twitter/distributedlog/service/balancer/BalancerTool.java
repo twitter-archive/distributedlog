@@ -4,15 +4,14 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import com.twitter.distributedlog.service.ClientUtils;
 import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.tools.Tool;
+import com.twitter.distributedlog.util.DLUtils;
 import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Await;
@@ -20,12 +19,12 @@ import com.twitter.util.Duration;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.net.URI;
 
 /**
  * Tool to rebalance cluster
@@ -33,28 +32,6 @@ import java.net.InetSocketAddress;
 public class BalancerTool extends Tool {
 
     static final Logger logger = LoggerFactory.getLogger(BalancerTool.class);
-
-    private static Iterable<InetSocketAddress> getSdZkEndpointsForDC(String dc) {
-        if ("atla".equals(dc)) {
-            return TwitterZk.ATLA_SD_ZK_ENDPOINTS;
-        } else if ("smf1".equals(dc)) {
-            return TwitterZk.SMF1_SD_ZK_ENDPOINTS;
-        } else {
-            return TwitterZk.SD_ZK_ENDPOINTS;
-        }
-    }
-
-    static Pair<String, TwitterServerSet.Service> parseServerSet(String serverSetPath) throws ParseException {
-        String[] serverSetPathParts = StringUtils.split(serverSetPath, '/');
-        if (serverSetPathParts.length != 4) {
-            throw new ParseException("Invalid serverset path : " + serverSetPath
-                    + ", Expected: <dc>/<role>/<env>/<job>.");
-        }
-        String dc = serverSetPathParts[0];
-        TwitterServerSet.Service zkService =
-                new TwitterServerSet.Service(serverSetPathParts[1], serverSetPathParts[2], serverSetPathParts[3]);
-        return Pair.of(dc, zkService);
-    }
 
     static DistributedLogClientBuilder createDistributedLogClientBuilder(ServerSet serverSet) {
         return DistributedLogClientBuilder.newBuilder()
@@ -141,12 +118,12 @@ public class BalancerTool extends Tool {
 
     protected static class ClusterBalancerCommand extends BalancerCommand {
 
-        protected Pair<String, TwitterServerSet.Service> cluster;
+        protected URI uri;
         protected String source = null;
 
         protected ClusterBalancerCommand() {
             super("clusterbalancer", "Balance streams inside a cluster");
-            options.addOption("s", "serverset", true, "DistributedLog Proxy ServerSet");
+            options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("sp", "source-proxy", true, "Source proxy to balance");
         }
 
@@ -157,10 +134,10 @@ public class BalancerTool extends Tool {
 
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
-            if (!cmdline.hasOption("s")) {
+            if (!cmdline.hasOption("u")) {
                 throw new ParseException("No proxy serverset provided.");
             }
-            cluster = parseServerSet(cmdline.getOptionValue("s"));
+            uri = URI.create(cmdline.getOptionValue("u"));
             if (cmdline.hasOption("sp")) {
                 String sourceProxyStr = cmdline.getOptionValue("sp");
                 try {
@@ -174,15 +151,11 @@ public class BalancerTool extends Tool {
 
         @Override
         protected int executeCommand(CommandLine cmdline) throws Exception {
-            ZooKeeperClient zkClient = TwitterServerSet
-                    .clientBuilder(cluster.getRight())
-                    .zkEndpoints(getSdZkEndpointsForDC(cluster.getLeft()))
-                    .build();
-            logger.info("Created zookeeper client for dc {} : {}",
-                    cluster.getLeft(), cluster.getRight());
+            DLZkServerSet serverSet = DLZkServerSet.of(uri, 60000);
+            logger.info("Created serverset for {}", uri);
             try {
-                ServerSet serverSet = TwitterServerSet.create(zkClient, cluster.getRight());
-                DistributedLogClientBuilder clientBuilder = createDistributedLogClientBuilder(serverSet);
+                DistributedLogClientBuilder clientBuilder =
+                        createDistributedLogClientBuilder(serverSet.getServerSet());
                 ClusterBalancer balancer = new ClusterBalancer(clientBuilder);
                 try {
                     return runBalancer(clientBuilder, balancer);
@@ -190,7 +163,7 @@ public class BalancerTool extends Tool {
                     balancer.close();
                 }
             } finally {
-                zkClient.close();
+                serverSet.close();
             }
         }
 
@@ -229,13 +202,13 @@ public class BalancerTool extends Tool {
 
     protected static class RegionBalancerCommand extends BalancerCommand {
 
-        protected Pair<String, TwitterServerSet.Service> region1;
-        protected Pair<String, TwitterServerSet.Service> region2;
+        protected URI region1;
+        protected URI region2;
         protected String source = null;
 
         protected RegionBalancerCommand() {
             super("regionbalancer", "Balance streams between regions");
-            options.addOption("rs", "regions", true, "DistributedLog Region ServerSets: serverset1[,serverset2]");
+            options.addOption("rs", "regions", true, "DistributedLog Region URI: uri1[,uri2]");
             options.addOption("s", "source", true, "DistributedLog Source Region to balance");
         }
 
@@ -255,8 +228,8 @@ public class BalancerTool extends Tool {
             if (regions.length != 2) {
                 throw new ParseException("Invalid regions provided. Expected : serverset1[,serverset2]");
             }
-            region1 = parseServerSet(regions[0]);
-            region2 = parseServerSet(regions[1]);
+            region1 = URI.create(regions[0]);
+            region2 = URI.create(regions[1]);
             if (cmdline.hasOption("s")) {
                 source = cmdline.getOptionValue("s");
             }
@@ -264,31 +237,23 @@ public class BalancerTool extends Tool {
 
         @Override
         protected int executeCommand(CommandLine cmdline) throws Exception {
-            ZooKeeperClient zkClient1 = TwitterServerSet
-                    .clientBuilder(region1.getRight())
-                    .zkEndpoints(getSdZkEndpointsForDC(region1.getLeft()))
-                    .build();
-            logger.info("Created zookeeper client for dc {} : {}",
-                    region1.getLeft(), region1.getRight());
-            ZooKeeperClient zkClient2 = TwitterServerSet
-                    .clientBuilder(region2.getRight())
-                    .zkEndpoints(getSdZkEndpointsForDC(region2.getLeft()))
-                    .build();
-            logger.info("Created zookeeper client for dc {} : {}",
-                        region2.getLeft(), region2.getRight());
+            DLZkServerSet serverSet1 = DLZkServerSet.of(region1, 60000);
+            logger.info("Created serverset for {}", region1);
+            DLZkServerSet serverSet2 = DLZkServerSet.of(region2, 60000);
+            logger.info("Created serverset for {}", region2);
             try {
-                ServerSet serverSet1 = TwitterServerSet.create(zkClient1, region1.getRight());
-                DistributedLogClientBuilder builder1 = createDistributedLogClientBuilder(serverSet1);
+                DistributedLogClientBuilder builder1 =
+                        createDistributedLogClientBuilder(serverSet1.getServerSet());
                 Pair<DistributedLogClient, MonitorServiceClient> pair1 =
                         ClientUtils.buildClient(builder1);
-                ServerSet serverSet2 = TwitterServerSet.create(zkClient2, region2.getRight());
-                DistributedLogClientBuilder builder2 = createDistributedLogClientBuilder(serverSet2);
+                DistributedLogClientBuilder builder2 =
+                        createDistributedLogClientBuilder(serverSet2.getServerSet());
                 Pair<DistributedLogClient, MonitorServiceClient> pair2 =
                         ClientUtils.buildClient(builder2);
                 try {
                     SimpleBalancer balancer = new SimpleBalancer(
-                            region1.getLeft(), pair1.getLeft(), pair1.getRight(),
-                            region2.getLeft(), pair2.getLeft(), pair2.getRight());
+                            DLUtils.getZKServersFromDLUri(region1), pair1.getLeft(), pair1.getRight(),
+                            DLUtils.getZKServersFromDLUri(region2), pair2.getLeft(), pair2.getRight());
                     try {
                         return runBalancer(balancer);
                     } finally {
@@ -299,8 +264,8 @@ public class BalancerTool extends Tool {
                     pair2.getLeft().close();
                 }
             } finally {
-                zkClient1.close();
-                zkClient2.close();
+                serverSet1.close();
+                serverSet2.close();
             }
         }
 

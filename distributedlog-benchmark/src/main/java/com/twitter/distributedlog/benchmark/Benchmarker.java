@@ -6,6 +6,7 @@ import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
 import com.twitter.finagle.stats.OstrichStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import org.apache.bookkeeper.stats.NullStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.cli.BasicParser;
@@ -255,8 +256,8 @@ public class Benchmarker {
 
         ShiftableRateLimiter rateLimiter =
                 new ShiftableRateLimiter(rate, maxRate, changeRate, changeRateSeconds, TimeUnit.SECONDS);
-
-        return new WriterWorker(streamPrefix,
+        return createWriteWorker(
+                streamPrefix,
                 null == startStreamId ? shardId * numStreams : startStreamId,
                 null == endStreamId ? (shardId + 1) * numStreams : endStreamId,
                 rateLimiter,
@@ -269,6 +270,44 @@ public class Benchmarker {
                 finagleNames,
                 statsReceiver.scope("write_client"),
                 statsProvider.getStatsLogger("write"),
+                thriftmux,
+                handshakeWithClientInfo,
+                sendBufferSize,
+                recvBufferSize);
+    }
+
+    protected WriterWorker createWriteWorker(
+            String streamPrefix,
+            int startStreamId,
+            int endStreamId,
+            ShiftableRateLimiter rateLimiter,
+            int writeConcurrency,
+            int messageSizeBytes,
+            int batchSize,
+            int hostConnectionCoreSize,
+            int hostConnectionLimit,
+            List<String> serverSetPaths,
+            List<String> finagleNames,
+            StatsReceiver statsReceiver,
+            StatsLogger statsLogger,
+            boolean thriftmux,
+            boolean handshakeWithClientInfo,
+            int sendBufferSize,
+            int recvBufferSize) {
+        return new WriterWorker(
+                streamPrefix,
+                startStreamId,
+                endStreamId,
+                rateLimiter,
+                writeConcurrency,
+                messageSizeBytes,
+                batchSize,
+                hostConnectionCoreSize,
+                hostConnectionLimit,
+                serverSetPaths,
+                finagleNames,
+                statsReceiver,
+                statsLogger,
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
@@ -320,7 +359,8 @@ public class Benchmarker {
             esid = Math.min(esid, maxStreamId);
         }
 
-        return new ReaderWorker(conf,
+        return createReaderWorker(
+                conf,
                 dlUri,
                 streamPrefix,
                 ssid,
@@ -332,6 +372,34 @@ public class Benchmarker {
                 readFromHead,
                 statsReceiver,
                 statsProvider.getStatsLogger("dlreader"));
+    }
+
+    protected ReaderWorker createReaderWorker(
+            DistributedLogConfiguration conf,
+            URI uri,
+            String streamPrefix,
+            int startStreamId,
+            int endStreamId,
+            int readThreadPoolSize,
+            List<String> serverSetPaths,
+            List<String> finagleNames,
+            int truncationIntervalInSeconds,
+            boolean readFromHead, /* read from the earliest data of log */
+            StatsReceiver statsReceiver,
+            StatsLogger statsLogger) throws IOException {
+        return new ReaderWorker(
+                conf,
+                uri,
+                streamPrefix,
+                startStreamId,
+                endStreamId,
+                readThreadPoolSize,
+                serverSetPaths,
+                finagleNames,
+                truncationIntervalInSeconds,
+                readFromHead,
+                statsReceiver,
+                statsLogger);
     }
 
     public static void main(String[] args) {

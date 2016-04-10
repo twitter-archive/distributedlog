@@ -26,9 +26,9 @@
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
-      <groupId>com.twitter.common_internal</groupId>
-      <artifactId>zookeeper-utils</artifactId>
-      <version>0.0.110</version>
+      <groupId>com.twitter.common.zookeeper</groupId>
+      <artifactId>server-set</artifactId>
+      <version>1.0.110</version>
       <exclusions>
         <exclusion>
           <groupId>org.slf4j</groupId>

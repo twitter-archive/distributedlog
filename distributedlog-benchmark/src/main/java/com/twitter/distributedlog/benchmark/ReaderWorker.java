@@ -4,13 +4,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.benchmark.thrift.Message;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
@@ -30,7 +30,6 @@ import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,8 +61,7 @@ public class ReaderWorker implements Worker {
 
     final int truncationIntervalInSeconds;
     // DL Client Related Variables
-    final ZooKeeperClient[] zkClients;
-    final ServerSet[] serverSets;
+    final DLZkServerSet[] serverSets;
     final List<String> finagleNames;
     final DistributedLogClient dlc;
 
@@ -214,15 +212,7 @@ public class ReaderWorker implements Worker {
         this.executorService = Executors.newScheduledThreadPool(
                 readThreadPoolSize, new ThreadFactoryBuilder().setNameFormat("benchmark.reader-%d").build());
         this.finagleNames = finagleNames;
-
-        this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
-        this.serverSets = new ServerSet[serverSetPaths.size()];
-        for (int i = 0; i < serverSets.length; i++) {
-            String serverSetPath = serverSetPaths.get(0);
-            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
-            this.zkClients[i] = ssPair.getLeft();
-            this.serverSets[i] = ssPair.getRight();
-        }
+        this.serverSets = createServerSets(serverSetPaths);
 
         if (truncationIntervalInSeconds > 0 && (!finagleNames.isEmpty() || !serverSetPaths.isEmpty())) {
             // Construct client for truncation
@@ -248,9 +238,11 @@ public class ReaderWorker implements Worker {
                 builder = builder.finagleNameStrs(local, remotes);
                 LOG.info("Initialized distributedlog client for truncation @ {}.", finagleNames);
             } else {
-                ServerSet local = this.serverSets[0];
+                ServerSet local = this.serverSets[0].getServerSet();
                 ServerSet[] remotes = new ServerSet[this.serverSets.length - 1];
-                System.arraycopy(this.serverSets, 1, remotes, 0, remotes.length);
+                for (int i = 1; i < serverSets.length; i++) {
+                    remotes[i-1] = serverSets[i].getServerSet();
+                }
 
                 builder = builder.serverSets(local, remotes);
                 LOG.info("Initialized distributedlog client for truncation @ {}.", serverSetPaths);
@@ -301,6 +293,15 @@ public class ReaderWorker implements Worker {
         }
         LOG.info("Initialized benchmark reader on {} streams {} : [{} - {})",
                  new Object[] { numStreams, streamPrefix, startStreamId, endStreamId });
+    }
+
+    protected DLZkServerSet[] createServerSets(List<String> serverSetPaths) {
+        DLZkServerSet[] serverSets = new DLZkServerSet[serverSetPaths.size()];
+        for (int i = 0; i < serverSets.length; i++) {
+            String serverSetPath = serverSetPaths.get(i);
+            serverSets[i] = DLZkServerSet.of(URI.create(serverSetPath), 60000);
+        }
+        return serverSets;
     }
 
     private Future<Void> reinitStream(int idx) {
@@ -394,8 +395,8 @@ public class ReaderWorker implements Worker {
         if (this.dlc != null) {
             this.dlc.close();
         }
-        for (ZooKeeperClient zkClient : zkClients) {
-            zkClient.close();
+        for (DLZkServerSet serverSet: serverSets) {
+            serverSet.close();
         }
     }
 

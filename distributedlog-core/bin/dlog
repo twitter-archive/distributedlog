@@ -142,10 +142,6 @@ if [ $COMMAND == "local" ]; then
     exec java $OPTS $JMX_ARGS com.twitter.distributedlog.LocalDLMEmulator $@
 elif [ $COMMAND == "tool" ]; then
     exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.tools.DistributedLogTool $@
-elif [ $COMMAND == "proxy_tool" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.service.tools.ProxyTool $@
-elif [ $COMMAND == "balancer" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.service.balancer.BalancerTool $@
 elif [ $COMMAND == "admin" ]; then
     exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.admin.DistributedLogAdmin $@
 elif [ $COMMAND == "help" ]; then

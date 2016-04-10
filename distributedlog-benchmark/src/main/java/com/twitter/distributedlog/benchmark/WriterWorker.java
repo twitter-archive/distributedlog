@@ -3,9 +3,9 @@ package com.twitter.distributedlog.benchmark;
 import com.google.common.base.Preconditions;
 
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
@@ -19,12 +19,12 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,8 +46,7 @@ public class WriterWorker implements Worker {
     final int hostConnectionLimit;
     final ExecutorService executorService;
     final ShiftableRateLimiter rateLimiter;
-    final ZooKeeperClient[] zkClients;
-    final ServerSet[] serverSets;
+    final DLZkServerSet[] serverSets;
     final List<String> finagleNames;
     final Random random;
     final List<String> streamNames;
@@ -106,15 +105,7 @@ public class WriterWorker implements Worker {
         this.sendBufferSize = sendBufferSize;
         this.recvBufferSize = recvBufferSize;
         this.finagleNames = finagleNames;
-        this.serverSets = new ServerSet[serverSetPaths.size()];
-        this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
-
-        for (int i = 0; i < serverSets.length; i++) {
-            String serverSetPath = serverSetPaths.get(i);
-            Pair<ZooKeeperClient, ServerSet> ssPair = Utils.parseServerSet(serverSetPath);
-            this.zkClients[i] = ssPair.getLeft();
-            this.serverSets[i] = ssPair.getRight();
-        }
+        this.serverSets = createServerSets(serverSetPaths);
 
         // Streams
         streamNames = new ArrayList<String>(endStreamId - startStreamId);
@@ -125,12 +116,21 @@ public class WriterWorker implements Worker {
         LOG.info("Writing to {} streams : {}", numStreams, streamNames);
     }
 
+    protected DLZkServerSet[] createServerSets(List<String> serverSetPaths) {
+        DLZkServerSet[] serverSets = new DLZkServerSet[serverSetPaths.size()];
+        for (int i = 0; i < serverSets.length; i++) {
+            String serverSetPath = serverSetPaths.get(i);
+            serverSets[i] = DLZkServerSet.of(URI.create(serverSetPath), 60000);
+        }
+        return serverSets;
+    }
+
     @Override
     public void close() throws IOException {
         this.running = false;
         SchedulerUtils.shutdownScheduler(this.executorService, 2, TimeUnit.MINUTES);
-        for (ZooKeeperClient zkClient : zkClients) {
-            zkClient.close();
+        for (DLZkServerSet serverSet: serverSets) {
+            serverSet.close();
         }
     }
 
@@ -169,10 +169,11 @@ public class WriterWorker implements Worker {
 
             builder = builder.finagleNameStrs(local, remotes);
         } else {
-            ServerSet local = serverSets[0];
+            ServerSet local = serverSets[0].getServerSet();
             ServerSet[] remotes = new ServerSet[serverSets.length - 1];
-            System.arraycopy(serverSets, 1, remotes, 0, remotes.length);
-
+            for (int i = 1; i < serverSets.length; i++) {
+                remotes[i-1] = serverSets[i].getServerSet();
+            }
             builder = builder.serverSets(local, remotes);
         }
 

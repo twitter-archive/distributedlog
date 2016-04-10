@@ -1,6 +1,5 @@
 package com.twitter.distributedlog.service;
 
-import com.google.common.base.Optional;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import org.apache.bookkeeper.stats.NullStatsProvider;
@@ -16,6 +15,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Arrays;
+
+import static com.twitter.distributedlog.util.CommandLineUtils.*;
 
 public class DistributedLogServerApp {
 
@@ -65,34 +66,6 @@ public class DistributedLogServerApp {
         } catch (IOException ie) {
             logger.error("Failed to start distributedlog server : ", ie);
             Runtime.getRuntime().exit(-1);
-        }
-    }
-
-    private Optional<String> getOptionalStringArg(CommandLine cmdline, String arg) {
-        if (cmdline.hasOption(arg)) {
-            return Optional.of(cmdline.getOptionValue(arg));
-        } else {
-            return Optional.absent();
-        }
-    }
-
-    private Optional<Boolean> getOptionalBooleanArg(CommandLine cmdline, String arg) {
-        if (cmdline.hasOption(arg)) {
-            return Optional.of(true);
-        } else {
-            return Optional.absent();
-        }
-    }
-
-    private Optional<Integer> getOptionalIntegerArg(CommandLine cmdline, String arg) throws IllegalArgumentException {
-        try {
-            if (cmdline.hasOption(arg)) {
-                return Optional.of(Integer.parseInt(cmdline.getOptionValue(arg)));
-            } else {
-                return Optional.absent();
-            }
-        } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException(arg + " is not a number");
         }
     }
 

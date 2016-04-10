@@ -1,18 +1,15 @@
 package com.twitter.distributedlog.service.announcer;
 
-import com.google.common.base.Preconditions;
 import com.twitter.common.zookeeper.Group;
 import com.twitter.common.zookeeper.ServerSet;
-import com.twitter.common.zookeeper.ZooKeeperClient;
-import com.twitter.common_internal.zookeeper.TwitterServerSet;
-import com.twitter.common_internal.zookeeper.TwitterZk;
-import org.apache.commons.lang.StringUtils;
+import com.twitter.distributedlog.client.serverset.DLZkServerSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,8 +24,7 @@ public class ServerSetAnnouncer implements Announcer {
     final int shardId;
 
     // ServerSet
-    final ServerSet serverSet;
-    final ZooKeeperClient zkClient;
+    DLZkServerSet zkServerSet;
 
     // Service Status
     ServerSet.EndpointStatus serviceStatus = null;
@@ -43,14 +39,10 @@ public class ServerSetAnnouncer implements Announcer {
      * @param shardId
      *          shard id
      */
-    public ServerSetAnnouncer(String serverSetPath,
+    public ServerSetAnnouncer(URI uri,
                               int servicePort,
                               int statsPort,
                               int shardId) throws UnknownHostException {
-        String[] serverSetPathParts = StringUtils.split(serverSetPath, '/');
-        Preconditions.checkArgument(serverSetPathParts.length == 3,
-                "Invalid serverset path : " + serverSetPath);
-
         this.shardId = shardId;
         this.localAddr = InetAddress.getLocalHost().getHostAddress();
         // service endpoint
@@ -63,21 +55,15 @@ public class ServerSetAnnouncer implements Announcer {
         this.additionalEndpoints.put("service", serviceEndpoint);
         this.additionalEndpoints.put("thrift", serviceEndpoint);
 
-        // Server Set Client
-        TwitterServerSet.Service zkService = new TwitterServerSet.Service(
-                serverSetPathParts[0], serverSetPathParts[1], serverSetPathParts[2]);
-        zkClient = TwitterServerSet
-                .clientBuilder(zkService)
-                .zkEndpoints(TwitterZk.SD_ZK_ENDPOINTS)
-                .build();
-        serverSet = TwitterServerSet.create(zkClient, zkService);
+        // Create zookeeper and server set
+        this.zkServerSet = DLZkServerSet.of(uri, 60000);
     }
 
     @Override
     public synchronized void announce() throws IOException {
         try {
             serviceStatus =
-                    serverSet.join(serviceEndpoint, additionalEndpoints, shardId);
+                    zkServerSet.getServerSet().join(serviceEndpoint, additionalEndpoints, shardId);
         } catch (Group.JoinException e) {
             throw new IOException("Failed to announce service : ", e);
         } catch (InterruptedException e) {
@@ -101,6 +87,6 @@ public class ServerSetAnnouncer implements Announcer {
 
     @Override
     public void close() {
-        zkClient.close();
+        zkServerSet.close();
     }
 }
