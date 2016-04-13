@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Monitoring &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Deployment &amp; Administration" href="main.html" />
+    <link rel="next" title="ZooKeeper" href="zookeeper.html" />
+    <link rel="prev" title="Hardware" href="hardware.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          7.5 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="monitoring">
+<h1>Monitoring<a class="headerlink" href="#monitoring" title="Permalink to this headline">¶</a></h1>
+<p>DistributedLog uses the stats library provided by Apache BookKeeper for reporting metrics in
+both the server and the client. This can be configured to report stats using pluggable stats
+provider to integrate with your monitoring system.</p>
+<div class="section" id="stats-provider">
+<h2>Stats Provider<a class="headerlink" href="#stats-provider" title="Permalink to this headline">¶</a></h2>
+<p><cite>StatsProvider</cite> is a provider that provides different kinds of stats logger for different scopes.
+The provider is also responsible for reporting its managed metrics.</p>
+<div class="highlight-python"><pre>// Create the stats provider
+StatsProvider statsProvider = ...;
+// Start the stats provider
+statsProvider.start(conf);
+// Stop the stats provider
+statsProvider.stop();</pre>
+<div style='display:none;' class='raw-code'><pre>// Create the stats provider
+StatsProvider statsProvider = ...;
+// Start the stats provider
+statsProvider.start(conf);
+// Stop the stats provider
+statsProvider.stop();</pre>
+</div></div>
+<div class="section" id="stats-logger">
+<h3>Stats Logger<a class="headerlink" href="#stats-logger" title="Permalink to this headline">¶</a></h3>
+<p>A scoped <cite>StatsLogger</cite> is a stats logger that records 3 kinds of statistics
+under a given <cite>scope</cite>.</p>
+<p>A <cite>StatsLogger</cite> could be either created by obtaining from stats provider with
+the scope name:</p>
+<div class="highlight-python"><pre>StatsProvider statsProvider = ...;
+StatsLogger statsLogger = statsProvider.scope("test-scope");</pre>
+<div style='display:none;' class='raw-code'><pre>StatsProvider statsProvider = ...;
+StatsLogger statsLogger = statsProvider.scope("test-scope");</pre>
+</div></div>
+<p>Or created by obtaining from a stats logger with a sub scope name:</p>
+<div class="highlight-python"><pre>StatsLogger rootStatsLogger = ...;
+StatsLogger subStatsLogger = rootStatsLogger.scope("sub-scope");</pre>
+<div style='display:none;' class='raw-code'><pre>StatsLogger rootStatsLogger = ...;
+StatsLogger subStatsLogger = rootStatsLogger.scope("sub-scope");</pre>
+</div></div>
+<p>All the metrics in a stats provider are managed in a hierarchical of scopes.</p>
+<div class="highlight-python"><pre>// all stats recorded by `rootStatsLogger` are under 'root'
+StatsLogger rootStatsLogger = statsProvider.scope("root");
+// all stats recorded by 'subStatsLogger1` are under 'root/scope1'
+StatsLogger subStatsLogger1 = statsProvider.scope("scope1");
+// all stats recorded by 'subStatsLogger2` are under 'root/scope2'
+StatsLogger subStatsLogger2 = statsProvider.scope("scope2");</pre>
+<div style='display:none;' class='raw-code'><pre>// all stats recorded by `rootStatsLogger` are under 'root'
+StatsLogger rootStatsLogger = statsProvider.scope("root");
+// all stats recorded by 'subStatsLogger1` are under 'root/scope1'
+StatsLogger subStatsLogger1 = statsProvider.scope("scope1");
+// all stats recorded by 'subStatsLogger2` are under 'root/scope2'
+StatsLogger subStatsLogger2 = statsProvider.scope("scope2");</pre>
+</div></div>
+<div class="section" id="counters">
+<h4>Counters<a class="headerlink" href="#counters" title="Permalink to this headline">¶</a></h4>
+<p>A <cite>Counter</cite> is a cumulative metric that represents a single numerical value. A <strong>counter</strong>
+is typically used to count requests served, tasks completed, errors occurred, etc. Counters
+should not be used to expose current counts of items whose number can also go down, e.g.
+the number of currently running tasks. Use <cite>Gauges</cite> for this use case.</p>
+<p>To change a counter, use:</p>
+<div class="highlight-python"><pre>StatsLogger statsLogger = ...;
+Counter births = statsLogger.getCounter("births");
+// increment the counter
+births.inc();
+// decrement the counter
+births.dec();
+// change the counter by delta
+births.add(-10);
+// reset the counter
+births.reset();</pre>
+<div style='display:none;' class='raw-code'><pre>StatsLogger statsLogger = ...;
+Counter births = statsLogger.getCounter("births");
+// increment the counter
+births.inc();
+// decrement the counter
+births.dec();
+// change the counter by delta
+births.add(-10);
+// reset the counter
+births.reset();</pre>
+</div></div>
+</div>
+<div class="section" id="gauges">
+<h4>Gauges<a class="headerlink" href="#gauges" title="Permalink to this headline">¶</a></h4>
+<p>A <cite>Gauge</cite> is a metric that represents a single numerical value that can arbitrarily go up and down.</p>
+<p>Gauges are typically used for measured values like temperatures or current memory usage, but also
+&quot;counts&quot; that can go up and down, like the number of running tasks.</p>
+<p>To define a gauge, stick the following code somewhere in the initialization:</p>
+<div class="highlight-python"><pre>final AtomicLong numPendingRequests = new AtomicLong(0L);
+StatsLogger statsLogger = ...;
+statsLogger.registerGauge(
+    "num_pending_requests",
+    new Gauge&lt;Number&gt;() {
+        @Override
+        public Number getDefaultValue() {
+            return 0;
+        }
+        @Override
+        public Number getSample() {
+            return numPendingRequests.get();
+        }
+    });</pre>
+<div style='display:none;' class='raw-code'><pre>final AtomicLong numPendingRequests = new AtomicLong(0L);
+StatsLogger statsLogger = ...;
+statsLogger.registerGauge(
+    "num_pending_requests",
+    new Gauge&lt;Number&gt;() {
+        @Override
+        public Number getDefaultValue() {
+            return 0;
+        }
+        @Override
+        public Number getSample() {
+            return numPendingRequests.get();
+        }
+    });</pre>
+</div></div>
+<p>The gauge must always return a numerical value when sampling.</p>
+</div>
+<div class="section" id="metrics-opstats">
+<h4>Metrics (OpStats)<a class="headerlink" href="#metrics-opstats" title="Permalink to this headline">¶</a></h4>
+<p>A <cite>OpStats</cite> is a set of metrics that represents the statistics of an <cite>operation</cite>. Those metrics
+include <cite>success</cite> or <cite>failure</cite> of the operations and its distribution (also known as <cite>Histogram</cite>).
+It is usually used for timing.</p>
+<div class="highlight-python"><pre>StatsLogger statsLogger = ...;
+OpStatsLogger writeStats = statsLogger.getOpStatsLogger("writes");
+long writeLatency = ...;
+
+// register success op
+writeStats.registerSuccessfulEvent(writeLatency);
+
+// register failure op
+writeStats.registerFailedEvent(writeLatency);</pre>
+<div style='display:none;' class='raw-code'><pre>StatsLogger statsLogger = ...;
+OpStatsLogger writeStats = statsLogger.getOpStatsLogger("writes");
+long writeLatency = ...;
+
+// register success op
+writeStats.registerSuccessfulEvent(writeLatency);
+
+// register failure op
+writeStats.registerFailedEvent(writeLatency);</pre>
+</div></div>
+</div>
+</div>
+</div>
+<div class="section" id="available-stats-providers">
+<h2>Available Stats Providers<a class="headerlink" href="#available-stats-providers" title="Permalink to this headline">¶</a></h2>
+<p>All the available stats providers are listed as below:</p>
+<ul class="simple">
+<li>Twitter Science Stats (deprecated)</li>
+<li>Twitter Ostrich Stats (deprecated)</li>
+<li>Twitter Finagle Stats</li>
+<li>Codahale Stats</li>
+</ul>
+<div class="section" id="twitter-science-stats">
+<h3>Twitter Science Stats<a class="headerlink" href="#twitter-science-stats" title="Permalink to this headline">¶</a></h3>
+<p>Use following dependency to enable Twitter science stats provider.</p>
+<div class="highlight-python"><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-science-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+<div style='display:none;' class='raw-code'><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-science-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+</div></div>
+<p>Construct the stats provider for clients.</p>
+<div class="highlight-python"><pre>StatsProvider statsProvider = new TwitterStatsProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+<div style='display:none;' class='raw-code'><pre>StatsProvider statsProvider = new TwitterStatsProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+</div></div>
+<p>Expose the stats collected by the stats provider by configuring following settings:</p>
+<div class="highlight-python"><pre>// enable exporting the stats
+statsExport=true
+// exporting the stats at port 8080
+statsHttpPort=8080</pre>
+<div style='display:none;' class='raw-code'><pre>// enable exporting the stats
+statsExport=true
+// exporting the stats at port 8080
+statsHttpPort=8080</pre>
+</div></div>
+<p>If exporting stats is enabled, all the stats are exported by the http endpoint.
+You could curl the http endpoint to check the stats.</p>
+<div class="highlight-python"><pre>curl -s &lt;host&gt;:8080/vars</pre>
+<div style='display:none;' class='raw-code'><pre>curl -s &lt;host&gt;:8080/vars</pre>
+</div></div>
+<p>check <a class="reference external" href="https://github.com/twitter/commons/tree/master/src/java/com/twitter/common/stats">ScienceStats</a> for more details.</p>
+</div>
+<div class="section" id="twitter-ostrich-stats">
+<h3>Twitter Ostrich Stats<a class="headerlink" href="#twitter-ostrich-stats" title="Permalink to this headline">¶</a></h3>
+<p>Use following dependency to enable Twitter ostrich stats provider.</p>
+<div class="highlight-python"><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-ostrich-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+<div style='display:none;' class='raw-code'><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-ostrich-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+</div></div>
+<p>Construct the stats provider for clients.</p>
+<div class="highlight-python"><pre>StatsProvider statsProvider = new TwitterOstrichProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+<div style='display:none;' class='raw-code'><pre>StatsProvider statsProvider = new TwitterOstrichProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+</div></div>
+<p>Expose the stats collected by the stats provider by configuring following settings:</p>
+<div class="highlight-python"><pre>// enable exporting the stats
+statsExport=true
+// exporting the stats at port 8080
+statsHttpPort=8080</pre>
+<div style='display:none;' class='raw-code'><pre>// enable exporting the stats
+statsExport=true
+// exporting the stats at port 8080
+statsHttpPort=8080</pre>
+</div></div>
+<p>If exporting stats is enabled, all the stats are exported by the http endpoint.
+You could curl the http endpoint to check the stats.</p>
+<div class="highlight-python"><pre>curl -s &lt;host&gt;:8080/stats.txt</pre>
+<div style='display:none;' class='raw-code'><pre>curl -s &lt;host&gt;:8080/stats.txt</pre>
+</div></div>
+<p>check <a class="reference external" href="https://github.com/twitter/ostrich">Ostrich</a> for more details.</p>
+</div>
+<div class="section" id="twitter-finagle-metrics">
+<h3>Twitter Finagle Metrics<a class="headerlink" href="#twitter-finagle-metrics" title="Permalink to this headline">¶</a></h3>
+<p>Use following dependency to enable bridging finagle stats receiver to bookkeeper's stats provider.
+All the stats exposed by the stats provider will be collected by finagle stats receiver and exposed
+by Twitter's admin service.</p>
+<div class="highlight-python"><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-finagle-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+<div style='display:none;' class='raw-code'><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;twitter-finagle-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+</div></div>
+<p>Construct the stats provider for clients.</p>
+<div class="highlight-python"><pre>StatsReceiver statsReceiver = ...; // finagle stats receiver
+StatsProvider statsProvider = new FinagleStatsProvider(statsReceiver);
+DistributedLogConfiguration conf = ...;
+
+// the stats provider does nothing on start.
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// the stats provider does nothing on stop.
+statsProvider.stop();</pre>
+<div style='display:none;' class='raw-code'><pre>StatsReceiver statsReceiver = ...; // finagle stats receiver
+StatsProvider statsProvider = new FinagleStatsProvider(statsReceiver);
+DistributedLogConfiguration conf = ...;
+
+// the stats provider does nothing on start.
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// the stats provider does nothing on stop.
+statsProvider.stop();</pre>
+</div></div>
+<p>check <a class="reference external" href="https://twitter.github.io/twitter-server/Migration.html">finagle metrics library</a> for more details on how to expose the stats.</p>
+</div>
+<div class="section" id="codahale-metrics">
+<h3>Codahale Metrics<a class="headerlink" href="#codahale-metrics" title="Permalink to this headline">¶</a></h3>
+<p>Use following dependency to enable Twitter ostrich stats provider.</p>
+<div class="highlight-python"><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;codahale-metrics-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+<div style='display:none;' class='raw-code'><pre>&lt;dependency&gt;
+  &lt;groupId&gt;org.apache.bookkeeper.stats&lt;/groupId&gt;
+  &lt;artifactId&gt;codahale-metrics-provider&lt;/artifactId&gt;
+  &lt;version&gt;${bookkeeper.version}&lt;/version&gt;
+&lt;/dependency&gt;</pre>
+</div></div>
+<p>Construct the stats provider for clients.</p>
+<div class="highlight-python"><pre>StatsProvider statsProvider = new CodahaleMetricsProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+<div style='display:none;' class='raw-code'><pre>StatsProvider statsProvider = new CodahaleMetricsProvider();
+DistributedLogConfiguration conf = ...;
+
+// starts the stats provider (optional)
+statsProvider.start(conf);
+
+// all the dl related stats are exposed under "dlog"
+StatsLogger statsLogger = statsProvider.getStatsLogger("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(...)
+    .conf(conf)
+    .statsLogger(statsLogger)
+    .build();
+
+...
+
+// stop the stats provider (optional)
+statsProvider.stop();</pre>
+</div></div>
+<p>Expose the stats collected by the stats provider in different ways by configuring following settings.
+Check <a class="reference external" href="https://dropwizard.github.io/metrics/3.1.0/">Codehale</a> on how to configuring report endpoints.</p>
+<div class="highlight-python"><pre>// How frequent report the stats
+codahaleStatsOutputFrequencySeconds=...
+// The prefix string of codahale stats
+codahaleStatsPrefix=...
+
+//
+// Report Endpoints
+//
+
+// expose the stats to Graphite
+codahaleStatsGraphiteEndpoint=...
+// expose the stats to CSV files
+codahaleStatsCSVEndpoint=...
+// expose the stats to Slf4j logging
+codahaleStatsSlf4jEndpoint=...
+// expose the stats to JMX endpoint
+codahaleStatsJmxEndpoint=...</pre>
+<div style='display:none;' class='raw-code'><pre>// How frequent report the stats
+codahaleStatsOutputFrequencySeconds=...
+// The prefix string of codahale stats
+codahaleStatsPrefix=...
+
+//
+// Report Endpoints
+//
+
+// expose the stats to Graphite
+codahaleStatsGraphiteEndpoint=...
+// expose the stats to CSV files
+codahaleStatsCSVEndpoint=...
+// expose the stats to Slf4j logging
+codahaleStatsSlf4jEndpoint=...
+// expose the stats to JMX endpoint
+codahaleStatsJmxEndpoint=...</pre>
+</div></div>
+<p>check <a class="reference external" href="https://dropwizard.github.io/metrics/3.1.0/">Codehale</a> for more details.</p>
+</div>
+</div>
+<div class="section" id="enable-stats-provider-on-bookie-servers">
+<h2>Enable Stats Provider on Bookie Servers<a class="headerlink" href="#enable-stats-provider-on-bookie-servers" title="Permalink to this headline">¶</a></h2>
+<p>The stats provider used by <em>Bookie Servers</em> is configured by setting the following option.</p>
+<div class="highlight-python"><pre>// class of stats provider
+statsProviderClass="org.apache.bookkeeper.stats.CodahaleMetricsProvider"</pre>
+<div style='display:none;' class='raw-code'><pre>// class of stats provider
+statsProviderClass="org.apache.bookkeeper.stats.CodahaleMetricsProvider"</pre>
+</div></div>
+</div>
+<div class="section" id="metrics">
+<h2>Metrics<a class="headerlink" href="#metrics" title="Permalink to this headline">¶</a></h2>
+<p>Check the <a class="reference internal" href="../references/metrics.html"><em>Metrics</em></a> reference page for the metrics exposed by DistributedLog.</p>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/operations/monitoring.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/operations/monitoring.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="//">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>

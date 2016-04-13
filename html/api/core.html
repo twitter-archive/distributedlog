@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Core Library API &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+    <link rel="up" title="API" href="main.html" />
+    <link rel="next" title="Write Proxy Client API" href="proxy.html" />
+    <link rel="prev" title="API" href="main.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">API</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          7.5 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="core-library-api">
+<h1>Core Library API<a class="headerlink" href="#core-library-api" title="Permalink to this headline">¶</a></h1>
+<p>The distributedlog core library interacts with namespaces and logs directly.
+It is written in Java.</p>
+<div class="section" id="namespace-api">
+<h2>Namespace API<a class="headerlink" href="#namespace-api" title="Permalink to this headline">¶</a></h2>
+<p>A DL namespace is a collection of <em>log streams</em>. Applications could <em>create</em>
+or <em>delete</em> logs under a DL namespace.</p>
+<div class="section" id="namespace-uri">
+<h3>Namespace URI<a class="headerlink" href="#namespace-uri" title="Permalink to this headline">¶</a></h3>
+<p>An <strong>URI</strong> is used to locate the <em>namespace</em>. The <em>Namespace URI</em> is typically
+comprised of <em>3</em> components:</p>
+<ul class="simple">
+<li>scheme: <cite>distributedlog-&lt;backend&gt;</cite>. The <em>backend</em> indicates what backend is used to store the log data.</li>
+<li>domain name: the domain name that used to talk to the <em>backend</em>. In the example as below, the domain name part is <em>zookeeper server</em>, which is used to store log metadata in bookkeeper based backend implementation.</li>
+<li>path: path points to the location that stores logs. In the example as below, it is a zookeeper path that points to the znode that stores all the logs metadata.</li>
+</ul>
+<div class="highlight-python"><pre>distributedlog-bk://&lt;zookeeper-server&gt;/path/to/stream</pre>
+<div style='display:none;' class='raw-code'><pre>distributedlog-bk://&lt;zookeeper-server&gt;/path/to/stream</pre>
+</div></div>
+<p>The available backend is only bookkeeper based backend.
+The default <cite>distributedlog</cite> scheme is aliased to <cite>distributedlog-bk</cite>.</p>
+</div>
+<div class="section" id="building-a-namespace">
+<h3>Building a Namespace<a class="headerlink" href="#building-a-namespace" title="Permalink to this headline">¶</a></h3>
+<p>Once you have the <em>namespace uri</em>, you could build the namespace instance.
+The namespace instance will be used for operating streams under it.</p>
+<div class="highlight-python"><pre>// DistributedLog Configuration
+DistributedLogConfiguration conf = new DistributedLogConfiguration();
+// Namespace URI
+URI uri = ...; // create the namespace uri
+// create a builder to build namespace instances
+DistributedLogNamespaceBuilder builder = DistributedLogNamespaceBuilder.newBuilder();
+DistributedLogNamespace namespace = builder
+    .conf(conf)             // configuration that used by namespace
+    .uri(uri)               // namespace uri
+    .statsLogger(...)       // stats logger to log stats
+    .featureProvider(...)   // feature provider on controlling features
+    .build();</pre>
+<div style='display:none;' class='raw-code'><pre>// DistributedLog Configuration
+DistributedLogConfiguration conf = new DistributedLogConfiguration();
+// Namespace URI
+URI uri = ...; // create the namespace uri
+// create a builder to build namespace instances
+DistributedLogNamespaceBuilder builder = DistributedLogNamespaceBuilder.newBuilder();
+DistributedLogNamespace namespace = builder
+    .conf(conf)             // configuration that used by namespace
+    .uri(uri)               // namespace uri
+    .statsLogger(...)       // stats logger to log stats
+    .featureProvider(...)   // feature provider on controlling features
+    .build();</pre>
+</div></div>
+</div>
+<div class="section" id="create-a-log">
+<h3>Create a Log<a class="headerlink" href="#create-a-log" title="Permalink to this headline">¶</a></h3>
+<p>Creating a log is pretty straight forward by calling <cite>distributedlognamespace#createlog(logname)</cite>.
+it only creates the log under the namespace but doesn't return any handle for operating the log.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ...; // namespace
+try {
+    namespace.createLog("test-log");
+} catch (IOException ioe) {
+    // handling the exception on creating a log
+}</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ...; // namespace
+try {
+    namespace.createLog("test-log");
+} catch (IOException ioe) {
+    // handling the exception on creating a log
+}</pre>
+</div></div>
+</div>
+<div class="section" id="open-a-log">
+<h3>Open a Log<a class="headerlink" href="#open-a-log" title="Permalink to this headline">¶</a></h3>
+<p>A <cite>DistributedLogManager</cite> handle will be returned when opening a log by <cite>#openLog(logName)</cite>. The
+handle could be used for writing data to or reading data from the log. If the log doesn't exist
+and <cite>createStreamIfNotExists</cite> is set to true in the configuration, the log will be created
+automatically when writing first record.</p>
+<div class="highlight-python"><pre>DistributedLogConfiguration conf = new DistributedLogConfiguration();
+conf.setCreateStreamIfNotExists(true);
+DistributedLogNamespace namespace = DistributedLogNamespace.newBuilder()
+    .conf(conf)
+    ...
+    .build();
+DistributedLogManager logManager = namespace.openLog("test-log");
+// use the log manager to open writer to write data or open reader to read data
+...</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogConfiguration conf = new DistributedLogConfiguration();
+conf.setCreateStreamIfNotExists(true);
+DistributedLogNamespace namespace = DistributedLogNamespace.newBuilder()
+    .conf(conf)
+    ...
+    .build();
+DistributedLogManager logManager = namespace.openLog("test-log");
+// use the log manager to open writer to write data or open reader to read data
+...</pre>
+</div></div>
+<p>Sometimes, applications may open a log with different configuration settings. It could be done via
+a overloaded <cite>#openLog</cite> method, as below:</p>
+<div class="highlight-python"><pre>DistributedLogConfiguration conf = new DistributedLogConfiguration();
+// set the retention period hours to 24 hours.
+conf.setRetentionPeriodHours(24);
+URI uri = ...;
+DistributedLogNamespace namespace = DistributedLogNamespace.newBuilder()
+    .conf(conf)
+    .uri(uri)
+    ...
+    .build();
+
+// Per Log Configuration
+DistributedLogConfigration logConf = new DistributedLogConfiguration();
+// set the retention period hours to 12 hours for a single stream
+logConf.setRetentionPeriodHours(12);
+
+// open the log with overrided settings
+DistributedLogManager logManager = namespace.openLog("test-log",
+    Optional.of(logConf),
+    Optiona.absent());</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogConfiguration conf = new DistributedLogConfiguration();
+// set the retention period hours to 24 hours.
+conf.setRetentionPeriodHours(24);
+URI uri = ...;
+DistributedLogNamespace namespace = DistributedLogNamespace.newBuilder()
+    .conf(conf)
+    .uri(uri)
+    ...
+    .build();
+
+// Per Log Configuration
+DistributedLogConfigration logConf = new DistributedLogConfiguration();
+// set the retention period hours to 12 hours for a single stream
+logConf.setRetentionPeriodHours(12);
+
+// open the log with overrided settings
+DistributedLogManager logManager = namespace.openLog("test-log",
+    Optional.of(logConf),
+    Optiona.absent());</pre>
+</div></div>
+</div>
+<div class="section" id="delete-a-log">
+<h3>Delete a Log<a class="headerlink" href="#delete-a-log" title="Permalink to this headline">¶</a></h3>
+<p><cite>DistributedLogNamespace#deleteLog(logName)</cite> will deletes the log from the namespace. Deleting a log
+will attempt acquiring a lock before deletion. If a log is writing by an active writer, the lock
+would be already acquired by the writer. so the deleting will fail.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ...;
+try {
+    namespace.deleteLog("test-log");
+} catch (IOException ioe) {
+    // handle the exceptions
+}</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ...;
+try {
+    namespace.deleteLog("test-log");
+} catch (IOException ioe) {
+    // handle the exceptions
+}</pre>
+</div></div>
+</div>
+<div class="section" id="log-existence">
+<h3>Log Existence<a class="headerlink" href="#log-existence" title="Permalink to this headline">¶</a></h3>
+<p>Applications could check whether a log exists in a namespace by calling <cite>DistributedLogNamespace#logExists(logName)</cite>.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ...;
+if (namespace.logExists("test-log")) {
+    // actions when log exists
+} else {
+    // actions when log doesn't exist
+}</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ...;
+if (namespace.logExists("test-log")) {
+    // actions when log exists
+} else {
+    // actions when log doesn't exist
+}</pre>
+</div></div>
+</div>
+<div class="section" id="get-list-of-logs">
+<h3>Get List of Logs<a class="headerlink" href="#get-list-of-logs" title="Permalink to this headline">¶</a></h3>
+<p>Applications could list the logs under a namespace by calling <cite>DistributedLogNamespace#getLogs()</cite>.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ...;
+Iterator&lt;String&gt; logs = namespace.getLogs();
+while (logs.hasNext()) {
+    String logName = logs.next();
+    // ... process the log
+}</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ...;
+Iterator&lt;String&gt; logs = namespace.getLogs();
+while (logs.hasNext()) {
+    String logName = logs.next();
+    // ... process the log
+}</pre>
+</div></div>
+</div>
+</div>
+<div class="section" id="writer-api">
+<h2>Writer API<a class="headerlink" href="#writer-api" title="Permalink to this headline">¶</a></h2>
+<p>There are two ways to write records into a log stream, one is using 'synchronous' <cite>LogWriter</cite>, while the other one is using
+asynchronous <cite>AsyncLogWriter</cite>.</p>
+<div class="section" id="logwriter">
+<h3>LogWriter<a class="headerlink" href="#logwriter" title="Permalink to this headline">¶</a></h3>
+<p>The first thing to write data into a log stream is to construct the writer instance. Please note that the distributedlog core library enforce single-writer
+semantic by deploying a zookeeper locking mechanism. If there is only an active writer, the subsequent calls to <cite>#startLogSegmentNonPartitioned()</cite> will
+fail with <cite>OwnershipAcquireFailedException</cite>.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+LogWriter writer = dlm.startLogSegmentNonPartitioned();</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+LogWriter writer = dlm.startLogSegmentNonPartitioned();</pre>
+</div></div>
+<p id="construct-log-record">Log records are constructed to represent the data written to a log stream. Each log record is associated with application defined transaction id.
+The transaction id has to be non-decreasing otherwise writing the record will be rejected with <cite>TransactionIdOutOfOrderException</cite>. Application is allowed to
+bypass the transaction id sanity checking by setting <cite>maxIdSanityCheck</cite> to false in configuration. System time and atomic numbers are good candicates used for
+transaction id.</p>
+<div class="highlight-python"><pre>long txid = 1L;
+byte[] data = ...;
+LogRecord record = new LogRecord(txid, data);</pre>
+<div style='display:none;' class='raw-code'><pre>long txid = 1L;
+byte[] data = ...;
+LogRecord record = new LogRecord(txid, data);</pre>
+</div></div>
+<p>Application could either add a single record (via <cite>#write(LogRecord)</cite>) or a bunch of records (via <cite>#writeBulk(List&lt;LogRecord&gt;)</cite>) into the log stream.</p>
+<div class="highlight-python"><pre>writer.write(record);
+// or
+List&lt;LogRecord&gt; records = Lists.newArrayList();
+records.add(record);
+writer.writeBulk(records);</pre>
+<div style='display:none;' class='raw-code'><pre>writer.write(record);
+// or
+List&lt;LogRecord&gt; records = Lists.newArrayList();
+records.add(record);
+writer.writeBulk(records);</pre>
+</div></div>
+<p>The write calls return immediately after the records are added into the output buffer of writer. So the data isn't guaranteed to be durable until writer
+explicitly calls <cite>#setReadyToFlush()</cite> and <cite>#flushAndSync()</cite>. Those two calls will first transmit buffered data to backend, wait for transmit acknowledges
+and commit the written data to make them visible to readers.</p>
+<div class="highlight-python"><pre>// flush the records
+writer.setReadyToFlush();
+// commit the records to make them visible to readers
+writer.flushAndSync();</pre>
+<div style='display:none;' class='raw-code'><pre>// flush the records
+writer.setReadyToFlush();
+// commit the records to make them visible to readers
+writer.flushAndSync();</pre>
+</div></div>
+<p>The DL log streams are endless streams unless they are sealed. 'endless' means that writers keep writing records to the log streams, readers could keep
+tailing reading from the end of the streams and it never stops. Application could seal a log stream by calling <cite>#markEndOfStream()</cite>.</p>
+<div class="highlight-python"><pre>// seal the log stream
+writer.markEndOfStream();</pre>
+<div style='display:none;' class='raw-code'><pre>// seal the log stream
+writer.markEndOfStream();</pre>
+</div></div>
+<p>The complete example of writing records is showed as below.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+
+LogWriter writer = dlm.startLogSegmentNonPartitioned();
+for (long txid = 1L; txid &lt;= 100L; txid++) {
+    byte[] data = ...;
+    LogRecord record = new LogRecord(txid, data);
+    writer.write(record);
+}
+// flush the records
+writer.setReadyToFlush();
+// commit the records to make them visible to readers
+writer.flushAndSync();
+
+// seal the log stream
+writer.markEndOfStream();</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+
+LogWriter writer = dlm.startLogSegmentNonPartitioned();
+for (long txid = 1L; txid &lt;= 100L; txid++) {
+    byte[] data = ...;
+    LogRecord record = new LogRecord(txid, data);
+    writer.write(record);
+}
+// flush the records
+writer.setReadyToFlush();
+// commit the records to make them visible to readers
+writer.flushAndSync();
+
+// seal the log stream
+writer.markEndOfStream();</pre>
+</div></div>
+</div>
+<div class="section" id="asynclogwriter">
+<h3>AsyncLogWriter<a class="headerlink" href="#asynclogwriter" title="Permalink to this headline">¶</a></h3>
+<p>Constructing an asynchronous <cite>AsyncLogWriter</cite> is as simple as synchronous <cite>LogWriter</cite>.</p>
+<div class="highlight-python"><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogNamespace namespace = ....;
+DistributedLogManager dlm = namespace.openLog("test-log");
+AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();</pre>
+</div></div>
+<p>All the writes to <cite>AsyncLogWriter</cite> are asynchronous. The futures representing write results are only satisfied when the data are persisted in the stream durably.
+A DLSN (distributedlog sequence number) will be returned for each write, which is used to represent the position (aka offset) of the record in the log stream.
+All the records adding in order are guaranteed to be persisted in order.</p>
+<div class="highlight-python" id="async-write-records"><pre>List&lt;Future&lt;DLSN&gt;&gt; addFutures = Lists.newArrayList();
+for (long txid = 1L; txid &lt;= 100L; txid++) {
+    byte[] data = ...;
+    LogRecord record = new LogRecord(txid, data);
+    addFutures.add(writer.write(record));
+}
+List&lt;DLSN&gt; addResults = Await.result(Future.collect(addFutures));</pre>
+<div style='display:none;' class='raw-code'><pre>List&lt;Future&lt;DLSN&gt;&gt; addFutures = Lists.newArrayList();
+for (long txid = 1L; txid &lt;= 100L; txid++) {
+    byte[] data = ...;
+    LogRecord record = new LogRecord(txid, data);
+    addFutures.add(writer.write(record));
+}
+List&lt;DLSN&gt; addResults = Await.result(Future.collect(addFutures));</pre>
+</div></div>
+<p>The <cite>AsyncLogWriter</cite> also provides the method to truncate a stream to a given DLSN. This is super helpful for building replicated state machines, who need
+explicit controls on when the data could be deleted.</p>
+<div class="highlight-python"><pre>DLSN truncateDLSN = ...;
+Future&lt;DLSN&gt; truncateFuture = writer.truncate(truncateDLSN);
+// wait for truncation result
+Await.result(truncateFuture);</pre>
+<div style='display:none;' class='raw-code'><pre>DLSN truncateDLSN = ...;
+Future&lt;DLSN&gt; truncateFuture = writer.truncate(truncateDLSN);
+// wait for truncation result
+Await.result(truncateFuture);</pre>
+</div></div>
+</div>
+</div>
+<div class="section" id="reader-api">
+<h2>Reader API<a class="headerlink" href="#reader-api" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="sequence-numbers">
+<h3>Sequence Numbers<a class="headerlink" href="#sequence-numbers" title="Permalink to this headline">¶</a></h3>
+<p>A log record is associated with sequence numbers. First of all, application can assign its own sequence number (called <cite>TransactionID</cite>)
+to the log record while writing it (see <a class="reference internal" href="#construct-log-record">Construct Log Record</a>). Secondly, a log record will be assigned with an unique system generated sequence number
+<cite>DLSN</cite> (distributedlog sequence number) when it is written to a log (see <a class="reference internal" href="#async-write-records">Async Write Records</a>). Besides <cite>DLSN</cite> and <cite>TransactionID</cite>,
+a monotonically increasing 64-bits <cite>SequenceId</cite> is assigned to the record at read time, indicating its position within the log.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Transaction ID:</th><td class="field-body">Transaction ID is a positive 64-bits long number that is assigned by the application.
+Transaction ID is very helpful when application wants to organize the records and position the readers using their own sequencing method. A typical
+use case of <cite>Transaction ID</cite> is <cite>DistributedLog Write Proxy</cite>. The write proxy assigns non-decreasing timestamps to log records, which the timestamps
+could be used as <cite>physical time</cite> to implement <cite>TTL</cite> (Time To Live) feature in a strong consistent database.</td>
+</tr>
+<tr class="field-even field"><th class="field-name">DLSN:</th><td class="field-body">DLSN (DistributedLog Sequence Number) is the sequence number generated during written time.
+DLSN is comparable and could be used to figure out the order between records. A DLSN is comprised with 3 components. They are <cite>Log Segment Sequence Number</cite>,
+<cite>Entry Id</cite> and <cite>Slot Id</cite>. The DLSN is usually used for comparison, positioning and truncation.</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Sequence ID:</th><td class="field-body">Sequence ID is introduced to address the drawback of <cite>DLSN</cite>, in favor of answering questions like <cite>how many records written between two DLSNs</cite>.
+Sequence ID is a 64-bits monotonic increasing number starting from zero. The sequence ids are computed during reading, and only accessible by readers.
+That means writers don't know the sequence ids of records at the point they wrote them.</td>
+</tr>
+</tbody>
+</table>
+<p>The readers could be positioned to start reading from any positions in the log, by using <cite>DLSN</cite> or <cite>Transaction ID</cite>.</p>
+</div>
+<div class="section" id="logreader">
+<h3>LogReader<a class="headerlink" href="#logreader" title="Permalink to this headline">¶</a></h3>
+<p><cite>LogReader</cite> is a 'synchronous' sequential reader reading records from a log stream starting from a given position. The position could be
+<cite>DLSN</cite> (via <cite>#getInputStream(DLSN)</cite>) or <cite>Transaction ID</cite> (via <cite>#getInputStream(long)</cite>). After the reader is open, it could call either
+<cite>#readNext(boolean)</cite> or <cite>#readBulk(boolean, int)</cite> to read records out of the log stream sequentially. Closing the reader (via <cite>#close()</cite>)
+will release all the resources occupied by this reader instance.</p>
+<p>Exceptions could be thrown during reading records due to various issues. Once the exception is thrown, the reader is set to an error state
+and it isn't usable anymore. It is the application's responsibility to handle the exceptions and re-create readers if necessary.</p>
+<div class="highlight-python"><pre>DistributedLogManager dlm = ...;
+long nextTxId = ...;
+LogReader reader = dlm.getInputStream(nextTxId);
+
+while (true) { // keep reading &amp; processing records
+    LogRecord record;
+    try {
+        record = reader.readNext(false);
+        nextTxId = record.getTransactionId();
+        // process the record
+        ...
+    } catch (IOException ioe) {
+        // handle the exception
+        ...
+        reader = dlm.getInputStream(nextTxId + 1);
+    }
+}</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogManager dlm = ...;
+long nextTxId = ...;
+LogReader reader = dlm.getInputStream(nextTxId);
+
+while (true) { // keep reading &amp; processing records
+    LogRecord record;
+    try {
+        record = reader.readNext(false);
+        nextTxId = record.getTransactionId();
+        // process the record
+        ...
+    } catch (IOException ioe) {
+        // handle the exception
+        ...
+        reader = dlm.getInputStream(nextTxId + 1);
+    }
+}</pre>
+</div></div>
+<p>Reading records from an endless log stream in <cite>synchronous</cite> way isn't as trivial as in <cite>asynchronous</cite> way. Because it lacks of callback mechanism.
+Instead, <cite>LogReader</cite> introduces a flag <cite>nonBlocking</cite> on controlling the waiting behavior on <cite>synchronous</cite> reads. Blocking (<cite>nonBlocking = false</cite>)
+means the reads will wait for records before returning read calls, while NonBlocking (<cite>nonBlocking = true</cite>) means the reads will only check readahead
+cache and return whatever records available in readahead cache.</p>
+<p>The <cite>waiting</cite> period varies in <cite>blocking</cite> mode. If the reader is catching up with writer (there are plenty of records in the log), the read call will
+wait until records are read and returned. If the reader is already caught up with writer (there are no more records in the log at read time), the read
+call will wait for a small period of time (defined in <cite>DistributedLogConfiguration#getReadAheadWaitTime()</cite>) and return whatever records available in
+readahead cache. In other words, if a reader sees no record on blocking reads, it means the reader is <cite>caught-up</cite> with the writer.</p>
+<p>See examples below on how to read records using <cite>LogReader</cite>.</p>
+<div class="highlight-python"><pre>// Read individual records
+
+LogReader reader = ...;
+// keep reading records in blocking mode until no records available in the log
+LogRecord record = reader.readNext(false);
+while (null != record) {
+    // process the record
+    ...
+    // read next record
+    record = reader.readNext(false);
+}
+...
+
+// reader is caught up with writer, doing non-blocking reads to tail the log
+while (true) {
+    record = reader.readNext(true);
+    if (null == record) {
+        // no record available yet. backoff ?
+        ...
+    } else {
+        // process the new record
+        ...
+    }
+}</pre>
+<div style='display:none;' class='raw-code'><pre>// Read individual records
+
+LogReader reader = ...;
+// keep reading records in blocking mode until no records available in the log
+LogRecord record = reader.readNext(false);
+while (null != record) {
+    // process the record
+    ...
+    // read next record
+    record = reader.readNext(false);
+}
+...
+
+// reader is caught up with writer, doing non-blocking reads to tail the log
+while (true) {
+    record = reader.readNext(true);
+    if (null == record) {
+        // no record available yet. backoff ?
+        ...
+    } else {
+        // process the new record
+        ...
+    }
+}</pre>
+</div></div>
+<div class="highlight-python"><pre>// Read records in batch
+
+LogReader reader = ...;
+int N = 10;
+
+// keep reading N records in blocking mode until no records available in the log
+List&lt;LogRecord&gt; records = reader.readBulk(false, N);
+while (!records.isEmpty()) {
+    // process the list of records
+    ...
+    if (records.size() &lt; N) { // no more records available in the log
+        break;
+    }
+    // read next N records
+    records = reader.readBulk(false, N);
+}
+
+...
+
+// reader is caught up with writer, doing non-blocking reads to tail the log
+while (true) {
+    records = reader.readBulk(true, N);
+    // process the new records
+    ...
+}</pre>
+<div style='display:none;' class='raw-code'><pre>// Read records in batch
+
+LogReader reader = ...;
+int N = 10;
+
+// keep reading N records in blocking mode until no records available in the log
+List&lt;LogRecord&gt; records = reader.readBulk(false, N);
+while (!records.isEmpty()) {
+    // process the list of records
+    ...
+    if (records.size() &lt; N) { // no more records available in the log
+        break;
+    }
+    // read next N records
+    records = reader.readBulk(false, N);
+}
+
+...
+
+// reader is caught up with writer, doing non-blocking reads to tail the log
+while (true) {
+    records = reader.readBulk(true, N);
+    // process the new records
+    ...
+}</pre>
+</div></div>
+</div>
+<div class="section" id="asynclogreader">
+<h3>AsyncLogReader<a class="headerlink" href="#asynclogreader" title="Permalink to this headline">¶</a></h3>
+<p>Similar as <cite>LogReader</cite>, applications could open an <cite>AsyncLogReader</cite> by positioning to different positions, either <cite>DLSN</cite> or <cite>Transaction ID</cite>.</p>
+<div class="highlight-python"><pre>DistributedLogManager dlm = ...;
+
+Future&lt;AsyncLogReader&gt; openFuture;
+
+// position the reader to transaction id `999`
+openFuture = dlm.openAsyncLogReader(999L);
+
+// or position the reader to DLSN
+DLSN fromDLSN = ...;
+openFuture = dlm.openAsyncLogReader(fromDLSN);
+
+AsyncLogReader reader = Await.result(openFuture);</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogManager dlm = ...;
+
+Future&lt;AsyncLogReader&gt; openFuture;
+
+// position the reader to transaction id `999`
+openFuture = dlm.openAsyncLogReader(999L);
+
+// or position the reader to DLSN
+DLSN fromDLSN = ...;
+openFuture = dlm.openAsyncLogReader(fromDLSN);
+
+AsyncLogReader reader = Await.result(openFuture);</pre>
+</div></div>
+<p>Reading records from an <cite>AsyncLogReader</cite> is asynchronously. The future returned by <cite>#readNext()</cite>, <cite>#readBulk(int)</cite> or <cite>#readBulk(int, long, TimeUnit)</cite>
+represents the result of the read operation. The future is only satisfied when there are records available. Application could chain the futures
+to do sequential reads.</p>
+<p>Reading records one by one from an <cite>AsyncLogReader</cite>.</p>
+<div class="highlight-python"><pre>void readOneRecord(AsyncLogReader reader) {
+    reader.readNext().addEventListener(new FutureEventListener&lt;LogRecordWithDLSN&gt;() {
+        public void onSuccess(LogRecordWithDLSN record) {
+            // process the record
+            ...
+            // read next
+            readOneRecord(reader);
+        }
+        public void onFailure(Throwable cause) {
+            // handle errors and re-create reader
+            ...
+            reader = ...;
+            // read next
+            readOneRecord(reader);
+        }
+    });
+}
+
+AsyncLogReader reader = ...;
+readOneRecord(reader);</pre>
+<div style='display:none;' class='raw-code'><pre>void readOneRecord(AsyncLogReader reader) {
+    reader.readNext().addEventListener(new FutureEventListener&lt;LogRecordWithDLSN&gt;() {
+        public void onSuccess(LogRecordWithDLSN record) {
+            // process the record
+            ...
+            // read next
+            readOneRecord(reader);
+        }
+        public void onFailure(Throwable cause) {
+            // handle errors and re-create reader
+            ...
+            reader = ...;
+            // read next
+            readOneRecord(reader);
+        }
+    });
+}
+
+AsyncLogReader reader = ...;
+readOneRecord(reader);</pre>
+</div></div>
+<p>Reading records in batches from an <cite>AsyncLogReader</cite>.</p>
+<div class="highlight-python"><pre>void readBulk(AsyncLogReader reader, int N) {
+    reader.readBulk(N).addEventListener(new FutureEventListener&lt;List&lt;LogRecordWithDLSN&gt;&gt;() {
+        public void onSuccess(List&lt;LogRecordWithDLSN&gt; records) {
+            // process the records
+            ...
+            // read next
+            readBulk(reader, N);
+        }
+        public void onFailure(Throwable cause) {
+            // handle errors and re-create reader
+            ...
+            reader = ...;
+            // read next
+            readBulk(reader, N);
+        }
+    });
+}
+
+AsyncLogReader reader = ...;
+readBulk(reader, N);</pre>
+<div style='display:none;' class='raw-code'><pre>void readBulk(AsyncLogReader reader, int N) {
+    reader.readBulk(N).addEventListener(new FutureEventListener&lt;List&lt;LogRecordWithDLSN&gt;&gt;() {
+        public void onSuccess(List&lt;LogRecordWithDLSN&gt; records) {
+            // process the records
+            ...
+            // read next
+            readBulk(reader, N);
+        }
+        public void onFailure(Throwable cause) {
+            // handle errors and re-create reader
+            ...
+            reader = ...;
+            // read next
+            readBulk(reader, N);
+        }
+    });
+}
+
+AsyncLogReader reader = ...;
+readBulk(reader, N);</pre>
+</div></div>
+</div>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">API</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/api/core.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/api/core.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="//">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>

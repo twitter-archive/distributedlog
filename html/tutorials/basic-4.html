@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Write Multi Records Atomic using Write Proxy Client &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul>
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          7.5 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="write-multi-records-atomic-using-write-proxy-client">
+<h1>Write Multi Records Atomic using Write Proxy Client<a class="headerlink" href="#write-multi-records-atomic-using-write-proxy-client" title="Permalink to this headline">¶</a></h1>
+<p>This tutorial shows how to write multi records atomic using write proxy
+client.</p>
+<div class="section" id="open-a-write-proxy-client">
+<h2>Open a write proxy client<a class="headerlink" href="#open-a-write-proxy-client" title="Permalink to this headline">¶</a></h2>
+<ul>
+<li><p class="first">Create write proxy client builder.</p>
+<div class="highlight-python"><pre>DistributedLogClientBuilder builder = DistributedLogClientBuilder.newBuilder();
+        .clientId(ClientId.apply("atomic-writer"))
+        .name("atomic-writer");</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogClientBuilder builder = DistributedLogClientBuilder.newBuilder();
+        .clientId(ClientId.apply("atomic-writer"))
+        .name("atomic-writer");</pre>
+</div></div>
+</li>
+<li><p class="first">Enable thrift mux.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">builder</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">thriftmux</span><span class="p">(</span><span class="n">true</span><span class="p">);</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>builder = builder.thriftmux(true);</pre>
+</div></div>
+</li>
+<li><p class="first">Point the client to write proxy using finagle name.</p>
+<div class="highlight-python"><pre>String finagleNameStr = "inet!127.0.0.1:8000";
+builder = builder.finagleNameStr(finagleNameStr);</pre>
+<div style='display:none;' class='raw-code'><pre>String finagleNameStr = "inet!127.0.0.1:8000";
+builder = builder.finagleNameStr(finagleNameStr);</pre>
+</div></div>
+</li>
+<li><p class="first">Build the write proxy client.</p>
+<div class="highlight-python"><pre>DistributedLogClient client = builder.build();</pre>
+<div style='display:none;' class='raw-code'><pre>DistributedLogClient client = builder.build();</pre>
+</div></div>
+</li>
+</ul>
+</div>
+<div class="section" id="write-records">
+<h2>Write Records<a class="headerlink" href="#write-records" title="Permalink to this headline">¶</a></h2>
+<ul>
+<li><p class="first">Create a <tt class="docutils literal"><span class="pre">RecordSet</span></tt> for multiple records. The RecordSet has
+initial 16KB buffer and its compression codec is <tt class="docutils literal"><span class="pre">NONE</span></tt>.</p>
+<div class="highlight-python"><pre>LogRecordSet.Writer recordSetWriter = LogRecordSet.newWriter(16 * 1024, Type.NONE);</pre>
+<div style='display:none;' class='raw-code'><pre>LogRecordSet.Writer recordSetWriter = LogRecordSet.newWriter(16 * 1024, Type.NONE);</pre>
+</div></div>
+</li>
+<li><p class="first">Write multiple records into the <tt class="docutils literal"><span class="pre">RecordSet</span></tt>.</p>
+<div class="highlight-python"><pre>for (String msg : messages) {
+    ByteBuffer msgBuf = ByteBuffer.wrap(msg.getBytes(UTF_8));
+    Promise&lt;DLSN&gt; writeFuture = new Promise&lt;DLSN&gt;();
+    recordSetWriter.writeRecord(msgBuf, writeFuture);
+}</pre>
+<div style='display:none;' class='raw-code'><pre>for (String msg : messages) {
+    ByteBuffer msgBuf = ByteBuffer.wrap(msg.getBytes(UTF_8));
+    Promise&lt;DLSN&gt; writeFuture = new Promise&lt;DLSN&gt;();
+    recordSetWriter.writeRecord(msgBuf, writeFuture);
+}</pre>
+</div></div>
+</li>
+<li><p class="first">Write the <tt class="docutils literal"><span class="pre">RecordSet</span></tt> to a stream.</p>
+<div class="highlight-python"><pre>String streamName = "basic-stream-8";
+Future&lt;DLSN&gt; writeFuture = client.writeRecordSet(streamName, recordSetWriter);</pre>
+<div style='display:none;' class='raw-code'><pre>String streamName = "basic-stream-8";
+Future&lt;DLSN&gt; writeFuture = client.writeRecordSet(streamName, recordSetWriter);</pre>
+</div></div>
+</li>
+<li><p class="first">Register a future listener on write completion.</p>
+<div class="highlight-python"><pre>writeFuture.addEventListener(new FutureEventListener&lt;DLSN&gt;() {
+    @Override
+    public void onFailure(Throwable cause) {
+        // executed when write failed.
+        recordSetWriter.abortTransmit(cause);
+    }
+
+    @Override
+    public void onSuccess(DLSN value) {
+        // executed when write completed.
+        recordSetWriter.completeTransmit(
+                dlsn.getLogSegmentSequenceNo(),
+                dlsn.getEntryId(),
+                dlsn.getSlotId());
+    }
+});</pre>
+<div style='display:none;' class='raw-code'><pre>writeFuture.addEventListener(new FutureEventListener&lt;DLSN&gt;() {
+    @Override
+    public void onFailure(Throwable cause) {
+        // executed when write failed.
+        recordSetWriter.abortTransmit(cause);
+    }
+
+    @Override
+    public void onSuccess(DLSN value) {
+        // executed when write completed.
+        recordSetWriter.completeTransmit(
+                dlsn.getLogSegmentSequenceNo(),
+                dlsn.getEntryId(),
+                dlsn.getSlotId());
+    }
+});</pre>
+</div></div>
+</li>
+</ul>
+</div>
+<div class="section" id="close-the-write-proxy-client">
+<h2>Close the write proxy client<a class="headerlink" href="#close-the-write-proxy-client" title="Permalink to this headline">¶</a></h2>
+<ul>
+<li><p class="first">Close the write proxy client after usage.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">client</span><span class="o">.</span><span class="n">close</span><span class="p">();</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>client.close();</pre>
+</div></div>
+</li>
+</ul>
+</div>
+<div class="section" id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
+<p>Run the example in the following steps:</p>
+<ol class="arabic">
+<li><p class="first">Start the local bookkeeper cluster. After the bookkeeper cluster is
+started, you could access it using distributedlog uri
+<em>distributedlog://127.0.0.1:7000/messaging/distributedlog</em>.</p>
+<div class="highlight-python"><pre>// dlog local ${zk-port}
+./distributedlog-core/bin/dlog local 7000</pre>
+<div style='display:none;' class='raw-code'><pre>// dlog local ${zk-port}
+./distributedlog-core/bin/dlog local 7000</pre>
+</div></div>
+</li>
+<li><p class="first">Start the write proxy, listening on port 8000.</p>
+<div class="highlight-python"><pre>// DistributedLogServerApp -p ${service-port} --shard-id ${shard-id} -sp ${stats-port} -u {distributedlog-uri} -mx -c ${conf-file}
+./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${distributedlog-repo}/distributedlog-service/conf/distributedlog_proxy.conf</pre>
+<div style='display:none;' class='raw-code'><pre>// DistributedLogServerApp -p ${service-port} --shard-id ${shard-id} -sp ${stats-port} -u {distributedlog-uri} -mx -c ${conf-file}
+./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${distributedlog-repo}/distributedlog-service/conf/distributedlog_proxy.conf</pre>
+</div></div>
+</li>
+<li><p class="first">Create the stream under the distributedlog uri.</p>
+<div class="highlight-python"><pre>// Create Stream `basic-stream-8`
+// dlog tool create -u ${distributedlog-uri} -r ${stream-prefix} -e ${stream-regex}
+./distributedlog-core/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/distributedlog -r basic-stream- -e 8</pre>
+<div style='display:none;' class='raw-code'><pre>// Create Stream `basic-stream-8`
+// dlog tool create -u ${distributedlog-uri} -r ${stream-prefix} -e ${stream-regex}
+./distributedlog-core/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/distributedlog -r basic-stream- -e 8</pre>
+</div></div>
+</li>
+<li><p class="first">Tailing the stream using <tt class="docutils literal"><span class="pre">TailReader</span></tt> to wait for new records.</p>
+<div class="highlight-python"><pre>// Tailing Stream `basic-stream-8`
+// runner run com.twitter.distributedlog.basic.TailReader ${distributedlog-uri} ${stream}
+./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.TailReader distributedlog://127.0.0.1:7000/messaging/distributedlog basic-stream-8</pre>
+<div style='display:none;' class='raw-code'><pre>// Tailing Stream `basic-stream-8`
+// runner run com.twitter.distributedlog.basic.TailReader ${distributedlog-uri} ${stream}
+./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.TailReader distributedlog://127.0.0.1:7000/messaging/distributedlog basic-stream-8</pre>
+</div></div>
+</li>
+<li><p class="first">Run the example to write multiple records to the stream.</p>
+<div class="highlight-python"><pre>// Write Records into Stream `basic-stream-8`
+// runner run com.twitter.distributedlog.basic.AtomicWriter ${distributedlog-uri} ${stream} ${message}[, ${message}]
+./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.AtomicWriter 'inet!127.0.0.1:8000' basic-stream-8 "message-1" "message-2" "message-3" "message-4" "message-5"</pre>
+<div style='display:none;' class='raw-code'><pre>// Write Records into Stream `basic-stream-8`
+// runner run com.twitter.distributedlog.basic.AtomicWriter ${distributedlog-uri} ${stream} ${message}[, ${message}]
+./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.AtomicWriter 'inet!127.0.0.1:8000' basic-stream-8 "message-1" "message-2" "message-3" "message-4" "message-5"</pre>
+</div></div>
+</li>
+<li><p class="first">Example output from <tt class="docutils literal"><span class="pre">AtomicWriter</span></tt> and <tt class="docutils literal"><span class="pre">TailReader</span></tt>.</p>
+<div class="highlight-python"><pre>// Output of `AtomicWriter`
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[inet] = com.twitter.finagle.InetResolver(com.twitter.finagle.InetResolver@6c3e459e)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[fixedinet] = com.twitter.finagle.FixedInetResolver(com.twitter.finagle.FixedInetResolver@4d5698f)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[neg] = com.twitter.finagle.NegResolver$(com.twitter.finagle.NegResolver$@57052dc3)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[nil] = com.twitter.finagle.NilResolver$(com.twitter.finagle.NilResolver$@14ff89d7)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[fail] = com.twitter.finagle.FailResolver$(com.twitter.finagle.FailResolver$@14b28d06)
+May 08, 2016 11:48:19 AM com.twitter.finagle.Init$$anonfun$1 apply$mcV$sp
+Write 'message-1' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+Write 'message-2' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=1}
+Write 'message-3' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=2}
+Write 'message-4' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=3}
+Write 'message-5' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=4}
+
+
+// Output of `TailReader`
+Opening log stream basic-stream-8
+Log stream basic-stream-8 is empty.
+Wait for records starting from DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+"""
+message-1
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=1}
+"""
+message-2
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=2}
+"""
+message-3
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=3}
+"""
+message-4
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=4}
+"""
+message-5
+"""</pre>
+<div style='display:none;' class='raw-code'><pre>// Output of `AtomicWriter`
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[inet] = com.twitter.finagle.InetResolver(com.twitter.finagle.InetResolver@6c3e459e)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[fixedinet] = com.twitter.finagle.FixedInetResolver(com.twitter.finagle.FixedInetResolver@4d5698f)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[neg] = com.twitter.finagle.NegResolver$(com.twitter.finagle.NegResolver$@57052dc3)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[nil] = com.twitter.finagle.NilResolver$(com.twitter.finagle.NilResolver$@14ff89d7)
+May 08, 2016 11:48:19 AM com.twitter.finagle.BaseResolver$$anonfun$resolvers$1 apply
+INFO: Resolver[fail] = com.twitter.finagle.FailResolver$(com.twitter.finagle.FailResolver$@14b28d06)
+May 08, 2016 11:48:19 AM com.twitter.finagle.Init$$anonfun$1 apply$mcV$sp
+Write 'message-1' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+Write 'message-2' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=1}
+Write 'message-3' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=2}
+Write 'message-4' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=3}
+Write 'message-5' as record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=4}
+
+
+// Output of `TailReader`
+Opening log stream basic-stream-8
+Log stream basic-stream-8 is empty.
+Wait for records starting from DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=0}
+"""
+message-1
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=1}
+"""
+message-2
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=2}
+"""
+message-3
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=3}
+"""
+message-4
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=0, slotId=4}
+"""
+message-5
+"""</pre>
+</div></div>
+</li>
+</ol>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul>
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/tutorials/basic-4.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/tutorials/basic-4.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="//">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>

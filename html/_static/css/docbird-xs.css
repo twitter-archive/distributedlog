@@ -1,0 +1,102 @@
+/* Extra small devices (phones, less than 768px) */
+
+.db-xs-menu .db-toc {
+  overflow-y: scroll;
+  max-height: 245px;
+}
+
+@media (max-width: 767px) {
+
+  body,
+  body.db-header-small {
+    padding-top: 60px;
+  }
+
+  .db-header-info .db-home-button {
+    height: 61px;
+    border-top: none;
+    width: 60px;
+    line-height: 60px;
+    text-align: center;
+    padding-left: 0;
+    font-size: 1.5em;
+    border-right: solid 1px #ccc;
+    margin-right: 10px;
+  }
+
+  .db-header {
+    height: 60px;
+  }
+  .db-header-info {
+    margin-left: -15px;
+    padding-left: 15px;
+  }
+
+  .db-header-projectname h1 {
+    font-size: 30px;
+    margin-top: 15px;
+    margin-bottom: 5px;
+  }
+
+  .db-content-body {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .db-header-info .db-menu-button {
+    height: 61px;
+    border-top: none;
+    width: 60px;
+    line-height: 60px;
+    text-align: center;
+    padding-left: 0;
+    font-size: 1.5em;
+    border-right: solid 1px #ccc;
+    margin-right: 10px;
+  }
+
+  .db-xs-menu-button {
+    position: absolute;
+    top: 0;
+    right: -15px;
+  }
+
+  .db-xs-menu-button .navbar-toggle {
+    display: block;
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    border-left: solid 1px #ccc;
+    background-color: #eee;
+    padding: 20px 20px;
+    transition: background 0.5s ease;
+  }
+
+  .db-xs-menu-button .navbar-toggle .icon-bar {
+    width: 20px;
+    height: 3px;
+    margin-bottom: 3px;
+  }
+
+  .db-xs-menu {
+    background-color: #f7f5fa;
+  }
+
+  .db-xs-menu .db-searchbox-form {
+    margin-left: 0;
+  }
+
+  .db-xs-menu .db-searchbox-input {
+    padding-left: 20px;
+    padding-right: 20px;
+    border-top: solid 1px #ccc;
+    border-left: none;
+    border-right: none;
+  }
+} /* @media (max-width: 767px) */
+
+@media (max-height: 479px) {
+  .db-xs-menu .db-toc {
+    max-height: 162px;
+  }
+}

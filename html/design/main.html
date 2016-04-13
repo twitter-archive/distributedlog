@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Detail Design &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+    <link rel="next" title="Global Replicated Log" href="../globalreplicatedlog/main.html" />
+    <link rel="prev" title="Architecture" href="../architecture/main.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          7.5 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="detail-design">
+<h1>Detail Design<a class="headerlink" href="#detail-design" title="Permalink to this headline">¶</a></h1>
+<p>We will describe the design choices that we made while implementing DistributedLog and why we built such layered architecture.</p>
+<div class="section" id="consistency">
+<h2>Consistency<a class="headerlink" href="#consistency" title="Permalink to this headline">¶</a></h2>
+<p>DistributedLog achieves strong consistency, using the <cite>fencing</cite> mechanism provided in the log segment store to guarantee data consistency
+and <cite>versioned updates</cite> in the metadata store to guarantee metadata consistency.</p>
+<div class="section" id="lastaddconfirmed">
+<h3>LastAddConfirmed<a class="headerlink" href="#lastaddconfirmed" title="Permalink to this headline">¶</a></h3>
+<p>DistributedLog leverages bookkeeper’s <cite>LAC</cite> (LastAddConfirmed) protocol - a variation of <cite>two-phase-commit</cite> algorithm to build its data pipeline
+and achieve consistency around it. Figure 1 illustrates the basic concepts of this protocol.</p>
+<div class="figure align-center">
+<img alt="../_images/lacprotocol.png" src="../_images/lacprotocol.png" />
+<p class="caption">Figure 1. Consistency in Log Segment Store</p>
+</div>
+<p>Each batched entry appended to a log segment will be assigned a monotonically increasing entry id by the log segment writer. All the entries are
+written asynchronously in a pipeline. The log segment writer therefore updates an in-memory pointer, called <cite>LAP</cite> (LastAddPushed), which is the
+entry id of the last batched entry pushed to log segment store by the writer. The entries could be written out of order but only be acknowledged
+in entry id order. Along with the successful acknowledges, the log segment writer also updates an in-memory pointer, called <cite>LAC</cite> (LastAddConfirmed).
+LAC is the entry id of the last entry that already acknowledged by the writer. All the entries written between LAC and LAP are unacknowledged data,
+which they are not visible to readers.</p>
+<p>The readers can read entries up to LAC as those entries are known to be durably replicated - thereby can be safely read without the risk of violating
+read ordering. The writer includes the current LAC in each entry that it sends to BookKeeper. Therefore each subsequent entry makes the records in
+the previous entry visible to the readers. LAC updates can be piggybacked on the next entry that are written by the writer. Since readers are strictly
+followers, they can leverage LAC to read durable data from any of the replicas without need for any communication or coordination with the writer.</p>
+<p>DL introduces one type of system record, which is called <cite>control record</cite> - it acts as the <cite>commit</cite> request in <cite>two-phases-commit</cite> algorithm.
+If no application records arrive within the specified SLA, the writer will generate a control record. With writing the control record, it would advance
+the LAC of the log stream. The control record is added either immediately after receiving acknowledges from writing a user record or periodically if
+no application records are added. It is configured as part of writer’s flushing policy. While control log records are present in the physical log stream,
+they are not delivered by the log readers to the application.</p>
+</div>
+<div class="section" id="fencing">
+<h3>Fencing<a class="headerlink" href="#fencing" title="Permalink to this headline">¶</a></h3>
+<p>LAC is a very simple and useful mechanism to guarantee consistency across readers. But it is not enough to guarantee correctness when the ownership
+of a log stream is changed - there might be multiple writers exist at the same time when network partition happens. DistributedLog addresses this by <cite>fencing</cite>
+data in log segment store and conditionally (via versioned set) updating log segment metadata in metadata store. Fencing is a built-in mechanism in bookkeeper - when
+a client wants to fence a ledger, it would send a special fence request to all the replicas of that ledger; the bookies that host that ledger will change the state of
+that ledger to fenced. once a ledger’s state is changed to fenced, all the write attempts to it would be failed immediately. Client claims a success fence when
+it receives successful fence responses from majorities of the replicas.</p>
+<p>Figure 2 illustrates how does DistributedLog work when ownership is changed for a log stream.</p>
+<div class="figure align-center">
+<img alt="../_images/fencing.png" src="../_images/fencing.png" />
+<p class="caption">Figure 2. Fencing &amp; Consistency</p>
+</div>
+<p>Whenever the ownership is changed from one writer to the other writer (step 0), the new owner of the log stream will first retrieve the list of log segments of
+that log stream along with their versions (the versions will used for versioned set on updating log segments’ metadata). The new owner will find current inprogress
+log segment and recover the log segment in following sequence:</p>
+<ol class="arabic simple">
+<li>It would first fence the log segment (step 2.1). Fencing successfully means no writes will succeed any more after that.</li>
+<li>If the old owner is just network partitioned, it might still think itself is the owner and keep adding records to that log segment.  But because the log segment has been fenced, so all writes by the old owner will be rejected and failed (step 2.2). The old owner will realize that it already lost the ownership and gave up.</li>
+<li>Once the log segment is fenced, the new owner will proceed a recovery process to recover the log segment. Once the log segment is recovered, it would issue a versioned set operation to metadata store to convert the log segment status from inprogress to completed (step 2.3).</li>
+<li>A new inprogress log segment will be created by the new writer to continue writing to this log stream (step 3).</li>
+</ol>
+<p>Completing an inprogress log segment and creating a new log segment could be executed in parallel to achieve fast log stream recovery. It will reduce the latency
+penalty for writes during ownership changed.</p>
+<p>Creating a new log segment during ownership change is known as ‘<em>obtaining an epoch during leader election</em>’ in distributed consensus algorithms. It makes clean
+implementation for a replicated log service, as the client that lost the ownership (aka mastership, lock) doesn’t even know the identity of the new epoch (in DL,
+it is the new log segment id) so it can’t accidentally write to the new log segment. We leverage zookeeper’s sequential znode on generating new log segment id.</p>
+</div>
+<div class="section" id="ownership-tracking">
+<h3>Ownership Tracking<a class="headerlink" href="#ownership-tracking" title="Permalink to this headline">¶</a></h3>
+<p>With the built-in fencing mechanism in storage layer and metadata updates, DistributedLog doesn’t require strict leader election
+to guarantee correctness. Therefore we use ‘<cite>ownership tracking</cite>’ as opposed to ‘<cite>leader election</cite>’ for the log stream ownership management.</p>
+<p>DistributedLog uses ZooKeeper ephemeral znodes for tracking the ownerships of log streams. Since ZooKeeper already provides <cite>sessions</cite> that
+can be used to track leases for failure detection. In production environment, we tuned the zookeeper settings to ensure failures could be
+detected within one second. An aggressive bound on failure detection increases the possibility of false positives. If ownerships flap between
+write proxies, delays will result from writes blocking for log stream recovery. <cite>Deterministic routing</cite> allows multiple clients to choose the
+same write proxy to fail over when the current owner proxy is unavailable. The details are described in Figure 3.</p>
+<div class="figure align-center">
+<img alt="../_images/requestrouting.png" src="../_images/requestrouting.png" />
+<p class="caption">Figure 3. Request Routing</p>
+</div>
+<p>Applications write the log records by the write client. Write client will first look up the <cite>ownership cache</cite>, a local cache that caches mapping
+between log stream name and its corresponding log stream owner. If the stream is not cached yet, the client will use consistent hashing based
+<cite>routing service</cite> to compute a candidate write proxy (step 1.1) and then send the write request to this candidate write proxy (step 1.2). If it
+already owns the log stream or it could successfully claim the ownership, it would satisfy the write request and respond back to the client (step 1.3).
+If it can’t claim the ownership, it then send the response back to the client to ask it redirect to the right owner (1.4). All succeed write requests
+will keep the local ownership cache up-to-date, which help avoiding the subsequent requests being redirected.</p>
+</div>
+</div>
+<div class="section" id="streaming-reads">
+<h2>Streaming Reads<a class="headerlink" href="#streaming-reads" title="Permalink to this headline">¶</a></h2>
+<p>After the readers have caught up to the current tail of the log, DistributedLog provides readers the ability to read new log records as they are
+published - a mechanism commonly known as <cite>tailing</cite> the log. Readers start out by <strong>positioning</strong> to a record in the log stream based on either DLSN or
+Transaction ID. The reader starts <strong>reading</strong> records until it reaches the tail of the log stream. Once it has caught up with the writer, the reader waits
+for <strong>notifications</strong> about new log records or new log segments.</p>
+<div class="section" id="positioning">
+<h3>Positioning<a class="headerlink" href="#positioning" title="Permalink to this headline">¶</a></h3>
+<p>As mentioned above, there are 3 types of sequence numbers are associated with a log record. Except sequence id is computed at reading time, both DLSN (implicit)
+and Transaction ID (explicit) are attached to log records in writing time. Applications could use either of them for positioning. DLSN is the best sequence number
+on positioning, as it already tells which log segment, which entry and which slot of the record in the log stream. No additional search operations are required.
+While Transaction ID is assigned by applications, positioning a reader by transaction id will first look up the list of log segments to find which log segment
+contains the given transaction id and then look up the records in the found log segment to figure out the actual position within that log segment.
+Both looking up in the log segment list and the found log segment use binary search to speed up the searching. Although positioning by transaction id could be a
+bit slower than positioning by DLSN, it is useful for analytics workloads to rewind to analyze old data in hours if the transaction id is timestamp.</p>
+</div>
+<div class="section" id="reading">
+<h3>Reading<a class="headerlink" href="#reading" title="Permalink to this headline">¶</a></h3>
+<p>Figure 4 illustrates reading batched entries from log segment store. The are two basic read operations: read a given entry by entry id (a) and read LAC (b).</p>
+<div class="figure align-center">
+<img alt="../_images/readrequests.png" src="../_images/readrequests.png" />
+<p class="caption">Figure 4. Read entries from log segment store</p>
+</div>
+<p>Since an entry is immutable after it is appended to a log segment, reading a given entry by entry id could go to any replicas of that log segment and retry others
+if encountered failures. In order to achieve low predictable 99.9 percentile latency even during bookie failures, a <strong>speculative</strong> read mechanism is deployed:
+a read request will be sent to first replica; if client doesn’t receive the response with a speculative timeout, it would send another request to second replica;
+then wait for the responses of both first replica and second replica; and so forth until receiving a valid response to complete the read request or timeout.</p>
+<p>Reading LAC is an operation for readers to catch up with the writer. It is typically a quorum-read operation to guarantee freshness: the client sends the read requests
+to all replicas in the log segment and waits for the responses from the majority of them. It could be optimized to be a best-effort quorum-read operation for tailing reads,
+which it doesn’t have to wait for quorum responses from the replicas and could return whenever it sees an advanced LAC.</p>
+<p><cite>Figure 4(c)</cite> illustrates the third type of read request, which is called <cite>“Long Poll Read”</cite>. It is a combination of (a) and (b), serving the purpose of
+reading next available entry in the log segment. The client sends a long poll read request along with next read entry id to the log segment store.
+If the log segment store already saw the entry and it is committed (entry id is not greater than LAC), it responds the request immediately with latest LAC
+and requested entry. Otherwise, it would wait for LAC being advanced to given entry id and respond back requested entry. Similar speculative mechanism is
+deployed in long polling to achieve predictable low 99.9 percentile latency.</p>
+</div>
+<div class="section" id="notifications">
+<h3>Notifications<a class="headerlink" href="#notifications" title="Permalink to this headline">¶</a></h3>
+<p>Once the reader is caught up with the writer, it would turn itself into <cite>‘notification’</cite> mode. In this mode, it would wait notifications of new records
+by <cite>long polling</cite> reads (described above) and <cite>notification</cite> of state changes of log segments. The notification mechanism for state changes of log segments
+is provided by Metadata Store. Currently it is ZooKeeper watcher. The notifications are triggered when an inprogress log segment is completed or a new inprogress
+log segment is created.</p>
+</div>
+<div class="section" id="readahead">
+<h3>ReadAhead<a class="headerlink" href="#readahead" title="Permalink to this headline">¶</a></h3>
+<p>The reader will read ahead to proactively bring new data into cache, for applications to consume. It helps reducing the read latency as it proactively brings newer
+data into cache while applications consuming them. DistributedLog uses LAC as an indicator to detect if a reader is still catching up or already caught up and
+adjusting the readahead pace based on the reader state and its consuming rate.</p>
+</div>
+</div>
+<div class="section" id="logsegment-lifecycle">
+<h2>LogSegment Lifecycle<a class="headerlink" href="#logsegment-lifecycle" title="Permalink to this headline">¶</a></h2>
+<p>DistributedLog breaks a log stream down into multiple log segments based configured rolling policy. The current inprogress log segment will be completed
+and a new log segment will be created when either the log segment has been written for more than a configured rolling interval (aka time-based rolling),
+the size of the log segment has reached a configured threshold (aka size-based rolling), or whenever the ownership of a log stream is changed.</p>
+<p>A new log segment is created in <cite>Inprogress</cite> state. It is completed as a <cite>Completed</cite> log segment when either the writer rolls into a new log segment or
+recovered when ownership changed. Once the log segment is completed, it will be truncated later either by <cite>explicit truncation</cite> or <cite>expired due to TTL timeout</cite>.
+The log segment will be marked as <cite>Partial Truncated</cite> along with a <cite>Min-Active-DLSN</cite> pointer when only portion of its data is truncated, and <cite>Truncated</cite> when
+the <cite>Min-Active-DLSN</cite> pointer reaches the end of the log segment. The truncated log segments will be moved to Cold Storage for longer retention or backup for
+disaster recovery, and eventually be deleted after TTL expiration. Figure 5 illustrates a log stream that contains 5 log segments which each of them are in
+different states. The dot line describes the transition between states.</p>
+<div class="figure align-center">
+<img alt="../_images/logsegments.png" src="../_images/logsegments.png" />
+<p class="caption">Figure 5. The lifecycle of log segments</p>
+</div>
+<div class="section" id="distribution">
+<h3>Distribution<a class="headerlink" href="#distribution" title="Permalink to this headline">¶</a></h3>
+<p>A log segment is placed on multiple log segment storage nodes according configured placement policy. DistributedLog uses a <cite>rack-aware</cite> placement policy on
+placing log segments in a local datacenter setup, which the rack-aware placement policy will guarantee all the replicas of same log segment placed in
+different racks for network fault-tolerance. It uses a <cite>region-aware</cite> placement policy on placing log segments among multiple datacenters for a global setup
+(see more in section <cite>“Global Replicated Log”</cite>), which guarantees all the replicas of same log segment placed in multiple datacenters and ensures receiving
+acknowledges from majority of the data centers.</p>
+<p>As DistributedLog breaks down the streams into multiple log segments, the log segments could be evenly distributed across multiple log segment storage nodes
+for load balancing. It helps the data distribution balancing and read workload balancing. Figure 6 shows an example how the data of 2 streams (<em>x</em>, <em>y</em>) is
+stored as 3 replicas in a <em>5-nodes</em> cluster in a balanced way.</p>
+<div class="figure align-center">
+<img alt="../_images/distribution.png" src="../_images/distribution.png" />
+<p class="caption">Figure 6. Log Segment Distribution Example</p>
+</div>
+</div>
+<div class="section" id="truncation">
+<h3>Truncation<a class="headerlink" href="#truncation" title="Permalink to this headline">¶</a></h3>
+<p>As the writers keep writing records into the log streams, the data will be accumulated. In DistributedLog,
+there are two ways to delete old data, one is <cite>Explicit Truncation</cite> while the other is <cite>TTL Expiration</cite>.</p>
+<p>Applications are allowed to explicitly truncate a log stream to a given DLSN. Once the truncation request is
+received by the writer, the writer will mark all the log segments whose log segment sequence number is less than
+the sequence number of that DLSN as <cite>Truncated</cite>. The log segment segment whose sequence number is same as that
+DLSN will be marked as <cite>Partially Truncated</cite> along and the DLSN as the last active DLSN. So positioning the reader
+will be advanced to last active DLSN if the provided position is already truncated. All the truncated log segments
+will be still kept for a configured time period for disaster recovery and the actual log segments will be deleted
+and garbage collected via <cite>TTL Expiration</cite>.</p>
+<p>When a log segment is completed, the completion time will be recorded as part of the log segment metadata.
+DistributedLog uses <cite>completion time</cite> for TTL Expiration: all the log segments whose completion time already
+passed the configured TTL period will be deleted from metadata store. After the log segments are deleted from
+metadata store, the log segments will be garbage collected from log segment store and their disk spaces will be
+reclaimed.</p>
+</div>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/design/main.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/design/main.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="//">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>
