@@ -709,23 +709,10 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     @Override
-    public void writeRecordSet(String stream, final LogRecordSetBuffer recordSet) {
+    public Future<DLSN> writeRecordSet(String stream, final LogRecordSetBuffer recordSet) {
         final WriteRecordSetOp op = new WriteRecordSetOp(stream, recordSet);
         sendRequest(op);
-        op.result().addEventListener(new FutureEventListener<DLSN>() {
-            @Override
-            public void onSuccess(DLSN dlsn) {
-                recordSet.completeTransmit(
-                        dlsn.getLogSegmentSequenceNo(),
-                        dlsn.getEntryId(),
-                        dlsn.getSlotId());
-            }
-
-            @Override
-            public void onFailure(Throwable cause) {
-                recordSet.abortTransmit(cause);
-            }
-        });
+        return op.result();
     }
 
     @Override

@@ -42,7 +42,7 @@ public class LogRecordSet {
     static final OpStatsLogger NullOpStatsLogger =
             NullStatsLogger.INSTANCE.getOpStatsLogger("");
 
-    static final int HEADER_LEN =
+    public static final int HEADER_LEN =
             4 /* Metadata */
           + 4 /* Count */
           + 8 /* Lengths */
