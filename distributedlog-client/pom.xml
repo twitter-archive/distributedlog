@@ -34,7 +34,16 @@
           <groupId>org.slf4j</groupId>
           <artifactId>slf4j-jdk14</artifactId>
         </exclusion>
+        <exclusion>
+          <groupId>com.twitter.common</groupId>
+          <artifactId>service-thrift</artifactId>
+        </exclusion>
       </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.twitter.common</groupId>
+      <artifactId>service-thrift</artifactId>
+      <version>1.0.54</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
