@@ -112,9 +112,6 @@ public class DistributedLogAdmin extends DistributedLogTool {
             }
             final long newLogSegmentSequenceNumber = maxCompletedLogSegmentSequenceNumber + 1;
             if (interactive && !IOUtils.confirmPrompt("Confirm to fix (Y/N), Ctrl+C to break : ")) {
-                if (verbose) {
-                    System.out.println("Give up fixing stream " + streamName);
-                }
                 return;
             }
             final LogSegmentMetadata newSegment =
@@ -212,7 +209,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
         if (verbose) {
             System.out.println("+ 0. " + streamCandidates.size() + " corrupted streams found.");
         }
-        if (interactive && !IOUtils.confirmPrompt("Are u going to fix all " + streamCandidates.size() + " corrupted streams (Y/N) : ")) {
+        if (interactive && !IOUtils.confirmPrompt("Do you want to fix all " + streamCandidates.size() + " corrupted streams (Y/N) : ")) {
             return;
         }
         if (verbose) {
@@ -221,7 +218,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
         for (StreamCandidate candidate : streamCandidates.values()) {
             if (!repairStream(metadataUpdater, candidate, verbose, interactive)) {
                 if (verbose) {
-                    System.out.println("* 1. aborted repairing corrupted streams. byebye!");
+                    System.out.println("* 1. aborted repairing corrupted streams.");
                 }
                 return;
             }
@@ -396,7 +393,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             }
             System.out.println("-------------------------------------------");
         }
-        if (interactive && !IOUtils.confirmPrompt("Are u sure to fix stream " + streamCandidate.streamName + " (Y/N) : ")) {
+        if (interactive && !IOUtils.confirmPrompt("Do you want to fix the stream " + streamCandidate.streamName + " (Y/N) : ")) {
             return false;
         }
         for (LogSegmentCandidate segmentCandidate : streamCandidate.segmentCandidates) {
@@ -444,7 +441,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
         protected int runCmd(CommandLine cmdline) throws Exception {
             String[] args = cmdline.getArgs();
             if (args.length <= 0) {
-                println("No distributedlog uri specified.");
+                System.err.println("No distributedlog uri specified.");
                 printUsage();
                 return -1;
             }
@@ -460,20 +457,19 @@ public class DistributedLogAdmin extends DistributedLogTool {
                 bkdlConfig = null;
             }
             if (null == bkdlConfig) {
-                println("No bookkeeper is bound for " + uri);
+                System.out.println("No bookkeeper is bound to " + uri);
                 return 0;
             } else {
-                println("There is bookkeeper bound for " + uri + " : ");
-                println("");
-                println(bkdlConfig.toString());
-                println("");
-                if (!force && !IOUtils.confirmPrompt("Are you sure to unbind " + uri + " :\n")) {
-                    println("You just gave up. ByeBye.");
+                System.out.println("There is bookkeeper bound to " + uri + " : ");
+                System.out.println("");
+                System.out.println(bkdlConfig.toString());
+                System.out.println("");
+                if (!force && !IOUtils.confirmPrompt("Do you want to unbind " + uri + " :\n")) {
                     return 0;
                 }
             }
             DLMetadata.unbind(uri);
-            println("Unbound on " + uri + ".");
+            System.out.println("Unbound on " + uri + ".");
             return 0;
         }
     }
@@ -515,13 +511,13 @@ public class DistributedLogAdmin extends DistributedLogTool {
         protected int runCmd(CommandLine cmdline) throws Exception {
             boolean isQuery = cmdline.hasOption("q");
             if (!isQuery && (!cmdline.hasOption("l") || !cmdline.hasOption("s"))) {
-                println("Error: Neither zkServers nor ledgersPath specified for bookkeeper environment.");
+                System.err.println("Error: Neither zkServers nor ledgersPath specified for bookkeeper environment.");
                 printUsage();
                 return -1;
             }
             String[] args = cmdline.getArgs();
             if (args.length <= 0) {
-                println("No distributedlog uri specified.");
+                System.err.println("No distributedlog uri specified.");
                 printUsage();
                 return -1;
             }
@@ -581,49 +577,48 @@ public class DistributedLogAdmin extends DistributedLogTool {
                     bkdlConfig = null;
                 }
                 if (null == bkdlConfig) {
-                    println("No bookkeeper is bound for " + uri);
+                    System.out.println("No bookkeeper is bound to " + uri);
                 } else {
-                    println("There is bookkeeper bound for " + uri + " : ");
-                    println("");
-                    println(bkdlConfig.toString());
-                    println("");
+                    System.out.println("There is bookkeeper bound to " + uri + " : ");
+                    System.out.println("");
+                    System.out.println(bkdlConfig.toString());
+                    System.out.println("");
                     if (!isQuery) {
                         if (newBKDLConfig.equals(bkdlConfig)) {
-                            println("No bookkeeper binding needs to be updated. Quit.");
+                            System.out.println("No bookkeeper binding needs to be updated. Quit.");
                             return 0;
                         } else if(!newBKDLConfig.isFederatedNamespace() && bkdlConfig.isFederatedNamespace()) {
-                            println("You can't turn a federated namespace back to non-federated!!");
+                            System.out.println("You can't turn a federated namespace back to non-federated.");
                             return 0;
                         } else {
-                            if (!force && !IOUtils.confirmPrompt("Are you sure to bind " + uri
+                            if (!force && !IOUtils.confirmPrompt("Do you want to bind " + uri
                                         + " with new bookkeeper instance :\n" + newBKDLConfig)) {
-                                println("You just gave up. ByeBye.");
                                 return 0;
                             }
                         }
                     }
                 }
                 if (isQuery) {
-                    println("Done.");
+                    System.out.println("Done.");
                     return 0;
                 }
                 DLMetadata dlMetadata = DLMetadata.create(newBKDLConfig);
                 if (creation) {
                     try {
                         dlMetadata.create(uri);
-                        println("Created binding on " + uri + ".");
+                        System.out.println("Created binding on " + uri + ".");
                     } catch (IOException ie) {
-                        println("Failed to create binding on " + uri + " : " + ie.getMessage());
+                        System.err.println("Failed to create binding on " + uri + " : " + ie.getMessage());
                     }
                 } else {
                     try {
                         dlMetadata.update(uri);
-                        println("Updated binding on " + uri + " : ");
-                        println("");
-                        println(newBKDLConfig.toString());
-                        println("");
+                        System.out.println("Updated binding on " + uri + " : ");
+                        System.out.println("");
+                        System.out.println(newBKDLConfig.toString());
+                        System.out.println("");
                     } catch (IOException ie) {
-                        println("Failed to update binding on " + uri + " : " + ie.getMessage());
+                        System.err.println("Failed to update binding on " + uri + " : " + ie.getMessage());
                     }
                 }
                 if (newBKDLConfig.isFederatedNamespace()) {
@@ -675,7 +670,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
                             getLogSegmentMetadataStore());
             System.out.println("List of streams : ");
             System.out.println(streams);
-            if (!IOUtils.confirmPrompt("Are u sure to repair streams (Y/N):")) {
+            if (!IOUtils.confirmPrompt("Do you want to repair all these streams (Y/N):")) {
                 return -1;
             }
             for (String stream : streams) {
@@ -764,7 +759,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getZooKeeperClient(), getUri());
             if (null == bkdlConfig.getACLRootPath()) {
                 // acl isn't enabled for this namespace.
-                println("ACL isn't enabled for namespace " + getUri());
+                System.err.println("ACL isn't enabled for namespace " + getUri());
                 return -1;
             }
             String zkPath = getUri() + "/" + bkdlConfig.getACLRootPath() + "/" + stream;
@@ -877,7 +872,7 @@ public class DistributedLogAdmin extends DistributedLogTool {
             BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(getZooKeeperClient(), getUri());
             if (null == bkdlConfig.getACLRootPath()) {
                 // acl isn't enabled for this namespace.
-                println("ACL isn't enabled for namespace " + getUri());
+                System.err.println("ACL isn't enabled for namespace " + getUri());
                 return -1;
             }
             String zkPath = getZKPath(getUri().getPath() + "/" + bkdlConfig.getACLRootPath());
