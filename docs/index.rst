@@ -13,6 +13,7 @@ Documentation
    architecture/main
    design/main
    globalreplicatedlog/main
+   implementation/main
    operations/main
    performance/main
    references/main
